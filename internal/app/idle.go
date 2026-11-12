@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"slices"
 	"strings"
 	"time"
 )
@@ -54,12 +53,14 @@ type idleEnd struct {
 // idle is idleNow's answer: the last merge or drop as the line names it ("T-xx merged <sha7>", "T-xx dropped: <why>"),
 // the newest end record's seq (the idle key) and time, and whether nothing is in flight — the pipeline is empty, no
 // needs-you is in force, no review request is pending, no verify waits for its brief and no role worktree agent (the
-// reviewer, the deep dive) holds one.
+// reviewer, the deep dive) holds one. why is the first condition that said no, as the refusal names it ("T-12 open
+// (L-02)", "RV-4 verify pending"; "" while idle).
 type idle struct {
 	last string
 	end  int64
 	at   time.Time
 	ok   bool
+	why  string
 }
 
 // foldIdle folds r, the lead's acknowledgement of an idle state.
@@ -82,7 +83,8 @@ func (p *proj) foldIdle(r event.Record) {
 // and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
 // one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on:
 // a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a
-// review request's end (every end: a failed --after end, a --rm or a firing).
+// review request's end (every end: a failed --after end, a --rm or a firing). Not idle: why names the first condition
+// that said no.
 func (p *proj) idleNow() idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
@@ -91,7 +93,7 @@ func (p *proj) idleNow() idle {
 		switch mt.state {
 		case stMerged:
 			if mt.after < len(mt.afterList()) && !mt.needs.held() {
-				return idle{}
+				return idle{why: task + " after-merge steps pending"}
 			}
 			if e := (idleEnd{mt.mergedSeq, mt.endedAt}); e.seq > merge.seq {
 				merge, last = e, idleMerged(mt)
@@ -102,31 +104,68 @@ func (p *proj) idleNow() idle {
 			}
 		case stRejected:
 			// ended without a merge: the owner's (its needs-you or its drop), never an idle cause
-			return idle{}
+			return idle{why: task + " rejected"}
 		default:
-			return idle{}
+			return idle{why: openTaskText(mt)}
 		}
 	}
 	// A review request is work until it ends (skills/lead/commands.md: a review request ends idle), and a pass
 	// starting one is in flight from its claim to the reviewer's brief (its fire fact ends the request first).
-	if p.folded.review != nil || p.rv.what != "" {
-		return idle{}
+	if why := p.reviewIdleText(); why != "" {
+		return idle{why: why}
 	}
 	// A verify owed (the verify rule's condition) is in flight until its brief: its tasks are not verified yet.
 	if p.verifyDue {
-		return idle{}
+		if id := p.folded.rv.Last().ID; id != "" {
+			return idle{why: id + " verify pending"}
+		}
+		return idle{why: "verify pending"}
+	}
+	if merge.seq == 0 {
+		return idle{why: "no merge or drop yet"}
 	}
 	// A rule's needs-you (rules.go) is serve's failure, not work: it would end the idle state its rule acts on.
-	if merge.seq == 0 || slices.ContainsFunc(p.needsYou(), func(r event.Record) bool { return r.Task != event.RuleTask }) {
-		return idle{}
+	for _, r := range p.needsYou() {
+		if r.Task == event.RuleTask {
+			continue
+		}
+		why := r.Task + " needs you"
+		if lane := r.Fact().Lane; lane != "" {
+			why += " (" + lane + ")"
+		}
+		return idle{why: why}
 	}
 	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
 		if p.out.Brief(w.agent) != nil {
-			return idle{}
+			return idle{why: w.agent + " holds a brief"}
 		}
 	}
 	end, _ := p.idleEnd()
 	return idle{last: last, end: end.seq, at: end.at, ok: true}
+}
+
+// openTaskText is mt, a task in flight (not merged, dropped or rejected), as the idle refusal names it: its id with
+// its lane.
+func openTaskText(mt *mtask) string {
+	if mt.lane == "" {
+		return mt.task + " open"
+	}
+	return mt.task + " open (" + mt.lane + ")"
+}
+
+// reviewIdleText is the review request in flight as the idle refusal names it ("" when none): the review it starts, or
+// the one a pass is starting now (under mu).
+func (p *proj) reviewIdleText() string {
+	if p.folded.review == nil && p.rv.what == "" {
+		return ""
+	}
+	id := p.folded.rv.Next().ID
+	if p.folded.review == nil { // the request fired: the review it started is open now
+		if open := p.folded.rv.Last().Open(); open != "" {
+			id = open
+		}
+	}
+	return id + " review request pending"
 }
 
 // idleEnd is the newest record that ended what the pipeline waited on (under mu): idleNow's key once nothing is in
@@ -204,7 +243,8 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // idleCall answers the socket's idle request (the lead or the owner): with a text, it acknowledges the idle state in
 // force (fact idle.ack{key, why}); a call id is required and a repeated one gets the stored reply. With no text it
-// answers the state: IDLE …, or NOT IDLE. Nothing idle: NOT IDLE, nothing recorded.
+// answers the state: IDLE …, or NOT IDLE: <why>, the first condition that keeps it busy. Nothing idle: the refusal,
+// nothing recorded.
 func (a *App) idleCall(c wire.IdleReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New("idle: a call id is required")
@@ -229,7 +269,7 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 	case why == "":
 		return shown, nil
 	case !n.ok:
-		return "NOT IDLE", nil
+		return "NOT IDLE: " + n.why, nil
 	}
 	by := c.Agent
 	if by == "" {
@@ -242,12 +282,12 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 	return d.Reply, nil
 }
 
-// idleText is the idle state n as obor idle shows it (under mu): NOT IDLE, the acknowledgement's why, or the
+// idleText is the idle state n as obor idle shows it (under mu): NOT IDLE and why, the acknowledgement's why, or the
 // unacknowledged state with when it began.
 func (p *proj) idleText(n idle) string {
 	switch {
 	case !n.ok:
-		return "NOT IDLE"
+		return "NOT IDLE: " + n.why
 	case p.folded.idleAck.Key == n.end:
 		return "IDLE: " + p.folded.idleAck.Why
 	}

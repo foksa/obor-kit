@@ -8,8 +8,126 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
+
+// idleRefusal is the text obor idle shows while the pipeline is busy (a test fails when it is idle).
+func idleRefusal(t *testing.T, a *App, p *proj) string {
+	t.Helper()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := p.idleNow()
+	if n.ok {
+		t.Fatal("idleNow says the pipeline is idle, want a refusal")
+	}
+	return p.idleText(n)
+}
+
+// Every condition that keeps the pipeline from being idle is named by its refusal: the task, the review or the agent
+// in flight.
+func TestIdleRefusalNamesWhatIsInFlight(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		setup func(t *testing.T) (*App, *proj)
+		want  string
+	}{
+		{name: "an open task", want: "NOT IDLE: T-c open (L-01)",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				r.submitted("T-c")
+				return r.a, r.p
+			}},
+		{name: "a merged task on its after-merge steps", want: "NOT IDLE: T-c after-merge steps pending",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				r.submitted("T-c")
+				r.merged("T-c")
+				return r.a, r.p
+			}},
+		{name: "a rejected task", want: "NOT IDLE: T-c rejected",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				r.submitted("T-c")
+				r.a.record(r.p, event.Record{Task: "T-c", Attempt: 1, Step: event.StepGate, Kind: event.KindResult},
+					gateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "cand", Patch: "patch"}})
+				r.a.record(r.p, event.Record{Task: "T-c", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent},
+					JobData{Patch: "patch"})
+				r.a.record(r.p, event.Record{Task: "T-c", Attempt: 1, Step: verdictStep(wire.MethodReject, "c1"),
+					Kind: event.KindResult}, verdictResult{Job: "T-c/1/review", Note: "no"})
+				return r.a, r.p
+			}},
+		{name: "a review request", want: "NOT IDLE: RV-5 review request pending",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				r.mustCall("r1", []string{"T-a"}, "", false)
+				return r.a, r.p
+			}},
+		{name: "a verify", want: "NOT IDLE: RV-5 verify pending",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				r.started()
+				r.a.mu.Lock()
+				r.p.verifyDue = true
+				r.a.mu.Unlock()
+				return r.a, r.p
+			}},
+		{name: "no merge or drop yet", want: "NOT IDLE: no merge or drop yet",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRigWith(t, false)
+				return r.a, r.p
+			}},
+		{name: "a needs-you", want: "NOT IDLE: T-c needs you (L-03)",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				r.fact("T-c", event.StepNeedsYou, event.FactData{Lane: "L-03", Machine: Machine,
+					Reason: "stalled: no work seen"})
+				return r.a, r.p
+			}},
+		{name: "a reviewer's brief", want: "NOT IDLE: pj-rev holds a brief",
+			setup: func(t *testing.T) (*App, *proj) {
+				r := newReviewRig(t)
+				if reply, err := r.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.p.root, CallID: "b1",
+					Role: "lead", Agent: "pj-lead"}, To: "pj-rev", Text: "review the wave"}); err != nil ||
+					!strings.HasPrefix(reply, "BRIEFED pj-rev") {
+					t.Fatalf("brief: %q, %v", reply, err)
+				}
+				return r.a, r.p
+			}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			a, p := c.setup(t)
+			if got := idleRefusal(t, a, p); got != c.want {
+				t.Errorf("idle refusal %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// obor idle and obor idle "<why>" both answer with the refusal and what is in flight; the ack attempt records nothing.
+func TestIdleCallRefusalNamesWhatIsInFlight(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.submitted("T-c")
+	env := wire.Envelope{Root: r.p.root, Role: "lead", Agent: "pj-lead"}
+	if reply, err := r.a.idleCall(wire.IdleReq{Envelope: env}); err == nil {
+		t.Fatalf("obor idle without a call id: %q, want the error", reply)
+	}
+	env.CallID = "i1"
+	if reply, err := r.a.idleCall(wire.IdleReq{Envelope: env}); err != nil || reply != "NOT IDLE: T-c open (L-01)" {
+		t.Errorf("obor idle: %q, %v; want the refusal", reply, err)
+	}
+	env.CallID = "i2"
+	if reply, err := r.a.idleCall(wire.IdleReq{Envelope: env, Why: "nothing to dispatch"}); err != nil ||
+		reply != "NOT IDLE: T-c open (L-01)" {
+		t.Errorf("obor idle <why>: %q, %v; want the refusal", reply, err)
+	}
+	if r.p.folded.idleAck.Key != 0 || r.p.folded.idleAck.Why != "" {
+		t.Errorf("acknowledgement %+v recorded, want none", r.p.folded.idleAck)
+	}
+}
 
 // A keyless idle.ack names an epoch, no key: it acknowledges nothing, while its call's reply still folds for the
 // caller.

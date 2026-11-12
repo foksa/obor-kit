@@ -281,7 +281,7 @@ type TellLeadReq struct {
 func (TellLeadReq) Method() string { return MethodTellLead }
 
 // IdleReq is the lead's or the owner's (obor idle): Why the why nothing is in flight acknowledges the idle state
-// ("" shows it). The reply is ACKED idle: <why>, or the state (NOT IDLE, IDLE …).
+// ("" shows it). The reply is ACKED idle: <why>, or the state (NOT IDLE: <what is in flight>, IDLE …).
 type IdleReq struct {
 	Envelope
 	Why string `json:"note,omitempty"`
