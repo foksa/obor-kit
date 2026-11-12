@@ -21,10 +21,12 @@ import (
 // is the close's crash cut, its one read.
 
 // Close is port.Review's close on the main checkout (serve calls it admitted): refused before any change when
-// the checkout is not on c.Branch, dirty outside a tracked BACKLOG.md (in any directory), docs/accepted.md and c's
-// files, or c.Reviewed is no commit; then c's files deleted (its review file and, when there, its verify file), each
-// accepted line appended to docs/accepted.md naming the review (the file created when missing), and the commit
-// c.Subject / c.Body with each dirty tracked BACKLOG.md and docs/accepted.md.
+// the checkout is not on c.Branch, a tracked file is modified or staged outside a BACKLOG.md (in any directory),
+// docs/accepted.md and c's files, or c.Reviewed is no commit; then c's files deleted (its review file and, when there,
+// its verify file), each accepted line appended to docs/accepted.md naming the review (the file created when missing),
+// and the commit c.Subject / c.Body with each dirty tracked BACKLOG.md and docs/accepted.md. An untracked file is no
+// dirt: the commit is the index and only the paths above are added to it, each as a literal pathspec, so no untracked
+// file lands in it.
 func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	root := g.root
 	if on, err := g.git(ctx, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.Branch {
@@ -34,27 +36,24 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	if verify := filepath.Join(filepath.Dir(c.File), c.ID+"-verify.md"); fileThere(verify) {
 		files = append(files, verify)
 	}
-	own := map[string]bool{} // the review's files: untracked when reviews.dir is not gitignored
-	for _, f := range files {
-		rel, _ := filepath.Rel(root, f)
-		own[filepath.ToSlash(rel)] = true
-	}
 	st, err := g.git(ctx, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
 	docs := map[string]bool{} // of a tracked BACKLOG.md and app.AcceptedFile: the ones the close commit carries
 	for _, e := range statusEntries(st) {
+		if e.status == "??" {
+			continue // untracked: the close stages only the paths of docs, never a file of someone else's
+		}
 		// a tracked BACKLOG.md; a rename also keeps the other half a BACKLOG.md, so a file renamed onto that name
 		// never lets the close commit its deletion
-		backlog := filepath.Base(e.path) == "BACKLOG.md" && e.status != "??" &&
+		backlog := filepath.Base(e.path) == "BACKLOG.md" &&
 			(e.from == "" || filepath.Base(e.from) == "BACKLOG.md")
 		switch {
 		case e.path == app.AcceptedFile:
 			docs[e.path] = true
 		case backlog:
 			docs[e.path] = true
-		case e.status == "??" && own[e.path]:
 		default:
 			return fmt.Errorf("the main checkout is dirty outside a BACKLOG.md, %s and %s's files (%s): nothing changed",
 				app.AcceptedFile, c.ID, e)
@@ -101,7 +100,7 @@ func (g reviewGit) commitDocs(ctx context.Context, c port.ReviewCommit, paths []
 		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 			return readErr
 		}
-		entry, err := g.git(ctx, "ls-files", "--stage", "--", p) // "<mode> <blob> <stage>\t<path>", "" untracked
+		entry, err := g.git(ctx, "ls-files", "--stage", "--", literal(p)) // "<mode> <blob> <stage>\t<path>", "" untracked
 		if err != nil {
 			return err
 		}
@@ -121,7 +120,7 @@ func (g reviewGit) commitDocs(ctx context.Context, c port.ReviewCommit, paths []
 			if f := strings.Fields(was[p].entry); len(f) >= 2 {
 				_, _ = g.git(rctx, "update-index", "--cacheinfo", f[0]+","+f[1]+","+p)
 			} else {
-				_, _ = g.git(rctx, "reset", "-q", "--", p)
+				_, _ = g.git(rctx, "reset", "-q", "--", literal(p))
 			}
 		}
 	}
@@ -134,7 +133,7 @@ func (g reviewGit) commitDocs(ctx context.Context, c port.ReviewCommit, paths []
 			return err
 		}
 	}
-	if _, err := g.git(ctx, append([]string{"add", "--"}, paths...)...); err != nil {
+	if _, err := g.git(ctx, append([]string{"add", "--"}, literals(paths)...)...); err != nil {
 		restore()
 		return err
 	}
@@ -143,6 +142,19 @@ func (g reviewGit) commitDocs(ctx context.Context, c port.ReviewCommit, paths []
 		return err
 	}
 	return removeFiles(files)
+}
+
+// literal is p as a git pathspec matching p alone: git reads *, ? and [ in a pathspec, so the plain path of a
+// BACKLOG.md under notes* would stage the untracked notes2/BACKLOG.md beside it.
+func literal(p string) string { return ":(literal)" + p }
+
+// literals is literal for each path.
+func literals(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = literal(p)
+	}
+	return out
 }
 
 // removeFiles removes the review's files after its close commit is in (a file already gone is fine).

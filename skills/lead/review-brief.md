@@ -126,9 +126,9 @@ Start: <the review start sha>
 so the next review's scope takes the merges this cycle did not cover (a task merged while your verify ran stays
 unreviewed until a cycle covers it; `obor status`' `review due` counts it). A close commit with no
 `Covered:`/`Start:` body: the next review falls back to the sha range. Refused before any change: no open review,
-no review start for it in serve's log, the main checkout not on the integration branch or dirty outside
-a tracked `BACKLOG.md`, `docs/accepted.md` and the review's files, or a task linked by its `Fixes:` line open, or merged and not
-covered (named;
+no review start for it in serve's log, the main checkout not on the integration branch or a tracked file modified or
+staged outside a `BACKLOG.md`, `docs/accepted.md` and the review's files (an untracked file is no dirt), or a task
+linked by its `Fixes:` line open, or merged and not covered (named;
 `--force`, the owner's word, closes anyway). `--force` also closes a review whose file was never written (the reviewer
 stopped before writing it) when it covers no task; one that covers tasks is refused, naming the `obor brief` line
 that has its reviewer write it first. An unwritten close deletes nothing, its reviewed sha is its start's head and the
