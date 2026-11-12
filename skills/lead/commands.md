@@ -67,7 +67,9 @@ review request that follows the last merge is work, not idle), it posts one line
   its own state, so the merge's acknowledgement does not cover it. `last:` still names the last merge or drop.
 - `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why for that end record
   and stops the ping; `obor status` then shows `idle: <why>`. Made inside the minute, no line goes at all.
-- `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; `NOT IDLE`.
+- `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; `NOT IDLE: <what is in
+  flight>` — the task, review or agent that keeps it busy, e.g. `NOT IDLE: T-12 open (L-02)`, `NOT IDLE: RV-4 verify
+  pending`, `NOT IDLE: ob-deep-dive holds a brief`.
 - Unacknowledged 30 minutes after the line: one more line to you and a herdr notification to the owner; after that
   only `obor status` and obor web show `idle, not acknowledged since <time>` (never a third line). After a serve
   crash a line may come twice; a restart during the minute starts it again.
