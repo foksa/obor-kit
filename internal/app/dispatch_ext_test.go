@@ -312,6 +312,9 @@ func TestDispatchRefusals(t *testing.T) {
 			call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", []string{"opus"} }, want: "no free lane for the models opus"},
 		{name: "dirty-free without force", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State = "dirty-free" }) },
 			want: "lane L-01 is dirty-free (uncommitted changes; --force to dispatch anyway)"},
+		{name: "dirty-free without force names its paths", setup: func(r *loopRig) {
+			r.setLane(func(l *port.Lane) { l.State, l.Paths = "dirty-free", []string{"src/x.ts", "out/"} })
+		}, want: "lane L-01 is dirty-free (uncommitted changes: src/x.ts, out/; --force to dispatch anyway)"},
 		{name: "working on another task", setup: func(r *loopRig) {
 			r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" })
 		}, want: "lane L-01 is working on T-9"},

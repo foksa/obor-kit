@@ -253,19 +253,19 @@ type noLaneError struct {
 func (e noLaneError) Error() string { return "dispatch " + e.task + ": " + e.laneWait() }
 
 // laneWait is why the task waits: "<model> paused: …" when every model of its request is paused (each named), else
-// "waiting for a free lane".
+// "waiting for a free lane", naming each dirty-free lane and its first uncommitted paths (dirtyFreeNote).
 func (e noLaneError) laneWait() string {
 	var paused []string
 	for _, t := range e.types {
 		typ, _ := config.ParseModelRef(t)
 		if why := e.paused[typ]; why == "" {
-			return LaneWaitFree
+			return LaneWaitFree + dirtyFreeNote(e.ls)
 		} else if !slices.Contains(paused, why) {
 			paused = append(paused, why)
 		}
 	}
 	if len(paused) == 0 {
-		return LaneWaitFree
+		return LaneWaitFree + dirtyFreeNote(e.ls)
 	}
 	return strings.Join(paused, ", ")
 }
@@ -273,6 +273,43 @@ func (e noLaneError) laneWait() string {
 // LaneWaitFree is a lane wait's reason when a model of the request is not paused: no lane is free (obor status shows
 // it so).
 const LaneWaitFree = "waiting for a free lane"
+
+// namedPaths is how many of a lane's uncommitted paths a wait names; more are a count.
+const namedPaths = 3
+
+// dirtyFreeNote is a lane wait's tail naming each lane that is dirty-free and its first uncommitted paths, so the
+// wait says which lane and what it holds: " (L-01 dirty-free: src/x.ts, out/; L-02 dirty-free: a.txt, +2 more)";
+// "" when no lane is dirty-free.
+func dirtyFreeNote(ls []port.Lane) string {
+	var out []string
+	for _, l := range ls {
+		if l.State != port.LaneDirtyFree {
+			continue
+		}
+		note := l.Name + " " + port.LaneDirtyFree
+		if paths := pathList(l.Paths); paths != "" {
+			note += ": " + paths
+		}
+		out = append(out, note)
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(out, "; ") + ")"
+}
+
+// pathList is paths' first namedPaths, the rest a count: "a.txt, b.txt, c.txt, +2 more". "" when there are none.
+func pathList(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	shown := min(len(paths), namedPaths)
+	list := strings.Join(paths[:shown], ", ")
+	if more := len(paths) - shown; more > 0 {
+		list += fmt.Sprintf(", +%d more", more)
+	}
+	return list
+}
 
 // levelNote is a lane wait's " (<level>: <models>)".
 func levelNote(level string, types []string) string {
@@ -446,8 +483,11 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	switch {
 	case redo:
 	case l.State == port.LaneDirtyFree && !c.Force:
-		return "", fmt.Errorf("dispatch %s: lane %s is dirty-free (uncommitted changes; --force to dispatch anyway)",
-			c.Task, l.Name)
+		why := "uncommitted changes"
+		if paths := pathList(l.Paths); paths != "" {
+			why += ": " + paths
+		}
+		return "", fmt.Errorf("dispatch %s: lane %s is dirty-free (%s; --force to dispatch anyway)", c.Task, l.Name, why)
 	case l.State == port.LaneWorking && l.Task != "":
 		return "", fmt.Errorf("dispatch %s: lane %s is working on %s", c.Task, l.Name, l.Task)
 	case l.State != port.LaneFree && l.State != port.LaneDirtyFree:

@@ -398,7 +398,10 @@ func waitLine(w view.WaitItem, t view.Task, now time.Time) string {
 		return "waiting for a lane" + why(w.Why)
 	}
 	level := fmt.Sprintf(" (%s: %s)", w.Level, strings.Join(w.Types, ", "))
-	if w.Why == "" || w.Why == app.LaneWaitFree {
+	if note, ok := strings.CutPrefix(w.Why, app.LaneWaitFree); ok {
+		return app.LaneWaitFree + level + note
+	}
+	if w.Why == "" {
 		return app.LaneWaitFree + level
 	}
 	return "waiting" + level + why(w.Why)
