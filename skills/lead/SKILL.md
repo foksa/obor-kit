@@ -79,6 +79,9 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 
 ## Needs-you
 `obor status` lists each `needs-you <T-xx> (<LANE>): <reason> → <commands>`; the owner is notified through herdr too.
+- To see what an agent's pane shows (a question in a dialog, a permission prompt, its input line, why it stalled):
+  `herdr pane read <pane> --lines 60`. The pane is the one labelled with the agent's name (`herdr pane list`, its
+  `label`); `obor restart` and `obor lead` print it too. Read before you answer or resume, not after.
 - `obor resume <T-xx> ["<text>"] [--regate|--sendback]` — your one word to a task; serve picks what it does from the
   task's state, and each needs-you line names the form it takes:
   - a worker's question (its `Blocked:` report; a question only in chat becomes one when the Stop hook makes the worker
