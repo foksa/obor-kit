@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -485,10 +486,63 @@ func TestBlockedNeedsYouCarriesTheQuestion(t *testing.T) {
 	}
 }
 
+// A Claude Code permission dialog's needs-you text carries the pending command, above its options, and its last option
+// too: a person must see what runs and what the auto-deny is (docs/state-model.md row 11). A short question comes
+// through unchanged.
+func TestPermissionDialogKeepsCommandAndOptions(t *testing.T) {
+	t.Parallel()
+	const command = `git -C /Users/me/src/obor-kit diff --cached --stat && git -C /Users/me/src/obor-kit commit -m "T-1293: a blocked needs-you keeps the pending command and the options" && git -C /Users/me/src/obor-kit log --oneline -1`
+	dialog := strings.Join([]string{
+		" Bash command",
+		"",
+		"   git -C /Users/me/src/obor-kit diff --cached --stat &&",
+		`   git -C /Users/me/src/obor-kit commit -m "T-1293: a blocked needs-you keeps the pending`,
+		`   command and the options" && git -C /Users/me/src/obor-kit log --oneline -1`,
+		"   Commit the staged fix",
+		"",
+		" ⚠ Claude Code will automatically block this request in 2:00, to avoid holding up an",
+		" unattended session",
+		"",
+		" Do you want to proceed?",
+		" ❯ 1. Yes",
+		"   2. Yes, and don't ask again for git commit commands in /Users/me/src/obor-kit-wt/L-02",
+		"   3. No, and tell Claude what to do differently (esc)",
+	}, "\n")
+	short := "Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	for _, c := range []struct {
+		name, screen, command, lastOption, want string
+	}{
+		{name: "a Bash permission dialog: the command and the last of three options", screen: dialog,
+			command: command, lastOption: "3. No, and tell Claude what to do differently (esc)"},
+		{name: "a short question is unchanged", screen: short, want: "Do you want to proceed?\n❯ 1. Yes\n2. No"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t)
+			h.panes.screen = c.screen
+			q := h.a.question(context.Background(), "w1:p1")
+			if c.want != "" && q != c.want {
+				t.Fatalf("question = %q, want %q", q, c.want)
+			}
+			text := NeedsText(event.FactData{Reason: "blocked", Pane: "w1:p1", Question: q})
+			for _, want := range []string{c.command, c.lastOption, "answer in pane w1:p1"} {
+				if want != "" && !strings.Contains(text, want) {
+					t.Errorf("needs-you text %q does not carry %q", text, want)
+				}
+			}
+		})
+	}
+}
+
 // question is what a blocked pane shows: its last non-empty lines from a questionScreen-line window, trimmed, at most
-// questionLines of them and questionChars runes; a Screen error is no text.
+// questionLines of them and questionChars runes (the beginning cut); a Screen error is no text.
 func TestPaneQuestion(t *testing.T) {
 	t.Parallel()
+	// A screen of questionLines+1 numbered lines: the window keeps the last questionLines.
+	var numbered []string
+	for i := 1; i <= questionLines+1; i++ {
+		numbered = append(numbered, strconv.Itoa(i))
+	}
 	for _, c := range []struct {
 		name, screen string
 		err          error
@@ -496,13 +550,14 @@ func TestPaneQuestion(t *testing.T) {
 	}{
 		{name: "trimmed, blank lines dropped",
 			screen: "\n  Do you want to proceed?  \n\n  1. Yes\n2. No\n\n", want: "Do you want to proceed?\n1. Yes\n2. No"},
-		{name: "at most questionLines lines",
-			screen: "1\n2\n3\n4\n5\n6\n7", want: "2\n3\n4\n5\n6\n7"},
+		{name: "at most questionLines lines, the last ones",
+			screen: strings.Join(numbered, "\n"), want: strings.Join(numbered[1:], "\n")},
 		{name: "the question above blank rows, a border and a footer deeper than questionLines raw lines",
 			screen: "Do you want to proceed?\n❯ 1. Yes\n  2. No\n" + strings.Repeat("\n", 6) + "────────\n? for shortcuts",
 			want:   "Do you want to proceed?\n❯ 1. Yes\n2. No\n────────\n? for shortcuts"},
-		{name: "at most questionChars runes",
-			screen: strings.Repeat("é", questionChars+1), want: strings.Repeat("é", questionChars)},
+		{name: "over questionChars runes: the beginning is cut, the end stays",
+			screen: "FIRST LINE\n" + strings.Repeat("z", questionChars-3) + "\nEND",
+			want:   strings.Repeat("z", questionChars-4) + "\nEND"},
 		{name: "a Screen error is no text", err: errors.New("pane.read: no such pane")},
 	} {
 		t.Run(c.name, func(t *testing.T) {

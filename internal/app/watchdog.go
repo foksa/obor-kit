@@ -301,16 +301,17 @@ type evidence struct {
 
 // questionScreen is the visible lines question reads: an agent TUI's bottom rows are blank rows, a border and the
 // footer, so the question sits well above the last questionLines raw lines. questionLines is how many non-empty lines
-// of that window the needs-you carries, questionChars their cap.
+// of that window the needs-you carries, questionChars their cap: a permission dialog's header, its command wrapped over
+// a few lines and the command's description, the auto-block warning, the question and its three options.
 const (
 	questionScreen = 40
-	questionLines  = 6
-	questionChars  = 300
+	questionLines  = 14
+	questionChars  = 800
 )
 
 // question is what a blocked pane shows: its last non-empty screen lines, trimmed, at most questionLines of them and
-// questionChars runes. The cap cuts the end (the options) deliberately: the question comes first. "" when the screen
-// cannot be read: the fact is recorded without it.
+// questionChars runes. The cap cuts the text's beginning: the end is what a person answers (the options), and the
+// command sits above them. "" when the screen cannot be read: the fact is recorded without it.
 func (a *App) question(ctx context.Context, pane string) string {
 	if a.opt.Screen == nil {
 		return ""
@@ -331,7 +332,7 @@ func (a *App) question(ctx context.Context, pane string) string {
 	}
 	text := strings.Join(lines, "\n")
 	if r := []rune(text); len(r) > questionChars {
-		text = string(r[:questionChars])
+		text = strings.TrimSpace(string(r[len(r)-questionChars:]))
 	}
 	return text
 }
