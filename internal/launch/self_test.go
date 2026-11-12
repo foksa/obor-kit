@@ -53,9 +53,11 @@ func (x *fx) self(own string, scheduled bool, req launch.Request, stop bool, tun
 	return s, ok, spawns
 }
 
-// idleAfter makes pane p's agent go idle after n agent looks; *got counts them.
+// idleAfter makes pane p's agent go idle after n agent looks; *got counts them. The status changes under the fake's
+// lock: the fake's server writes the pane while the launcher polls it.
 type idleAfter struct {
 	port.PaneControl
+	f   *herdrtest.Fake
 	p   *herdrtest.Pane
 	n   int
 	got *int
@@ -64,7 +66,7 @@ type idleAfter struct {
 func (w idleAfter) Pane(ctx context.Context, target string) (port.Pane, error) {
 	if target == w.p.ID {
 		if *w.got++; *w.got > w.n {
-			w.p.Status = "idle"
+			w.f.Set(w.p.ID, func(p *herdrtest.Pane) { p.Status = "idle" })
 		}
 	}
 	return w.PaneControl.Pane(ctx, target)
@@ -123,7 +125,7 @@ func TestRestartOwnPane(t *testing.T) {
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		got := 0
-		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, a, 3, &got} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 3, &got} }
 		out, ok, spawns := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, false, func(l *launch.Launcher) {
 			l.Sched = time.Minute
 		})
@@ -244,7 +246,7 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 				t.Fatalf("the detached argv: %+v, %v", req, err)
 			}
 			got := 0
-			x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, a, 2, &got} }
+			x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 2, &got} }
 			out, ok, spawns = x.self("w1:p3", true, req, false, func(l *launch.Launcher) { l.Sched = time.Minute })
 			if !ok || len(spawns) != 0 {
 				t.Fatalf("the detached run: %v, spawns %v\n%s", ok, spawns, out)
@@ -613,7 +615,7 @@ func TestWaitScheduledTable(t *testing.T) {
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		got := 0
-		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, a, 2, &got} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 2, &got} }
 		out, ok, _ := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, false, func(l *launch.Launcher) { l.Sched = time.Minute })
 		if !ok || got <= 2 {
 			t.Fatalf("waited until idle (%d looks), then restarted:\n%s", got, out)
