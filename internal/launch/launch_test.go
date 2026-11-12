@@ -402,10 +402,15 @@ func (x *fx) transcript(sid string) string {
 func (x *fx) shell(pane, label, cwd string) *herdrtest.Pane { return x.f.Shell(pane, label, cwd) }
 
 // agent is a pane labelled and named name with an agent of kind in status, which leads the pane's foreground group 2.
+// Its fields are set in one write under the fake's lock, as the fake's server reads them while it answers. Fake.Set
+// cannot name this pane: one added over a pane the test already has (a shell an agent starts in) shares that pane's
+// id, and Set's lookup finds the other.
 func (x *fx) agent(pane, name, kind, status string) *herdrtest.Pane {
 	a := x.f.Agent(pane, name, status, "")
-	a.Label, a.Kind = name, kind
-	a.Procs = []herdr.Process{{PID: 2, Argv0: kind}}
+	x.f.Locked(func() {
+		a.Label, a.Kind = name, kind
+		a.Procs = []herdr.Process{{PID: 2, Argv0: kind}}
+	})
 	return a
 }
 
@@ -618,7 +623,8 @@ func TestRestartLaneEnv(t *testing.T) {
 			x := setup(t, c.edit...)
 			x.goflags = c.goflags
 			x.sid(c.agent, "sid-1")
-			x.shell(c.pane, c.agent, "").Session = "sid-1"
+			x.shell(c.pane, c.agent, "")
+			x.f.Set(c.pane, func(p *herdrtest.Pane) { p.Session = "sid-1" })
 			if s := x.startCall(); s != "" {
 				t.Fatalf("precondition: nothing started, got %q", s)
 			}
@@ -656,8 +662,12 @@ func TestRestartWho(t *testing.T) {
 	}{{
 		// bash restart.test.sh case_lane_agent_dead_pane_starts_with_lane_env_type_args_and_resume
 		name: "lane agent, dead pane: lane env, settings (no dispatch: no model), --resume <sid>",
-		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p3", "pj-l-01", "").Session = "sid-1" },
-		req:  launch.Request{Agent: "pj-l-01"},
+		prep: func(x *fx) {
+			x.sid("pj-l-01", "sid-1")
+			x.shell("w1:p3", "pj-l-01", "")
+			x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-1" })
+		},
+		req: launch.Request{Agent: "pj-l-01"},
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
@@ -708,8 +718,12 @@ func TestRestartWho(t *testing.T) {
 		// bash restart.test.sh case_role_agent_gets_role_env_and_type
 		name: "role agent: role env, its type, cwd its role worktree (T-853), OBOR_LANE unset",
 		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
-		prep: func(x *fx) { x.sid("pj-int", "sid-i"); x.shell("w1:p5", "pj-int", "").Session = "sid-i" },
-		req:  launch.Request{Agent: "pj-int"},
+		prep: func(x *fx) {
+			x.sid("pj-int", "sid-i")
+			x.shell("w1:p5", "pj-int", "")
+			x.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Session = "sid-i" })
+		},
+		req: launch.Request{Agent: "pj-int"},
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.LaneDir("integrator")) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=integrator OBOR_PANE=w1:p5"
 		},
@@ -730,7 +744,8 @@ func TestRestartWho(t *testing.T) {
 		name: "unknown agent with a sid: OBOR_AGENT and OBOR_LANE unset only, no cd, no type args",
 		prep: func(x *fx) {
 			x.sid("triage", "sid-t")
-			x.shell("w1:p8", "triage", "").Session = "sid-t"
+			x.shell("w1:p8", "triage", "")
+			x.f.Set("w1:p8", func(p *herdrtest.Pane) { p.Session = "sid-t" })
 		},
 		req: launch.Request{Agent: "triage"},
 		env: func(x *fx) string {
@@ -830,7 +845,8 @@ func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
 		x.p.Write(filepath.Join(x.p.Root, "local.env"), "A=1\n")
 		x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
 		x.sid("pj-int", "sid-i")
-		x.shell("w1:p5", "pj-int", "").Session = "sid-i"
+		x.shell("w1:p5", "pj-int", "")
+		x.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Session = "sid-i" })
 		if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
@@ -895,7 +911,8 @@ func restartIntegrator(t *testing.T, x *fx) {
 		t.Fatal("precondition: the main checkout has an untracked settings file")
 	}
 	x.sid("pj-int", "sid-i")
-	x.shell("w1:p5", "pj-int", "").Session = "sid-i"
+	x.shell("w1:p5", "pj-int", "")
+	x.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Session = "sid-i" })
 	if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
 		t.Fatalf("restart failed:\n%s", out)
 	}
@@ -1055,7 +1072,9 @@ func TestRestartWhereRefusals(t *testing.T) {
 		prep: func(x *fx) {
 			x.sid("pj-l-01", "sid-1")
 			s := x.shell("w1:p4", "pj-l-01", "")
-			s.Foreground, s.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/vim", Name: "vim"}}
+			x.f.Set(s.ID, func(p *herdrtest.Pane) {
+				p.Foreground, p.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/vim", Name: "vim"}}
+			})
 		},
 		req:  launch.Request{Agent: "pj-l-01"},
 		line: "FAIL w1:p4 runs another program (vim)",
@@ -1095,7 +1114,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 			t.Fatal(err)
 		}
 		pane := x.agent("w2:pF", "l-02", "claude", "idle")
-		pane.Cwd = axisWt
+		x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.Cwd = axisWt })
 		return x, axis, axisWt
 	}
 	restart := func(x *fx, cfg *config.Config) (string, bool) {
@@ -1146,7 +1165,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 	t.Run("control: the kit's own lane pane restarts in the kit's lane worktree", func(t *testing.T) {
 		t.Parallel()
 		x, _, _ := fixtures(t)
-		x.f.Pane("w2:pF").Cwd = x.p.LaneDir("L-02")
+		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Cwd = x.p.LaneDir("L-02") })
 		out, ok := restart(x, nil)
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
@@ -1159,7 +1178,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		x, _, _ := fixtures(t)
 		stable := filepath.Join(x.p.Base, "stable")
 		x.p.Worktree(stable, "")
-		x.f.Pane("w2:pF").Cwd = stable
+		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Cwd = stable })
 		out, ok := restart(x, nil)
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
@@ -1192,7 +1211,7 @@ func TestRestartLabel(t *testing.T) {
 		t.Errorf("env, then label, then start: %q", x.srv.Calls())
 	}
 
-	x.f.Panes[0].Kind, x.f.Panes[0].Foreground = "", 0 // the agent exited again
+	x.f.Set("w1:p4", func(p *herdrtest.Pane) { p.Kind, p.Foreground = "", 0 }) // the agent exited again
 	n := len(x.srv.Calls())
 	out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p4 (from label)", "found by the label just set")
@@ -1537,7 +1556,8 @@ func TestServeFirstPromptStartWhileTheLaunchStaysPending(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
 			p := x.shell(c.pane, c.req.Agent, "")
-			p.StartPending, p.PendingStatus = 1<<30, "working" // pending for every read: herdr's own bound is past the start's
+			// pending for every read: herdr's own bound is past the start's
+			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.StartPending, p.PendingStatus = 1<<30, "working" })
 			var out bytes.Buffer
 			s, err := x.launcher(&out).Launch(context.Background(), c.req)
 			got, ok := result(t, &out, s.Line, err)
@@ -1591,7 +1611,8 @@ func TestStartAgentNeverUp(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	x.wait = 200 * time.Millisecond
-	x.shell("w1:p3", "pj-l-01", "").OnStart = "never"
+	x.shell("w1:p3", "pj-l-01", "")
+	x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnStart = "never" })
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: strings.Repeat("a long brief ", 130)})
 	eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start, sent once")
 	lacks(t, out, "(timeout)", "precondition: herdr answered the start with success")
@@ -1634,7 +1655,8 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = 200 * time.Millisecond
-		x.shell("w1:p3", "pj-l-01", "").OnRun = "hang"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnRun = "hang" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		eqInt(t, len(x.calls("pane.send_input pane_id=w1:p3")), 1, "precondition: the env line typed")
 		if ok {
@@ -1653,7 +1675,7 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		pane := x.shell("w1:p3", "pj-l-01", "")
-		pane.OnRun = "fail"
+		x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.OnRun = "fail" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if ok {
 			t.Fatalf("restarted after a failed env line:\n%s", out)
@@ -1711,7 +1733,7 @@ func TestStartWaitsForHerdrsAnswer(t *testing.T) {
 		release := make(chan struct{})
 		x.pendingStart(release, nil)
 		pane := x.shell("w1:p3", "pj-l-01", "")
-		pane.OnStart = "unnamed"
+		x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.OnStart = "unnamed" })
 		var out bytes.Buffer
 		done := make(chan error, 1)
 		go func() {
@@ -1858,7 +1880,8 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		x.sid("pj-l-01", "sid-1")
-		x.agent("w1:p3", "pj-l-01", "claude", "done").OnQuit = "stay"
+		x.agent("w1:p3", "pj-l-01", "claude", "done")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnQuit = "stay" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		if ok || x.startCall() != "" {
@@ -1886,7 +1909,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		a := x.agent("w1:p7", "pj-rev", "codex", "idle")
-		a.Session = "cx-9"
+		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "cx-9" })
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "Codex quits with /quit")
@@ -1907,7 +1930,9 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		a.Procs = append(a.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"}, herdr.Process{PID: 301, Argv0: "node"})
+		x.f.Set(a.ID, func(p *herdrtest.Pane) {
+			p.Procs = append(p.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"}, herdr.Process{PID: 301, Argv0: "node"})
+		})
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-l-01 ") || len(x.calls("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")) != 1 {
 			t.Errorf("/exit, then restarted:\n%s\n%q", out, x.srv.Calls())
@@ -1918,7 +1943,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		a.OnQuit = "dialog"
+		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnQuit = "dialog" })
 		if len(a.Procs) != 1 {
 			t.Fatal("precondition: no background task seen")
 		}
@@ -2379,7 +2404,7 @@ func TestStop(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		a.OnEsc = "ignore"
+		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnEsc = "ignore" })
 		out, ok := x.stop("pj-l-01", "", false)
 		if len(x.calls("pane.send_keys keys=[esc] pane_id=w1:p3")) == 0 {
 			t.Fatalf("precondition: Escape sent: %q", x.srv.Calls())
@@ -2400,7 +2425,10 @@ func TestStop(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		a.Procs = append(a.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"}) // a background task: --force stops it too
+		// a background task: --force stops it too
+		x.f.Set(a.ID, func(p *herdrtest.Pane) {
+			p.Procs = append(p.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"})
+		})
 		out, ok := x.stop("pj-l-01", "", true)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		esc, clr, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_keys keys=[ctrl+c] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
@@ -2414,7 +2442,7 @@ func TestStop(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		a := x.agent("w1:p3", "pj-l-01", "claude", "blocked")
-		a.OnEsc = "ignore"
+		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnEsc = "ignore" })
 		out, ok := x.stop("pj-l-01", "", true)
 		contains(t, out, "warning: pj-l-01 still blocked 60ms after Escape: exiting anyway", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
@@ -2425,7 +2453,8 @@ func TestStop(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		a.OnQuit, a.Procs = "stay", []herdr.Process{} // herdr lists nothing in the group: no exit, no leader
+		// herdr lists nothing in the group: no exit, no leader
+		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnQuit, p.Procs = "stay", []herdr.Process{} })
 		out, ok := x.stop("pj-l-01", "", true)
 		eq(t, failLine(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "", not claude)`, "result")
 		eqInt(t, len(x.kills), 0, "no signal")
@@ -2451,10 +2480,12 @@ func TestStopBound(t *testing.T) {
 			x := setup(t)
 			x.bound, x.idle, x.waitZero, x.waitEnv = time.Second, shortWait, true, c.env
 			p := x.agent("w1:p3", "pj-l-01", "claude", "working")
-			p.OnEsc, p.OnQuit = "ignore", "stay"
+			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnEsc, p.OnQuit = "ignore", "stay" })
 			x.onKill = func(_ int, sig syscall.Signal) {
 				if sig == syscall.SIGTERM { // the signal ends it at once
-					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+					x.f.Set(p.ID, func(p *herdrtest.Pane) {
+						p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+					})
 					x.gone["2"] = true
 				}
 			}
@@ -2486,16 +2517,23 @@ func TestStopForceTerminates(t *testing.T) {
 	// takes the leader, and with leftovers the uvx stays until the next signal.
 	ignoring := func(x *fx, dies syscall.Signal, leftovers bool) *herdrtest.Pane {
 		p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		p.OnQuit = "stay"
-		p.Procs = []herdr.Process{{PID: 2, Argv0: "/Users/u/.local/bin/claude"}, {PID: 300, Argv0: "uvx"}}
+		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+			p.OnQuit = "stay"
+			p.Procs = []herdr.Process{{PID: 2, Argv0: "/Users/u/.local/bin/claude"}, {PID: 300, Argv0: "uvx"}}
+		})
 		x.onKill = func(_ int, sig syscall.Signal) {
 			switch {
 			case x.gone["2"]:
-				p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil // the leftovers go too
+				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil // the leftovers go too
+				})
 			case sig == dies && leftovers:
-				p.Procs, x.gone["2"] = p.Procs[1:], true
+				x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = p.Procs[1:] })
+				x.gone["2"] = true
 			case sig == dies:
-				p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+				})
 				x.gone["2"] = true
 			}
 		}
@@ -2603,7 +2641,7 @@ func TestStopForceTerminates(t *testing.T) {
 			change := func() {
 				changed = true
 				if c.procs != nil {
-					p.Procs = c.procs
+					x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = c.procs })
 				}
 			}
 			x.procInfo(func(p *herdrtest.Pane) {
@@ -2822,14 +2860,16 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 	stuck := func(x *fx) {
 		x.sid("pj-l-01", "sid-1")
 		p := x.agent("w1:p3", "pj-l-01", "claude", "done")
-		p.OnQuit = "stay"
 		var lines []string
 		for i := 1; i <= 20; i++ {
 			lines = append(lines, "screen line "+strings.Repeat("x", i%3), "", "   ")
 		}
-		p.Screen = strings.Join(lines, "\n") + "\ndraft in the box"
-		p.Foreground, p.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/claude", Name: "claude", Cmdline: "claude --resume sid-1"},
-			{PID: 301, Argv0: "/usr/bin/sleep", Cmdline: "/usr/bin/sleep 60"}}
+		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+			p.OnQuit = "stay"
+			p.Screen = strings.Join(lines, "\n") + "\ndraft in the box"
+			p.Foreground, p.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/claude", Name: "claude", Cmdline: "claude --resume sid-1"},
+				{PID: 301, Argv0: "/usr/bin/sleep", Cmdline: "/usr/bin/sleep 60"}}
+		})
 	}
 	t.Run("never exits: FAIL line, then status, screen tail, processes; the same block in launch.log", func(t *testing.T) {
 		t.Parallel()
@@ -2972,7 +3012,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		p := mcp(x)
 		x.onKill = func(pgid int, sig syscall.Signal) {
 			if sig == syscall.SIGTERM {
-				p.Foreground = 1
+				x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Foreground = 1 })
 			}
 		}
 		out, ok := x.stop("pj-l-01", "", false)
@@ -2991,7 +3031,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		p := mcp(x)
 		x.onKill = func(pgid int, sig syscall.Signal) {
 			if sig == syscall.SIGKILL {
-				p.Foreground = 1
+				x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Foreground = 1 })
 			}
 		}
 		out, ok := x.stop("pj-l-01", "", false)
@@ -3031,11 +3071,14 @@ func TestStopLeftoverMCP(t *testing.T) {
 			x := setup(t)
 			p := mcp(x)
 			if c.after == 0 {
-				x.onExit = func() { p.Procs, x.gone["2"] = []herdr.Process{}, true }
+				x.onExit = func() {
+					x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = []herdr.Process{} })
+					x.gone["2"] = true
+				}
 			}
 			x.onKill = func(_ int, sig syscall.Signal) {
 				if sig == c.after {
-					p.Procs = []herdr.Process{}
+					x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = []herdr.Process{} })
 				}
 			}
 			out, ok := x.stop("pj-l-01", "", false)
@@ -3060,7 +3103,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		x.up = bound       // the start's outcome, not a give-up: 60ms failed under the gate's load
 		x.sid("pj-l-01", "sid-1")
 		p := mcp(x)
-		x.onKill = func(int, syscall.Signal) { p.Foreground = 1 }
+		x.onKill = func(int, syscall.Signal) { x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Foreground = 1 }) }
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -3124,10 +3167,12 @@ func TestStopLeftoverMCP(t *testing.T) {
 // longer listed, but leaves uvx and python in its group (one consistent process model).
 func leftoverMCP(x *fx) *herdrtest.Pane {
 	p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-	p.OnQuit = "stay"
-	p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "/usr/local/bin/uvx"}, {PID: 301, Name: "python"}}
+	x.f.Set(p.ID, func(p *herdrtest.Pane) {
+		p.OnQuit = "stay"
+		p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "/usr/local/bin/uvx"}, {PID: 301, Name: "python"}}
+	})
 	x.onExit = func() {
-		p.Procs = p.Procs[1:]
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = p.Procs[1:] })
 		x.gone["2"] = true
 	}
 	return p
@@ -3149,8 +3194,10 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 			x := setup(t)
 			x.wait = shortWait
 			p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-			p.OnQuit = "stay"
-			p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
+			x.f.Set(p.ID, func(p *herdrtest.Pane) {
+				p.OnQuit = "stay"
+				p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
+			})
 			x.onExit = func() { unreadable(x) }
 			out, ok := x.stop("pj-l-01", "", force)
 			if ok {
@@ -3201,7 +3248,9 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		p := leftoverMCP(x)
 		x.onKill = func(_ int, sig syscall.Signal) {
 			if sig == syscall.SIGTERM {
-				p.Foreground, p.Procs = 9, []herdr.Process{{PID: 9, Argv0: "other-program"}}
+				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+					p.Foreground, p.Procs = 9, []herdr.Process{{PID: 9, Argv0: "other-program"}}
+				})
 			}
 		}
 		out, ok := x.stop("pj-l-01", "", false)
@@ -3273,7 +3322,8 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-1"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok || strings.Contains(out, "warning:") {
@@ -3302,7 +3352,8 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-rec")
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-live" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
 		if !ok {
@@ -3317,7 +3368,8 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.record("pj-l-01", "sid-old")
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-live" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -3329,7 +3381,8 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("no record, herdr set: never herdr's for claude", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-h"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-h" })
 		if x.recorded("pj-l-01") != "" {
 			t.Fatal("precondition: no record")
 		}
@@ -3346,7 +3399,8 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("no record, herdr set: herdr for codex", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p7", "pj-rev", "").Session = "sid-h"
+		x.shell("w1:p7", "pj-rev", "")
+		x.f.Set("w1:p7", func(p *herdrtest.Pane) { p.Session = "sid-h" })
 		if x.recorded("pj-rev") != "" {
 			t.Fatal("precondition: no record")
 		}
@@ -3361,7 +3415,8 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-old")
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-live" })
 		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "--fresh result")
 		if strings.Contains(out, "warning: recorded session") {
@@ -3426,11 +3481,15 @@ func TestStopEveryKind(t *testing.T) {
 	kind := func(t *testing.T, kind string, leader herdr.Process) (*fx, *herdrtest.Pane) {
 		x := setup(t)
 		p := x.agent("w1:p3", "pj-l-01", kind, "idle")
-		p.OnQuit = "stay"
-		p.Procs = []herdr.Process{leader}
+		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+			p.OnQuit = "stay"
+			p.Procs = []herdr.Process{leader}
+		})
 		x.onKill = func(_ int, sig syscall.Signal) {
 			if sig == syscall.SIGTERM {
-				p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+				})
 				x.gone["2"] = true
 			}
 		}
@@ -3453,7 +3512,7 @@ func TestStopEveryKind(t *testing.T) {
 	t.Run("opencode, the popup takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
-		p.OnQuit = ""
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit = "" })
 		enters := 0
 		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
 		out, ok := x.stop("pj-l-01", "", false)
@@ -3468,7 +3527,7 @@ func TestStopEveryKind(t *testing.T) {
 	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
-		p.OnQuit = ""
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit = "" })
 		enters := 0
 		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
 		out, ok := x.stop("pj-l-01", "", false)
@@ -3498,7 +3557,8 @@ func TestStopEveryKind(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
-		p.Kind = "opencode" // herdr sees opencode in the claude lane's pane
+		// herdr sees opencode in the claude lane's pane
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "opencode" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
@@ -3513,7 +3573,8 @@ func TestStopEveryKind(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "codex"})
 		x.wait = shortWait
-		p.Kind = "codex" // the old codex worker still runs in the lane now typed opus
+		// the old codex worker still runs in the lane now typed opus
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "codex" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
@@ -3527,7 +3588,7 @@ func TestStopEveryKind(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "vim"})
 		x.wait = shortWait
-		p.Kind = "codex"
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "codex" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if ok {
 			t.Fatal("must fail")
@@ -3539,7 +3600,7 @@ func TestStopEveryKind(t *testing.T) {
 	t.Run("a kind with no quit in a pane configured as claude: proven by herdr's kind, SIGTERM at once, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "gemini"})
-		p.Kind = "gemini"
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "gemini" })
 		x.onExit = func() { t.Error("no quit typed") }
 		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
@@ -3580,7 +3641,7 @@ func TestStopEveryKind(t *testing.T) {
 		t.Run(c.kind+", idle with text in the input: cleared before the quit, which then exits", func(t *testing.T) {
 			t.Parallel()
 			x, p := kind(t, c.kind, herdr.Process{PID: 2, Argv0: c.argv0})
-			p.OnQuit, p.Input = "", "t"
+			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.Input = "", "t" })
 			out, ok := x.stop("pj-l-01", "", false)
 			if !ok {
 				t.Fatal(out)
@@ -3599,7 +3660,7 @@ func TestStopEveryKind(t *testing.T) {
 	t.Run("claude, working, --force: Escape then ctrl+c only, no ctrl+u (unchanged)", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
-		p.OnQuit, p.Status = "", "working"
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.Status = "", "working" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
@@ -3639,7 +3700,7 @@ func TestLaunchReportsIdentity(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	pane := x.shell("w1:p3", "pj-l-01", "")
-	pane.Session = "original-task-session"
+	x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.Session = "original-task-session" })
 	s, err := x.launcher(&bytes.Buffer{}).Launch(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
 	if err != nil {
 		t.Fatalf("the start: %v", err)
@@ -3805,7 +3866,7 @@ func TestFreshStartRolePrompt(t *testing.T) {
 			t.Parallel()
 			x := setup(t, testkit.Set("agents.roles", `{"lead":"`+c.typ+`","reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", c.agent, c.kind, "idle")
-			a.Session = "sid-1"
+			x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "sid-1" })
 			if c.resume {
 				x.sid(c.agent, "sid-1") // a Claude resume is its record's, not herdr's session
 			}

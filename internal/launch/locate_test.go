@@ -13,6 +13,7 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/project"
 )
@@ -151,7 +152,7 @@ func TestStartInARelabelledPanePutsTheLabelBack(t *testing.T) {
 			x := setup(t)
 			x.sid(tc.agent, "sid-1")
 			a := x.agent("w1:p3", tc.agent, "claude", "idle")
-			a.Label = "notes"
+			x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Label = "notes" })
 			x.where = identified("w1:p3", "session", "notes")
 			out, ok := x.restart(tc.req)
 			if !ok {
@@ -172,7 +173,7 @@ func TestStopAsksLocate(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-	a.Label = "notes"
+	x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Label = "notes" })
 	x.shell("w1:p8", "", x.lane)
 	x.where = identified("w1:p3", "session", "notes")
 	out, ok := x.stop("pj-l-01", "w1:p8", false)
@@ -229,7 +230,8 @@ func TestStartRefusedWhileServeIsDownAndAnAgentIsUnaccounted(t *testing.T) {
 	x := setup(t)
 	x.sid("pj-l-01", "sid-1")
 	x.shell("w1:p3", "pj-l-01", x.lane)
-	x.f.Agent("w1:p1", "", "idle", x.p.Root).Label = "notes"
+	x.f.Agent("w1:p1", "", "idle", x.p.Root)
+	x.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "notes" })
 	var out bytes.Buffer
 	l := x.launcher(&out)
 	l.Where = nil // serve's socket at the project: none
@@ -275,6 +277,7 @@ type raceStart struct {
 }
 
 func (r raceStart) Start(ctx context.Context, name, kind, pane string, say func(string, ...any), args ...string) (port.Pane, error) {
-	r.x.f.Agent("w1:p1", name, "idle", r.x.lane).Label = "notes"
+	r.x.f.Agent("w1:p1", name, "idle", r.x.lane)
+	r.x.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "notes" })
 	return r.PaneControl.Start(ctx, name, kind, pane, say, args...)
 }

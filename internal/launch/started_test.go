@@ -60,7 +60,8 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 	t.Run("cli: resumed start", func(t *testing.T) {
 		t.Parallel()
 		x := setupRunning(t, "luna")
-		x.shell("w1:p3", "pj-l-01", "").Session = "cx-1"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -88,7 +89,8 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 		t.Parallel()
 		x := setupRunning(t, "luna")
 		x.capture = true
-		x.shell("w1:p3", "pj-l-01", "").Session = "cx-1"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
