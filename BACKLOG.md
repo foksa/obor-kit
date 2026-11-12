@@ -7,6 +7,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
+- 2026-11-12 ~19:45 (lead): **Features paused by the owner** (`docs/decisions.md` 11-12): they use obor first and bring what needs changing. Only nightly RED fixes and reported bugs go ahead; the next steps below (C1 included) wait for the owner. T-1291 merged (owner start presents options, `/obor:lead handoff` continues, `obor review start`), unreleased until `make ship`.
 - 2026-11-11 ~23:00 (lead; previous Handoff: `git show 935956b4:BACKLOG.md`). Every lane free, nothing queued, no
   watch, no open review (RV-196 closed). **Shipped today: v0.37.0, v0.38.0, v0.39.0.** v0.38: terminal plan steps
   1-5 (herdr behind one interface), start identity (`Locate` asks serve's `where` before any stop/label; decisions
