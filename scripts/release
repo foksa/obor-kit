@@ -369,7 +369,7 @@ if [ -n "$unreviewed" ]; then
   if [ -n "${UNREVIEWED:-}" ]; then
     say "unreviewed since $since: $unreviewed (UNREVIEWED: ${UNREVIEWED})"
   else
-    fail "unreviewed since $since: $unreviewed (run obor review, close it, then release; or UNREVIEWED=\"<why>\" make release V=$v)"
+    fail "unreviewed since $since: $unreviewed (run obor review start, close it, then release; or UNREVIEWED=\"<why>\" make release V=$v)"
   fi
 fi
 

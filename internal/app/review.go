@@ -19,7 +19,7 @@ import (
 	"obor/internal/config"
 )
 
-// A review request (docs/state-model.md row 52): `obor review [--after T-a,T-b] [--note "<text>"]` (the lead or
+// A review request (docs/state-model.md row 52): `obor review start [--after T-a,T-b] [--note "<text>"]` (the lead or
 // the owner) records fact review.request{after, note, by} on the task key review; one is open at a time, a second
 // call replaces it, `obor review --rm` ends it (fact review.rm). A merge-loop pass fires the open request once every
 // --after task merged and the reviewer role agent is idle (no open brief, its pane idle or not running): fact
@@ -36,10 +36,10 @@ import (
 //
 // One review cycle is open at a time: the last review serve started (fact review.started, so a replay
 // keeps it) is open until fact review.closed for it (or a later one): obor review close's call, which serve commits and
-// records (reviewclose.go). While one is open, obor review refuses a new request ("<id> is open (not closed): close
+// records (reviewclose.go). While one is open, obor review start refuses a new request ("<id> is open (not closed): close
 // it first"), and a request that comes due waits (obor status: "waiting <id> to close"): a fresh start would replace
 // the session its verify needs. A request a pass claimed (to fire it, or for its ended line) cannot change
-// until the claim ends: obor review's replace and --rm are refused while it holds (reviewClaim). A crash between the
+// until the claim ends: obor review start's replace and --rm are refused while it holds (reviewClaim). A crash between the
 // reviewer's launch and fact review.started is accepted: the launch is not exactly-once; a failing append
 // after the launch is a needs-you "<RV-xx>: started but not recorded: <error>".
 

@@ -1,6 +1,6 @@
 // reviewclose.go: a review's close is a call to serve. obor review close sends it;
 // serve checks it against its own fold, commits the close in the main checkout and records fact review.closed. The
-// fact is what "is a review open" reads (review.go: obor review's refusal, a due request's wait, obor status), and what
+// fact is what "is a review open" reads (review.go: obor review start's refusal, a due request's wait, obor status), and what
 // the verify rule (reviewverify.go) and the reviewer's stop rule (rolestop.go) are keyed by.
 package app
 

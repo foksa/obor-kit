@@ -579,9 +579,14 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	case job != "":
 		prompt = wake
 	case prompt == "":
-		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead.
+		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead: the lead's fresh session
+		// continues from a Handoff (`/obor:lead handoff`) when it is a handoff restart (--fresh), and presents its
+		// options when the owner started it (`obor lead` passes the role's prompt itself).
 		if rc, ok := l.Cfg.Role(t.info.Role); ok {
 			prompt = rc.Role.StartPrompt(t.kind)
+			if req.Fresh && t.info.Role == "lead" {
+				prompt = rc.Role.HandoffPrompt(t.kind)
+			}
 		}
 	}
 	// The start, built once before anything is stopped: its argv and its env from one complete start.

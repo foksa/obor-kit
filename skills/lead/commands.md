@@ -1,8 +1,11 @@
 # obor lead: commands and their lines
 
 ## obor lead
-`obor lead` starts a fresh lead session (`RESTARTED <agent> (pane <p>, session new)`); `obor lead --resume` continues
+`obor lead` starts a fresh lead session (`RESTARTED <agent> (pane <p>, session new)`), its first prompt `/obor:lead`:
+the session presents the state and the options and waits for your pick; `obor lead --resume` continues
 the last one (`session <sid>`). An already running lead: `OK <agent> runs (pane <p>)`, nothing touched.
+`obor restart <you> --fresh` is the handoff restart: its first prompt is `/obor:lead handoff`, so the new session
+continues from the Handoff's next steps without waiting (SKILL.md, Handoff).
 
 ## obor status
 Read the line under serve's to see what runs without an agent: `running: gate T-xx (make -s check, 2m14s) · after_merge
@@ -117,10 +120,12 @@ finished; a brief to a stopped role agent starts it fresh, its first prompt the 
   first either way (nothing waits for a publish in flight; merges are not held while they work).
 
 ## obor review
-`obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
-is no line to you: `obor status` shows the review. A `Difficulty: hard` task, or one whose spec says
-`Review: on merge` (a medium/simple judgement-heavy one), needs no watch and no call here: serve records the request
-itself when it merges, and `obor review` stays for the every-~3-merges reviews.
+`obor review` with no argument shows the review card `obor status` shows (`review RV-xx: …`, the open request, or
+`NO REVIEW`) and changes nothing. `obor review start [--after T-a,T-b] [--note "<text>"]` requests one (`--rm` ends
+it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start is no line to you: `obor status` shows the review. A
+`Difficulty: hard` task, or one whose spec says `Review: on merge` (a medium/simple judgement-heavy one), needs no
+watch and no call here: serve records the request itself when it merges, and `obor review start` stays for the
+every-~3-merges reviews.
 - A fix task's spec carries `Fixes: RV-xx[ <what to check>]` between its title and its first `## ` heading:
   dispatching it links it to the open review (`FAIL T-xx: Fixes: RV-xx is not the open
   review (RV-yy is open | none is open)` otherwise); `obor status`' review card shows the round (`review RV-xx: fixes

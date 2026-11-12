@@ -250,7 +250,7 @@ func answerPath(p *proj, r event.Record, mt mtask) string {
 	var cmds []string
 	switch {
 	case r.Task == event.ReviewTask: // a failed review start's: a new request ends it
-		return "obor review [--after T-a,T-b]"
+		return "obor review start [--after T-a,T-b]"
 	case projectKey(r.Task): // a GREEN nightly ends a nightly's; a line typed, a line's
 		return ""
 	case strings.HasPrefix(d.Reason, reasonAsks):

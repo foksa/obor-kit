@@ -315,12 +315,12 @@ func TestMakeReleaseRefusals(t *testing.T) {
 		{"guide without this version's heading", "1.2.5", nil, "no v1.2.5 heading", false},
 		{"unreviewed: no close commit, every merge counts", "1.2.4", func(t *testing.T, f *releaseFixture) {
 			f.merge(t, "topic/c", "Merge T-7: code", map[string]string{"cmd/x.go": "package main\n"})
-		}, `unreviewed since the first commit (no RV closed yet): T-7 (run obor review`, false},
+		}, `unreviewed since the first commit (no RV closed yet): T-7 (run obor review start`, false},
 		{"unreviewed: code merges after the close", "1.2.4", func(t *testing.T, f *releaseFixture) {
 			f.closeReview(t, 1, f.headShort(t))
 			f.merge(t, "topic/a", "Merge T-5: code", map[string]string{"internal/a.go": "package internal\n"})
 			f.merge(t, "topic/b", "Merge T-6: more", map[string]string{"scripts/b": "#!/bin/sh\n"})
-		}, `unreviewed since RV-1: T-5, T-6 (run obor review, close it, then release; or UNREVIEWED="<why>" make release V=1.2.4)`, true},
+		}, `unreviewed since RV-1: T-5, T-6 (run obor review start, close it, then release; or UNREVIEWED="<why>" make release V=1.2.4)`, true},
 		{"close line in a merge body", "1.2.4", func(t *testing.T, f *releaseFixture) {
 			f.closeReview(t, 1, f.headShort(t))
 			body := "Spec quote:\n\nRV-99 closed · abc1234 · approved"

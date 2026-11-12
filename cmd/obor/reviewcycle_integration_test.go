@@ -452,7 +452,7 @@ func TestReviewFixGone(t *testing.T) {
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "REVIEW REQUESTED (now)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, args := range [][]string{{"review", "fix", "T-5,T-6"}, {"review", "verify", "T-5"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review [") ||
+		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review") ||
 			strings.Contains(stdout, "verify") || strings.Contains(stdout, "fix") {
 			t.Errorf("obor %q: exit %d, %q; want obor review's usage, naming neither", args, rc, stdout)
 		}

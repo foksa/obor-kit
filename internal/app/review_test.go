@@ -195,7 +195,7 @@ func TestReviewRequest(t *testing.T) {
 		}},
 		{"a queued request waits while RV-5 is open, then fires after its close fact", func(t *testing.T, r *reviewRig) {
 			r.started()
-			// A request already in the log (one obor review recorded before RV-5's start, or an older serve's).
+			// A request already in the log (one obor review start recorded before RV-5's start, or an older serve's).
 			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, ReviewData{By: "pj-lead", Note: "next"})
 			if r.p.folded.review == nil || !r.a.roleIdle(r.p, "pj-rev") {
 				t.Fatal("precondition: no request open, or the reviewer is not idle")

@@ -223,7 +223,7 @@ var commands = map[string][]string{
 	"pause":     nil,
 	"watch":     nil,
 	"idle":      nil,
-	"review":    {"verify", "close"},
+	"review":    {"start", "verify", "close"},
 	"flakes":    nil,
 	"events":    nil,
 	"nightly":   {"on", "off"},

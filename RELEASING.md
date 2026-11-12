@@ -23,7 +23,7 @@ of `main`, no separate worktree):
 2. `make release V=x.y.z` (`DRY=1` prints the steps and changes nothing). It refuses on a detached HEAD, on a dirty tree,
    when `V` is not above `VERSION`, when the guide has no `v<x.y.z>` heading, when `docs/releases/v<x.y.z>.md` is missing
    or empty, or when a merge after the last `RV-<n> closed` commit changes anything but docs (`docs/` or a `.md` file):
-   run `obor review` and close it first. `UNREVIEWED="<why>"` overrides the last refusal (the owner's call only) and
+   run `obor review start` and close it first. `UNREVIEWED="<why>"` overrides the last refusal (the owner's call only) and
    puts the reason in the tag message. Then it sets `VERSION` and
    the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on that branch. The
    whole run is also written to

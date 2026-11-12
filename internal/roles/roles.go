@@ -209,3 +209,14 @@ func (r Role) StartPrompt(kind string) string {
 	}
 	return r.Prompt
 }
+
+// HandoffPrompt is StartPrompt's handoff form, for a fresh session that continues from a Handoff: the role's Prompt
+// with the argument `handoff` (the lead's `/obor:lead handoff`); "" where StartPrompt is (no skills for kind, no
+// Prompt in the role).
+func (r Role) HandoffPrompt(kind string) string {
+	p := r.StartPrompt(kind)
+	if p == "" {
+		return ""
+	}
+	return p + " handoff"
+}

@@ -492,7 +492,11 @@ When the user types into a worker's pane by mistake, the worker must not act on 
   `agents.handoff_tokens` (`0` = off), adds a reminder to every prompt: hand off at the next logical break, not
   mid-work. It is a reminder, not a block: the agent picks the break, writes the Handoff section of `BACKLOG.md` and
   commits it (the lead; the integrator hands off after the merge in hand), then runs `obor restart <you> --fresh`,
-  which from its own pane is scheduled: a detached run waits until the agent is idle and restarts it fresh.
+  which from its own pane is scheduled: a detached run waits until the agent is idle and restarts it fresh. That
+  restart's first prompt is the role's handoff form (`/obor:lead handoff`): the session runs its start checks and
+  continues from the Handoff's next steps. A session the owner starts (`obor lead`, a `/clear`, a typed
+  `/obor:lead`) gets the role's plain prompt and presents the state and the options instead, and starts no work until
+  the owner picks one.
 - Worker skill/template/prompt: the same rule in words, as a fallback for non-Claude lanes (Codex has no hook).
 
 ## Git hooks layer (v2.3)

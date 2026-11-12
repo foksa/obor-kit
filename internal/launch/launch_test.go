@@ -737,7 +737,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus --session-id <new> /obor:lead handoff] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
@@ -789,9 +789,9 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "agent.start args=[--session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "agent.start args=[--session-id <new> /obor:lead handoff] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
-		out:   "args (claude): --session-id <new> /obor:lead",
+		out:   "args (claude): --session-id <new> /obor:lead handoff",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -3846,8 +3846,9 @@ func TestRestartLockHeld(t *testing.T) {
 	}
 }
 
-// a fresh start without --prompt gets its role's first prompt (the lead's /obor:lead); --prompt wins, a resume
-// carries none, a role without a Prompt and a kind without skills start bare.
+// a fresh start without --prompt gets its role's first prompt: a handoff restart of the lead (--fresh) the lead's
+// /obor:lead handoff, any other start the role's own (/obor:lead); --prompt wins, a resume carries none, a role without
+// a Prompt and a kind without skills start bare.
 func TestFreshStartRolePrompt(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -3856,8 +3857,10 @@ func TestFreshStartRolePrompt(t *testing.T) {
 		resume                       bool
 		prompt                       string // the expected first prompt ("": none)
 	}{
-		{"lead, fresh", "pj-lead", "lead", "opus", "claude", launch.Request{Fresh: true}, false, "/obor:lead"},
-		{"lead, --prompt wins", "pj-lead", "lead", "opus", "claude", launch.Request{Fresh: true, Prompt: "x"}, false, "x"},
+		{"lead, handoff restart (--fresh, no --prompt)", "pj-lead", "lead", "opus", "claude", launch.Request{Fresh: true}, false,
+			"/obor:lead handoff"},
+		{"lead, --prompt wins (obor lead passes the role's)", "pj-lead", "lead", "opus", "claude", launch.Request{Fresh: true, Prompt: "/obor:lead"}, false,
+			"/obor:lead"},
 		{"lead, resume carries none", "pj-lead", "lead", "opus", "claude", launch.Request{}, true, ""},
 		{"reviewer, no Prompt in its role", "pj-rev", "reviewer", "opus", "claude", launch.Request{Fresh: true}, false, ""},
 		{"lead on a kind without skills", "pj-lead", "lead", "luna", "codex", launch.Request{Fresh: true}, false, ""},

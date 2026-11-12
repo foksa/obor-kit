@@ -118,7 +118,7 @@ process (`plugin.Local`).
   folds as ended: merged with its after-merge steps done, or dropped), `dispatch.go`,
   `waiting.go` (a dispatch that waits for the tasks it names (`--after`) or for a lane: fold, pick, dispatch),
   `lanepick.go` (the lane a dispatch takes and the replies that say why none was free), `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended), `mergewatch.go`,
-  `review.go` (a review request: `obor review` records it and the merge loop fires the reviewer's start),
+  `review.go` (a review request: `obor review start` records it and the merge loop fires the reviewer's start),
   `reviewclose.go` (a review's close is a call to serve, which commits it and records `review.closed`),
   `reviewonmerge.go` (the Review: on merge rule: a hard or risky task's spec asks for a review at its merge),
   `reviewverify.go` (a review's fix round and its verify, briefed in the reviewer's session),

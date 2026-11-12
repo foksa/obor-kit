@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -12,20 +13,43 @@ import (
 	"obor/internal/project"
 )
 
-// reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's: one request
-// to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
-// <age> ago)], REVIEW REQUEST ENDED / NO REVIEW REQUEST for --rm; with no argument the open request (REVIEW REQUEST
-// since <age> …), else a request to start now. Serve starts the review once every --after task merged and the
-// reviewer is idle, and tells the lead. FAIL: serve down, its refusal or a usage error (exit 1).
+// reviewCmd is `obor review [start [--after T-a,T-b] [--note "<text>"]] | obor review --rm`, the lead's or the
+// owner's: bare `obor review` prints the review state (obor status' review card, or NO REVIEW) and changes nothing;
+// `obor review start` is one request to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED
+// (now | after T-a,T-b)[ (replaces the request of <age> ago)], REVIEW REQUEST ENDED / NO REVIEW REQUEST for --rm.
+// Serve starts the review once every --after task merged and the reviewer is idle, and tells the lead. FAIL: serve
+// down, its refusal or a usage error (exit 1).
 func reviewCmd(args []string) int {
-	if len(args) > 0 && args[0] == "close" {
+	switch {
+	case len(args) > 0 && args[0] == "close":
 		return reviewCloseCmd(args[1:])
+	case len(args) > 0 && args[0] == "start":
+		return reviewStart(args[1:])
+	case len(args) == 0:
+		return reviewShow()
 	}
 	var c wire.ReviewReq
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--rm" && len(args) == 1:
 			c.Clear = true
+		case a == "--after" || a == "--note":
+			fmt.Fprintf(out, "FAIL --after and --note start a review: %s\n", help.Usage("review start"))
+			return 1
+		default:
+			fmt.Fprintln(out, "FAIL "+help.Usage("review"))
+			return 1
+		}
+	}
+	return reviewRequest(c)
+}
+
+// reviewStart is `obor review start [--after T-a,T-b] [--note "<text>"]`: the request to start a review, now or once
+// the --after tasks merged.
+func reviewStart(args []string) int {
+	var c wire.ReviewReq
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
 		case (a == "--after" || a == "--note") && i+1 < len(args) && args[i+1] != "":
 			i++
 			if a == "--after" {
@@ -34,10 +58,15 @@ func reviewCmd(args []string) int {
 				c.Note = args[i]
 			}
 		default:
-			fmt.Fprintln(out, "FAIL "+help.Usage("review"))
+			fmt.Fprintln(out, "FAIL "+help.Usage("review start"))
 			return 1
 		}
 	}
+	return reviewRequest(c)
+}
+
+// reviewRequest sends c as the caller's one review request.
+func reviewRequest(c wire.ReviewReq) int {
 	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		if err := taskIDs(cfg, c.After...); err != nil {
 			return nil, err
@@ -45,6 +74,36 @@ func reviewCmd(args []string) int {
 		c.Envelope = id
 		return &c, nil
 	})
+}
+
+// reviewShow is bare `obor review`: the review card obor status shows — the open review's line, then the open request
+// (or the "review due" line) — and nothing where neither is (NO REVIEW). It sends no request: no state changes.
+func reviewShow() int {
+	cfg, _, rc := loadReader()
+	if rc != 0 {
+		return rc
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
+	if err != nil {
+		fmt.Fprintf(out, "FAIL %v\n", err)
+		return 1
+	}
+	var open *wire.ReviewOpenStatus
+	reqLine := ""
+	if p := ss.Project; p != nil {
+		open, reqLine = p.ReviewOpen, p.Review
+	}
+	if open == nil && reqLine == "" {
+		fmt.Fprintln(out, "NO REVIEW")
+		return 0
+	}
+	writeReviewOpen(out, open, time.Now())
+	if reqLine != "" {
+		fmt.Fprintln(out, reqLine)
+	}
+	return 0
 }
 
 // reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: one request to obor serve
