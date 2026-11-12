@@ -177,3 +177,56 @@ func TestLinkIntoLinksTheSecondEntryWhenTheFirstFailsAndNamesTheFirst(t *testing
 		t.Errorf("err = %v, want it to name %s", err, first)
 	}
 }
+
+// ExcludeLinks adds each link's anchored line under obor's comment line once: a rerun leaves the file byte for byte
+// as it was, and the lines an existing info/exclude has (git's own comments, the owner's patterns) are kept.
+func TestExcludeLinksAddsOnceAndKeepsTheFile(t *testing.T) {
+	t.Parallel()
+	common := t.TempDir()
+	path := filepath.Join(common, "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const before = "# git ls-files --others --exclude-from=.git/info/exclude\n*.swp" // no trailing newline
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	links := []string{PluginSettings, "out/", ""}
+	if err := ExcludeLinks(common, links); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := before + "\n" + excludeMark + "\n/.claude/settings.json\n/out\n"
+	if string(b) != want {
+		t.Fatalf("info/exclude:\n%s\nwant:\n%s", b, want)
+	}
+	if err := ExcludeLinks(common, links); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(path); string(again) != want {
+		t.Errorf("rerun changed info/exclude:\n%s\nwant:\n%s", again, want)
+	}
+	// a new link later joins the file once, obor's comment line not repeated
+	if err := ExcludeLinks(common, append(links, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if more, _ := os.ReadFile(path); string(more) != want+"/node_modules\n" {
+		t.Errorf("a new link:\n%s\nwant:\n%s", more, want+"/node_modules\n")
+	}
+}
+
+// With no info/exclude yet (and no info dir), ExcludeLinks makes it.
+func TestExcludeLinksMakesTheFile(t *testing.T) {
+	t.Parallel()
+	common := t.TempDir()
+	if err := ExcludeLinks(common, []string{PluginSettings}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
+	if want := excludeMark + "\n/.claude/settings.json\n"; err != nil || string(b) != want {
+		t.Errorf("info/exclude %q, %v; want %q", b, err, want)
+	}
+}

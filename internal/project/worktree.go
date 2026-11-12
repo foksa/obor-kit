@@ -73,9 +73,31 @@ func SettingsUntrackedWith(root string, git func(dir string, args ...string) (st
 // tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. Every
 // entry is tried: one that cannot be linked does not stop the next, and err joins the failures, each naming its
 // path. The one linker of every worktree obor makes or meets: lanes and role worktrees (obor setup, the launcher's
-// start of a role agent) and the checks' scratch worktrees.
+// start of a role agent) and the checks' scratch worktrees. Each entry root has is also excluded through git's own
+// info/exclude of dir's repository (ExcludeLinks): the link is obor's, not the worktree's work, so raw git status and
+// git clean -fd in any worktree (the lane table, a lane test and its cleanup, a lane drop) leave it alone. dir in no
+// git repository: no exclude.
 func LinkInto(root, dir string, links []string) (linked []string, err error) {
 	var errs []error
+	var excluded []string
+	for _, link := range links {
+		if link == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, link)); err == nil {
+			excluded = append(excluded, link)
+		}
+	}
+	if len(excluded) > 0 {
+		if common, err := Git(dir, "rev-parse", "--git-common-dir"); err == nil {
+			if common = strings.TrimSpace(common); !filepath.IsAbs(common) {
+				common = filepath.Join(dir, common)
+			}
+			if err := ExcludeLinks(common, excluded); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
 	for _, link := range links {
 		if link == "" {
 			continue
@@ -98,4 +120,60 @@ func LinkInto(root, dir string, links []string) (linked []string, err error) {
 		linked = append(linked, link)
 	}
 	return linked, errors.Join(errs...)
+}
+
+// excludeMark is the comment line that opens obor's block in info/exclude.
+const excludeMark = "# obor: the paths obor links into its worktrees (lanes, role worktrees, scratch)"
+
+// ExcludeLines are the info/exclude lines of links: each path anchored at the worktree's top, never with a trailing
+// slash (a linked directory is a symlink, which a dir-only pattern does not match).
+func ExcludeLines(links []string) []string {
+	var lines []string
+	for _, link := range links {
+		if link = strings.Trim(filepath.ToSlash(link), "/"); link != "" {
+			lines = append(lines, "/"+link)
+		}
+	}
+	return lines
+}
+
+// ExcludeLinks appends the info/exclude line of each of links (ExcludeLines) that commonDir/info/exclude (the common
+// git dir's: one file every worktree of the repo shares) lacks, under obor's comment line, made once. The file's
+// other lines stay as they are; nothing missing: the file is not written.
+func ExcludeLinks(commonDir string, links []string) error {
+	path := filepath.Join(commonDir, "info", "exclude")
+	b, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("cannot read %s: %v", path, err)
+	}
+	have := map[string]bool{}
+	for _, line := range strings.Split(string(b), "\n") {
+		have[strings.TrimSpace(line)] = true
+	}
+	var add []string
+	if !have[excludeMark] {
+		add = append(add, excludeMark)
+	}
+	missing := false
+	for _, line := range ExcludeLines(links) {
+		if !have[line] {
+			have[line] = true
+			add, missing = append(add, line), true
+		}
+	}
+	if !missing {
+		return nil
+	}
+	out := string(b)
+	if out != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	out += strings.Join(add, "\n") + "\n"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("cannot write %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+		return fmt.Errorf("cannot write %s: %v", path, err)
+	}
+	return nil
 }
