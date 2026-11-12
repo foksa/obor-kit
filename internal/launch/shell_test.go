@@ -21,7 +21,8 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		p.StartBusy = 2 // herdr's exit lag: the two first starts answer agent_pane_busy
+		// herdr's exit lag: the two first starts answer agent_pane_busy
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.StartBusy = 2 })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
@@ -38,8 +39,8 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		x := setup(t)
 		x.shellBound = shortWait // the bound of the wait and the start retries
 		p := x.agent("w1:p6", "pj-lead", "claude", "idle")
-		p.OnQuit = "linger" // herdr still lists the old agent while it refuses the start
-		p.StartBusy = 1 << 30
+		// herdr still lists the old agent while it refuses the start
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.StartBusy = "linger", 1<<30 })
 		out, ok := x.restart(launch.Request{Agent: "pj-lead", Fresh: true})
 		if ok || strings.Contains(out, "RESTARTED") {
 			t.Fatalf("a refused start said RESTARTED:\n%s", out)
@@ -54,8 +55,8 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		x.shellBound = shortWait // the bound of the wait and the start retries
 		x.sid("pj-lead", "sid-1")
 		p := x.agent("w1:p6", "pj-lead", "claude", "idle")
-		p.OnQuit = "linger" // herdr still lists the old agent while it refuses the start
-		p.StartBusy = 1 << 30
+		// herdr still lists the old agent while it refuses the start
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.StartBusy = "linger", 1<<30 })
 		out, ok := x.restart(launch.Request{Agent: "pj-lead"})
 		if ok || strings.Contains(out, "RESTARTED") {
 			t.Fatalf("a refused start said RESTARTED:\n%s", out)
@@ -69,7 +70,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		p.StartBusy = 2
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.StartBusy = 2 })
 		out, ok, spawns := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, false, nil)
 		if !ok || len(spawns) != 0 {
 			t.Fatalf("the detached run: %v\n%s", spawns, out)
@@ -85,7 +86,10 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 		var quit atomic.Bool
 		x.quitTyped(&quit)
-		x.onExit = func() { p.Procs, x.gone["2"] = nil, true }
+		x.onExit = func() {
+			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = nil })
+			x.gone["2"] = true
+		}
 		x.procInfo(func(p *herdrtest.Pane) {
 			if quit.Load() && p.Kind == "" {
 				p.Foreground = 2 // herdr never gives the exited agent's pane its shell back
@@ -108,7 +112,10 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		x.quitTyped(&quit)
 		// The agent's exit is reaped (its pid gone, no processes) yet herdr keeps the pane out of its shell for a few
 		// looks: the exit wait sees the exit at once, the restart's own wait is the one that sees the shell come back.
-		x.onExit = func() { p.Procs, x.gone["2"] = nil, true }
+		x.onExit = func() {
+			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = nil })
+			x.gone["2"] = true
+		}
 		left := 6
 		x.procInfo(func(p *herdrtest.Pane) {
 			switch {
@@ -138,9 +145,11 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
 	probe := func(x *fx, pane, agent string) *herdrtest.Pane {
 		p := x.agent(pane, agent, "claude", "idle")
-		p.OnQuit = "linger" // the old Claude still listed after its exit
-		p.StartBusy = 1
-		p.OnStart = "working" // the new one works on its first prompt: herdr's timeout
+		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+			p.OnQuit = "linger"   // the old Claude still listed after its exit
+			p.StartBusy = 1       // the first start answers agent_pane_busy
+			p.OnStart = "working" // the new one works on its first prompt: herdr's timeout
+		})
 		return p
 	}
 	t.Run("obor restart with a first prompt, the old Claude still listed: RESTARTED", func(t *testing.T) {
@@ -186,7 +195,8 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 	t.Run("restore's restart of a labelled pane without an agent: busy retried, no shell wait, RESTARTED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-l-01", "").StartBusy = 1
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.StartBusy = 1 })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true})
 		eqInt(t, len(x.calls("agent.start")), 2, "a start after the busy answer, then the one that ran")
 		if !ok {
@@ -205,8 +215,8 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
 	t.Parallel()
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
-	pending := func(p *herdrtest.Pane, reads int) *herdrtest.Pane {
-		p.OnQuit, p.StartBusy, p.StartPending = "linger", 1, reads
+	pending := func(x *fx, p *herdrtest.Pane, reads int) *herdrtest.Pane {
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.StartBusy, p.StartPending = "linger", 1, reads })
 		return p
 	}
 	// waited: the start was accepted pending and read the pane through every pending read (the transition happened).
@@ -232,7 +242,7 @@ func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
 	t.Run("obor restart: RESTARTED once the new agent is up", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		p := pending(x.agent("w1:p6", "pj-lead", "claude", "idle"), 3)
+		p := pending(x, x.agent("w1:p6", "pj-lead", "claude", "idle"), 3)
 		out, ok := x.restart(launch.Request{Agent: "pj-lead", Fresh: true})
 		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr accepted")
 		if !ok {
@@ -245,7 +255,7 @@ func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.up = shortWait
-		pending(x.agent("w1:p6", "pj-lead", "claude", "idle"), 1<<30)
+		pending(x, x.agent("w1:p6", "pj-lead", "claude", "idle"), 1<<30)
 		out, ok := x.restart(launch.Request{Agent: "pj-lead", Fresh: true})
 		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr accepted")
 		if ok || strings.Contains(out, "RESTARTED") {
@@ -256,7 +266,7 @@ func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
 	t.Run("the detached handoff restart: RESTARTED once the new agent is up", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		p := pending(x.agent("w1:p6", "pj-lead", "claude", "idle"), 3)
+		p := pending(x, x.agent("w1:p6", "pj-lead", "claude", "idle"), 3)
 		out, ok, spawns := x.self("w1:p6", true, launch.Request{Agent: "pj-lead", Fresh: true, Prompt: wake}, false, nil)
 		if !ok || len(spawns) != 0 {
 			t.Fatalf("the detached run: %v\n%s", spawns, out)
@@ -267,7 +277,7 @@ func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
 	t.Run("serve's worker start with its job's wake: RESTARTED once the new agent is up", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		p := pending(x.agent("w1:p3", "pj-l-01", "claude", "idle"), 3)
+		p := pending(x, x.agent("w1:p3", "pj-l-01", "claude", "idle"), 3)
 		var out bytes.Buffer
 		l := x.launcher(&out)
 		l.Job = func(context.Context, string, string) (string, error) { return "T-1/1/work", nil }
@@ -284,7 +294,7 @@ func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		p := x.shell("w1:p3", "pj-l-01", "")
-		p.StartBusy, p.StartPending = 1, 3
+		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.StartBusy, p.StartPending = 1, 3 })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true})
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)

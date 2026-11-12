@@ -127,7 +127,8 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	f.shell("w1:p3", f.p.Root, "")
 	f.shell("w1:p4", other, "pj-l-01")
 	f.shell("w1:p5", f.p.Root, "my notes")
-	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root).Label = "pj-int"
+	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root)
+	f.h.Set("w1:p6", func(p *herdrtest.Pane) { p.Label = "pj-int" })
 	f.shell("w1:p7", lane, "pj-l-01-drive") // the owner's drive: obor drive starts it again, the restore does not
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()},
 		store.Session{Agent: "pj-l-01-drive", Kind: "claude", ID: "sid-drive", Started: time.Now().Unix()})
@@ -180,7 +181,8 @@ func TestRestoreIgnoresMonitorPane(t *testing.T) {
 	f.p.Config()
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", f.p.Root, "pj-monitor")
-	f.h.Agent("w1:p3", "x", "idle", f.p.Root).Label = "pj-monitor"
+	f.h.Agent("w1:p3", "x", "idle", f.p.Root)
+	f.h.Set("w1:p3", func(p *herdrtest.Pane) { p.Label = "pj-monitor" })
 	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh") // the lead restarts; the monitor panes do not
 	if log := f.restoreLog(); strings.Contains(log, "monitor") {
@@ -366,7 +368,8 @@ func TestRestoreRefusedWhileTheAgentRunsElsewhere(t *testing.T) {
 	f.p.Config()
 	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
 	f.shell("w1:p1", lane, "pj-l-01")
-	f.h.Agent("w1:p7", "pj-l-01", "idle", lane).Label = "notes"
+	f.h.Agent("w1:p7", "pj-l-01", "idle", lane)
+	f.h.Set("w1:p7", func(p *herdrtest.Pane) { p.Label = "notes" })
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
 	f.pl.Restart = func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
 		l := &launch.Launcher{Cfg: cfg, Env: f.p.Env(), H: f.srv.Client(), Out: w,

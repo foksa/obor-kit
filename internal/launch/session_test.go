@@ -113,7 +113,8 @@ func TestCodexStartReportsRollout(t *testing.T) {
 	t.Run("a resume reports the session it resumed", func(t *testing.T) {
 		x.reset()
 		x.reported = nil
-		x.shell("w1:p3", "pj-l-01", "").Session = "cx-new"
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-new" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -135,7 +136,8 @@ func TestServeResumeReportsItsSession(t *testing.T) {
 	t.Parallel()
 	x := setupRunning(t, "luna")
 	x.background = true
-	x.shell("w1:p3", "pj-l-01", "").Session = "cx-1"
+	x.shell("w1:p3", "pj-l-01", "")
+	x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-1" })
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	if !ok {
 		t.Fatal(out)
