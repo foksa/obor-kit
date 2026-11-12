@@ -63,18 +63,21 @@ func staleIndexLock(dir string, err error) string {
 }
 
 // Free gives a dropped task's lane back (obor drop). Refused, nothing changed: no lane dir; uncommitted
-// changes or commits on in.Branch not in in.Target, unless in.Discard (then git reset --hard and git clean -fd, the
-// commits left with the deleted branch). Then the lane is detached at in.Target and in.Branch deleted (a branch that
+// changes (project.LaneDirt: obor's links are not the lane's) or commits on in.Branch not in in.Target, unless
+// in.Discard (then git reset --hard and git clean -fd, which keeps obor's links, the commits left with the deleted
+// branch). Then the lane is detached at in.Target and in.Branch deleted (a branch that
 // is gone already is fine). Its line lists what it discarded ("" nothing). A failure after the detach (the branch
 // delete) leaves the lane freed: its error says the same obor drop finishes it.
 func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if !project.IsDir(in.Dir) {
 		return "", port.Refused{Line: "no lane dir " + in.Dir}
 	}
-	status, err := l.git(ctx, in.Dir, "status", "--porcelain")
+	git := func(dir string, args ...string) (string, error) { return l.gitRaw(ctx, dir, args...) }
+	dirt, err := project.LaneDirt(l.Cfg, in.Dir, git)
 	if err != nil {
 		return "", fmt.Errorf("git status in %s: %w", in.Dir, err)
 	}
+	status := strings.Join(dirt, "\n")
 	_, branchErr := l.git(ctx, in.Dir, "rev-parse", "-q", "--verify", "refs/heads/"+in.Branch)
 	exists, err := exit1(branchErr)
 	if err != nil {
@@ -107,7 +110,11 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 		if _, err := l.git(ctx, in.Dir, "reset", "-q", "--hard"); err != nil {
 			return "", fmt.Errorf("git reset --hard in %s: %w", in.Dir, err)
 		}
-		if _, err := l.git(ctx, in.Dir, "clean", "-q", "-fd"); err != nil {
+		clean := []string{"clean", "-q", "-fd"}
+		for _, link := range project.LinksIn(l.Cfg, in.Dir, git) {
+			clean = append(clean, "-e", "/"+globEscape.Replace(link))
+		}
+		if _, err := l.git(ctx, in.Dir, clean...); err != nil {
 			return "", fmt.Errorf("git clean -fd in %s: %w", in.Dir, err)
 		}
 		lines = append(lines, "discarded in "+in.Lane+":\n  "+strings.ReplaceAll(status, "\n", "\n  "))
@@ -128,6 +135,12 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 
 // git runs git -C dir args… (l.Git, else git on PATH): its stdout, trimmed.
 func (l Lane) git(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := l.gitRaw(ctx, dir, args...)
+	return strings.TrimSpace(out), err
+}
+
+// gitRaw is git with its stdout as git wrote it (status --porcelain's leading space is part of a line).
+func (l Lane) gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	bin := l.Git
 	if bin == "" {
 		bin = "git"
@@ -136,7 +149,7 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 	cleanup := project.Group(cmd)
 	defer cleanup()
 	out, err := cmd.Output()
-	return strings.TrimSpace(string(out)), err
+	return string(out), err
 }
 
 // LaneSetup: a lane that fails lanes.ready gets lanes.setup, and must pass lane_ready after. A role worktree serve

@@ -15,8 +15,8 @@ import (
 )
 
 // obor init in a fresh project leaves .claude/settings.json untracked in the main checkout; the lanes
-// are worktrees, so init links it (lanes.links; git's info/exclude, never .gitignore) and each lane sees the enabled
-// plugin with its raw git status clean. A rerun changes nothing.
+// are worktrees, so init links it (lanes.links; never .gitignore or git's info/exclude) and each lane sees the
+// enabled plugin with no dirt (project.LaneDirt: the link is obor's). A rerun changes nothing.
 func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, false)
@@ -36,19 +36,19 @@ func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 		if !config.PluginEnabledIn(dir) {
 			t.Errorf("lane %s's worktree does not see the enabled plugin", lane)
 		}
-		if st := x.Git(dir, "status", "--porcelain", "--untracked-files=all"); strings.TrimSpace(st) != "" {
-			t.Errorf("lane %s's git status %q, want clean: the link is excluded", lane, st)
+		if dirt, err := project.LaneDirt(cfg, dir, project.Git); err != nil || len(dirt) != 0 {
+			t.Errorf("lane %s's dirt %q, %v; want none: the link is obor's", lane, dirt, err)
 		}
 	}
 	common := strings.TrimSpace(x.Git(x.Root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
-	if b, _ := os.ReadFile(filepath.Join(common, "info", "exclude")); !strings.Contains(string(b), "\n/.claude/settings.json\n") {
-		t.Errorf("info/exclude lacks the link:\n%s", b)
+	if b, _ := os.ReadFile(filepath.Join(common, "info", "exclude")); strings.Contains(string(b), ".claude/settings.json") {
+		t.Errorf("info/exclude names the link:\n%s", b)
 	}
 	if got := cfg.Data.Lanes.Links; len(got) != 1 || got[0] != ".claude/settings.json" {
 		t.Errorf("lanes.links = %q, want [.claude/settings.json]", got)
 	}
 	if strings.Contains(x.Read(".gitignore"), ".claude/settings.json") {
-		t.Errorf(".gitignore names the link (info/exclude carries it):\n%s", x.Read(".gitignore"))
+		t.Errorf(".gitignore names the link:\n%s", x.Read(".gitignore"))
 	}
 	if stateOf(out, "plugin-links") != "done" {
 		t.Errorf("plugin-links step %q, want done", summary(out, "plugin-links"))

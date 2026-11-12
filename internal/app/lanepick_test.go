@@ -29,7 +29,11 @@ func TestHeldLaneOfTwoDispatchesIsNewestDispatch(t *testing.T) {
 func TestPickLaneTakesALandedCleanLane(t *testing.T) {
 	t.Parallel()
 	lane := func(name string, row store.LaneRow, dirty bool) port.Lane {
-		return port.Lane{Name: name, Dir: "/wt/" + name, Task: row.Task, Dirty: dirty,
+		var paths []string
+		if dirty {
+			paths = []string{"wip.txt"}
+		}
+		return port.Lane{Name: name, Dir: "/wt/" + name, Task: row.Task, Paths: paths,
 			State: port.FreeState(&row, "h", dirty, nil)} // each lane's HEAD its submitted head h
 	}
 	ls := []port.Lane{

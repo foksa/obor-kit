@@ -127,14 +127,16 @@ type Lane struct {
 	State   string `json:"state"`
 	Reason  string `json:"reason"`
 	DoneAge *int64 `json:"done_age"`
-	Dirty   bool   `json:"dirty"`
-	// Paths is the lane's uncommitted work as git status --porcelain names it (nil when Dirty is false): the paths a
-	// wait or a refusal names, so the lane's state says why it is no free one.
+	// Paths is the lane's uncommitted work as git status --porcelain names it (nil: clean; Dirty): the paths a wait or
+	// a refusal names, so the lane's state says why it is no free one.
 	Paths   []string `json:"paths,omitempty"`
 	Warning string   `json:"warning"`
 	Agent   string   `json:"agent,omitempty"`
 	Mode    string   `json:"mode,omitempty"`
 }
+
+// Dirty: the lane has uncommitted work (Paths). obor status --json writes it as the lane's "dirty" (view.Lane).
+func (l Lane) Dirty() bool { return len(l.Paths) > 0 }
 
 // The lane states Lane.State holds (FreeState's rule; checks.LaneTable.LaneState's doc): a lane is free once
 // no task holds it (its row's task landed at the lane's HEAD, or it has none) and nothing is uncommitted,

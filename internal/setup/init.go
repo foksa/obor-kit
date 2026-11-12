@@ -148,7 +148,8 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 }
 
 // gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts; reviews.dir: an
-// open review). Not the paths obor links into a worktree: project.LinkInto excludes those through git's info/exclude.
+// open review). Not the paths obor links into a worktree: a lane's steps tell its links from its work
+// (project.LaneDirt), and the main checkout's own untracked files stay visible to git.
 func (s *Setup) gitignore() error { return s.ignoreLines(s.gitignoreLines()...) }
 
 // ignoreLines appends lines to .gitignore, each once. A line already there with or without its trailing slash (git

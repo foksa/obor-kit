@@ -48,11 +48,11 @@ const (
 // staging the resolved paths.
 var rerere = []string{"-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true"}
 
-// Submit commits the lane's uncommitted work ("<task>: <summary>") and pins the lane's HEAD at
-// refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned, nothing touched (a
-// later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
-// passes --no-verify: the project's checking step is merge.check, not its commit hooks (prepare-commit-msg
-// still runs).
+// Submit commits the lane's uncommitted work ("<task>: <summary>"; gitIO.Dirt, AddAll: obor's links stay out) and pins
+// the lane's HEAD at refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned,
+// nothing touched (a later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual
+// race). The commit passes --no-verify: the project's checking step is merge.check, not its commit hooks
+// (prepare-commit-msg still runs).
 func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	s.gitCtx = ctx
 	g := s.gio()
@@ -71,7 +71,7 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (st
 	if branch == "" {
 		return "", port.Refused{Line: fmt.Sprintf("FAIL %s is not on a branch", dir)}
 	}
-	st, err := g.Status(dir)
+	st, err := g.Dirt(dir)
 	if err != nil {
 		return "", err
 	}

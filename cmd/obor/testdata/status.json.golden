@@ -17,12 +17,12 @@
       "state": "working",
       "reason": null,
       "done_age": null,
-      "dirty": false,
       "warning": null,
       "agent": "pj-l-01",
       "agent_status": "working",
       "free": false,
-      "column": "working"
+      "column": "working",
+      "dirty": false
     },
     {
       "lane": "L-02",
@@ -33,12 +33,12 @@
       "state": "working",
       "reason": null,
       "done_age": 0,
-      "dirty": false,
       "warning": null,
       "agent": "pj-l-02",
       "free": false,
       "column": "publish",
-      "since": 0
+      "since": 0,
+      "dirty": false
     },
     {
       "lane": "L-03",
@@ -49,11 +49,11 @@
       "state": "free",
       "reason": null,
       "done_age": null,
-      "dirty": false,
       "warning": null,
       "agent": "pj-l-03",
       "free": true,
-      "column": "free"
+      "column": "free",
+      "dirty": false
     }
   ],
   "tasks": {

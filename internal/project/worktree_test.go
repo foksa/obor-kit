@@ -178,55 +178,50 @@ func TestLinkIntoLinksTheSecondEntryWhenTheFirstFailsAndNamesTheFirst(t *testing
 	}
 }
 
-// ExcludeLinks adds each link's anchored line under obor's comment line once: a rerun leaves the file byte for byte
-// as it was, and the lines an existing info/exclude has (git's own comments, the owner's patterns) are kept.
-func TestExcludeLinksAddsOnceAndKeepsTheFile(t *testing.T) {
+// LaneDirt counts what is the lane's at a link path and elsewhere: a regular untracked file at the settings link's
+// path, a tracked file modified there and another untracked file are each dirty, its path named. None of them is a
+// symlink, so the link set's query in the main checkout is never asked.
+func TestLaneDirtCountsTheLanesOwnFiles(t *testing.T) {
 	t.Parallel()
-	common := t.TempDir()
-	path := filepath.Join(common, "info", "exclude")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	const before = "# git ls-files --others --exclude-from=.git/info/exclude\n*.swp" // no trailing newline
-	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	links := []string{PluginSettings, "out/", ""}
-	if err := ExcludeLinks(common, links); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := before + "\n" + excludeMark + "\n/.claude/settings.json\n/out\n"
-	if string(b) != want {
-		t.Fatalf("info/exclude:\n%s\nwant:\n%s", b, want)
-	}
-	if err := ExcludeLinks(common, links); err != nil {
-		t.Fatal(err)
-	}
-	if again, _ := os.ReadFile(path); string(again) != want {
-		t.Errorf("rerun changed info/exclude:\n%s\nwant:\n%s", again, want)
-	}
-	// a new link later joins the file once, obor's comment line not repeated
-	if err := ExcludeLinks(common, append(links, "node_modules")); err != nil {
-		t.Fatal(err)
-	}
-	if more, _ := os.ReadFile(path); string(more) != want+"/node_modules\n" {
-		t.Errorf("a new link:\n%s\nwant:\n%s", more, want+"/node_modules\n")
-	}
-}
-
-// With no info/exclude yet (and no info dir), ExcludeLinks makes it.
-func TestExcludeLinksMakesTheFile(t *testing.T) {
-	t.Parallel()
-	common := t.TempDir()
-	if err := ExcludeLinks(common, []string{PluginSettings}); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
-	if want := excludeMark + "\n/.claude/settings.json\n"; err != nil || string(b) != want {
-		t.Errorf("info/exclude %q, %v; want %q", b, err, want)
+	for _, tt := range []struct {
+		name   string
+		status string
+		want   []string
+	}{
+		{"a regular untracked file at a link path", "?? .claude/settings.json\n", []string{PluginSettings}},
+		{"a tracked file modified at a link path", " M .claude/settings.json\n", []string{PluginSettings}},
+		{"another untracked file", "?? notes.txt\n", []string{"notes.txt"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, dir := plainProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`)
+			put(t, filepath.Join(cfg.Root, PluginSettings), "{}\n")
+			put(t, filepath.Join(dir, PluginSettings), "{}\n")
+			put(t, filepath.Join(dir, "notes.txt"), "x\n")
+			var asked []string
+			git := func(gotDir string, args ...string) (string, error) {
+				line := strings.Join(args, " ")
+				asked = append(asked, line)
+				if gotDir == dir && line == "status --porcelain --untracked-files=all" {
+					return tt.status, nil
+				}
+				if gotDir == cfg.Root && line == "ls-files --error-unmatch -- "+PluginSettings {
+					return "", errors.New("path not in the index")
+				}
+				t.Fatalf("git %s in %s: not a call LaneDirt makes", line, gotDir)
+				return "", nil
+			}
+			if links := WorktreeLinksWith(cfg, git); !slices.Contains(links, PluginSettings) {
+				t.Fatalf("precondition: %s is not in the link set %q", PluginSettings, links)
+			}
+			asked = nil
+			got, err := LaneDirt(cfg, dir, git)
+			if err != nil || !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("LaneDirt = %q, %v; want %q", got, err, tt.want)
+			}
+			if want := []string{"status --porcelain --untracked-files=all"}; !reflect.DeepEqual(asked, want) {
+				t.Errorf("git calls %q, want only %q", asked, want)
+			}
+		})
 	}
 }

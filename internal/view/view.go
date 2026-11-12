@@ -119,10 +119,13 @@ type Lane struct {
 }
 
 // MarshalJSON writes l flat, the lane table's fields first, with an empty branch, task, reason and warning as null
-// (obor status --json and types.ts: string | null).
+// (obor status --json and types.ts: string | null), and its dirty (port.Lane.Dirty: derived from its paths) last.
 func (l Lane) MarshalJSON() ([]byte, error) {
 	type flat Lane // no MarshalJSON: encoding/json writes the fields
-	b, err := json.Marshal(flat(l))
+	b, err := json.Marshal(struct {
+		flat
+		Dirty bool `json:"dirty"`
+	}{flat(l), l.Dirty()})
 	if err != nil {
 		return nil, err
 	}
