@@ -216,7 +216,7 @@ func laneLine(l view.Lane, t view.Task) string {
 	if t.Effort != "" {
 		line += "  effort: " + t.Effort
 	}
-	if l.Dirty && l.State != port.LaneDirtyFree {
+	if l.Dirty() && l.State != port.LaneDirtyFree {
 		line += "  dirty"
 	}
 	if l.Reason != "" {

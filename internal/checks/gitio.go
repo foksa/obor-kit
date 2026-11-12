@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+
+	"obor/internal/project"
 )
 
 // gitReader is the git Scratch reads (docs/plan/architecture-target.md §1): each method one question to git in
@@ -20,6 +22,8 @@ type gitReader interface {
 	Branch(dir string) (string, error)
 	// Status is status --porcelain in dir, one line per path; paths (literal) limit it.
 	Status(dir string, paths ...string) ([]string, error)
+	// Dirt is the uncommitted work in the worktree dir, obor's own links left out (project.LaneDirt): its paths.
+	Dirt(dir string) ([]string, error)
 	// Ancestor reports whether a is an ancestor of b (or b itself).
 	Ancestor(dir, a, b string) (bool, error)
 	// MergeBase is merge-base(a, b) in the main checkout.
@@ -51,7 +55,7 @@ type gitReader interface {
 
 // gitWriter is the git Scratch writes: each method one change to the repository or a worktree.
 type gitWriter interface {
-	// AddAll stages every change in dir; Commit commits the index (an open merge included) with msg, --no-verify; date
+	// AddAll stages every change in dir but obor's links (project.LinksIn); Commit commits the index (an open merge included) with msg, --no-verify; date
 	// ("": now) is its author and committer date; Amend amends HEAD with msg, date its committer date.
 	AddAll(dir string) error
 	Commit(dir, msg, date string) error
@@ -66,7 +70,8 @@ type gitWriter interface {
 	DeleteRef(ref string) error
 	// FF fast-forwards the main checkout's branch to sha (merge --ff-only).
 	FF(sha string) error
-	// Reset is reset --hard rev ("": HEAD) in dir; Clean removes its untracked files (ignored ones stay).
+	// Reset is reset --hard rev ("": HEAD) in dir; Clean removes its untracked files (ignored ones and obor's links,
+	// project.LinksIn, stay).
 	Reset(dir, rev string) error
 	Clean(dir string) error
 	// Detach checks sha out detached in dir; Switch checks branch out.
@@ -122,6 +127,8 @@ func (g realGit) Status(dir string, paths ...string) ([]string, error) {
 	return lines(out), err
 }
 
+func (g realGit) Dirt(dir string) ([]string, error) { return project.LaneDirt(g.s.Cfg, dir, g.s.call) }
+
 func (g realGit) Ancestor(dir, a, b string) (bool, error) { return g.s.ancestor(dir, a, b) }
 
 func (g realGit) MergeBase(a, b string) (string, error) {
@@ -176,7 +183,17 @@ func (g realGit) Refs(prefix string) ([]string, error) {
 
 func (g realGit) Log(args ...string) (string, error) { return g.s.call(g.root(), args...) }
 
-func (g realGit) AddAll(dir string) error { _, err := g.s.call(dir, "add", "-A"); return err }
+func (g realGit) AddAll(dir string) error {
+	args := []string{"add", "-A"}
+	if links := project.LinksIn(g.s.Cfg, dir, g.s.call); len(links) > 0 {
+		args = append(args, "--", ".")
+		for _, link := range links {
+			args = append(args, ":(top,exclude,literal)"+link)
+		}
+	}
+	_, err := g.s.call(dir, args...)
+	return err
+}
 
 func (g realGit) Commit(dir, msg, date string) error {
 	var env []string
@@ -226,7 +243,17 @@ func (g realGit) Reset(dir, rev string) error {
 	return err
 }
 
-func (g realGit) Clean(dir string) error { _, err := g.s.call(dir, "clean", "-fdq"); return err }
+func (g realGit) Clean(dir string) error {
+	args := []string{"clean", "-fdq"}
+	for _, link := range project.LinksIn(g.s.Cfg, dir, g.s.call) {
+		args = append(args, "-e", "/"+globEscape.Replace(link))
+	}
+	_, err := g.s.call(dir, args...)
+	return err
+}
+
+// globEscape makes a path a literal git ignore pattern.
+var globEscape = strings.NewReplacer(`\`, `\\`, "*", `\*`, "?", `\?`, "[", `\[`)
 
 func (g realGit) Detach(dir, sha string) error {
 	_, err := g.s.call(dir, "checkout", "-q", "--detach", sha)

@@ -43,7 +43,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	if dir == "" {
 		return port.TestOutcome{Kind: port.OutcomeFail, Line: "FAIL no lane " + in.Lane}, nil
 	}
-	st, err := g.Status(dir)
+	st, err := g.Dirt(dir)
 	if err != nil {
 		return port.TestOutcome{}, err
 	}
@@ -106,7 +106,8 @@ func testHalt(r *runner, h *halt) (*port.TestOutcome, error) {
 
 // restore puts the lane back where the worker left it after its test, under a ctx of its own (restoreWait) when
 // serve's ended: what the checks changed is discarded (reset --hard, clean -fd: the lane was clean when the test began,
-// so a change there is the checks'; ignored files, build outputs, stay), then the lane's branch is checked out.
+// so a change there is the checks'; ignored files, build outputs, and obor's links stay), then the lane's branch is
+// checked out.
 func (s Scratch) restore(ctx context.Context, dir, branch string) error {
 	if ctx.Err() != nil {
 		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreWait)

@@ -212,7 +212,11 @@ func landCmd(args []string) int {
 		if dir == "" {
 			return nil, fmt.Errorf("%s's lane %s is not in the config's lanes", task, lane)
 		}
-		if dirty := dirtyPaths(dir); len(dirty) > 0 {
+		dirty, err := project.LaneDirt(cfg, dir, project.Git)
+		if err != nil {
+			return nil, fmt.Errorf("git status in lane %s: %v", lane, err)
+		}
+		if len(dirty) > 0 {
 			return nil, fmt.Errorf("lane %s has uncommitted changes (obor land commits nothing: commit or discard them first): %s",
 				lane, strings.Join(dirty, ", "))
 		}
@@ -257,21 +261,6 @@ func landTask(ctx context.Context, cfg *config.Config, arg string) (task, lane s
 		}
 	}
 	return "", "", fmt.Errorf("no open drive %s in obor serve (obor status: a drive is driving until it lands)", arg)
-}
-
-// dirtyPaths is the lane worktree's uncommitted paths (git status --porcelain), untracked ones too.
-func dirtyPaths(dir string) []string {
-	status, err := project.Git(dir, "status", "--porcelain")
-	if err != nil {
-		return []string{"(git status failed: " + err.Error() + ")"}
-	}
-	var paths []string
-	for _, line := range strings.Split(status, "\n") {
-		if len(line) > 3 {
-			paths = append(paths, line[3:])
-		}
-	}
-	return paths
 }
 
 // tellLeadCmd is `obor tell-lead "<text>"` (obor lead starts the lead, so the drive's way to it has this name):

@@ -229,6 +229,13 @@ func (f *fakeGit) Status(dir string, paths ...string) ([]string, error) {
 	return out, nil
 }
 
+func (f *fakeGit) Dirt(dir string) ([]string, error) {
+	if err := f.call("Dirt", dir); err != nil {
+		return nil, err
+	}
+	return statusPaths(f.status[dir]), nil
+}
+
 func (f *fakeGit) Ancestor(dir, a, b string) (bool, error) {
 	if err := f.call("Ancestor", dir, a, b); err != nil {
 		return false, err
