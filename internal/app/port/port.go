@@ -114,9 +114,10 @@ type Panes interface {
 // Lane is one lane of a project, the lane table's row (checks.LaneTable; obor status --json's lane, which view.Lane
 // embeds): its worktree, branch and the task id in it ("": detached, no task id), its state (the Lane* constants;
 // Reason says why it is unknown), the model it runs (Type: the dispatch's while it works, else none),
-// how long ago its task's task_done was recorded (nil: none), uncommitted changes, a live warning ("": none), its
-// agent (derived from the lane) and its mode (config.LaneKeep for a keep lane, "" a fresh one). Lanes,
-// the app's read of it, holds Task only while the lane works and Dir as the physical path a pane's cwd reports.
+// how long ago its task's task_done was recorded (nil: none), uncommitted changes (Paths: their paths), a live
+// warning ("": none), its agent (derived from the lane) and its mode (config.LaneKeep for a keep lane, "" a fresh
+// one). Lanes, the app's read of it, holds Task only while the lane works and Dir as the physical path a pane's cwd
+// reports.
 type Lane struct {
 	Name    string `json:"lane"`
 	Type    string `json:"type"`
@@ -127,9 +128,12 @@ type Lane struct {
 	Reason  string `json:"reason"`
 	DoneAge *int64 `json:"done_age"`
 	Dirty   bool   `json:"dirty"`
-	Warning string `json:"warning"`
-	Agent   string `json:"agent,omitempty"`
-	Mode    string `json:"mode,omitempty"`
+	// Paths is the lane's uncommitted work as git status --porcelain names it (nil when Dirty is false): the paths a
+	// wait or a refusal names, so the lane's state says why it is no free one.
+	Paths   []string `json:"paths,omitempty"`
+	Warning string   `json:"warning"`
+	Agent   string   `json:"agent,omitempty"`
+	Mode    string   `json:"mode,omitempty"`
 }
 
 // The lane states Lane.State holds (FreeState's rule; checks.LaneTable.LaneState's doc): a lane is free once

@@ -255,6 +255,41 @@ func TestLaneStates(t *testing.T) {
 	}
 }
 
+// The dirt check reads every untracked path (--untracked-files=all): git's own status collapses an untracked
+// directory, so the .claude/settings.json link init makes would read as "?? .claude/", a path obor links nowhere and a
+// lane dirty-free for obor's own link. An untracked file of the lane's own still counts, and its path is the one the
+// wait names.
+func TestLaneDirtSeesTheLinkedSettings(t *testing.T) {
+	p := ltFixture(t, `,"dir":"../proj-wt","links":[".claude/settings.json"]`, map[string]string{"L-01": "T-01"})
+	dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "L-01")
+	settings := filepath.Join(p.Root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(settings, filepath.Join(dir, ".claude", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := project.Git(dir, "status", "--porcelain"); err != nil || !strings.Contains(out, "?? .claude/") {
+		t.Fatalf("precondition: git collapses the link's directory, status says %q, %v", out, err)
+	}
+	if s := stateOf(NewLaneTable(context.Background(), p.Cfg), "L-01"); s.State != port.LaneFree || s.Dirty || len(s.Paths) != 0 {
+		t.Errorf("lane %+v; want free: the settings link is obor's, not the lane's work", s)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := stateOf(NewLaneTable(context.Background(), p.Cfg), "L-01")
+	if s.State != port.LaneDirtyFree || !slices.Equal(s.Paths, []string{"notes.txt"}) {
+		t.Errorf("lane %q, paths %v; want dirty-free, [notes.txt]", s.State, s.Paths)
+	}
+}
+
 // rowOf is lane's row in p's lanes table.
 func (p *LaneTable) rowOf(t *testing.T, lane string) store.LaneRow {
 	t.Helper()

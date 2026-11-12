@@ -63,6 +63,7 @@ export interface Lane {
   reason: string | null;
   done_age: number | null;
   dirty: boolean;
+  paths?: string[]; // the uncommitted paths a dirty lane holds, when known: what a wait names
   warning: string | null;
   op?: string;
   mode?: string; // "keep": a keep lane, its agent kept between tasks
