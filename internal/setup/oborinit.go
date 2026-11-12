@@ -18,8 +18,8 @@ package setup
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain.
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
-//	           lockfile picks bun / pnpm / npm, check = the lint, typecheck and test scripts it has (else its check
-//	           script when that runs the tests), lane_setup the install, lane_ready test -d node_modules; a script
+//	           lockfile picks bun / pnpm / npm, check = its lint, typecheck, check and test scripts, each that the
+//	           check script does not already run, lane_setup the install, lane_ready test -d node_modules; a script
 //	           that writes files and a check with no test step are warnings. Only keys still null are written;
 //	           nothing found → they stay null.
 //	lanes      L-01 … L-max(2, lanes.count): at least two (setup lane: lanes 2; a task's Model:/Difficulty: picks
@@ -401,12 +401,12 @@ type detected struct {
 
 var checkTarget = regexp.MustCompile(`(?m)^check\s*:`)
 
-// composedScripts are the scripts a check is composed from, in the order they run.
-var composedScripts = []string{"lint", "typecheck", "test"}
+// composedScripts are the scripts a check is composed from, in the order they run: a check script goes before test.
+var composedScripts = []string{"lint", "typecheck", "check", "test"}
 
 // detectCommands reads root: a Makefile with a check: target, go.mod, package.json (its lockfile picks the package
-// manager). The first of the three gives check; package.json gives lane_setup and lane_ready and a check composed
-// of its lint, typecheck and test scripts (or its check script, when that runs the tests or is all it has).
+// manager). The first of the three gives check; package.json gives lane_setup and lane_ready and a check composed of
+// its lint, typecheck, check and test scripts.
 func detectCommands(root string) detected {
 	var d detected
 	if b, err := os.ReadFile(filepath.Join(root, "Makefile")); err == nil && checkTarget.Match(b) {
@@ -465,23 +465,22 @@ func detectCommands(root string) detected {
 	return d
 }
 
-// chosenScripts are the package.json scripts a check is composed from: its check script when that already runs the
-// tests, else the lint, typecheck and test scripts it has (check when it has none of them).
+// chosenScripts are the package.json scripts a check is composed from, in the order they run: the lint, typecheck,
+// check and test scripts it has, each that the check script does not already run.
 func chosenScripts(scripts map[string]string) []string {
-	check := scripts["check"]
-	if check != "" && strings.Contains(check, "test") {
-		return []string{"check"}
-	}
 	var names []string
 	for _, name := range composedScripts {
-		if scripts[name] != "" {
-			names = append(names, name)
+		if scripts[name] == "" || (name != "check" && runs(scripts["check"], name)) {
+			continue
 		}
-	}
-	if len(names) == 0 && check != "" {
-		names = append(names, "check")
+		names = append(names, name)
 	}
 	return names
+}
+
+// runs is whether a package.json script's text already runs the script name: `run <name>` or the name itself.
+func runs(script, name string) bool {
+	return strings.Contains(script, "run "+name) || strings.Contains(script, name)
 }
 
 // scriptWrites is the warning for a package.json script that writes files: which script, the text that writes, and
