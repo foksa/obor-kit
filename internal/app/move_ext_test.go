@@ -12,7 +12,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/store"
 )
 
 // A task gating, under review or merging is not moved: refused by its state, nothing recorded or stopped.
@@ -127,7 +126,7 @@ func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 		if len(ls) != 2 || ls[1].Type != "opus" || !ls[1].Fresh || ls[1].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
 			t.Errorf("the worker's launches %+v; want the move's fresh opus start with T-1/2/work's wake", ls)
 		}
-		if row, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); row.Task != "T-1" || row.Type != "opus" {
+		if row, _, _ := r.laneRow("L-01"); row.Task != "T-1" || row.Type != "opus" {
 			t.Errorf("L-01's row %+v after the move; want T-1 as opus", row)
 		}
 		// The loop records on its own meanwhile (the stop's lead line, its delivery), so the repeat is checked by

@@ -14,7 +14,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -793,8 +792,8 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 			t.Errorf("dispatch fact %v, want effort high and type opus:high on L-01 (T-721)", d)
 		}
 		r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-l-01"); return ok })
-		if row, ok := r.p.Row("L-01"); !ok || row.Task != "T-1" || row.Type != "opus:high" {
-			t.Errorf("lane row %+v (%v), want T-1 with type opus:high (T-721)", row, ok)
+		if row, ok, err := r.laneRow("L-01"); err != nil || !ok || row.Task != "T-1" || row.Type != "opus:high" {
+			t.Errorf("lane row %+v (%v, %v), want T-1 with type opus:high (T-721)", row, ok, err)
 		}
 		if l, _ := r.launchOf("pj-l-01"); l.Effort != "high" || !l.Fresh || l.Type != "opus" {
 			t.Errorf("worker start %+v, want a fresh start of the dispatch's type opus at effort high (T-722)", l)
@@ -902,7 +901,7 @@ func redoRig(t *testing.T) *loopRig {
 	r.start()
 	r.waitFor("T-1's needs-you", func() bool { return r.taskStatus("T-1").State == "needs-you" })
 	r.waitFor("L-01's row with T-1 as opus:high", func() bool {
-		row, ok, _ := store.ReadLaneAt(r.p.Root, "L-01")
+		row, ok, _ := r.laneRow("L-01")
 		return ok && row.Task == "T-1" && row.Type == "opus:high"
 	})
 	r.waitFor("L-01 working on T-1 as opus in serve's lane table", func() bool {

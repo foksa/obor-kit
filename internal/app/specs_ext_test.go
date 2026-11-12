@@ -9,7 +9,6 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/store"
 )
 
 // A spec set sends no line; a task_done of work done against an older rev is refused once, with the same rev and note.
@@ -204,7 +203,7 @@ func TestSpecSet(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t)
 		r.start()
-		if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
+		if _, ok, err := r.specRow("T-1"); err != nil || ok {
 			t.Fatalf("precondition: a spec before any set: %v, %v", ok, err)
 		}
 		for _, c := range []struct{ call, text, want string }{
@@ -225,7 +224,7 @@ func TestSpecSet(t *testing.T) {
 				t.Errorf("spec set by role %q: %q, %v; want refused", role, reply, err)
 			}
 		}
-		row, ok, err := store.ReadSpecAt(r.p.Root, "T-1")
+		row, ok, err := r.specRow("T-1")
 		if err != nil || !ok || row.Rev != 2 || row.Text != "# T-1 — B\n\nDifficulty: medium\n" || row.SetBy != "lead" {
 			t.Errorf("stored spec %+v, %v, %v; want rev 2 \"B\" set by lead", row, ok, err)
 		}
@@ -234,7 +233,7 @@ func TestSpecSet(t *testing.T) {
 		if err != nil || reply != "SET T-1 rev 3" {
 			t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3", reply, err)
 		}
-		if row, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || !ok || row.Rev != 3 || row.SetBy != "owner" {
+		if row, ok, err := r.specRow("T-1"); err != nil || !ok || row.Rev != 3 || row.SetBy != "owner" {
 			t.Errorf("stored spec %+v, %v, %v; want rev 3 set by owner", row, ok, err)
 		}
 	})
@@ -257,7 +256,7 @@ func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
 				t.Errorf("spec set of %q: %v; want a refusal naming the title", c.text, err)
 			}
 		}
-		if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
+		if _, ok, err := r.specRow("T-1"); err != nil || ok {
 			t.Errorf("a refused spec was stored: %v, %v", ok, err)
 		}
 	})
@@ -287,7 +286,7 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line") {
 			t.Errorf("spec set with \"Fixes:\" and \"Review: on merge\": %v; want the refusal naming the pair", err)
 		}
-		if row, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || !ok || row.Rev != 1 || row.Text != good {
+		if row, ok, err := r.specRow("T-1"); err != nil || !ok || row.Rev != 1 || row.Text != good {
 			t.Errorf("stored spec %+v, %v, %v; want the accepted text at rev 1", row, ok, err)
 		}
 		// A fix spec alone (no Review line) is accepted, whatever its difficulty.
@@ -309,7 +308,7 @@ func TestSpecSetRefusesAnEmptyRef(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), `the "Ref:" line needs an id`) {
 			t.Errorf("spec set with an empty \"Ref:\": %v; want the refusal naming the id", err)
 		}
-		if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
+		if _, ok, err := r.specRow("T-1"); err != nil || ok {
 			t.Errorf("a refused spec was stored: %v, %v", ok, err)
 		}
 	})
@@ -414,7 +413,7 @@ func TestSpecSetRetryAfterRestartPreservesNewerSpec(t *testing.T) {
 		if got := r.setSpec("s1", a); got != "SET T-1 rev 1" {
 			t.Errorf("s1 retried after the restart: %q, want its original SET T-1 rev 1", got)
 		}
-		row, ok, err := store.ReadSpecAt(r.p.Root, "T-1")
+		row, ok, err := r.specRow("T-1")
 		if err != nil || !ok || row.Rev != 2 || row.Text != b {
 			t.Errorf("spec after the retry %+v, %v, %v; want B at rev 2", row, ok, err)
 		}
@@ -445,7 +444,7 @@ func TestSpecSetConcurrentRetriesShareReply(t *testing.T) {
 		}
 		close(start)
 		wg.Wait()
-		row, ok, err := store.ReadSpecAt(r.p.Root, "T-1")
+		row, ok, err := r.specRow("T-1")
 		if err != nil || !ok || row.Rev != 1 {
 			t.Errorf("spec after the concurrent retries %+v, %v, %v; want rev 1", row, ok, err)
 		}

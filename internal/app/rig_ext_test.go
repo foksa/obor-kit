@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,7 +104,8 @@ var bubbles sync.Map // *testing.T → *wallWatch
 
 // bubble runs f in a testing/synctest bubble. A rig built inside it has no unix socket: the fake herdr and the app's
 // socket are in-memory pipes, so every wait of the test and of the app is on the bubble's clock, which stands still
-// while anything runs. Machine load cannot expire such a wait; a wall watch ends it in real time (wallWatch). No
+// while anything runs. Machine load cannot expire such a wait; a wall watch ends it in real time (wallWatch). The rig
+// reads and writes the store through serve's own connection while serve runs (readStore): no second connection. No
 // t.Run, t.Parallel or t.Deadline inside.
 func bubble(t *testing.T, f func(t *testing.T)) {
 	t.Helper()
@@ -493,10 +495,14 @@ func (r *rig) waitFor(what string, ok func() bool) {
 	}
 }
 
-// records is pj's event log.
+// records is pj's event log (readStore).
 func (r *rig) records() []event.Record {
 	r.t.Helper()
-	recs, err := event.ReadLog(r.root)
+	var recs []event.Record
+	err := readStore(r.app, r.done, r.root, func(db *sql.DB) (err error) {
+		recs, err = allRecords(db)
+		return err
+	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -505,6 +511,47 @@ func (r *rig) records() []event.Record {
 	}
 	return recs
 }
+
+// readStore runs read on the database of the project at root. While a serves it (done open, the project loaded),
+// that is serve's own connection, its log's one writer: a second connection to the file takes a lock for a moment
+// (a read-only open's first read can), and serve's write then waits in SQLite's busy sleep on the bubble's clock,
+// holding the app's lock. A goroutine waiting for that lock is not durably blocked, so the clock stands still and the
+// sleep never ends. Without a serving app (none started, Serve returned, its database closed) read gets a read-only
+// open of the file; fs.ErrNotExist when there is no database yet.
+func readStore(a *app.App, done <-chan struct{}, root string, read func(*sql.DB) error) error {
+	if db := servingDB(a, done, root); db != nil {
+		// database/sql's error for a closed handle: the app is past its last write (closeLog)
+		if err := read(db); err == nil || !strings.Contains(err.Error(), "sql: database is closed") {
+			return err
+		}
+	}
+	db, err := store.OpenAt(root)
+	if err != nil {
+		return err
+	}
+	if db == nil {
+		return fs.ErrNotExist
+	}
+	defer db.Close()
+	return read(db)
+}
+
+// servingDB is serve's connection to root's database while a serves it (nil: no app, Serve returned, or the project
+// not loaded yet).
+func servingDB(a *app.App, done <-chan struct{}, root string) *sql.DB {
+	if a == nil || done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+	return app.DB(a, root)
+}
+
+// allRecords is db's whole event log in seq order (LIMIT -1: SQLite's no limit).
+func allRecords(db *sql.DB) ([]event.Record, error) { return event.Since(db, 0, -1) }
 
 // facts is the log's facts as "task step{reason}" lines (not the notifications' intents and results).
 func (r *rig) facts() []string {
@@ -2073,7 +2120,7 @@ func (r *loopRig) firstCheck() {
 // launch runs the app as start does, without waiting for a check and without its socket (herdr may be down).
 func (r *loopRig) launch() {
 	r.t.Helper()
-	switch recs, _ := event.ReadLog(r.p.Root); {
+	switch recs := r.records(); {
 	case r.disp != nil || len(recs) > 0: // the dispatch rig dispatches; a test that wrote the log has its records
 	case r.early:
 		r.p.SubmitAgo("L-01", 0, report) // T-1 dispatched and its task_done in
@@ -2159,11 +2206,17 @@ func (r *loopRig) patience() time.Duration {
 
 func (r *loopRig) waitFor(what string, ok func() bool) {
 	r.t.Helper()
-	trail := func() string {
-		return fmt.Sprintf("records:\n%s\napp output:\n%s", strings.Join(r.steps(), "\n"), r.out)
+	trail := func(recs []event.Record) string {
+		return fmt.Sprintf("records:\n%s\napp output:\n%s", strings.Join(stepLines(recs), "\n"), r.out)
 	}
-	if how := poll(r.t, what, r.patience(), 5*time.Millisecond, trail, ok); how != "" {
-		r.t.Fatalf("%s waiting for %s; %s", how, what, trail())
+	// The wall watch reads the records on its own goroutine, outside the bubble: from the file, never through
+	// serve's connection (a bubble's channels are not for goroutines outside it).
+	watched := func() string {
+		recs, _ := event.ReadLog(r.p.Root)
+		return trail(recs)
+	}
+	if how := poll(r.t, what, r.patience(), 5*time.Millisecond, watched, ok); how != "" {
+		r.t.Fatalf("%s waiting for %s; %s", how, what, trail(r.records()))
 	}
 }
 
@@ -2200,16 +2253,64 @@ func (r *loopRig) taskDone(text string) (string, error) {
 // work writes path in the lane (uncommitted: the submit commits it).
 func (r *loopRig) work(path, text string) { r.p.Write(filepath.Join(r.lane, path), text) }
 
-// records is proj's event log.
+// records is proj's event log (withStore; none: no database yet).
 func (r *loopRig) records() []event.Record {
-	recs, _ := event.ReadLog(r.p.Root)
+	var recs []event.Record
+	_ = r.withStore(func(db *sql.DB) (err error) {
+		recs, err = allRecords(db)
+		return err
+	})
 	return recs
 }
 
+// withStore is readStore of proj and the rig's serve: every read and write of the store while the app runs goes
+// through it.
+func (r *loopRig) withStore(read func(*sql.DB) error) error {
+	return readStore(r.app, r.done, r.p.Root, read)
+}
+
+// laneRows is the store's lanes table by lane (none: no database yet).
+func (r *loopRig) laneRows() (map[string]store.LaneRow, error) {
+	out := map[string]store.LaneRow{}
+	err := r.withStore(func(db *sql.DB) error {
+		rows, err := store.ReadLanes(db)
+		for _, row := range rows {
+			out[row.Lane] = row
+		}
+		return err
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		err = nil
+	}
+	return out, err
+}
+
+// laneRow is lane's row in the store's lanes table (ok false: none).
+func (r *loopRig) laneRow(lane string) (store.LaneRow, bool, error) {
+	rows, err := r.laneRows()
+	row, ok := rows[lane]
+	return row, ok, err
+}
+
+// specRow is task's spec in the store (ok false: none).
+func (r *loopRig) specRow(task string) (row store.SpecRow, ok bool, err error) {
+	err = r.withStore(func(db *sql.DB) (err error) {
+		row, ok, err = store.ReadSpec(db, task)
+		return err
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		err = nil
+	}
+	return row, ok, err
+}
+
 // steps is the log as "<attempt> <kind> <step>[{reason}]" lines.
-func (r *loopRig) steps() []string {
+func (r *loopRig) steps() []string { return stepLines(r.records()) }
+
+// stepLines is recs as steps' lines.
+func stepLines(recs []event.Record) []string {
 	var out []string
-	for _, rec := range r.records() {
+	for _, rec := range recs {
 		out = append(out, strings.Join([]string{string(rune('0' + rec.Attempt)), rec.Kind, rec.String()}, " "))
 	}
 	return out
@@ -2920,9 +3021,12 @@ func (r *loopRig) pause(role, callID string, c wire.PauseReq) (string, error) {
 // promptRows is the project's prompts for q, newest first.
 func (r *loopRig) promptRows(t *testing.T, q store.PromptQuery) []store.PromptRow {
 	t.Helper()
-	rows, err := store.ReadPromptsAt(r.p.Root, q, 100)
-	if err != nil {
-		t.Fatalf("ReadPromptsAt %+v: %v", q, err)
+	var rows []store.PromptRow
+	if err := r.withStore(func(db *sql.DB) (err error) {
+		rows, err = store.ReadPrompts(db, q, 100)
+		return err
+	}); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("ReadPrompts %+v: %v", q, err)
 	}
 	return rows
 }

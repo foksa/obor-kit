@@ -98,10 +98,10 @@ func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 		db.Close()
 		r.start()
 		r.waitFor("L-01's row", func() bool {
-			row, ok, _ := store.ReadLaneAt(r.p.Root, "L-01")
+			row, ok, _ := r.laneRow("L-01")
 			return ok && row.Task == "T-1" && row.Type == "opus:high"
 		})
-		rows, err := store.ReadLanesAt(r.p.Root)
+		rows, err := r.laneRows()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +112,7 @@ func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 			t.Errorf("the table %+v: want the configured lane L-01's row only", rows)
 		}
 		// launch: the row launch.dispatchType starts a lane's worker at (TestStartEffort covers the start itself)
-		if row, ok, err := store.ReadLaneAt(r.p.Root, "L-01"); err != nil || !ok || row.Type != "opus:high" {
+		if row, ok, err := r.laneRow("L-01"); err != nil || !ok || row.Type != "opus:high" {
 			t.Errorf("launch's lane row: %+v, %v, %v; want L-01's opus:high", row, ok, err)
 		}
 	})
