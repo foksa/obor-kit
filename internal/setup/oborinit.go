@@ -18,8 +18,10 @@ package setup
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain.
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
-//	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
-//	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
+//	           lockfile picks bun / pnpm / npm, check = the lint, typecheck and test scripts it has (else its check
+//	           script when that runs the tests), lane_setup the install, lane_ready test -d node_modules; a script
+//	           that writes files and a check with no test step are warnings. Only keys still null are written;
+//	           nothing found → they stay null.
 //	lanes      L-01 … L-max(2, lanes.count): at least two (setup lane: lanes 2; a task's Model:/Difficulty: picks
 //	           the model), and every lane an existing config counts, so init leaves no configured lane without a
 //	           worktree; roles.lead,
@@ -168,7 +170,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	add("githooks", doneOr(hooksChanged), "%s", s.hooksLine(s.root))
 
 	// commands
-	set, err := s.initCommands()
+	set, warns, err := s.initCommands()
 	if err != nil {
 		return err
 	}
@@ -278,6 +280,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		s.say("  %-10s %-8s %s", st.name, st.state, st.what)
 	}
 	s.say("detected: %s", s.detectedLine())
+	for _, w := range warns {
+		s.say("warning: %s", w)
+	}
 	s.say("merge.check is what every merge must pass, keep it to a few minutes; slower tests go in check_milestone " +
 		"(the nightly), and obor nightly off if CI on main already does that")
 	// obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
@@ -386,16 +391,22 @@ func uniquePrefix(p string, running []port.Pane) string {
 
 // --- commands ---------------------------------------------------------------------------------------------------
 
-// detected is what detectCommands found: the commands by key ("": not found) and where from.
+// detected is what detectCommands found: the commands by key ("": not found), where from, and the warnings init
+// prints: a chosen script that writes files, a check with no test step.
 type detected struct {
 	check, laneSetup, laneReady string
 	from                        []string
+	warn                        []string
 }
 
 var checkTarget = regexp.MustCompile(`(?m)^check\s*:`)
 
+// composedScripts are the scripts a check is composed from, in the order they run.
+var composedScripts = []string{"lint", "typecheck", "test"}
+
 // detectCommands reads root: a Makefile with a check: target, go.mod, package.json (its lockfile picks the package
-// manager). The first of the three gives check; package.json gives lane_setup and lane_ready.
+// manager). The first of the three gives check; package.json gives lane_setup and lane_ready and a check composed
+// of its lint, typecheck and test scripts (or its check script, when that runs the tests or is all it has).
 func detectCommands(root string) detected {
 	var d detected
 	if b, err := os.ReadFile(filepath.Join(root, "Makefile")); err == nil && checkTarget.Match(b) {
@@ -432,10 +443,21 @@ func detectCommands(root string) detected {
 	}
 	d.from = append(d.from, from+")")
 	if d.check == "" {
-		for _, script := range []string{"check", "test"} {
-			if pkg.Scripts[script] != "" {
-				d.check = pm + " run " + script
-				break
+		if scripts := chosenScripts(pkg.Scripts); len(scripts) > 0 {
+			var cmds []string
+			hasTest := false
+			for _, name := range scripts {
+				cmds = append(cmds, pm+" run "+name)
+				if name == "test" || strings.Contains(pkg.Scripts[name], "test") {
+					hasTest = true
+				}
+				if w := scriptWrites(name, pkg.Scripts[name]); w != "" {
+					d.warn = append(d.warn, w)
+				}
+			}
+			d.check = strings.Join(cmds, " && ")
+			if !hasTest {
+				d.warn = append(d.warn, `no test step: add a "test" script to package.json: merge.check runs no tests`)
 			}
 		}
 	}
@@ -443,10 +465,44 @@ func detectCommands(root string) detected {
 	return d
 }
 
-// initCommands writes the detected commands whose key is still null in .obor/config.json: "key = cmd" each.
-func (s *Setup) initCommands() ([]string, error) {
+// chosenScripts are the package.json scripts a check is composed from: its check script when that already runs the
+// tests, else the lint, typecheck and test scripts it has (check when it has none of them).
+func chosenScripts(scripts map[string]string) []string {
+	check := scripts["check"]
+	if check != "" && strings.Contains(check, "test") {
+		return []string{"check"}
+	}
+	var names []string
+	for _, name := range composedScripts {
+		if scripts[name] != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 && check != "" {
+		names = append(names, "check")
+	}
+	return names
+}
+
+// scriptWrites is the warning for a package.json script that writes files: which script, the text that writes, and
+// the non-writing form (the script without the flag; format's check mode).
+func scriptWrites(name, script string) string {
+	for _, flag := range []string{"--write", "--fix", "-w"} {
+		if strings.Contains(script, flag) {
+			form := strings.Join(strings.Fields(strings.ReplaceAll(script, flag, "")), " ")
+			return fmt.Sprintf("package.json script %q writes files (%s): run it without it, %q", name, flag, form)
+		}
+	}
+	if strings.Contains(script, "format") {
+		return fmt.Sprintf("package.json script %q writes files (format): use its check mode, e.g. --check", name)
+	}
+	return ""
+}
+
+// initCommands writes the detected commands whose key is still null in .obor/config.json: "key = cmd" each. Its
+// warnings are the detection's, when it wrote check.
+func (s *Setup) initCommands() (set, warn []string, err error) {
 	d := detectCommands(s.root)
-	var set []string
 	for _, kv := range [][2]string{{"check", d.check}, {"lane_setup", d.laneSetup}, {"lane_ready", d.laneReady}} {
 		if kv[1] == "" {
 			continue
@@ -457,16 +513,19 @@ func (s *Setup) initCommands() ([]string, error) {
 		if err := s.editConfig(func(doc []byte) (config.Write, error) {
 			return config.SetCommand(doc, kv[0], kv[1])
 		}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		set = append(set, kv[0]+" = "+kv[1])
+		if kv[0] == "check" {
+			warn = d.warn
+		}
 	}
 	if len(set) > 0 {
 		if err := s.load(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return set, nil
+	return set, warn, nil
 }
 
 func (s *Setup) anyCommand() bool { return s.commandsLine() != "" }
