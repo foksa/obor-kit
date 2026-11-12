@@ -1,10 +1,10 @@
 package app_test
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 )
@@ -79,17 +79,15 @@ func TestPromptsOfABriefAndAStart(t *testing.T) {
 	})
 }
 
-// dropPrompts drops the prompts table through the store's own write open (the app's is elsewhere): the next prompt
-// write fails as one to a broken store would.
-func dropPrompts(t *testing.T, root string) {
-	t.Helper()
-	db, err := store.OpenRW(event.DBFile(root))
-	if err != nil {
-		t.Fatalf("open the store: %v", err)
-	}
-	defer db.Close()
-	if _, err := db.Exec("DROP TABLE prompts"); err != nil {
-		t.Fatalf("drop prompts: %v", err)
+// dropPrompts drops the prompts table of the serving app's store: the next prompt write fails as one to a broken
+// store would.
+func (r *loopRig) dropPrompts() {
+	r.t.Helper()
+	if err := r.withStore(func(db *sql.DB) error {
+		_, err := db.Exec("DROP TABLE prompts")
+		return err
+	}); err != nil {
+		r.t.Fatalf("drop prompts: %v", err)
 	}
 }
 
@@ -101,7 +99,7 @@ func TestPromptWriteFailureKeepsTheJob(t *testing.T) {
 		r.start()
 		r.mustDispatch("d1")
 		r.waitStep("1 result work")
-		dropPrompts(t, r.p.Root)
+		r.dropPrompts()
 
 		jr := r.workerNext("n1")
 		if jr.State != "job" || !strings.Contains(jr.Text, "implement the spec of T-1 exactly") {

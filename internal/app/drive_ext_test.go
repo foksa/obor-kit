@@ -13,7 +13,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -34,11 +33,11 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 		r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 		r.passes()
 		eq(t, r.steps(), []string{"1 fact dispatch", "1 intent lane.prepare", "1 result lane.prepare"}, "records")
-		row, ok, err := store.ReadSpecAt(r.p.Root, "T-1")
+		row, ok, err := r.specRow("T-1")
 		if err != nil || !ok || !strings.Contains(row.Text, "Owner drive: web design") {
 			t.Errorf("T-1's spec %q (%v, %v), want the drive's", row.Text, ok, err)
 		}
-		lr, ok, err := store.ReadLaneAt(r.p.Root, "L-01")
+		lr, ok, err := r.laneRow("L-01")
 		if err != nil || !ok || lr.Task != "T-1" || lr.Branch != "task/T-1" || lr.Base == "" ||
 			lr.Finished != 0 {
 			t.Errorf("L-01's lane row %+v (%v, %v): want T-1's drive, prepared, not finished", lr, ok, err)
@@ -264,7 +263,7 @@ func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
 		if !slices.Contains(r.workerStops(), "pj-l-01-drive w1:p5") {
 			t.Errorf("the drive agent was not stopped after the merge: %q", r.workerStops())
 		}
-		if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Finished == 0 {
+		if lr, _, _ := r.laneRow("L-01"); lr.Finished == 0 {
 			t.Errorf("L-01's row %+v is not finished after the merge", lr)
 		}
 		if st := r.stateOf("T-1"); st != "" {
@@ -414,7 +413,7 @@ func TestDriveReplayedAsDriving(t *testing.T) {
 		if len(r.records()) != n {
 			t.Errorf("the replay recorded more: %q", r.steps()[n:])
 		}
-		if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Task != "T-1" || lr.Finished != 0 {
+		if lr, _, _ := r.laneRow("L-01"); lr.Task != "T-1" || lr.Finished != 0 {
 			t.Errorf("L-01's row after the replay: %+v", lr)
 		}
 		if reply, err := r.drive("v1", "web"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1") {

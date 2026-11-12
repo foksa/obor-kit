@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -919,6 +920,17 @@ func Quiet(a *App, root, task string) (quietSince, seenWrite time.Time) {
 
 // InstanceOf is snap's terminal instance as serve records it in InstanceFile (restore.go).
 func InstanceOf(snap port.Snapshot) string { return snap.Instance }
+
+// DB is the database of a's project at root, its one writer's connection (nil: a has not loaded the project): the
+// rig reads and writes the store through it while a serves the project.
+func DB(a *App, root string) *sql.DB {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if p := a.projAt(root); p != nil {
+		return p.log.DB()
+	}
+	return nil
+}
 
 // Counts is how many full checks and merge loop passes a has done.
 func Counts(a *App) (checks, passes int) {

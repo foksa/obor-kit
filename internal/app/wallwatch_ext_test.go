@@ -1,11 +1,16 @@
 package app_test
 
 import (
+	"database/sql"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"obor/internal/app"
+	"obor/internal/app/event"
 )
 
 // The wall watch of a bubble (wallWatch, rig_ext_test.go): a wait on the bubble's clock ends in real time too. Each
@@ -116,4 +121,90 @@ func TestBubbleStalledOutsideAWaitIsReported(t *testing.T) {
 	default:
 		t.Fatal("no stall reported")
 	}
+}
+
+// A write lock the rig holds on the store (withStore) while serve writes a record (a dispatch's fact, under the app's
+// lock, a goroutine waiting for that lock) does not stall the bubble: the rig holds serve's own connection, so
+// serve's write waits for it, a wait of the bubble, and goes in once the rig lets go. Through a second connection the
+// lock leaves serve's write in SQLite's busy sleep on the bubble's clock with the app's lock held; the goroutine
+// waiting for that lock keeps the clock still, so the sleep never ends and the bubble stalls.
+func TestRigStoreLockDuringAServeWrite(t *testing.T) {
+	t.Parallel()
+	armed, let := make(chan struct{}), make(chan struct{}) // outside the bubble: the rig lets go in real time
+	go func() {
+		<-armed
+		time.Sleep(200 * time.Millisecond)
+		close(let)
+	}()
+	bubble(t, func(t *testing.T) {
+		r := fetchRig(t)
+		r.start()
+		r.waitFor("serve's store", func() bool { return servingDB(r.app, r.done, r.p.Root) != nil })
+		if r.has("1 fact dispatch") {
+			t.Fatalf("precondition: T-1 dispatched before the test's dispatch: %q", r.steps())
+		}
+		looked, replied := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		app.Refuse(r.app, r.p.Root, func(rec event.Record) error { // serve's append, the app's lock held
+			if rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
+				once.Do(func() {
+					go func() { // status takes the app's lock: it waits for it while serve's write holds it
+						defer close(looked)
+						r.app.Status()
+					}()
+				})
+			}
+			return nil
+		})
+		held, hold := make(chan struct{}), make(chan error, 1)
+		go func() {
+			hold <- r.withStore(func(db *sql.DB) error {
+				tx, err := db.Begin()
+				if err != nil {
+					return err
+				}
+				defer tx.Rollback()
+				// a write: the transaction holds the database's write lock until it ends
+				if _, err := tx.Exec("UPDATE meta SET value = value WHERE key = 'schema_version'"); err != nil {
+					return err
+				}
+				close(held)
+				close(armed)
+				<-let // real time: the bubble's clock stands still meanwhile, so no wait of the dispatch times out
+				select {
+				case <-replied:
+					return errors.New("the dispatch replied while the rig held the write lock")
+				default:
+				}
+				return nil
+			})
+		}()
+		select {
+		case <-held:
+		case err := <-hold:
+			t.Fatalf("the rig's write lock: %v", err)
+		}
+		var reply string
+		var derr error
+		go func() {
+			defer close(replied)
+			reply, derr = r.dispatch("d1", "L-01")
+		}()
+		r.waitFor("the dispatch's reply", func() bool {
+			select {
+			case <-replied:
+				return true
+			default:
+				return false
+			}
+		})
+		<-looked
+		if err := <-hold; err != nil {
+			t.Fatalf("the rig's write lock: %v", err)
+		}
+		if derr != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
+			t.Fatalf("dispatch: %q, %v; want T-1 dispatched once the rig let go", reply, derr)
+		}
+		r.waitStep("1 fact dispatch")
+	})
 }
