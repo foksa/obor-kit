@@ -6,6 +6,7 @@ package web
 // can drift to a page that reads a field Go never sets (Lane.hold) or misses one Go sends (TaskStatus.stage).
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -314,6 +315,9 @@ func tsKey(line string) (string, bool) {
 // diffKeys is keys (TS) against t's json names (Go): the names each side has and the other lacks, sorted.
 func diffKeys(keys []string, t reflect.Type) (missing, extra []string) {
 	goNames := jsonNames(t)
+	for _, k := range marshalKeys(t) {
+		goNames[k] = true
+	}
 	have := map[string]bool{}
 	for _, k := range keys {
 		have[k] = true
@@ -351,6 +355,25 @@ func jsonNames(t reflect.Type) map[string]bool {
 		}
 	}
 	return out
+}
+
+// marshalKeys is the top-level keys t's own MarshalJSON writes for its zero value (nil: t has none): a key it derives
+// (view.Lane's "dirty", from its paths) is no field of t.
+func marshalKeys(t reflect.Type) []string {
+	m, ok := reflect.Zero(t).Interface().(json.Marshaler)
+	if !ok {
+		return nil
+	}
+	b, err := m.MarshalJSON()
+	var obj map[string]json.RawMessage
+	if err != nil || json.Unmarshal(b, &obj) != nil {
+		return nil
+	}
+	var keys []string
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // tsStringSet is the strings of a JS array literal opened by open and closed by close ("export const FREE = new
