@@ -1,11 +1,11 @@
 # Review brief
 
-A review, from its request to its close: `obor review` builds and sends the brief (§1–2), you triage (§3) and verify
-(§4). The reviewer's rules and output format are in the kit's `templates/agents/reviewer.md` (+ the project's
+A review, from its request to its close: `obor review start` builds and sends the brief (§1–2), you triage (§3) and
+verify (§4). The reviewer's rules and output format are in the kit's `templates/agents/reviewer.md` (+ the project's
 `docs/agents/reviewer.md`).
 
 ## 1. What serve collects
-`obor review` (§2) gathers these facts itself when the review starts; they are listed so you can read them back:
+`obor review start` (§2) gathers these facts itself when the review starts; they are listed so you can read them back:
 - **Reviews dir**: `obor config get .reviews.dir`, in the main checkout (the reviewer writes there from its role
   worktree `<lanes.dir>/reviewer`) and gitignored: review files never enter the integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
   (`git log --grep='^RV-[0-9]* closed' -1 --format=%s`); `<prev-sha>` is the sha it names, and its body
@@ -21,22 +21,22 @@ A review, from its request to its close: `obor review` builds and sends the brie
   commits, the previous review's findings (unless verifying), anything the specs mark out of scope, and the
   design docs the specs cite. They go into `--note`.
 
-## 2. Start it: `obor review`
-`obor review [--after T-a,T-b] [--note "<out of scope: …; contracts: …>"]` (one open request; a second call replaces
-it, `obor review` lists it, `obor review --rm` ends it). Serve starts the review once every `--after` task has merged
-(none given: now) and the reviewer (a role pane, `obor setup role reviewer`, in its role worktree; never a worker lane,
-never `obor dispatch` a review) is idle: it detaches the reviewer's worktree at the integration branch's head (adding
-the worktree when missing), starts a fresh reviewer
-session with the brief below as its first prompt (your own fresh start is `obor brief <reviewer> --fresh "<text>"`: it
-stops a running reviewer, and serve starts it clean on the text), records the brief, and posts no line
-to you (`obor status` shows the review). A `--after` task dropped or rejected ends the request
-(`[obor] review request ended: T-b dropped`); a step that fails starts nothing and is a needs-you
-(`review: RV-xx: <error>`; a new `obor review` ends it). One review cycle is open at a time: the review serve started
-is open until its `RV-xx closed` commit (§5) is on the integration branch. While it is open `obor review` is refused
-(`FAIL RV-xx is open (not closed): close it first`) and a request that comes due waits (`obor status`: `waiting RV-xx
-to close`): a fresh start would replace the session §4 needs. While serve is starting or ending a request it claimed,
-`obor review` and `--rm` are refused (try again once it is done). A fact serve fails to record after the reviewer
-started is a needs-you (`review: RV-xx: started but not recorded: <error>`).
+## 2. Start it: `obor review start`
+`obor review start [--after T-a,T-b] [--note "<out of scope: …; contracts: …>"]` (one open request; a second call
+replaces it, `obor review` shows the state, `obor review --rm` ends it). Serve starts the review once every `--after`
+task has merged (none given: now) and the reviewer (a role pane, `obor setup role reviewer`, in its role worktree;
+never a worker lane, never `obor dispatch` a review) is idle: it detaches the reviewer's worktree at the integration
+branch's head (adding the worktree when missing), starts a fresh reviewer session with the brief below as its first
+prompt (your own fresh start is `obor brief <reviewer> --fresh "<text>"`: it stops a running reviewer, and serve
+starts it clean on the text), records the brief, and posts no line to you (`obor status` shows the review). A
+`--after` task dropped or rejected ends the request (`[obor] review request ended: T-b dropped`); a step that fails
+starts nothing and is a needs-you (`review: RV-xx: <error>`; a new `obor review start` ends it). One review cycle is
+open at a time: the review serve started is open until its `RV-xx closed` commit (§5) is on the integration branch.
+While it is open `obor review start` is refused (`FAIL RV-xx is open (not closed): close it first`) and a request that
+comes due waits (`obor status`: `waiting RV-xx to close`): a fresh start would replace the session §4 needs. While
+serve is starting or ending a request it claimed, `obor review start` and `--rm` are refused (try again once it is
+done). A fact serve fails to record after the reviewer started is a needs-you
+(`review: RV-xx: started but not recorded: <error>`).
 
 Merges go on while the reviewer works (no merge hold): its worktree stays at the reviewed head until the next
 verify moves it, whatever lands on the integration branch meanwhile. The brief serve sends:

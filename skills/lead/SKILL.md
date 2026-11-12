@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Run an obor swarm as its lead — start of a lead session, spec → dispatch → needs-you → review, handoff at a break. Use when you are the lead of an obor project (OBOR_ROLE=lead, or `obor whoami` says lead), at the start of every lead session and after /clear.
+description: Run an obor swarm as its lead — start of a lead session (`handoff`: continue from the Handoff; none: present the state and options), spec → dispatch → needs-you → review, handoff at a break. Use when you are the lead of an obor project (OBOR_ROLE=lead, or `obor whoami` says lead), at the start of every lead session and after /clear.
 ---
 
 # obor lead
@@ -13,7 +13,20 @@ Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (comm
 Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
 
 ## Start of a session
-To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a fresh session, `--resume` continues the last one.
+To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a
+fresh session, `--resume` continues the last one.
+
+How you were started:
+- With `handoff` (`/obor:lead handoff`: the fresh session `obor restart <you> --fresh` starts after a Handoff): run the
+  start checks below and continue from the Handoff's next steps.
+- Without it (`obor lead`, a `/clear`, a typed `/obor:lead`: a person started you and has picked nothing): run
+  only read-only commands (`obor whoami`, `obor status`, `obor setup show`, `obor watch`, `obor spec show`, `git log`,
+  `git status`, reading files), then present the state and the options — the Handoff's next steps and anything
+  `obor status` shows that needs action — and wait for the owner to pick one (`AskUserQuestion` where the client has
+  it). Until then: no dispatch, no review, no `obor idle`, no resume, no drop, no commit. The one exception is
+  step 3: a first session's model confirmation still asks the owner.
+
+The start checks, both ways:
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
 2. `obor status` (serve up? lanes, needs-you, the full check, the pause, the lines not delivered yet).
 3. Models, effort and lanes: if `obor setup show` says `confirmed: no` (or the config has no `agents.confirmed`), this is
@@ -24,7 +37,7 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
    every command and serve (its setting does not apply), and `obor config validate` fails naming it: delete or fix it.
    Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
-   (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`. Continue from the Handoff's next steps.
+   (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`.
 
 ## Spec and dispatch
 - Draft `.obor/drafts/T-xx.md` (gitignored) from the project's task-spec template: one goal, decisions, out of scope;
@@ -86,9 +99,10 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 - `obor pause [--for 3h] "<why>"` / `--clear` — refuse dispatches (quota, waiting on an answer).
 
 ## Reviews
-Before a release, `obor review` and close it.
+`obor review` with no argument shows the review state (the review card `obor status` shows); it starts nothing.
+Before a release, `obor review start` and close it.
 Every ~3 merges (`obor status` says `review due: N merges since <the last review>` once more than 3 merged; nothing
-enforces a maximum): `obor review [--after T-a,T-b] [--note "<out of scope, contracts>"]`, serve starts it
+enforces a maximum): `obor review start [--after T-a,T-b] [--note "<out of scope, contracts>"]`, serve starts it
 (`review-brief.md`). A `Difficulty: hard` spec is reviewed on merge
 without any line; a medium or simple task that is judgement-heavy (identity, MCP, launch) gets there with the
 spec line `Review: on merge` — serve requests that review itself once the task merges. A fix spec carries
@@ -131,6 +145,7 @@ Speak up unprompted about anything systemic (complexity, fragile dependencies, y
 ## Handoff
 Past `agents.handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
 mid-task, ask the person first if they are talking with you): write the Handoff section at the top of `BACKLOG.md`
-(state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --fresh`.
+(state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --fresh`: the next session
+starts with `/obor:lead handoff` and continues from those next steps.
 
 Hooks deny: `git push`, `pkill`/`killall`, `git commit -a` in the main checkout. Expect it in reports.

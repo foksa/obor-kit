@@ -40,9 +40,9 @@ var Commands = []Command{
 		"submit a drive's branch: the gate, the integrator and the merge as for any task", "tasks"},
 	{"idle", `obor idle ["<why nothing is in flight>"]`,
 		"show the idle state, or acknowledge it with why nothing is in flight", "tasks"},
-	{"review", `obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
+	{"review", `obor review | obor review start [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
 		` | obor review close …`,
-		"request a code review now or after tasks merge, end the request; close is the review's own step", "reviews"},
+		"the review state (no argument), a review request now or after tasks merge, ending it; close is the review's own step", "reviews"},
 	{"lead", "obor lead [--resume]", "start the project's lead in its own tab (--resume continues its last session)", "agents"},
 	{"restart", "obor restart <agent> [--pane <id>] [--fresh] [--force] | obor restart <agent> --stop [--pane <id>] [--force]",
 		"restart an agent in its pane (--fresh: a new session), or stop it", "agents"},
@@ -83,9 +83,10 @@ var Commands = []Command{
 }
 
 // Steps are the usage lines of a command's own steps: a subcommand with arguments of its own but no row of its own in
-// Commands (obor review close). Commands and Steps are the one source of every usage line the CLI prints: each
-// command's usage error prints Usage of its name.
+// Commands (obor review start, obor review close). Commands and Steps are the one source of every usage line the CLI
+// prints: each command's usage error prints Usage of its name.
 var Steps = map[string]string{
+	"review start": `obor review start [--after <T-a>[,<T-b>…]] [--note "<text>"]`,
 	"review close": `obor review close "<summary>" [--accept "<line>"]… [--force]`,
 }
 

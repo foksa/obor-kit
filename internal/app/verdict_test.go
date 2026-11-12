@@ -607,7 +607,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 	}
 }
 
-// obor review --after T-1, T-1 a spec stored and never dispatched, then dropped (the drop's record, with
+// obor review start --after T-1, T-1 a spec stored and never dispatched, then dropped (the drop's record, with
 // its rev): an open request ends with the line a dropped dispatched task gives, also after a replay, and a new request
 // --after T-1 is refused as for a dropped task.
 func TestReviewAfterASpecOnlyDrop(t *testing.T) {

@@ -121,8 +121,8 @@ type PauseReq struct {
 
 func (PauseReq) Method() string { return MethodPause }
 
-// ReviewReq is the lead's review request (obor review): After the tasks it waits for, Note the lead's note; Clear ends
-// the open request.
+// ReviewReq is the lead's review request (obor review start): After the tasks it waits for, Note the lead's note; Clear
+// ends the open request.
 type ReviewReq struct {
 	Envelope
 	Note  string   `json:"note,omitempty"`

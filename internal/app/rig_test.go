@@ -2818,7 +2818,7 @@ func (r *concRig) showsRestart(name string) bool {
 	return false
 }
 
-// obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
+// obor review start records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
 // reviewGitFake is the tests' one port.Review: head the integration branch's head ("": headSHA), which a
@@ -3058,7 +3058,7 @@ func (r *reviewRig) tick() {
 	r.a.reviewDueTick(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
 }
 
-// call is an obor review request from the lead.
+// call is an obor review start request from the lead.
 func (r *reviewRig) call(id string, after []string, note string, rm bool) (string, error) {
 	return r.a.reviewCall(wire.ReviewReq{Envelope: wire.Envelope{Root: r.p.root, CallID: id, Role: "lead",
 		Agent: "pj-lead"}, After: after, Note: note, Clear: rm})

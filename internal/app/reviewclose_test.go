@@ -110,7 +110,7 @@ func TestReviewCloseUnwritten(t *testing.T) {
 			t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.Last())
 		}
 		if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
-			t.Fatalf("obor review after the close: %q", got)
+			t.Fatalf("obor review start after the close: %q", got)
 		}
 		r.pass()
 		if l := r.agents.launches; len(l) != 1 || !strings.HasPrefix(l[0].Prompt, "Review RV-6. ") {
@@ -248,7 +248,7 @@ func commitEqual(a, b port.ReviewCommit) bool {
 // The close's crash cut: its commit is in and its fact is not (a crash, here a refused append). The
 // next pass after a restart records the close once from the commit (port.Review.Closed, the one read) and commits
 // nothing; a close call retried before any pass reads it too: refused, no second commit, the close recorded once.
-// Either way obor review then starts the next review with no merge in scope (the closed one covered T-a and T-b).
+// Either way obor review start then starts the next review with no merge in scope (the closed one covered T-a and T-b).
 func TestReviewCloseCrashBeforeFact(t *testing.T) {
 	t.Parallel()
 	cut := func(t *testing.T) *reviewRig {
@@ -281,7 +281,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 			t.Fatal("RV-5 still open")
 		}
 		if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
-			t.Fatalf("obor review after the close: %q", got)
+			t.Fatalf("obor review start after the close: %q", got)
 		}
 		r.pass()
 		if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
