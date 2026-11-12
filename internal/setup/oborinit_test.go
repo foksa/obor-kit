@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -136,21 +137,37 @@ func TestOborInitFailsWithoutClaude(t *testing.T) {
 // One row per detection: a Makefile check: target, go.mod, package.json with each lockfile and script, nothing.
 func TestDetectCommands(t *testing.T) {
 	t.Parallel()
+	nowrite := `package.json script %q writes files (--write): run it without it, %q`
+	notest := `no test step: add a "test" script to package.json: merge.check runs no tests`
 	for _, c := range []struct {
 		name             string
 		files            map[string]string
 		check, laneSetup string
+		warn             []string
 	}{
-		{"makefile check", map[string]string{"Makefile": "build:\n\tgo build\ncheck: build\n\tgo test\n", "go.mod": "module x\n"}, "make check", ""},
-		{"makefile without check", map[string]string{"Makefile": "build:\n\tgo build\nprecheck:\n"}, "", ""},
-		{"go.mod", map[string]string{"go.mod": "module x\n"}, "go test ./...", ""},
-		{"bun.lockb", map[string]string{"package.json": `{"scripts":{"check":"tsc","test":"x"}}`, "bun.lockb": ""}, "bun run check", "bun install --frozen-lockfile"},
-		{"bun.lock", map[string]string{"package.json": `{"scripts":{"test":"x"}}`, "bun.lock": ""}, "bun run test", "bun install --frozen-lockfile"},
-		{"pnpm", map[string]string{"package.json": `{"scripts":{"test":"x"}}`, "pnpm-lock.yaml": ""}, "pnpm run test", "pnpm install --frozen-lockfile"},
-		{"npm lock", map[string]string{"package.json": `{"scripts":{"check":"x"}}`, "package-lock.json": "{}"}, "npm run check", "npm ci"},
-		{"no lockfile, no script", map[string]string{"package.json": `{}`}, "", "npm install"},
-		{"makefile and package.json", map[string]string{"Makefile": "check:\n", "package.json": `{"scripts":{"test":"x"}}`, "pnpm-lock.yaml": ""}, "make check", "pnpm install --frozen-lockfile"},
-		{"nothing", map[string]string{"README.md": "hi"}, "", ""},
+		{"makefile check", map[string]string{"Makefile": "build:\n\tgo build\ncheck: build\n\tgo test\n", "go.mod": "module x\n"}, "make check", "", nil},
+		{"makefile without check", map[string]string{"Makefile": "build:\n\tgo build\nprecheck:\n"}, "", "", nil},
+		{"go.mod", map[string]string{"go.mod": "module x\n"}, "go test ./...", "", nil},
+		{"bun.lockb", map[string]string{"package.json": `{"scripts":{"check":"tsc","test":"x"}}`, "bun.lockb": ""}, "bun run test", "bun install --frozen-lockfile", nil},
+		{"bun.lock", map[string]string{"package.json": `{"scripts":{"test":"x"}}`, "bun.lock": ""}, "bun run test", "bun install --frozen-lockfile", nil},
+		{"pnpm", map[string]string{"package.json": `{"scripts":{"test":"x"}}`, "pnpm-lock.yaml": ""}, "pnpm run test", "pnpm install --frozen-lockfile", nil},
+		{"npm lock", map[string]string{"package.json": `{"scripts":{"check":"x"}}`, "package-lock.json": "{}"}, "npm run check", "npm ci",
+			[]string{notest}},
+		{"check that writes", map[string]string{"package.json": `{"scripts":{"check":"biome check --write src/"}}`}, "npm run check", "npm install",
+			[]string{
+				`package.json script "check" writes files (--write): run it without it, "biome check src/"`,
+				notest,
+			}},
+		{"lint, typecheck and test", map[string]string{"package.json": `{"scripts":{"lint":"biome check src/","typecheck":"tsc --noEmit","test":"vitest run"}}`},
+			"npm run lint && npm run typecheck && npm run test", "npm install", nil},
+		{"a lint that writes", map[string]string{"package.json": `{"scripts":{"lint":"biome check --write src/","test":"vitest run"}}`},
+			"npm run lint && npm run test", "npm install",
+			[]string{fmt.Sprintf(nowrite, "lint", "biome check src/")}},
+		{"test only", map[string]string{"package.json": `{"scripts":{"test":"vitest run"}}`}, "npm run test", "npm install", nil},
+		{"check that runs test", map[string]string{"package.json": `{"scripts":{"check":"biome check src/ && npm run test"}}`}, "npm run check", "npm install", nil},
+		{"no lockfile, no script", map[string]string{"package.json": `{}`}, "", "npm install", nil},
+		{"makefile and package.json", map[string]string{"Makefile": "check:\n", "package.json": `{"scripts":{"test":"x"}}`, "pnpm-lock.yaml": ""}, "make check", "pnpm install --frozen-lockfile", nil},
+		{"nothing", map[string]string{"README.md": "hi"}, "", "", nil},
 	} {
 		dir := t.TempDir()
 		for f, body := range c.files {
@@ -166,6 +183,9 @@ func TestDetectCommands(t *testing.T) {
 		if d.check != c.check || d.laneSetup != c.laneSetup || d.laneReady != ready {
 			t.Errorf("%s: check %q lane_setup %q lane_ready %q, want %q %q %q", c.name, d.check, d.laneSetup, d.laneReady,
 				c.check, c.laneSetup, ready)
+		}
+		if !slices.Equal(d.warn, c.warn) {
+			t.Errorf("%s: warnings %q, want %q", c.name, d.warn, c.warn)
 		}
 		if (len(d.from) == 0) != (c.name == "nothing" || c.name == "makefile without check") {
 			t.Errorf("%s: from %v", c.name, d.from)
