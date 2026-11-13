@@ -6,6 +6,7 @@ package herdr
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -46,14 +47,11 @@ func (h *Setup) Panes(ctx context.Context) ([]port.Pane, error) {
 
 // --- placement -----------------------------------------------------------------------------
 
-// workersTab is the tab the lanes' workers share (obor init's first worker opens it, L-02 and the integrator go beside).
-const workersTab = "workers"
-
-// Place makes a new pane for p (see port.Placement): Group or Own → a new tab in the project's workspace; In → a split
-// of that tab; Beside → a split of that pane's tab when it is a project tab, else a new workers tab; none → a split of
-// the caller's tab when it is a project tab in the project's workspace, else of that workspace's busiest project tab,
-// else a new tab of the role's own. A new tab goes to the project's workspace (the one whose panes work in the project),
-// a new one named after the project when none has a pane of it; never the caller's or herdr's active workspace.
+// Place makes a new pane for p (see port.Placement): Group → a new tab labelled Group in the project's workspace;
+// In → a split of that tab (refused when it holds the lead's pane; a full one: a new tab of p's kind); none → a split
+// of the project's first tab of p's kind with room (kindTab), else a new tab of that kind (kindLabel). A new tab goes
+// to the project's workspace (the one whose panes work in the project), a new one named after the project when none
+// has a pane of it; never the caller's or herdr's active workspace.
 func (h *Setup) Place(ctx context.Context, p port.Placement) (string, error) {
 	panes := h.last
 	if panes == nil {
@@ -65,32 +63,32 @@ func (h *Setup) Place(ctx context.Context, p port.Placement) (string, error) {
 	switch {
 	case p.Group != "":
 		return h.newTab(ctx, panes, p, p.Group)
-	case p.Own:
-		return h.newTab(ctx, panes, p, ownTab(p))
 	case p.In != "":
-		return h.split(ctx, panes, p, p.In)
-	case p.Beside != "":
-		if tab := projectTabOf(panes, p.Project.Has, p.Beside); tab != "" {
-			return h.split(ctx, panes, p, tab)
+		if leadTab(panes, p.Project.KindOf, p.In) {
+			return "", project.Failf("tab %s holds the lead's pane, which keeps its tab alone: pass --new-tab <label> "+
+				"(or --pane <id>)", p.In)
 		}
-		return h.newTab(ctx, panes, p, workersTab)
+		if n := inTab(panes, p.In); n >= p.Project.MaxPanes {
+			say(p, "tab %s is full (%d of %d panes)", p.In, n, p.Project.MaxPanes)
+			return h.newTab(ctx, panes, p, kindLabel(p.Kind))
+		}
+		return h.split(ctx, panes, p, p.In)
 	}
-	if tab := defaultTab(panes, p.Project); tab != "" {
+	if tab := kindTab(panes, p.Project, p.Kind); tab != "" {
 		return h.split(ctx, panes, p, tab)
 	}
-	return h.newTab(ctx, panes, p, ownTab(p)) // no tab of the project to split: a new one in its workspace
+	return h.newTab(ctx, panes, p, kindLabel(p.Kind))
 }
 
-// ownTab is the label of a tab of p's role's own: the lanes' workers share one, obor init's reviewer has "review",
-// any other role its name.
-func ownTab(p port.Placement) string {
-	switch {
-	case p.Lane != "":
-		return workersTab
-	case p.Own && p.Role == "reviewer":
-		return "review"
+// kindLabel is the label of a new tab for a pane of kind k: "lanes", "roles", "lead".
+func kindLabel(k port.PaneKind) string {
+	switch k {
+	case port.KindLane:
+		return "lanes"
+	case port.KindRole:
+		return "roles"
 	}
-	return p.Role
+	return string(k)
 }
 
 // say is one progress line of p.
@@ -142,49 +140,67 @@ func projectTab(panes []Pane, has func(string) bool, tab string) bool {
 	return n > 0
 }
 
-// projectTabOf is the tab of pane when it is the project's (projectTab), "" otherwise or when unknown: obor init never
-// puts L-02 and the integrator beside a pane in a foreign or unknown-cwd tab, a new tab in the project's workspace then
-func projectTabOf(panes []Pane, has func(string) bool, pane string) string {
-	for _, p := range panes {
-		if p.ID == pane && projectTab(panes, has, p.Tab) {
-			return p.Tab
-		}
+// paneKind is p's kind by its label, else (a pane nobody labelled) its agent's name: "" for a pane that names no
+// agent of the project (a shell, obor web, a person's own agent).
+func paneKind(p Pane, kindOf func(string) port.PaneKind) port.PaneKind {
+	if name := cmp.Or(p.Label, p.Name); name != "" {
+		return kindOf(name)
 	}
 	return ""
 }
 
-// defaultTab is the tab a placement with no place named goes to: the caller's when it is a project tab in the
-// project's workspace, else that workspace's project tab with most panes; "" when none (a new tab then).
-func defaultTab(panes []Pane, pr port.PlaceProject) string {
-	proj := projectWorkspace(panes, pr.Has)
-	if proj == "" {
-		return ""
-	}
-	if pr.Self != "" {
-		for _, p := range panes {
-			if p.ID == pr.Self && p.Workspace == proj && projectTab(panes, pr.Has, p.Tab) {
-				return p.Tab
-			}
+// tabKind is the kind every pane of tab is of; "" when tab has no pane, or a pane of another kind or of none.
+func tabKind(panes []Pane, kindOf func(string) port.PaneKind, tab string) port.PaneKind {
+	var kind port.PaneKind
+	for _, p := range panes {
+		if p.Tab != tab {
+			continue
 		}
+		k := paneKind(p, kindOf)
+		if k == "" || kind != "" && k != kind {
+			return ""
+		}
+		kind = k
 	}
-	return busiestTab(panes, pr.Has, proj)
+	return kind
 }
 
-// busiestTab is the project tab of ws with the most panes ("" when none).
-func busiestTab(panes []Pane, has func(string) bool, ws string) string {
-	count := map[string]int{}
+// leadTab: a pane of tab is the lead's.
+func leadTab(panes []Pane, kindOf func(string) port.PaneKind, tab string) bool {
 	for _, p := range panes {
-		if p.Workspace == ws {
-			count[p.Tab]++
+		if p.Tab == tab && paneKind(p, kindOf) == port.KindLead {
+			return true
 		}
 	}
-	tab, most := "", 0
-	for _, p := range panes { // in herdr's order: the first of equals
-		if c := count[p.Tab]; p.Workspace == ws && c > most && projectTab(panes, has, p.Tab) {
-			tab, most = p.Tab, c
+	return false
+}
+
+// inTab is how many panes tab holds.
+func inTab(panes []Pane, tab string) int {
+	n := 0
+	for _, p := range panes {
+		if p.Tab == tab {
+			n++
 		}
 	}
-	return tab
+	return n
+}
+
+// kindTab is the tab a placement of kind k with no place named goes to: the first tab of the project's workspace, in
+// herdr's order, that is a project tab, whose panes are all of kind k and which holds fewer than MaxPanes; "" when
+// none (a new tab then). The lead's pane keeps its tab alone: a lead placement never shares one.
+func kindTab(panes []Pane, pr port.PlaceProject, k port.PaneKind) string {
+	proj := projectWorkspace(panes, pr.Has)
+	if proj == "" || k == port.KindLead {
+		return ""
+	}
+	for _, p := range panes {
+		if p.Workspace == proj && inTab(panes, p.Tab) < pr.MaxPanes && projectTab(panes, pr.Has, p.Tab) &&
+			tabKind(panes, pr.KindOf, p.Tab) == k {
+			return p.Tab
+		}
+	}
+	return ""
 }
 
 // workspace is where this run's new tabs go: the project's workspace; none (no herdr workspace holds a pane of the
@@ -223,7 +239,7 @@ func (h *Setup) newTab(ctx context.Context, panes []Pane, p port.Placement, labe
 
 // split splits the largest pane of tab a split may use for p's new pane: to the right when it is wider than tall on
 // screen (a cell is about twice as tall as wide), else down. Another project's pane is never split: a pane
-// may be split when its cwd is unknown or in the project. A tab holding MaxPanes panes is full.
+// may be split when its cwd is unknown or in the project.
 func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab string) (string, error) {
 	var in []string
 	n := 0
@@ -241,9 +257,6 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 	}
 	if len(in) == 0 {
 		return "", project.Failf("tab %s holds no pane of this project: pass --new-tab <label> (or --pane <id>)", tab)
-	}
-	if limit := p.Project.MaxPanes; n >= limit {
-		return "", project.Failf("tab %s is full (%d of %d panes; --new-tab <label>)", tab, n, limit)
 	}
 	layout, err := h.Layout(ctx, in[0])
 	if err != nil {

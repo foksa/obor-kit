@@ -821,8 +821,8 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 	}
 }
 
-// bash setup.test.sh case_pane_refuses_a_full_tab
-func TestPaneRefusesAFullTab(t *testing.T) {
+// An explicit --tab into a full tab (maxPanesPerTab) opens a new tab of the pane's kind, never a refusal.
+func TestPaneFullTabOpensANewTab(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.lane(t, "L-01")
@@ -832,11 +832,16 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
+	if n := len(x.inTab("w1:t1")); n != 4 {
+		t.Fatalf("precondition: tab w1:t1 holds %d panes, want 4", n)
+	}
 	x.reset()
-	x.failing(t, "FAIL tab w1:t1 is full (4 of 4 panes; --new-tab <label>)", "pane", "--start", "L-01", "--tab", "w1:t1")
+	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
-	hasNot(t, calls, "pane.split", "no split")
-	hasNot(t, calls, "agent.start", "no agent start")
+	has(t, out, "tab w1:t1 is full (4 of 4 panes)", "the full tab said")
+	hasNot(t, calls, "pane.split", "no split of the full tab")
+	has(t, calls, "label=lanes workspace_id=w1", "a new lanes tab in the project's workspace")
+	has(t, calls, "agent.start", "the agent started there")
 }
 
 // R-28 §2: the new pane is labelled the agent name before the start; a pane labelled with its name at its shell is
@@ -971,13 +976,6 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	x.failing(t, "FAIL unknown lane L-09 (lanes: 0; obor setup lane L-09 first)", "pane", "L-09", "--tab", "w1:t1")
 	x.lane(t, "L-01")
 	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "L-01", "--tab", "w1:t1", "--new-tab", "x")
-	x.lane(t, "L-02")
-	x.ok(t, "pane", "--start", "L-02") // not in a herdr pane: the project's tab with most panes, the first of equals
-	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
-	x.reset()
-	x.env = []string{"OBOR_PANE=w1:q1"}
-	x.ok(t, "pane", "--start", "L-01")
-	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:q1", "no --tab: the caller's tab")
 }
 
 // --- role -------------------------------------------------------------------------------------------------------------

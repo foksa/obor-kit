@@ -202,31 +202,40 @@ type TerminalSetup interface {
 }
 
 // Placement is a new agent pane setup asks the terminal for (obor setup pane / role, obor drive, obor init): whose
-// pane it is, its cwd and env, and near what. At most one of Own, Group, In, Beside; none: beside the caller's pane
-// when its group is the project's, else in the project's busiest group, else in a group of the role's own. The
-// terminal adapter decides the layout (which group, a split or a new one, its label).
+// pane it is, its kind, its cwd and env, and where. At most one of Group, In; none: by Kind, in a group of the
+// project whose panes are all of that kind and which has room, else in a new one. A group holding the lead's pane is
+// the lead's alone: nothing else goes there, not even by In. The terminal adapter decides the layout (which group, a
+// split or a new one, its label).
 type Placement struct {
 	Role, Lane string   // whose pane: its role ("worker" for a lane's) and lane ("" for none)
+	Kind       PaneKind // what the pane is to placement
 	Cwd        string   // the new pane's cwd
 	Env        []string // NAME=VALUE for the new pane's shell ("NAME=": set empty)
-	Own        bool     // in a new group of the role's own (obor init's first worker and its reviewer)
 	Group      string   // in a new group labelled Group (obor setup --new-tab)
-	In         string   // in the group the terminal knows by this id (obor setup --tab), whoever's it is
-	// Beside: in the group of this pane when that group is the project's, else in a new group of the role's own (obor
-	// init: L-02 and the integrator beside L-01).
-	Beside  string
-	Project PlaceProject
-	Say     func(line string) // the placement's progress lines (a new group, a split)
+	In         string   // in the group the terminal knows by this id (obor setup --tab), unless it is the lead's
+	Project    PlaceProject
+	Say        func(line string) // the placement's progress lines (a new group, a split)
 }
 
+// PaneKind is what a pane is to placement: the lead's, a lane's (its worker or drive agent), or a role's (any other
+// role of the project: integrator, reviewer, a custom one).
+type PaneKind string
+
+const (
+	KindLead PaneKind = "lead"
+	KindLane PaneKind = "lane"
+	KindRole PaneKind = "role"
+)
+
 // PlaceProject is the project a placement is for: its name (a group of its own is named after it), root (that
-// group's first pane works there), the caller's pane ("": none), how many panes a group may hold, and which cwds are
-// the project's (Has: the main checkout or under its lanes dir).
+// group's first pane works there), how many panes a group may hold, which cwds are the project's (Has: the main
+// checkout or under its lanes dir), and the kind of a pane by its label (KindOf: "" for a label that names no agent
+// of the project, or none).
 type PlaceProject struct {
 	Name, Root string
-	Self       string
 	MaxPanes   int
 	Has        func(cwd string) bool
+	KindOf     func(label string) PaneKind
 }
 
 // Renamed is RenameProject's outcome: the step's line, Already when nothing was left to do, and Warn when the terminal

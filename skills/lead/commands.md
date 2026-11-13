@@ -226,7 +226,7 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
 - `obor drive <name> [--model <model>[:<effort>]]` — a new task (the next T-xx, its spec `Owner drive: <name>` stored
   by serve) on the first free lane, on branch `task/T-xx`; the model defaults to the hard level's first. Serve prepares
   the lane; the command then starts the drive agent
-  (`<lane's worker>-drive`, role driver) in a pane split in the tab it runs in, its first prompt one line saying what it
+  (`<lane's worker>-drive`, role driver) in a pane placed as a lane's (a lanes tab), its first prompt one line saying what it
   is. Replies: `DRIVE T-xx → <LANE> (<agent>, <model>)`, the start's lines, then `OK T-xx: <agent> drives in lane
   <LANE> on task/T-xx; obor land T-xx when done`. No free lane is a refusal naming the lanes' states, never a wait.
 - A drive is new work only (owner 11-05): `obor drive <T-xx>` on a task that is not a drive (a worker's,

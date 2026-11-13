@@ -314,7 +314,13 @@ known cwd is in the project; none: init creates a workspace. Run init from a she
 a workspace whose only pane is a shell `cd`'d into the project counts as the project's (accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
 contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (the reviewer, the deep
 dive and the integrator run in a role worktree serve owns, `<lanes.dir>/<role>`; `obor setup role`, serve's starts and
-`obor restart` add it when it is missing). `pane --tab`
+`obor restart` add it when it is missing). Placement by kind (lead, lane, role): the lead's tab holds the lead's
+pane alone (never split, `--tab` into it refused); with no `--tab`/`--new-tab`/`--pane` a lane's pane (a drive
+agent's too) goes to the project's first tab whose panes are all lane panes and holds fewer than 4, else a new tab
+`lanes`, and a role's pane likewise to a tab of role panes, else a new tab `roles`; a full tab, named or not, means a
+new tab of the kind, never a refusal. A tab's kind is read from its panes' labels (else agent names); a tab holding
+a pane that is no agent of the project (a shell, `obor web`) is no kind's. `obor init` places this way: its lanes in
+a `lanes` tab, the integrator and the reviewer in a `roles` tab. `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. Every herdr call
 goes through `internal/herdr`, and `pane` / `role` start the agent through `launch.Launcher.Start`, the one
@@ -436,7 +442,7 @@ full check and the pause.
   machinery does the work. `obor drive <name>` is a new task (spec `Owner drive: <name>`) dispatched as a drive onto
   the first free lane (owner 2026-11-05: a drive is for new work; no take-over of a worker's task). After lane.prepare the task is **driving**: serve sends it no
   jobs, no watchdog watches it (no idle or stall needs-you), a merge watch has no line for it; the CLI starts the drive
-  agent in a pane split in the caller's tab. `obor land` (a clean worktree; it commits nothing) records the submission
+  agent in a pane placed as a lane's (a lanes tab). `obor land` (a clean worktree; it commits nothing) records the submission
   on the owner's behalf, the summary as its report; from there it is an ordinary submitted task, and after the merge
   agent.stop stops the drive agent. A red gate, the integrator's sendback or hold go back to driving with one line to
   the lead, never to a worker; `obor drop` works on it unchanged. The drive and the lead message each other:

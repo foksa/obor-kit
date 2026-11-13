@@ -27,16 +27,18 @@ there. A `FAIL lane_setup …` shows the command's output: fix with the user. A 
 ## Add a pane or a role agent
 Spawning panes can be blocked by the auto-mode classifier: ask the user to approve, or to run the command.
 ```
-obor setup pane L-03 --new-tab workers        # a new lane: a new tab
-obor setup pane L-04 --tab <tab-id>           # more lanes: split that tab (herdr tab list)
-obor setup role integrator --tab <tab-id>     # lead | integrator | reviewer
-obor setup role reviewer --new-tab review     # reviewer gets <lanes.dir>/reviewer
-obor setup role triage --tab <tab-id>         # optional bug inbox: <project.agent_prefix>-triage in the main checkout, docs/BUGS.md
+obor setup pane L-03                          # a lane: into a lanes tab with room, else a new tab "lanes"
+obor setup role integrator                    # lead | integrator | reviewer: into a roles tab, else a new tab "roles"
+obor setup role reviewer                      # reviewer gets <lanes.dir>/reviewer
+obor setup role triage                        # optional bug inbox: <project.agent_prefix>-triage in the main checkout, docs/BUGS.md
 ```
-Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` uses an existing shell pane. `obor setup pane` labels the pane and types the env but starts no agent (dispatch starts a fresh worker anyway); add `--start` to start it now. `obor init` and `obor setup role` likewise label their panes and start no agent (each starts on first use: a job, a review, a brief); `--start` starts it now. Panes get
+Placement goes by the pane's kind: the lead's tab holds the lead alone; a lane's pane goes to a tab of lane panes
+with room (a tab holds 4), a role's pane to a tab of role panes, else a new tab `lanes` / `roles`. A tab's kind comes
+from its panes' labels; a tab with a shell in it is no kind's. `--tab <id>` splits that tab (not the lead's: refused),
+`--new-tab <label>` opens a tab of that label, `--pane <id>` uses an existing shell pane. `obor setup pane` labels the pane and types the env but starts no agent (dispatch starts a fresh worker anyway); add `--start` to start it now. `obor init` and `obor setup role` likewise label their panes and start no agent (each starts on first use: a job, a review, a brief); `--start` starts it now. Panes get
 `--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<project.agent_prefix>-<lane lower>` (`<project.agent_prefix>-int`,
 `<project.agent_prefix>-rev`, `<project.agent_prefix>-lead`); Claude agents except leads start with Remote Control and auto memory off, on a settings file obor writes (`.obor/state/settings/<agent>.json`: the user's settings with the project's `.obor/claude/settings_override.json` merged over them; a lead keeps Remote Control, auto memory and the user's settings as they are).
-- `FAIL tab … is full` → use `--new-tab` (a tab holds 4 panes).
+- `FAIL tab … holds the lead's pane` → drop `--tab`, or use `--new-tab <label>`.
 - `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
   once per repo). `… updated itself and exited …` → run the command the hint prints (`obor restart <agent> [--fresh] --pane <id>`,
   or `obor drive <T-xx>`).
