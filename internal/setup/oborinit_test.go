@@ -134,7 +134,9 @@ func TestOborInitFailsWithoutClaude(t *testing.T) {
 	}
 }
 
-// One row per detection: a Makefile check: target, go.mod, package.json with each lockfile and script, nothing.
+// One row per detection: a Makefile check: target, go.mod, package.json with each lockfile and script, nothing. compile
+// is the typecheck script, else the build script, with the lockfile's manager; a row with neither also warns that a
+// moved candidate re-runs the full check.
 func TestDetectCommands(t *testing.T) {
 	t.Parallel()
 	nowrite := `package.json script %q writes files (--write): run it without it, %q`
@@ -175,8 +177,19 @@ func TestDetectCommands(t *testing.T) {
 			"npm run check && npm run test", "npm install", nil},
 		{"no lockfile, no script", map[string]string{"package.json": `{}`}, "", "npm install", nil},
 		{"makefile and package.json", map[string]string{"Makefile": "check:\n", "package.json": `{"scripts":{"test":"x"}}`, "pnpm-lock.yaml": ""}, "make check", "pnpm install --frozen-lockfile", nil},
+		{"typecheck and test", map[string]string{"package.json": `{"scripts":{"typecheck":"tsc --noEmit","build":"vite build","test":"vitest run"}}`, "pnpm-lock.yaml": ""},
+			"pnpm run typecheck && pnpm run test", "pnpm install --frozen-lockfile", nil},
+		{"build and test", map[string]string{"package.json": `{"scripts":{"build":"vite build","test":"vitest run"}}`, "bun.lock": ""},
+			"bun run test", "bun install --frozen-lockfile", nil},
 		{"nothing", map[string]string{"README.md": "hi"}, "", "", nil},
 	} {
+		compile := map[string]string{
+			"lint, typecheck and test": "npm run typecheck", "check that runs typecheck": "npm run typecheck",
+			"typecheck and test": "pnpm run typecheck", "build and test": "bun run build",
+		}[c.name]
+		if compile == "" {
+			c.warn = append(c.warn, noCompileDetected)
+		}
 		dir := t.TempDir()
 		for f, body := range c.files {
 			if err := os.WriteFile(filepath.Join(dir, f), []byte(body), 0o644); err != nil {
@@ -191,6 +204,9 @@ func TestDetectCommands(t *testing.T) {
 		if d.check != c.check || d.laneSetup != c.laneSetup || d.laneReady != ready {
 			t.Errorf("%s: check %q lane_setup %q lane_ready %q, want %q %q %q", c.name, d.check, d.laneSetup, d.laneReady,
 				c.check, c.laneSetup, ready)
+		}
+		if d.compile != compile {
+			t.Errorf("%s: compile %q, want %q", c.name, d.compile, compile)
 		}
 		if !slices.Equal(d.warn, c.warn) {
 			t.Errorf("%s: warnings %q, want %q", c.name, d.warn, c.warn)

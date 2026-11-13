@@ -578,7 +578,38 @@ func (v *validator) trunk() {
 	if exec.Command("git", "-C", v.c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+name).Run() != nil {
 		v.fail(".merge.target_branch", "refs/heads/"+name+" does not exist: set merge.target_branch: your trunk is not "+
 			name)
+		return
 	}
+	if w := v.c.NoCompileWarning(); w != "" {
+		v.warns = append(v.warns, "WARN "+w)
+	}
+}
+
+// NoCompile is the end of the warning that a project has no merge.compile: what a moved gate runs then.
+const NoCompile = "a moved candidate re-runs the full check (no compile)"
+
+// NoCompileWarning is the warning obor config validate and obor init give when merge.compile is empty and
+// merge.target_branch is the repository's default branch (origin's HEAD, else the main checkout's branch): a
+// candidate whose target moved re-runs merge.check before it lands on the branch people ship. "" otherwise, and
+// outside a repository.
+func (c *Config) NoCompileWarning() string {
+	name := c.Data.Merge.TargetBranch
+	if c.Data.Merge.Compile.Cmd != "" || name == "" || c.Root == "" {
+		return ""
+	}
+	def := ""
+	for _, args := range [][]string{
+		{"symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"}, {"symbolic-ref", "-q", "--short", "HEAD"},
+	} {
+		out, err := exec.Command("git", append([]string{"-C", c.Root}, args...)...).Output()
+		if def = strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"); err == nil && def != "" {
+			break
+		}
+	}
+	if def != name {
+		return ""
+	}
+	return "merge.compile is empty and merge.target_branch " + name + " is the default branch: " + NoCompile
 }
 
 // warnings: merge.by_path.no_check globs (default docs/**, as Classify's) that may share a path with a rule's glob
