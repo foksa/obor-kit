@@ -55,7 +55,8 @@ type gitReader interface {
 
 // gitWriter is the git Scratch writes: each method one change to the repository or a worktree.
 type gitWriter interface {
-	// AddAll stages every change in dir but obor's links (project.LinksIn); Commit commits the index (an open merge included) with msg, --no-verify; date
+	// AddAll stages every change in dir but obor's links (project.LinksIn), the ignored ones left to git; Commit
+	// commits the index (an open merge included) with msg, --no-verify; date
 	// ("": now) is its author and committer date; Amend amends HEAD with msg, date its committer date.
 	AddAll(dir string) error
 	Commit(dir, msg, date string) error
@@ -184,15 +185,35 @@ func (g realGit) Refs(prefix string) ([]string, error) {
 func (g realGit) Log(args ...string) (string, error) { return g.s.call(g.root(), args...) }
 
 func (g realGit) AddAll(dir string) error {
+	links, err := g.notIgnored(dir, project.LinksIn(g.s.Cfg, dir, g.s.call))
+	if err != nil {
+		return err
+	}
 	args := []string{"add", "-A"}
-	if links := project.LinksIn(g.s.Cfg, dir, g.s.call); len(links) > 0 {
+	if len(links) > 0 {
 		args = append(args, "--", ".")
 		for _, link := range links {
 			args = append(args, ":(top,exclude,literal)"+link)
 		}
 	}
-	_, err := g.s.call(dir, args...)
+	_, err = g.s.call(dir, args...)
 	return err
+}
+
+// notIgnored is paths in dir without the ones git ignores there: add -A never stages an ignored path, and an exclude
+// pathspec that names one fails git add. One check-ignore call over them; its exit 1 (none ignored) is an answer.
+// quotePath=false keeps a non-ASCII path as check-ignore names it in its output.
+func (g realGit) notIgnored(dir string, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"-c", "core.quotePath=false", "check-ignore", "--"}, paths...)
+	out, errOut, err := g.s.gitLocked(nil, dir, args...)
+	if _, err := exit1(err); err != nil {
+		return nil, gitError(dir, []string{"check-ignore"}, errOut, err)
+	}
+	ignored := lines(out)
+	return slices.DeleteFunc(slices.Clone(paths), func(p string) bool { return slices.Contains(ignored, p) }), nil
 }
 
 func (g realGit) Commit(dir, msg, date string) error {

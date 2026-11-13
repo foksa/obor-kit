@@ -122,3 +122,47 @@ func TestPreexistingLinkKeepsTheLaneClean(t *testing.T) {
 		})
 	}
 }
+
+// A lane with three links, two gitignored (one named with a non-ASCII character, which git quotes in its answers) and
+// one untracked and not ignored: the submission's git add stages the worker's work and no link. An exclude pathspec
+// that names an ignored path fails git add, so an ignored link needs no exclude.
+func TestAddAllLeavesIgnoredAndPlainLinksOut(t *testing.T) {
+	t.Parallel()
+	const (
+		linked   = "local.env" // untracked and ignored nowhere
+		nonASCII = "lïnk"      // gitignored, and quoted in git's answer about it
+	)
+	y := newSx(t, func(m map[string]any) {
+		lanes, _ := m["lanes"].(map[string]any)
+		lanes["links"] = []any{linked, nonASCII}
+	})
+	y.Write(filepath.Join(".git", "info", "exclude"), y.Read(".git/info/exclude")+"/"+nonASCII+"\n")
+	links := []string{linked, nonASCII, project.PluginSettings} // project.LinksIn's order: lanes.links, then the settings
+	for _, path := range links {
+		y.Write(path, "main's own\n")
+		if err := os.Remove(filepath.Join(y.lane, path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(y.Root, path), filepath.Join(y.lane, path)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := project.LinksIn(y.s.Cfg, y.lane, y.s.call); strings.Join(got, " ") != strings.Join(links, " ") {
+		t.Fatalf("precondition: AddAll's links %q; want %q", got, links)
+	}
+	for _, c := range []struct {
+		path    string
+		ignored bool
+	}{{project.PluginSettings, true}, {nonASCII, true}, {linked, false}} {
+		if _, err := project.Git(y.lane, "check-ignore", "-q", c.path); (err == nil) != c.ignored {
+			t.Fatalf("precondition: git ignoring %s = %v; want %v", c.path, err == nil, c.ignored)
+		}
+	}
+
+	if err := y.s.gio().AddAll(y.lane); err != nil {
+		t.Fatalf("AddAll: %v; want every link left out, the ignored ones without an exclude", err)
+	}
+	if staged := y.Git(y.lane, "diff", "--cached", "--name-only"); staged != "feature.txt" {
+		t.Errorf("staged %q; want only the worker's feature.txt, no link", staged)
+	}
+}
