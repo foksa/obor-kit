@@ -20,9 +20,9 @@ package setup
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, check = its lint, typecheck, check and test scripts, each that the
 //	           check script does not already run, lane_setup the install, lane_ready test -d node_modules; a script
-//	           that writes files and a check with no test step are warnings; compile = its typecheck script, else
-//	           its build script (a moved candidate re-runs only it), none: config.NoCompileWarning. Only keys still null are written;
-//	           nothing found → they stay null.
+//	           that writes files and a check with no test step are warnings; compile stays unset, so a moved
+//	           candidate re-runs check, and a typecheck script is suggested for it; no compile:
+//	           config.NoCompileWarning. Only keys still null are written; nothing found → they stay null.
 //	lanes      L-01 … L-max(2, lanes.count): at least two (setup lane: lanes 2; a task's Model:/Difficulty: picks
 //	           the model), and every lane an existing config counts, so init leaves no configured lane without a
 //	           worktree; roles.lead,
@@ -171,7 +171,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	add("githooks", doneOr(hooksChanged), "%s", s.hooksLine(s.root))
 
 	// commands
-	set, warns, err := s.initCommands()
+	set, warns, suggest, err := s.initCommands()
 	if err != nil {
 		return err
 	}
@@ -288,6 +288,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		"(the nightly), and obor nightly off if CI on main already does that")
 	s.say("merge.compile is what a candidate re-runs when its target moved after its lane test (a typecheck or build, " +
 		"no tests); without it that candidate re-runs merge.check")
+	if suggest != "" {
+		s.say("set merge.compile to `%s` to make moved re-gates faster, if it type-checks what merge.check covers", suggest)
+	}
 	// obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
 	// never run on them.
 	s.say("obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put formatting " +
@@ -394,10 +397,11 @@ func uniquePrefix(p string, running []port.Pane) string {
 
 // --- commands ---------------------------------------------------------------------------------------------------
 
-// detected is what detectCommands found: the commands by key ("": not found), where from, and the warnings init
-// prints: a chosen script that writes files, a check with no test step, no compile found (noCompileDetected).
+// detected is what detectCommands found: the commands by key ("": not found), where from, the warnings init prints
+// (a chosen script that writes files, a check with no test step), and the suggestion for merge.compile (the typecheck
+// script: a script name is no proof a moved gate's command is enough, so detection never sets it).
 type detected struct {
-	check, compile, laneSetup, laneReady string
+	check, laneSetup, laneReady, suggest string
 	from                                 []string
 	warn                                 []string
 }
@@ -407,19 +411,11 @@ var checkTarget = regexp.MustCompile(`(?m)^check\s*:`)
 // composedScripts are the scripts a check is composed from, in the order they run: a check script goes before test.
 var composedScripts = []string{"lint", "typecheck", "check", "test"}
 
-// noCompileDetected is detectCommands' warning when it finds no compile: init prints the config's own
-// (config.NoCompileWarning) in its place, which says it only when the target is the default branch.
-var noCompileDetected = "no typecheck or build script for merge.compile: " + config.NoCompile
-
 // detectCommands reads root: a Makefile with a check: target, go.mod, package.json (its lockfile picks the package
 // manager). The first of the three gives check; package.json gives lane_setup and lane_ready, a check composed of
-// its lint, typecheck, check and test scripts, and compile: its typecheck script, else its build script.
+// its lint, typecheck, check and test scripts, and a suggestion for compile: its typecheck script (a build script is
+// no proof it type-checks what merge.check covers).
 func detectCommands(root string) (d detected) {
-	defer func() {
-		if d.compile == "" {
-			d.warn = append(d.warn, noCompileDetected)
-		}
-	}()
 	if b, err := os.ReadFile(filepath.Join(root, "Makefile")); err == nil && checkTarget.Match(b) {
 		d.check = "make check"
 		d.from = append(d.from, "Makefile check:")
@@ -472,11 +468,8 @@ func detectCommands(root string) (d detected) {
 			}
 		}
 	}
-	for _, name := range []string{"typecheck", "build"} {
-		if pkg.Scripts[name] != "" {
-			d.compile = pm + " run " + name
-			break
-		}
+	if pkg.Scripts["typecheck"] != "" {
+		d.suggest = pm + " run typecheck"
 	}
 	d.laneSetup, d.laneReady = install, "test -d node_modules"
 	return d
@@ -516,12 +509,11 @@ func scriptWrites(name, script string) string {
 }
 
 // initCommands writes the detected commands whose key is still null in .obor/config.json: "key = cmd" each. Its
-// warnings are the detection's when it wrote check (noCompileDetected aside), and config.NoCompileWarning when the
-// config has no compile.
-func (s *Setup) initCommands() (set, warn []string, err error) {
+// warnings are the detection's when it wrote check, and config.NoCompileWarning when the config has no compile; its
+// suggestion is the detected typecheck script while the config has no compile.
+func (s *Setup) initCommands() (set, warn []string, suggest string, err error) {
 	d := detectCommands(s.root)
-	for _, kv := range [][2]string{{"check", d.check}, {"compile", d.compile}, {"lane_setup", d.laneSetup},
-		{"lane_ready", d.laneReady}} {
+	for _, kv := range [][2]string{{"check", d.check}, {"lane_setup", d.laneSetup}, {"lane_ready", d.laneReady}} {
 		if kv[1] == "" {
 			continue
 		}
@@ -531,26 +523,25 @@ func (s *Setup) initCommands() (set, warn []string, err error) {
 		if err := s.editConfig(func(doc []byte) (config.Write, error) {
 			return config.SetCommand(doc, kv[0], kv[1])
 		}); err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 		set = append(set, kv[0]+" = "+kv[1])
 		if kv[0] == "check" {
-			for _, w := range d.warn {
-				if w != noCompileDetected {
-					warn = append(warn, w)
-				}
-			}
+			warn = append(warn, d.warn...)
 		}
 	}
 	if len(set) > 0 {
 		if err := s.load(); err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 	}
 	if w := s.cfg.NoCompileWarning(); w != "" {
 		warn = append(warn, w)
 	}
-	return set, warn, nil
+	if _, ok := run.Command(s.cfg, "compile"); !ok {
+		suggest = d.suggest
+	}
+	return set, warn, suggest, nil
 }
 
 func (s *Setup) anyCommand() bool { return s.commandsLine() != "" }
