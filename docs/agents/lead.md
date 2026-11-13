@@ -60,6 +60,9 @@ panes per tab. No per-model caps (owner 2026-11-03): a model out of quota is pau
 - A spec that adds a script or test lists `.obor/config.json` in its files and adds its own `merge.by_path.rules`
   entry + check (the classify audit fails otherwise; committing the rule on main ahead of the merge names a test that
   doesn't exist yet and turns every other merge RED).
+- `web/src/lib/types.ts` changes only together with the Go struct it mirrors (`internal/web/types_test.go` checks both
+  sides): never a types.ts contract committed ahead of the tasks, it turns every lane's web check RED (11-13, b8a9d61d).
+  The task that adds the Go field adds its TS line.
 
 - No enforced file list: no guard deny, no gate FAIL, a spec without a files section dispatches; a protected file a task must edit goes under "Protected files this task may edit" (exact paths).
 - `obor serve` is the only dispatcher: `obor dispatch` is a request to it (`DISPATCHED … (queued)`; `obor resume`
