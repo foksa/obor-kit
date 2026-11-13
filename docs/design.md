@@ -639,9 +639,10 @@ and tests have one split, not tiers.
   `merge.compile` only (obor-kit: `make check-compile`: build, gofmt, vet, deadcode; no `go test`), after
   `lane_setup`. A red compile holds the merge; no check of the classes runs there. Without `merge.compile` a lane
   input runs nothing in the slot, and a moved input (its target moved after its lane test) runs `merge.check` there
-  with the lane env and the lane test's retest: red holds the merge. `obor init` proposes `merge.compile` from a
-  `typecheck` script, else `build`; `obor config validate` and `obor init` warn when it is empty and
-  `merge.target_branch` is the repository's default branch.
+  with the lane env and the lane test's retest: red holds the merge. `obor init` suggests `merge.compile` from a
+  `typecheck` script, never a `build` (a script name is no proof the command type-checks what the check covers);
+  `obor config validate` and `obor init` warn when it is empty and `merge.target_branch` is the repository's
+  default branch.
 - **The lane tests.** Serve then checks the candidate out, detached, in the task's lane worktree (the lane must be
   clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
   (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),

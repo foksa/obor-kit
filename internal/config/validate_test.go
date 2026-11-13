@@ -394,7 +394,7 @@ func TestValidateTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
-	// the template has no merge.compile (obor init detects one) and the fixture's target is its default branch
+	// the template has no merge.compile (obor init suggests one) and the fixture's target is its default branch
 	warns = slices.DeleteFunc(warns, func(w string) bool { return strings.HasSuffix(w, config.NoCompile) })
 	if len(warns)+len(fails) != 0 {
 		t.Errorf("templates: %q %q", warns, fails)

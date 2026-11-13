@@ -804,6 +804,40 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	}
 }
 
+// package.json detection leaves merge.compile unset, so a moved candidate re-runs merge.check, and suggests a
+// typecheck script for compile instead; a config that sets compile keeps it and gets no suggestion.
+func TestOborInitSuggestsTypecheckForCompile(t *testing.T) {
+	t.Parallel()
+	x := newFakeGitInitFx(t, true)
+	// the fake git's worktrees hold no package.json: the detected install would fail there, so the config brings its own.
+	x.Config(testkit.Set("lanes.setup", "true"), testkit.Set("lanes.ready", "true"))
+	x.Write("package.json", `{"scripts":{"typecheck":"tsc --noEmit","test":"vitest run"}}`)
+	out := x.init(t)
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cfg.Data.Merge.Compile; c.Cmd != "" {
+		t.Errorf("merge.compile = %+v, want it unset", c)
+	}
+	if c := cfg.Data.Merge.Check; c.Cmd != "npm run typecheck && npm run test" {
+		t.Errorf("merge.check = %+v", c)
+	}
+	has(t, out, "set merge.compile to `npm run typecheck` to make moved re-gates faster, if it type-checks what "+
+		"merge.check covers", "the compile suggestion")
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"merge", "compile"}, "tsc --noEmit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Write(".obor/config.json", string(doc))
+	out = x.init(t)
+	hasNot(t, out, "set merge.compile to", "no suggestion with compile set")
+	cfg, _ = config.Load(x.Root)
+	if c := cfg.Data.Merge.Compile; c.Cmd != "tsc --noEmit" {
+		t.Errorf("the user's compile overwritten: %+v", c)
+	}
+}
+
 // on a rerun L-01's tab holds a pane with an unknown cwd (maybe another project's): init does not pass that
 // tab for L-02, which goes to a new tab of the project's workspace; nothing is split.
 func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
