@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { href, parseRoute } from "./route";
+import { href, pageKey, parseRoute } from "./route";
 
 describe("routes", () => {
   it("parses every page's hash, a job's id keeping its slashes", () => {
@@ -38,5 +38,19 @@ describe("routes", () => {
     expect(links.map((l) => parseRoute(l).kind)).toEqual(["p", "s", "t", "a", "j"]);
     expect(parseRoute(href.project("a b")).project).toBe("a b");
     expect(parseRoute(href.job("pj", "T-1/1/work")).id).toBe("T-1/1/work");
+  });
+});
+
+describe("the routed page's key (T-1306)", () => {
+  it("keeps the docs page mounted from doc to doc and on a navigation, remounting it for another project", () => {
+    const a = pageKey(parseRoute(href.docs("pj", "docs/a.md")), 1);
+    expect(a).toBe(pageKey(parseRoute(href.docs("pj", "docs/b.md")), 2));
+    expect(a).toBe(pageKey(parseRoute(href.docs("pj")), 3));
+    expect(a).not.toBe(pageKey(parseRoute(href.docs("other", "docs/a.md")), 1));
+  });
+  it("remounts any other page on another route or a navigation to it", () => {
+    const t = parseRoute(href.task("pj", "T-1"));
+    expect(pageKey(t, 1)).not.toBe(pageKey(t, 2));
+    expect(pageKey(t, 1)).not.toBe(pageKey(parseRoute(href.task("pj", "T-2")), 1));
   });
 });

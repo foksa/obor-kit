@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  defaultFolded, defaultOrder, docLinks, docTitle, filterLines, matchDocs, neighbours, normalize, outline, paths,
-  pinnedCaption, recent, resolve, sameName, sortDocs, tree,
+  currentHeading, defaultFolded, defaultOrder, docLabel, docLinks, docTitle, everyFold, filterLines, isOpen, marks,
+  matchDocs, matchKey, neighbours, normalize, outline, paths, pinnedCaption, progress, recent, resolve, rows, sameName,
+  sortDocs, tree, unfold,
 } from "./docs";
 import { md } from "./md";
 import type { DocList } from "./types";
@@ -171,7 +172,7 @@ describe("matching docs", () => {
     expect(matchDocs(matchList, "DESIGN").map((m) => m.doc.path)).toEqual(["docs/design.md", "notes/design-notes.md"]);
     expect(matchDocs(matchList, "docs design").map((m) => m.doc.path)).toEqual(["docs/design.md"]);
     expect(matchDocs(matchList, "notes design").map((m) => m.doc.path)).toEqual(["notes/design-notes.md"]);
-    expect(matchDocs(matchList, "obor")).toEqual([]); // the path only; a doc's title is not matched here
+    expect(matchDocs(matchList, "obor")).toEqual([]);
   });
   it("keeps the pinned docs first and says where a word first matches the file name", () => {
     const all = matchDocs(matchList, "");
@@ -262,5 +263,119 @@ describe("pinned captions", () => {
     expect(pinnedCaption("AGENTS.md")).toBe("the rules every agent obeys");
     expect(pinnedCaption("README.md")).toBe("what obor is, and how to start");
     expect(pinnedCaption("docs/design.md")).toBe("");
+  });
+});
+
+describe("matching docs by title (T-1306)", () => {
+  const titled: DocList = {
+    head: "h",
+    pinned: [],
+    groups: [{ dir: "docs", docs: [
+      { path: "docs/design.md", title: "obor-kit design (v2)", updated: 2 },
+      { path: "docs/state-model.md", updated: 1 },
+    ] }],
+  };
+  it("matches a word in the title, and every word in the path or the title", () => {
+    expect(matchDocs(titled, "obor")).toEqual([{ doc: titled.groups[0].docs[0], at: -1, tat: 0 }]);
+    expect(matchDocs(titled, "docs v2").map((m) => m.doc.path)).toEqual(["docs/design.md"]); // docs: path; v2: title
+    expect(matchDocs(titled, "state v2")).toEqual([]);
+    expect(matchDocs(titled, "model")[0]).toEqual({ doc: titled.groups[0].docs[1], at: 6, tat: -1 });
+  });
+});
+
+describe("a match's highlight", () => {
+  it("marks every piece that is a word of the filter, case aside", () => {
+    expect(marks("herdr-core.md", "CORE")).toEqual([{ text: "herdr-", hit: false }, { text: "core", hit: true }, { text: ".md", hit: false }]);
+    expect(marks("a-b-a", "a")).toEqual([
+      { text: "a", hit: true }, { text: "-b-", hit: false }, { text: "a", hit: true }]);
+    expect(marks("design", "des sign")).toEqual([{ text: "design", hit: true }]);
+    expect(marks("x.md", "")).toEqual([{ text: "x.md", hit: false }]);
+  });
+});
+
+describe("the folds", () => {
+  const big = Array.from({ length: 13 }, (_, i) => ({ path: `docs/research/r${i}.md`, updated: i + 1 }));
+  const foldList: DocList = {
+    head: "h",
+    pinned: [],
+    groups: [
+      { dir: "", docs: [{ path: "README.md", updated: 1 }] },
+      { dir: "docs", docs: [{ path: "docs/design.md", updated: 5 }] },
+      { dir: "docs/research", docs: big },
+      { dir: "skills/lead", docs: [{ path: "skills/lead/SKILL.md", updated: 3 }] },
+    ],
+  };
+  const root = tree(foldList);
+  const research = root.folders[0].folders[0];
+  it("starts a folder of over 12 own docs folded, the rest open, until the folds say otherwise", () => {
+    expect(research.dir).toBe("docs/research");
+    expect(isOpen(research, {})).toBe(false);
+    expect(isOpen(root.folders[0], {})).toBe(true); // docs/: 1 own doc, 14 with research's
+    expect(isOpen(research, { "docs/research": true })).toBe(true);
+    expect(isOpen(root.folders[0], { docs: false })).toBe(false);
+  });
+  it("unfolds the open doc's folder and every parent, keeping the other folds", () => {
+    expect(unfold({ skills: false }, "docs/research/r1.md")).toEqual({ skills: false, "docs/research": true, docs: true, "": true });
+    expect(unfold({}, "README.md")).toEqual({ "": true });
+  });
+  it("opens or folds every folder at once", () => {
+    expect(everyFold(root, false)).toEqual({
+      "": false, docs: false, "docs/research": false, skills: false, "skills/lead": false });
+    expect(Object.values(everyFold(root, true)).every(Boolean)).toBe(true);
+  });
+  it("lists the shown rows: the top level, folders by name nested a step deeper, a folded folder's docs left out", () => {
+    const shown = rows(root, {}).map((r) => (r.kind === "dir" ? `${r.depth}:${r.folder.dir || "top"}/${r.open ? "open" : "folded"}` : `${r.depth}:${r.doc.path}`));
+    expect(shown).toEqual([
+      "0:top/open", "1:README.md",
+      "0:docs/open", "1:docs/design.md", "1:docs/research/folded",
+      "0:skills/open", "1:skills/lead/open", "2:skills/lead/SKILL.md",
+    ]);
+    const unfolded = rows(root, unfold({}, "docs/research/r0.md"));
+    expect(unfolded.filter((r) => r.kind === "doc" && r.doc.path.startsWith("docs/research/"))).toHaveLength(13);
+    const folded = rows(root, { skills: false }).map((r) => (r.kind === "dir" ? r.folder.dir : r.doc.path));
+    expect(folded).toContain("skills");
+    expect(folded).not.toContain("skills/lead");
+  });
+});
+
+describe("the filter's keys", () => {
+  it("moves the mark with the arrows within the matches, opens on Enter, clears on Escape", () => {
+    expect(matchKey("ArrowDown", 0, 3)).toEqual({ sel: 1 });
+    expect(matchKey("ArrowDown", 2, 3)).toEqual({ sel: 2 });
+    expect(matchKey("ArrowUp", 0, 3)).toEqual({ sel: 0 });
+    expect(matchKey("ArrowUp", 2, 3)).toEqual({ sel: 1 });
+    expect(matchKey("Enter", 1, 3)).toEqual({ sel: 1, open: true });
+    expect(matchKey("Enter", 5, 3)).toEqual({ sel: 2, open: true });
+    expect(matchKey("Enter", 0, 0)).toBeNull();
+    expect(matchKey("Escape", 2, 3)).toEqual({ sel: 0, clear: true });
+    expect(matchKey("a", 0, 3)).toBeNull();
+  });
+});
+
+describe("the outline's current heading", () => {
+  const tops = [{ id: "h-a", top: -400 }, { id: "h-b", top: 120 }, { id: "h-c", top: 900 }];
+  it("is the last heading at or above the line, the first before any is", () => {
+    expect(currentHeading(tops, 300)).toBe("h-b");
+    expect(currentHeading(tops, 100)).toBe("h-a");
+    expect(currentHeading(tops, 900)).toBe("h-c");
+    expect(currentHeading([{ id: "h-a", top: 500 }, { id: "h-b", top: 800 }], 300)).toBe("h-a");
+    expect(currentHeading([], 300)).toBe("");
+  });
+});
+
+describe("reading progress", () => {
+  it("is 0 with the doc's top in view, 1 once its end is, in between by the scroll", () => {
+    expect(progress(100, 3000, 800)).toBe(0);
+    expect(progress(-1100, 3000, 800)).toBe(0.5);
+    expect(progress(-5000, 3000, 800)).toBe(1);
+    expect(progress(0, 500, 800)).toBe(1); // a doc shorter than the view
+    expect(progress(10, 500, 800)).toBe(0);
+  });
+});
+
+describe("a doc's label", () => {
+  it("is its title where it has one, its file name otherwise", () => {
+    expect(docLabel({ path: "docs/design.md", title: "obor-kit design" })).toBe("obor-kit design");
+    expect(docLabel({ path: "docs/design.md" })).toBe("design.md");
   });
 });
