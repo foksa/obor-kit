@@ -1,14 +1,16 @@
 <script lang="ts">
-  // Section is a titled part of a page: its title, a count, a line under it, actions on its right.
+  // Section is a titled part of a page: its title, a count (or meta, a count with its own markup), a line under it,
+  // actions on its right.
   import type { Snippet } from "svelte";
-  let { title, count = undefined, sub = undefined, id = undefined, actions = undefined, children }:
-    { title: string; count?: number | string; sub?: string; id?: string; actions?: Snippet; children: Snippet } = $props();
+  let { title, count = undefined, meta = undefined, sub = undefined, id = undefined, actions = undefined, children }:
+    { title: string; count?: number | string; meta?: Snippet; sub?: string; id?: string; actions?: Snippet;
+      children: Snippet } = $props();
 </script>
 
 <section {id} aria-label={title}>
   <header>
     <h2 class="lbl">{title}</h2>
-    {#if count !== undefined && count !== ""}<span class="count">{count}</span>{/if}
+    {#if meta}{@render meta()}{:else if count !== undefined && count !== ""}<span class="count">{count}</span>{/if}
     {#if sub}<span class="sub">{sub}</span>{/if}
     {#if actions}<div class="actions">{@render actions()}</div>{/if}
   </header>

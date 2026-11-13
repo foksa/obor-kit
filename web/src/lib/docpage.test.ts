@@ -9,6 +9,8 @@ import DocIndex from "../ui/DocIndex.svelte";
 import DocModes from "../ui/DocModes.svelte";
 import DocOutline from "../ui/DocOutline.svelte";
 import DocAge from "../ui/DocAge.svelte";
+import DocCount from "../ui/DocCount.svelte";
+import docsSource from "../pages/Docs.svelte?raw";
 import Docs from "../pages/Docs.svelte";
 
 // The Docs page reads its list through a Live: here a Live that has the fixture's list from the start.
@@ -110,6 +112,40 @@ describe("the doc index searching the text", () => {
     const busy = text(render(DocIndex, { props: { project: "pj", list, q: "pause", mode: "text", search: search(null, true) } }).body);
     expect(busy).toContain("searching the text…");
     expect(busy).not.toContain("Clear the filter");
+  });
+  // countOf is the count line's markup in the index (svelte's comments dropped).
+  const bare = (html: string) => html.replace(/<!--[^>]*-->/g, "");
+  const countOf = (html: string) => bare(html).match(/<p class="count-line[^"]*">([\s\S]*?)<\/p>/)?.[1] || "";
+  it("counts the lines and docs in text mode with the numbers in fg, and puts an info dot before searching… while busy", () => {
+    const html = bare(render(DocCount, { props: { list, q: "pause", text: true, search: search(found, true) } }).body);
+    expect(text(html)).toContain("0 of 16 by name · 3 lines in 2 docs");
+    expect(html.match(/<span class="num[^"]*">\d+<\/span>/g)).toEqual([
+      expect.stringContaining(">0<"), expect.stringContaining(">16<"), expect.stringContaining(">3<"), expect.stringContaining(">2<"),
+    ]);
+    expect(html).toMatch(/· <span class="busy[^"]*"><span class="dot[^"]*" style="background: var\(--info\); width: 7px; height: 7px"[^>]*><\/span>searching…<\/span>/);
+    const idle = bare(render(DocCount, { props: { list, q: "pause", text: true, search: search(found) } }).body);
+    expect(text(idle)).toContain("3 lines in 2 docs"); // the precondition: the same line, no search out
+    expect(idle).not.toContain("searching");
+    expect(idle).not.toContain("var(--info)");
+    const names = text(render(DocCount, { props: { list, q: "pause", search: search(found, true) } }).body);
+    expect(names).toContain("0 of 16");
+    expect(names).not.toContain("by name");
+    expect(names).not.toContain("searching");
+  });
+  it("renders the index's count line as the same markup as the list page's", () => {
+    for (const [mode, s] of [["text", search(found, true)], ["text", search(found)], ["path", search(found)]] as const) {
+      const index = countOf(render(DocIndex, { props: { project: "pj", list, q: "pause", mode, search: s } }).body);
+      expect(index).toContain("0</span> of"); // the precondition: the index has its count line
+      const own = bare(render(DocCount, { props: { list, q: "pause", text: mode === "text", search: s } }).body);
+      expect(index).toBe(own);
+    }
+  });
+  it("gives the list page's Matches the same count line as the index, fed the list's filter, mode and search", () => {
+    const matches = docsSource.match(/<Section title="Matches"[\s\S]*?<\/Section>/)?.[0] || "";
+    expect(matches).toContain('part="matches"'); // the precondition: this is the list's Matches
+    expect(matches).toMatch(/\{#snippet meta\(\)\}\{#if list\.data\}<DocCount list=\{list\.data\} \{q\} text=\{mode === "text"\} \{search\} \/>\{\/if\}\{\/snippet\}/);
+    expect(matches).not.toMatch(/count=\{/);
+    expect(docsSource).not.toContain("listCount");
   });
   it("shows no mode toggle without a search", () => {
     const html = text(render(DocIndex, { props: { project: "pj", list, q: "r1", mode: "text" } }).body);
