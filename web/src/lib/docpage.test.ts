@@ -1,5 +1,5 @@
 // The docs page's components as served (svelte/server): the index's tree, matches and marked doc, the outline.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "svelte/server";
 import { compile } from "svelte/compiler";
 import indexSource from "../ui/DocIndex.svelte?raw";
@@ -8,6 +8,20 @@ import type { DocHits, DocList } from "./types";
 import DocIndex from "../ui/DocIndex.svelte";
 import DocModes from "../ui/DocModes.svelte";
 import DocOutline from "../ui/DocOutline.svelte";
+import DocAge from "../ui/DocAge.svelte";
+import Docs from "../pages/Docs.svelte";
+
+// The Docs page reads its list through a Live: here a Live that has the fixture's list from the start.
+const served = vi.hoisted(() => ({ data: null as unknown }));
+vi.mock("./live.svelte", () => ({
+  Live: class {
+    data = served.data;
+    error = "";
+    start() {}
+    stop() {}
+  },
+}));
+vi.mock("./router.svelte", () => ({ replace: () => {} })); // the hash router needs a window
 
 const list: DocList = {
   head: "abc1234",
@@ -17,7 +31,9 @@ const list: DocList = {
     { dir: "docs/research", docs: Array.from({ length: 13 }, (_, i) => ({ path: `docs/research/r${i}.md`, updated: i + 1 })) },
   ],
 };
-const text = (html: string) => html.replace(/<!--[^>]*-->/g, "");
+// text is html without svelte's comments and with the count line's numbers (fg spans) as plain text.
+const text = (html: string) =>
+  html.replace(/<!--[^>]*-->/g, "").replace(/<span class="num[^"]*">(\d+)<\/span>/g, "$1");
 
 describe("the doc index", () => {
   it("shows the tree with a big folder folded and the open doc marked, titles where present", () => {
@@ -166,5 +182,60 @@ describe("the doc outline", () => {
     expect(html).toContain(">One<");
     expect(html).toMatch(/class="[^"]*sub[^"]*"[^>]*>Two</);
     expect(render(DocOutline, { props: { headings: hs.slice(0, 1) } }).body).not.toContain("<button");
+  });
+});
+
+describe("the docs page's color", () => {
+  const now = Date.now() / 1000;
+  const pinned: DocList = {
+    head: "abc1234",
+    pinned: [
+      { path: "BACKLOG.md", title: "Backlog", updated: now - 7200 },
+      { path: "README.md", title: "obor", updated: now - 7200 },
+    ],
+    groups: [{ dir: "docs/agents", docs: [{ path: "docs/agents/worker.md", updated: now - 600 }] }],
+  };
+  it("tints a BACKLOG.md pinned card in the wait tone with the kind word, and leaves a doc with no kind plain", () => {
+    served.data = pinned;
+    const html = text(render(Docs, { props: { project: "pj" } }).body);
+    const card = (p: string) => html.match(new RegExp(`<a class="card pin[^"]*"[^>]*title="${p}"[^>]*>[\\s\\S]*?</a>`))?.[0] || "";
+    const backlog = card("BACKLOG.md");
+    expect(backlog).toContain("Backlog"); // the precondition: the card is there
+    expect(backlog).toMatch(/class="card pin[^"]*\bkinded/);
+    expect(backlog).toContain("--k: var(--wait)");
+    expect(backlog).toMatch(/class="kind[^"]*">open</);
+    const readme = card("README.md");
+    expect(readme).toContain("obor");
+    expect(readme).not.toContain("kinded");
+    expect(readme).not.toContain("--k:");
+    expect(html).toMatch(/class="pill t-idle[^"]*"[^>]*>read-only</);
+  });
+  it("shows the live dot on a doc changed 10 minutes ago and none on one changed 3 days ago", () => {
+    const fresh = render(DocAge, { props: { updated: now - 600 } }).body;
+    expect(fresh).toMatch(/<time[^>]*>10m<\/time>/); // the precondition: the age renders
+    expect(fresh).toContain("background: var(--ok)");
+    expect(fresh).toMatch(/class="age f-hour/);
+    const old = render(DocAge, { props: { updated: now - 3 * 86400 } }).body;
+    expect(old).toMatch(/<time[^>]*>[^<]+<\/time>/);
+    expect(old).not.toContain("var(--ok)");
+    expect(old).toMatch(/class="age f-old/);
+    expect(render(DocAge, { props: {} }).body).toContain(">staged<");
+  });
+  it("puts a kind dot on a folder row with a kind, and on a tree doc row only where it differs from its folder's", () => {
+    const mixed: DocList = {
+      head: "h",
+      pinned: [],
+      groups: [
+        { dir: "", docs: [{ path: "RELEASING.md", updated: 1 }, { path: "notes.md", updated: 1 }] },
+        { dir: "docs/agents", docs: [{ path: "docs/agents/worker.md", updated: 1 }] },
+      ],
+    };
+    const html = text(render(DocIndex, { props: { project: "pj", list: mixed, part: "tree" } }).body);
+    const row = (label: string) => html.match(new RegExp(`<(?:a|button)[^>]*>(?:(?!</(?:a|button)>)[\\s\\S])*?${label}[\\s\\S]*?</(?:a|button)>`))?.[0] || "";
+    expect(row("agents/")).toContain("var(--accent)");
+    expect(row("worker.md")).toContain("worker.md");
+    expect(row("worker.md")).not.toContain("var(--accent)"); // the folder already says agents
+    expect(row("RELEASING.md")).toContain("var(--done)");
+    expect(row("notes.md")).not.toMatch(/var\(--(ok|wait|accent|info|done)\)/);
   });
 });
