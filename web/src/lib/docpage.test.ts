@@ -1,7 +1,8 @@
 // The docs page's components as served (svelte/server): the index's tree, matches and marked doc, the outline.
 import { describe, expect, it } from "vitest";
 import { render } from "svelte/server";
-import type { DocList } from "./types";
+import type { TextSearch } from "./docsearch.svelte";
+import type { DocHits, DocList } from "./types";
 import DocIndex from "../ui/DocIndex.svelte";
 import DocOutline from "../ui/DocOutline.svelte";
 
@@ -38,6 +39,57 @@ describe("the doc index", () => {
     const html = text(render(DocIndex, { props: { project: "pj", list, part: "tree", folds: { "docs/research": true } } }).body);
     expect(html).toContain("r0.md");
     expect(html).toContain("newest");
+  });
+});
+
+describe("the doc index searching the text", () => {
+  const found: DocHits = {
+    q: "pause",
+    hits: [
+      { path: "docs/design.md", line: 12, text: "obor pause stops dispatch" },
+      { path: "BACKLOG.md", line: 3, text: "pause per model" },
+      { path: "docs/design.md", line: 40, text: "a pause's reason" },
+    ],
+    truncated: false,
+  };
+  const search = (result: DocHits | null, busy = false) => ({ result, busy, error: "" }) as unknown as TextSearch;
+
+  it("lists the path matches first, then the text hits grouped by doc with their line numbers and the words marked", () => {
+    const html = text(render(DocIndex, { props: { project: "pj", list, q: "pause", mode: "text", search: search(found) } }).body);
+    expect(html).toContain('aria-pressed="true">Search the text');
+    expect(html).toContain("0 of 16 by name · 3 lines in 2 docs");
+    expect(html.indexOf("In the text")).toBeGreaterThan(html.indexOf('aria-label="Matches"'));
+    const groups = [...html.matchAll(/aria-label="Lines in ([^"]+)"/g)].map((m) => m[1]);
+    expect(groups).toEqual(["docs/design.md", "BACKLOG.md"]);
+    const design = html.slice(html.indexOf('Lines in docs/design.md'), html.indexOf('Lines in BACKLOG.md'));
+    expect(design).toContain("obor-kit design (v2)");
+    expect(design.match(/class="hit[ "]/g)?.length).toBe(2);
+    expect(design).toMatch(/class="ln mono[^"]*">12</);
+    expect(design).toMatch(/class="ln mono[^"]*">40</);
+    expect(design).toMatch(/obor <mark[^>]*>pause<\/mark> stops dispatch/);
+    expect(html).toMatch(/class="hit[^"]*\bsel"[^>]*title="docs\/design.md:12"/); // no path match: the first hit is marked
+    expect(html).not.toContain("showing the first 200 lines");
+    expect(html).not.toContain("Clear the filter");
+  });
+  it("says the hits are cut with truncated", () => {
+    const html = text(render(DocIndex, {
+      props: { project: "pj", list, q: "pause", mode: "text", search: search({ ...found, truncated: true }) },
+    }).body);
+    expect(html).toContain("showing the first 200 lines");
+  });
+  it("searches only the names in the path mode, and says it is searching before the first answer", () => {
+    const names = text(render(DocIndex, { props: { project: "pj", list, q: "pause", search: search(found) } }).body);
+    expect(names).toContain('aria-pressed="true">Names');
+    expect(names).not.toContain("In the text");
+    expect(names).toContain("No doc's path or title");
+    const busy = text(render(DocIndex, { props: { project: "pj", list, q: "pause", mode: "text", search: search(null, true) } }).body);
+    expect(busy).toContain("searching the text…");
+    expect(busy).not.toContain("Clear the filter");
+  });
+  it("shows no mode toggle without a search", () => {
+    const html = text(render(DocIndex, { props: { project: "pj", list, q: "r1", mode: "text" } }).body);
+    expect(html).not.toContain("Search the text");
+    expect(html).toContain("4 of 16");
   });
 });
 
