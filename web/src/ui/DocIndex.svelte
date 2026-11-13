@@ -1,30 +1,52 @@
 <script lang="ts">
   // DocIndex is the docs' index: a filter, All docs, Pinned, and the folder tree (folders fold; the open doc marked
   // with aria-current and an accent edge), or with a filter typed the flat list of matches (↑/↓ move, Enter opens, Esc
-  // clears). One component for the reading sidebar and the narrow drawer (part "side"); the list page uses its tree
+  // clears). Given the page's text search, a toggle beside the filter sets its mode to "Search the text": the matching
+  // paths first, under them the text hits grouped by doc, each its line number and the line with the words marked
+  // (a hit opens its doc and tells the page its line, onhit). One component for the reading sidebar and the narrow drawer (part "side"); the list page uses its tree
   // ("tree") and its matches ("matches") on their own. The filter, order and folds belong to the page (they outlive a
   // doc change).
   import { href } from "../lib/route";
   import {
-    docLabel, folderOf, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds, type Match, type Order,
+    docLabel, folderOf, groupHits, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds, type Match,
+    type Order,
   } from "../lib/docs";
-  import type { Doc, DocList } from "../lib/types";
+  import type { TextSearch } from "../lib/docsearch.svelte";
+  import type { Doc, DocHit, DocList } from "../lib/types";
   import Rel from "./Rel.svelte";
 
   let {
     project, list, path = "", q = $bindable(""), order = "", folds = $bindable({}), sel = $bindable(0),
-    part = "side", tall = false, onpick = undefined,
+    part = "side", tall = false, onpick = undefined, mode = $bindable("path"), search = undefined, onhit = undefined,
   }: {
     project: string; list: DocList; path?: string; q?: string; order?: Order | ""; folds?: Folds; sel?: number;
     part?: "side" | "tree" | "matches"; tall?: boolean; onpick?: () => void;
+    mode?: "path" | "text"; search?: TextSearch; onhit?: (path: string, line: number) => void;
   } = $props();
 
-  // FilterMode is what the filter searches: the docs' paths and titles. (A second mode, the docs' text, comes later.)
-  type FilterMode = "path";
-  const mode: FilterMode = "path";
+  // mode is what the filter searches: "path" the docs' paths and titles, "text" their text too (only with a search).
+  const text = $derived(mode === "text" && !!search);
   const total = $derived(list.pinned.length + list.groups.reduce((n, g) => n + g.docs.length, 0));
   const filtering = $derived(q.trim() !== "");
-  const matches: Match[] = $derived(mode === "path" ? matchDocs(list, q) : []);
+  const matches: Match[] = $derived(matchDocs(list, q));
+  const found = $derived(text ? search?.result : null);
+  const groups = $derived(groupHits(found?.hits));
+  const hits: DocHit[] = $derived(groups.flatMap((g) => g.hits));
+  // byPath is each doc by its path: a hit group's label.
+  const byPath = $derived(new Map([...list.pinned, ...list.groups.flatMap((g) => g.docs)].map((d) => [d.path, d])));
+  // hitAt is a hit's place in the marked order (after the path matches), for ↑/↓ and Enter.
+  const hitAt = $derived(new Map(hits.map((h, i) => [h, matches.length + i])));
+  const count = $derived(matches.length + hits.length);
+  const n = (k: number, one: string) => `${k} ${k === 1 ? one : one + "s"}`;
+  // countLine is the line over the matches: how many by name, and in text mode the hits and whether a search is out.
+  const countLine = $derived.by(() => {
+    const names = `${matches.length} of ${total}`;
+    if (!text) return names;
+    const parts = [names + " by name"];
+    if (found) parts.push(`${n(hits.length, "line")} in ${n(groups.length, "doc")}`);
+    if (search?.busy) parts.push("searching…");
+    return parts.join(" · ");
+  });
   const root = $derived(tree(list, order || undefined));
   const shown = $derived(rows(root, folds));
 
@@ -36,13 +58,30 @@
   }
 
   function onkey(e: KeyboardEvent) {
-    const r = matchKey(e.key, sel, filtering ? matches.length : 0);
+    const r = matchKey(e.key, sel, filtering ? count : 0);
     if (!r) return;
     if (!filtering && !r.clear) return;
     e.preventDefault();
     sel = r.sel;
     if (r.clear) q = "";
-    if (r.open) { location.hash = href.docs(project, matches[r.sel].doc.path); onpick?.(); }
+    if (!r.open) return;
+    if (r.sel < matches.length) {
+      location.hash = href.docs(project, matches[r.sel].doc.path);
+      onpick?.();
+      return;
+    }
+    const h = hits[r.sel - matches.length];
+    location.hash = href.docs(project, h.path);
+    pickHit(h);
+  }
+  function pickHit(h: DocHit) {
+    onhit?.(h.path, h.line);
+    onpick?.();
+  }
+  function setMode(m: "path" | "text") {
+    mode = m;
+    sel = 0;
+    input?.focus();
   }
   // newest is a folder row's newest age: its docs and below; the top level's own docs only (its folders have rows).
   const newest = (f: Folder) => (f.dir ? f.updated : Math.max(0, ...f.docs.map((d) => d.updated || 0)) || undefined);
@@ -67,11 +106,45 @@
   </a>
 {/snippet}
 
+{#snippet hitList()}
+  {#if groups.length}
+    <h2 class="lbl">In the text</h2>
+    {#each groups as g (g.path)}
+      {@const d = byPath.get(g.path)}
+      <div class="hgroup" role="list" aria-label="Lines in {g.path}">
+        <a class="hdoc" href={href.docs(project, g.path)} title={g.path} onclick={() => onpick?.()}>
+          <span class="name ell" class:mono={!d?.title}>{d ? docLabel(d) : g.path}</span>
+          <span class="count">{g.hits.length}</span>
+        </a>
+        {#each g.hits as h (h.line)}
+          <div role="listitem">
+            <a class="hit" class:sel={hitAt.get(h) === sel} href={href.docs(project, h.path)} title="{h.path}:{h.line}"
+              onclick={() => pickHit(h)}>
+              <span class="ln mono">{h.line}</span>
+              <span class="htext">{#each marks(h.text, q) as p, k (k)}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}</span>
+            </a>
+          </div>
+        {/each}
+      </div>
+    {/each}
+    {#if found?.truncated}<p class="note">showing the first 200 lines</p>{/if}
+  {/if}
+  {#if search?.error}<p class="note bad">Could not search the text: {search.error}</p>{/if}
+{/snippet}
+
 {#snippet matchList()}
   <div class="matches" role="list" aria-label="Matches">
     {#each matches as m, i (m.doc.path)}<div role="listitem">{@render match(m, i)}</div>{/each}
   </div>
-  {#if !matches.length}
+  {#if text}
+    {@render hitList()}
+    {#if !matches.length && !hits.length && !search?.busy && !search?.error}
+      <p class="none">No doc's path, title or text has every word of “{q.trim()}”.
+        <button type="button" class="link" onclick={() => { q = ""; sel = 0; }}>Clear the filter</button></p>
+    {:else if !hits.length && search?.busy}
+      <p class="note">searching the text…</p>
+    {/if}
+  {:else if !matches.length}
     <p class="none">No doc's path or title has every word of “{q.trim()}”.
       <button type="button" class="link" onclick={() => { q = ""; sel = 0; }}>Clear the filter</button></p>
   {/if}
@@ -108,10 +181,18 @@
   <nav class="index" class:tall aria-label="Docs index">
     <div class="filter">
       <input bind:this={input} class="search" type="search" bind:value={q} oninput={() => (sel = 0)} onkeydown={onkey}
-        aria-label="Filter the docs" placeholder="Filter docs" />
+        aria-label={text ? "Search the docs' text" : "Filter the docs"} placeholder={text ? "Search the text" : "Filter docs"} />
       <kbd aria-hidden="true">/</kbd>
     </div>
-    {#if filtering}<p class="count-line">{matches.length} of {total}</p>{/if}
+    {#if search}
+      <div class="modes" role="group" aria-label="What the filter searches">
+        <button type="button" class="mode" aria-pressed={!text} onclick={() => setMode("path")}>Names</button>
+        <button type="button" class="mode" aria-pressed={text} onclick={() => setMode("text")}>Search the text</button>
+      </div>
+    {/if}
+    {#if filtering}
+      <p class="count-line">{countLine}</p>
+    {/if}
     <div class="card body">
       {#if filtering}
         {@render matchList()}
@@ -191,6 +272,35 @@
   .where { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tall .match, .tall .doc, .tall .dir { min-height: 44px; }
   mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); border-radius: 3px; }
+  .modes { display: flex; gap: 4px; margin-top: -4px; }
+  .mode {
+    flex: 1 1 0; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent;
+    color: var(--muted); font-size: 12px; cursor: pointer;
+  }
+  .mode:hover { color: var(--fg); }
+  .mode[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); border-color: var(--line-strong); font-weight: 600; }
+  .tall .mode { height: 44px; font-size: 13px; }
+  .body .lbl { margin: 10px 8px 2px; }
+  .hgroup { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-top: 4px; }
+  .hdoc, .hit { text-decoration: none; }
+  .hdoc {
+    display: flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    color: var(--fg-2); min-width: 0;
+  }
+  .hit {
+    display: flex; align-items: baseline; gap: 8px; padding: 3px 10px 3px 14px; border-radius: 6px; font-size: 12px;
+    color: var(--fg-2); min-width: 0;
+  }
+  .hdoc:hover, .hit:hover { background: var(--surface-2); color: var(--fg); }
+  .hit.sel { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .ln { flex: none; min-width: 3ch; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .htext {
+    min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2;
+  }
+  .tall .hit, .tall .hdoc { min-height: 44px; align-items: center; }
+  .note { margin: 6px 10px; font-size: 12px; color: var(--muted); }
+  .note.bad { color: var(--bad); }
   .none { margin: 12px 8px; text-align: center; font-size: 13px; color: var(--muted); }
   .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; }
 </style>

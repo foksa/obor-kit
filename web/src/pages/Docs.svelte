@@ -5,16 +5,20 @@
   // header and its newer/older neighbours, and "On this page"; under 1000 px a doc bar opens the index as a drawer and
   // the sections as a sheet. The page stays mounted from doc to doc (App keys it on the project only), so the filter,
   // the order, the folds and the index's scroll survive a doc change; the open doc is read by its own Live, made per
-  // path. The order and the folds are remembered per viewer in localStorage when it is there.
-  import { onDestroy, untrack } from "svelte";
+  // path. The order and the folds are remembered per viewer in localStorage when it is there. The index's filter can
+  // search the docs' text too (one TextSearch for the sidebar and the drawer); a text hit opens its doc scrolled to the
+  // nearest heading above its line.
+  import { onDestroy, tick, untrack } from "svelte";
   import { Live } from "../lib/live.svelte";
   import { api } from "../lib/api";
+  import { TextSearch } from "../lib/docsearch.svelte";
   import { md } from "../lib/md";
   import { go } from "../lib/router.svelte";
   import { href } from "../lib/route";
   import {
     defaultOrder, docLabel, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, matchDocs, matchKey,
-    neighbours, outline, paths, pinnedCaption, progress, recent, sameName, tree, unfold, type Folds, type Order,
+    neighbours, outline, paths, pinnedCaption, progress, recent, sameName, sectionAt, tree, unfold, type Folds,
+    type Order,
   } from "../lib/docs";
   import type { Doc, DocList, DocText } from "../lib/types";
   import DocIndex from "../ui/DocIndex.svelte";
@@ -62,6 +66,15 @@
   let q = $state(""); // the index's filter, one for the list page and the reading index
   let sel = $state(0); // the marked match (Enter opens it)
   let lq = $state(""); // accepted.md's line filter
+  let mode = $state<"path" | "text">("path"); // what the index's filter searches
+
+  // The text search: the filter's text while the mode is "text", nothing otherwise.
+  // svelte-ignore state_referenced_locally
+  const search = new TextSearch((t, s) => api.docsearch(project, t, s));
+  onDestroy(() => search.stop());
+  $effect(() => search.set(mode === "text" && path ? q : ""));
+  // jump is the line a text hit opened: once its doc is shown, the page scrolls to the nearest heading above it.
+  let jump = $state<{ path: string; line: number } | null>(null);
 
   // A doc change: the open doc's folder and its parents unfold, the line filter and the sheets reset.
   $effect(() => {
@@ -93,6 +106,17 @@
     return lines.join("\n");
   });
   const html = $derived(md(body, docLinks(project, all, path)));
+  $effect(() => {
+    const j = jump;
+    if (!j || j.path !== path || !text || !html) return;
+    jump = null;
+    const id = sectionAt(text, body, j.line);
+    void tick().then(() => {
+      const el = id ? document.getElementById(id) : null;
+      if (el) el.scrollIntoView({ block: "start" });
+      else window.scrollTo(0, 0);
+    });
+  });
   const heads = $derived(outline(body));
   const lineCount = $derived(text ? text.replace(/\n$/, "").split("\n").length : 0);
   const near = $derived(path ? neighbours(list.data, path, order || undefined) : {});
@@ -278,7 +302,8 @@
 
     <div class="read" class:outlined={heads.length >= 2}>
       <aside class="side">
-        <DocIndex bind:this={sideIndex} {project} list={list.data} {path} bind:q bind:sel {order} bind:folds />
+        <DocIndex bind:this={sideIndex} {project} list={list.data} {path} bind:q bind:sel {order} bind:folds
+          bind:mode {search} onhit={(p, line) => (jump = { path: p, line })} />
       </aside>
 
       <article class="doc" bind:this={article}>
@@ -372,7 +397,7 @@
       </header>
       <div class="dlg-body">
         <DocIndex bind:this={drawerIndex} {project} list={list.data} {path} bind:q bind:sel {order} bind:folds tall
-          onpick={() => drawer?.close()} />
+          bind:mode {search} onhit={(p, line) => (jump = { path: p, line })} onpick={() => drawer?.close()} />
       </div>
     </dialog>
 

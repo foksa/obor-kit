@@ -1,6 +1,6 @@
 // The API: obor web's JSON routes, typed.
 import type {
-  AgentDetail, DocList, DocText, EventsPage, Help, Prompt, ProjectsEntry, ProjectView, Setup, TaskDetail, TaskRow,
+  AgentDetail, DocHits, DocList, DocText, EventsPage, Help, Prompt, ProjectsEntry, ProjectView, Setup, TaskDetail, TaskRow,
 } from "./types";
 
 const enc = encodeURIComponent;
@@ -31,6 +31,8 @@ export const api = {
   tasks: (p: string, s?: AbortSignal) => get<TaskRow[]>(`/api/tasks?project=${enc(p)}`, s),
   docs: (p: string, s?: AbortSignal) => get<DocList>(`/api/docs?project=${enc(p)}`, s),
   doc: (p: string, path: string, s?: AbortSignal) => get<DocText>(`/api/doc?project=${enc(p)}&path=${enc(path)}`, s),
+  docsearch: (p: string, q: string, s?: AbortSignal) =>
+    get<DocHits>(`/api/docsearch?project=${enc(p)}&q=${enc(q)}`, s),
   task: (p: string, t: string, s?: AbortSignal) => get<TaskDetail>(`/api/task?project=${enc(p)}&task=${enc(t)}`, s),
   agent: (p: string, a: string, s?: AbortSignal) => get<AgentDetail>(`/api/agent?project=${enc(p)}&agent=${enc(a)}`, s),
   job: (p: string, j: string, s?: AbortSignal) => get<Prompt>(`/api/job?project=${enc(p)}&job=${enc(j)}`, s),

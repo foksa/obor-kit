@@ -3,7 +3,7 @@
 // recent docs and neighbours, a doc's outline (levels 2–3), pinned captions and accepted.md's filter.
 import { headings, type Heading, type Links } from "./md";
 import { href } from "./route";
-import type { Doc, DocList } from "./types";
+import type { Doc, DocHit, DocList } from "./types";
 
 // Order is how a folder's docs are listed: the server's newest first, or A–Z in natural order (v0.9 before v0.10).
 export type Order = "new" | "az";
@@ -217,6 +217,42 @@ export function marks(text: string, q: string): { text: string; hit: boolean }[]
     else out.push({ text: text[i], hit: hit[i] });
   }
   return out;
+}
+
+// HitGroup is one doc's text-search hits, in the served order.
+export interface HitGroup {
+  path: string;
+  hits: DocHit[];
+}
+
+// groupHits is a text search's hits grouped by doc: the docs in the order their first hit came, each doc's hits in the
+// served order.
+export function groupHits(hits: DocHit[] | null | undefined): HitGroup[] {
+  const out: HitGroup[] = [];
+  const at = new Map<string, HitGroup>();
+  for (const h of hits || []) {
+    let g = at.get(h.path);
+    if (!g) {
+      g = { path: h.path, hits: [] };
+      at.set(h.path, g);
+      out.push(g);
+    }
+    g.hits.push(h);
+  }
+  return out;
+}
+
+// sectionAt is the id, in body as rendered, of the nearest heading at or above line (1-based) of text, the doc's file:
+// body is text as shown (the title heading taken out), so the heading is found by its text and how many headings of
+// that text follow it. "" when no heading is above the line or the heading is not in body (the title): the doc's top.
+export function sectionAt(text: string, body: string, line: number): string {
+  const upTo = headings(String(text || "").split("\n").slice(0, Math.max(0, line)).join("\n"));
+  const above = upTo[upTo.length - 1];
+  if (!above) return "";
+  const same = (h: Heading) => h.text === above.text;
+  const after = headings(text).filter(same).length - upTo.filter(same).length;
+  const shown = headings(body).filter(same);
+  return shown[shown.length - 1 - after]?.id || "";
 }
 
 // recent is the n newest docs across pinned and groups, a staged one (no updated) first.

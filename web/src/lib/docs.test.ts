@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  currentHeading, defaultFolded, defaultOrder, docLabel, docLinks, docTitle, everyFold, filterLines, isOpen, marks,
+  currentHeading, defaultFolded, defaultOrder, docLabel, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, marks,
   matchDocs, matchKey, neighbours, normalize, outline, paths, pinnedCaption, progress, recent, resolve, rows, sameName,
-  sortDocs, tree, unfold,
+  sectionAt, sortDocs, tree, unfold,
 } from "./docs";
 import { md } from "./md";
 import type { DocList } from "./types";
@@ -377,5 +377,31 @@ describe("a doc's label", () => {
   it("is its title where it has one, its file name otherwise", () => {
     expect(docLabel({ path: "docs/design.md", title: "obor-kit design" })).toBe("obor-kit design");
     expect(docLabel({ path: "docs/design.md" })).toBe("design.md");
+  });
+});
+
+describe("groupHits", () => {
+  it("groups the hits by doc, the docs in the order of their first hit, each doc's hits in the served order", () => {
+    const g = groupHits([
+      { path: "b.md", line: 3, text: "x" }, { path: "a.md", line: 9, text: "x" }, { path: "b.md", line: 7, text: "x" },
+    ]);
+    expect(g.map((d) => d.path)).toEqual(["b.md", "a.md"]);
+    expect(g[0].hits.map((h) => h.line)).toEqual([3, 7]);
+    expect(groupHits(null)).toEqual([]);
+  });
+});
+
+describe("sectionAt", () => {
+  const text = "# Title\n\nintro\n\n## Use\n\nuse it\n\n```\n## not a heading\n```\n\n## Use\n\nagain\n";
+  const body = "\nintro\n\n## Use\n\nuse it\n\n```\n## not a heading\n```\n\n## Use\n\nagain\n";
+  it("is the id of the nearest heading above the line, a repeated heading told apart, fenced ones skipped", () => {
+    expect(sectionAt(text, body, 7)).toBe("h-use");
+    expect(sectionAt(text, body, 10)).toBe("h-use"); // the fenced line: still under the first Use
+    expect(sectionAt(text, body, 15)).toBe("h-use-1");
+    expect(sectionAt(text, body, 13)).toBe("h-use-1"); // the heading's own line
+  });
+  it("is the top for a line under the title (shown in the header) or above every heading", () => {
+    expect(sectionAt(text, body, 3)).toBe("");
+    expect(sectionAt("plain\n\n## A\n", "plain\n\n## A\n", 1)).toBe("");
   });
 });
