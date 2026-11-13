@@ -244,10 +244,10 @@ dispatch, merge, drop and review facts and the log's activity per task); an agen
 jobs; a job's text (a `prompts` row). The pages read narrow: `view.LoadTask`, `view.LoadAgent` and
 `view.LoadSetup` build only their page's facts (a task or agent page runs no git and no ps; setup reads the lane
 states). `EventsSince` pages the log by seq for the page's long poll. `docs.go` is the docs page's list (`DocCache`: the
-tracked `.md` files `checks.TrackedDocs` reads, pinned and grouped by `BuildDocs`, read again when HEAD or git's index
-moves) and `ReadDoc`, the one read of a doc's text (only a path git's index tracks at the read, as a regular file, never
-out of the root). It may import base, core and the adapters; only entry packages import it. **Every reader of project
-state goes through `view`**:
+tracked `.md` files `checks.TrackedDocs` reads, each with its first level-1 heading (`DocTitle`), pinned and grouped by
+`BuildDocs`, read again when HEAD or git's index moves) and `ReadDoc`, the one read of a doc's text (only a path git's
+index tracks at the read, as a regular file, never out of the root). It may import base, core and the adapters; only
+entry packages import it. **Every reader of project state goes through `view`**:
 `obor status` (`--json` prints `view.Project` as is) and `obor web` render the same struct, so a field added for one
 appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
 

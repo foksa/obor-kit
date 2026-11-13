@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"obor/internal/checks"
@@ -20,7 +21,7 @@ func TestBuildDocsPinsThenGroups(t *testing.T) {
 		{Path: "docs/plan/old.md", Updated: 1}, {Path: "docs/plan/new.md", Updated: 5}, {Path: "docs/plan/b.md", Updated: 3}, {Path: "docs/plan/a.md", Updated: 3},
 		{Path: "docs/research/x.md", Updated: 2}, {Path: "docs/design.md", Updated: 4}, {Path: "sub/BACKLOG.md", Updated: 2}, {Path: "BACKLOG.md", Updated: 1}, {Path: "x/y/BACKLOG.md", Updated: 3},
 	}
-	got := BuildDocs("abc", files)
+	got := BuildDocs("abc", files, nil)
 	b, _ := json.Marshal(got)
 	want := `{"head":"abc","pinned":[{"path":"BACKLOG.md","updated":1},` +
 		`{"path":"docs/decisions.md","updated":7},{"path":"docs/accepted.md","updated":6},{"path":"AGENTS.md","updated":9},` +
@@ -35,8 +36,123 @@ func TestBuildDocsPinsThenGroups(t *testing.T) {
 	if !got.Has("docs/plan/a.md") || !got.Has("BACKLOG.md") || got.Has("docs/plan") || got.Has("./BACKLOG.md") {
 		t.Errorf("Has: a listed path is in, a directory or a respelled path is not")
 	}
-	if e, _ := json.Marshal(BuildDocs("h", nil)); string(e) != `{"head":"h","pinned":[],"groups":[]}` {
+	if e, _ := json.Marshal(BuildDocs("h", nil, nil)); string(e) != `{"head":"h","pinned":[],"groups":[]}` {
 		t.Errorf("no docs: %s, want empty lists (not null)", e)
+	}
+}
+
+// TestBuildDocsTitles: a doc carries the title read for its path (pinned and grouped alike), and a doc with none has no
+// title field in the JSON.
+func TestBuildDocsTitles(t *testing.T) {
+	t.Parallel()
+	l := BuildDocs("h", []checks.TrackedDoc{{Path: "BACKLOG.md"}, {Path: "docs/a.md"}, {Path: "docs/b.md"}},
+		map[string]string{"BACKLOG.md": "Backlog", "docs/a.md": "Design v2"})
+	if len(l.Pinned) != 1 || l.Pinned[0].Title != "Backlog" {
+		t.Errorf("pinned = %+v, want BACKLOG.md's title", l.Pinned)
+	}
+	if len(l.Groups) != 1 || len(l.Groups[0].Docs) != 2 {
+		t.Fatalf("groups = %+v, want docs/ with a.md and b.md", l.Groups)
+	}
+	docs := l.Groups[0].Docs
+	if docs[0].Path != "docs/a.md" || docs[0].Title != "Design v2" || docs[1].Path != "docs/b.md" || docs[1].Title != "" {
+		t.Errorf("docs = %+v, want a.md's title and b.md's none", docs)
+	}
+	if b, err := json.Marshal(docs[1]); err != nil || strings.Contains(string(b), "title") {
+		t.Errorf("a doc with no title marshals as %s, %v; want no title field", b, err)
+	}
+}
+
+// TestDocTitle: a title is the text of the first "# " line, trimmed, found after front matter and text, and never a line
+// inside a fenced code block (backticks or tildes). A doc with no such line, or whose first one is past maxTitleScan
+// bytes, has none.
+func TestDocTitle(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, text, want string }{
+		{"line 1", "# Design v2\n\ntext\n", "Design v2"},
+		{"after front matter and text", "---\ntitle: x\n---\n\nintro\n\n#  Design v2  \n\nbody\n", "Design v2"},
+		{"inside a backtick fence", "```sh\n# not a title\n```\n## section\n# the title\n", "the title"},
+		{"inside a tilde fence", "~~~~\n# not a title\n~~~~\n# the title\n", "the title"},
+		{"unclosed fence", "```\n# not a title\n", ""},
+		{"no heading", "just text\n## lower\n#no title\n", ""},
+		{"empty", "", ""},
+		{"past the scan limit", strings.Repeat("text\n", maxTitleScan/4) + "# too late\n", ""},
+	}
+	for _, c := range cases {
+		if got := DocTitle(strings.NewReader(c.text)); got != c.want {
+			t.Errorf("%s: DocTitle = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestDocCacheTitles: a doc's title is read from the checkout when the list is rebuilt, so it follows the index key; a
+// listed doc whose file is missing, is a symlink on disk, or whose path runs through a symlinked directory out of the
+// root has none.
+func TestDocCacheTitles(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	root, out := filepath.Join(base, "root"), filepath.Join(base, "out")
+	for _, d := range []string{root, out} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, p), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.md", "# one\n")
+	if err := os.WriteFile(filepath.Join(out, "secret.md"), []byte("# outside the root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(out, "secret.md"), filepath.Join(root, "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(out, filepath.Join(root, "esc")); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(out, "secret.md")); err != nil || !strings.HasPrefix(string(b), "# ") {
+		t.Fatalf("precondition: the file outside the root starts with a heading (%q, %v): an unguarded read would title it", b, err)
+	}
+	stamp := int64(1)
+	c := &DocCache{
+		Head:  func(context.Context, string) (string, error) { return "h", nil },
+		Index: func(string) (int64, int64, error) { return stamp, 0, nil },
+		Files: func(context.Context, string) ([]checks.TrackedDoc, error) {
+			return []checks.TrackedDoc{{Path: "a.md"}, {Path: "esc/secret.md"}, {Path: "gone.md"}, {Path: "link.md"}}, nil
+		},
+	}
+	titles := func() map[string]string {
+		t.Helper()
+		l, err := c.List(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, g := range l.Groups {
+			for _, d := range g.Docs {
+				got[d.Path] = d.Title
+			}
+		}
+		if len(got) != 4 {
+			t.Fatalf("list = %+v, want a.md, esc/secret.md, gone.md and link.md", l.Groups)
+		}
+		return got
+	}
+	if got := titles(); got["a.md"] != "one" || got["esc/secret.md"] != "" || got["gone.md"] != "" || got["link.md"] != "" {
+		t.Fatalf("titles = %v, want a.md's heading and none for the paths that leave or lack a file", got)
+	}
+	write("a.md", "# two\n")
+	if got := titles(); got["a.md"] != "one" {
+		t.Errorf("title at the same HEAD and index = %q, want the cached one", got["a.md"])
+	}
+	stamp++
+	if got := titles(); got["a.md"] != "two" {
+		t.Errorf("title after the index moved = %q, want the file's new heading", got["a.md"])
 	}
 }
 
@@ -117,7 +233,7 @@ func TestReadDocServesOnlyWhatGitTracks(t *testing.T) {
 	if err := os.Symlink(out, filepath.Join(root, "esc")); err != nil {
 		t.Fatal(err)
 	}
-	l := BuildDocs("h", []checks.TrackedDoc{{Path: "docs/a.md"}, {Path: "draft.md"}, {Path: "link.md"}, {Path: "esc/secret.md"}})
+	l := BuildDocs("h", []checks.TrackedDoc{{Path: "docs/a.md"}, {Path: "draft.md"}, {Path: "link.md"}, {Path: "esc/secret.md"}}, nil)
 	indexed := map[string]bool{"docs/a.md": true, "link.md": true, "esc/secret.md": true}
 	c := &DocCache{Tracked: func(_ context.Context, _, p string) (bool, error) { return indexed[p], nil }}
 	ctx := context.Background()
