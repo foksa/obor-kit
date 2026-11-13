@@ -19,10 +19,12 @@ export interface Folder {
   updated?: number;
 }
 
-// Match is one doc matchDocs keeps: the doc and where a word first matches its file name (-1: only its folder does).
+// Match is one doc matchDocs keeps: the doc, where a word first matches its file name (-1: none does) and where one
+// first matches its title (-1: none does, or it has none).
 export interface Match {
   doc: Doc;
   at: number;
+  tat: number;
 }
 
 // paths is every doc's path, pinned first.
@@ -85,7 +87,6 @@ export function docLinks(project: string, docs: Set<string>, from: string): Link
   };
 }
 
-export const isBacklog = (p: string) => base(p) === "BACKLOG.md";
 export const isAccepted = (p: string) => base(p) === "accepted.md";
 
 // outline is every level-2 and level-3 heading: the page's "On this page" list.
@@ -115,9 +116,6 @@ export function filterLines(text: string, q: string): { text: string; shown: num
       : heading(b.lines[0]));
   return { text: kept.flatMap((b) => b.lines).join("\n"), shown: kept.filter((b) => b.item).length, total };
 }
-
-// groupName is a directory's label in the list.
-export const groupName = (dir: string) => (dir ? dir + "/" : "root");
 
 // sortDocs is docs in order: "new" keeps the served (newest first) order, "az" sorts the file names naturally.
 export function sortDocs(docs: Doc[] | null | undefined, order: Order): Doc[] {
@@ -182,17 +180,41 @@ export function tree(list: DocList | null | undefined, order?: Order): Folder {
   return root;
 }
 
-// matchDocs is list's docs whose path holds every word of q (case aside): the pinned ones first, then the list's order,
-// each with where a word first matches its file name (for highlighting; -1 when only the folder does). An empty q is
-// every doc.
+// words is a filter's words, lower case.
+const words = (q: string) => String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+
+// matchDocs is list's docs whose path or title holds every word of q (case aside; a word may be in either): the
+// pinned ones first, then the list's order, each with where a word first matches its file name and its title (for
+// highlighting; -1 when none does). An empty q is every doc.
 export function matchDocs(list: DocList | null | undefined, q: string): Match[] {
-  const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const ws = words(q);
   const out: Match[] = [];
+  const first = (s: string) => {
+    const found = ws.map((w) => s.indexOf(w)).filter((i) => i >= 0);
+    return found.length ? Math.min(...found) : -1;
+  };
   for (const d of [...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)]) {
-    if (!words.every((w) => d.path.toLowerCase().includes(w))) continue;
-    const name = base(d.path).toLowerCase();
-    const found = words.map((w) => name.indexOf(w)).filter((i) => i >= 0);
-    out.push({ doc: d, at: found.length ? Math.min(...found) : -1 });
+    const title = (d.title || "").toLowerCase();
+    const path = d.path.toLowerCase();
+    if (!ws.every((w) => path.includes(w) || title.includes(w))) continue;
+    out.push({ doc: d, at: first(base(path)), tat: title ? first(title) : -1 });
+  }
+  return out;
+}
+
+// marks is text cut into pieces, each piece that is a word of q (case aside) marked as a hit: a match row's highlight.
+export function marks(text: string, q: string): { text: string; hit: boolean }[] {
+  const ws = words(q);
+  const low = text.toLowerCase();
+  const hit = new Array<boolean>(text.length).fill(false);
+  for (const w of ws) {
+    for (let i = low.indexOf(w); i >= 0; i = low.indexOf(w, i + 1)) hit.fill(true, i, i + w.length);
+  }
+  const out: { text: string; hit: boolean }[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const last = out[out.length - 1];
+    if (last && last.hit === hit[i]) last.text += text[i];
+    else out.push({ text: text[i], hit: hit[i] });
   }
   return out;
 }
@@ -250,3 +272,92 @@ export function pinnedCaption(path: string): string {
   }
   return base(path) === "BACKLOG.md" ? "what is open, the handoff" : "";
 }
+
+// Folds is which folders are open, by dir ("" the top level); a folder not in it is open unless defaultFolded.
+export type Folds = Record<string, boolean>;
+
+// isOpen is whether folder f shows its rows: what folds says, else open unless its own docs are over the threshold.
+export const isOpen = (f: Folder, folds: Folds): boolean => folds[f.dir] ?? !defaultFolded(f.docs.length);
+
+// unfold is folds with path's folder and every parent of it open (the open doc shows in the tree).
+export function unfold(folds: Folds, path: string): Folds {
+  const out = { ...folds };
+  let dir = dirOf(path);
+  out[dir] = true;
+  while (dir) {
+    dir = dirOf(dir);
+    out[dir] = true;
+  }
+  return out;
+}
+
+// everyFold is folds with every folder of root set to open.
+export function everyFold(root: Folder, open: boolean): Folds {
+  const out: Folds = {};
+  const walk = (f: Folder) => { out[f.dir] = open; f.folders.forEach(walk); };
+  walk(root);
+  return out;
+}
+
+// Row is one line of the folder tree as shown: a folder (its fold state) or a doc, at a depth.
+export type Row =
+  | { kind: "dir"; folder: Folder; depth: number; open: boolean }
+  | { kind: "doc"; doc: Doc; depth: number };
+
+// rows is the tree as its shown lines: the top level's row when it has docs of its own, then each folder by name,
+// nested ones a step deeper; a folded folder's docs and folders are left out.
+export function rows(root: Folder, folds: Folds): Row[] {
+  const out: Row[] = [];
+  const walk = (f: Folder, depth: number) => {
+    const open = isOpen(f, folds);
+    out.push({ kind: "dir", folder: f, depth, open });
+    if (!open) return;
+    for (const d of f.docs) out.push({ kind: "doc", doc: d, depth: depth + 1 });
+    for (const c of f.folders) walk(c, depth + 1);
+  };
+  if (root.docs.length) {
+    const open = isOpen(root, folds);
+    out.push({ kind: "dir", folder: root, depth: 0, open });
+    if (open) for (const d of root.docs) out.push({ kind: "doc", doc: d, depth: 1 });
+  }
+  for (const c of root.folders) walk(c, 0);
+  return out;
+}
+
+// matchKey is what a key in the filter does over n matches with sel the marked one: ↑/↓ move the mark (kept in range),
+// Enter opens the marked match, Escape clears the filter; any other key does nothing (null).
+export function matchKey(key: string, sel: number, n: number): { sel: number; open?: boolean; clear?: boolean } | null {
+  if (key === "ArrowDown") return { sel: n ? Math.min(n - 1, sel + 1) : 0 };
+  if (key === "ArrowUp") return { sel: Math.max(0, sel - 1) };
+  if (key === "Enter") return n ? { sel: Math.min(sel, n - 1), open: true } : null;
+  if (key === "Escape") return { sel: 0, clear: true };
+  return null;
+}
+
+// currentHeading is the heading a reader is in: the last one whose top (px from the viewport's top) is at or above
+// line; the first when none is yet; "" with none.
+export function currentHeading(tops: { id: string; top: number }[], line: number): string {
+  let cur = tops[0]?.id || "";
+  for (const t of tops) {
+    if (t.top <= line) cur = t.id;
+    else break;
+  }
+  return cur;
+}
+
+// progress is how far through a box (its top px from the viewport's top, its height) a reader of a view this tall is,
+// 0 to 1: 0 while its top is in view, 1 once its end is.
+export function progress(top: number, height: number, view: number): number {
+  const span = height - view;
+  if (span <= 0) return top <= 0 ? 1 : 0;
+  return Math.min(1, Math.max(0, -top / span));
+}
+
+// docLabel is how a doc shows in a row: its title when it has one, its file name otherwise.
+export const docLabel = (d: Doc): string => d.title || base(d.path);
+
+// folderOf is a path's folder with its slash ("" at the top level).
+export const folderOf = (p: string): string => (dirOf(p) ? dirOf(p) + "/" : "");
+
+// fileOf is a path's file name.
+export const fileOf = base;

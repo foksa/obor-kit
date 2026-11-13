@@ -3,7 +3,7 @@
   // the live mark, the theme), and the routed page.
   import { onDestroy } from "svelte";
   import { router, go } from "./lib/router.svelte";
-  import { href } from "./lib/route";
+  import { href, pageKey } from "./lib/route";
   import { Live, mark } from "./lib/live.svelte";
   import { api } from "./lib/api";
   import type { ProjectsEntry } from "./lib/types";
@@ -157,7 +157,7 @@
     </header>
 
     <main>
-      {#key `${route.kind}/${route.project}/${route.id}/${router.n}`}
+      {#key pageKey(route, router.n)}
         {#if route.kind === ""}<Fleet />
         {:else if route.kind === "p"}<Project project={route.project} />
         {:else if route.kind === "s"}<Setup project={route.project} />

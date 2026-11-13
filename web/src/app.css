@@ -118,7 +118,7 @@ code { font-family: var(--mono); font-size: 0.88em; background: var(--surface-3)
 .prose li { margin: 3px 0; }
 .prose pre { background: var(--sunk); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; overflow: auto; }
 .prose pre code { background: none; padding: 0; }
-.prose h1, .prose h2, .prose h3, .prose h4 { scroll-margin-top: 12px; }
+.prose h1, .prose h2, .prose h3, .prose h4 { scroll-margin-top: var(--scroll-clear, 72px); } /* clears the sticky top bar */
 .prose .table { overflow-x: auto; margin: 0 0 12px; }
 .prose table { border-collapse: collapse; font-size: 13px; }
 .prose th, .prose td { border: 1px solid var(--line-soft); padding: 5px 9px; text-align: left; vertical-align: top; }
@@ -144,4 +144,5 @@ pre.text {
 .banner.ok { --c: var(--ok); } .banner.wait { --c: var(--wait); } .banner.bad { --c: var(--bad); } .banner.info { --c: var(--info); }
 .loading, .failed { padding: 40px 28px; color: var(--muted); }
 .failed { color: var(--bad); }
+@media (max-width: 999px) { .prose h1, .prose h2, .prose h3, .prose h4 { scroll-margin-top: var(--scroll-clear, 120px); } } /* and the doc bar */
 @media (max-width: 860px) { .page { padding: 16px 16px 48px; } }
