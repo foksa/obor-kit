@@ -8,11 +8,13 @@ export const esc = (s: unknown) =>
 const SECTION = /^(Summary|Self-check|Skipped|Open questions|Concerns|Blocked):/;
 
 // Links is how md links what it finds: a task id always; a ref (RV-n, DD-…, a repo path ending .md, or a code span's
-// text) and a markdown link's target only when the caller resolves them (undefined: the text stays plain).
+// text) and a markdown link's target only when the caller resolves them (undefined: the text stays plain). section,
+// when the caller has one, is the address of a heading's id: every heading then gets a small anchor to it.
 export interface Links {
   task: (id: string) => string;
   ref?: (token: string) => string | undefined;
   url?: (target: string) => string | undefined;
+  section?: (id: string) => string;
 }
 
 // REF is what the text links: a repo path ending .md, a task id, a review id, a deep dive's id.
@@ -114,6 +116,11 @@ export function md(text: string, links: ((id: string) => string) | Links): strin
       .replace(PLACE, (_, i) => atoms[+i]).replace(SECTION, "<strong>$1:</strong>");
   };
   const slug = slugger();
+  // at is a heading's section link: the caller's address for that heading, or nothing when it has none.
+  const at = (id: string) =>
+    L.section
+      ? `<a class="hlink" href="${esc(L.section(id))}" aria-label="Copy link to this section" title="Copy link">#</a>`
+      : "";
   const out: string[] = [];
   let para: string[] = [];
   let list: string[] | null = null;
@@ -132,7 +139,12 @@ export function md(text: string, links: ((id: string) => string) | Links): strin
     }
     if (FENCE.test(raw)) { flush(); code = []; continue; }
     const h = raw.match(HEADING);
-    if (h) { flush(); out.push(`<h${h[1].length} id="${slug(h[2])}">${inline(h[2])}</h${h[1].length}>`); continue; }
+    if (h) {
+      flush();
+      const id = slug(h[2]);
+      out.push(`<h${h[1].length} id="${id}">${inline(h[2])}${at(id)}</h${h[1].length}>`);
+      continue;
+    }
     if (raw.includes("|") && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]) && lines[i + 1].includes("-")) {
       flush();
       const head = cells(raw);

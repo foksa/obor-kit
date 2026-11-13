@@ -119,6 +119,14 @@ code { font-family: var(--mono); font-size: 0.88em; background: var(--surface-3)
 .prose pre { background: var(--sunk); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; overflow: auto; }
 .prose pre code { background: none; padding: 0; }
 .prose h1, .prose h2, .prose h3, .prose h4 { scroll-margin-top: var(--scroll-clear, 72px); } /* clears the sticky top bar */
+/* a heading's section link: on hover, a click copying the doc's address at that heading */
+.prose .hlink {
+  margin-left: 8px; color: var(--muted); font-weight: 400; text-decoration: none; opacity: 0;
+  transition: opacity 0.12s;
+}
+.prose :is(h1, h2, h3, h4):hover .hlink, .prose .hlink:focus-visible { opacity: 1; }
+.prose .hlink[data-copied] { opacity: 1; }
+.prose .hlink[data-copied]::after { content: " copied"; font-size: 11px; color: var(--ok); }
 .prose .table { overflow-x: auto; margin: 0 0 12px; }
 .prose table { border-collapse: collapse; font-size: 13px; }
 .prose th, .prose td { border: 1px solid var(--line-soft); padding: 5px 9px; text-align: left; vertical-align: top; }

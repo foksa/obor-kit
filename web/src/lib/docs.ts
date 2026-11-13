@@ -1,6 +1,7 @@
 // The docs page's logic: the docs as one path list, how a doc's text links (a task to its page, an RV-n or DD-… to
-// its review file and a repo path to that doc, both only when the doc list has them), the list's tree, order, matches,
-// recent docs and neighbours, a doc's outline (levels 2–3), pinned captions and accepted.md's filter.
+// its review file, a repo path to that doc, both only when the doc list has them, a heading to its section), the
+// list's tree, order, matches, recent docs and neighbours, a doc's outline (levels 2–3), pinned captions and
+// accepted.md's filter.
 import { headings, type Heading, type Links } from "./md";
 import { href } from "./route";
 import type { Doc, DocHit, DocList } from "./types";
@@ -84,6 +85,8 @@ export function docLinks(project: string, docs: Set<string>, from: string): Link
       if (/^https?:\/\//i.test(target)) return undefined; // md links an external URL itself
       return toDoc(resolve(docs, from, target));
     },
+    // a heading's anchor is this doc's address at that section; the page copies it whole, origin included
+    section: (id) => href.docs(project, from, id),
   };
 }
 

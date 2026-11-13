@@ -52,6 +52,14 @@ describe("link rules", () => {
     expect(out).toContain('<a href="#/docs/pj/docs/plan/b.md">b</a>');
     expect(L.url!("https://example.com")).toBeUndefined(); // md links it itself, in a new tab
   });
+  it("gives every heading a section link to its doc, and none where the caller has no section address", () => {
+    const out = md("## The plan\n### deep `x`", docLinks("pj", docs, "docs/plan/a.md"));
+    expect(out).toContain('<h2 id="h-the-plan">The plan<a class="hlink"');
+    expect(out).toContain('href="#/docs/pj/docs/plan/a.md#h-the-plan"');
+    expect(out).toContain('href="#/docs/pj/docs/plan/a.md#h-deep-x"');
+    expect(out).toContain('aria-label="Copy link to this section"');
+    expect(md("## The plan", (t: string) => "#/t/pj/" + t)).toBe('<h2 id="h-the-plan">The plan</h2>');
+  });
 });
 
 describe("a doc's outline", () => {

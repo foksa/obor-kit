@@ -1,11 +1,13 @@
 // Routes: a hash as a page and the hash of every page a link points to. Help ("h") is the one page of no project;
-// "tasks" is a project's list of every task, "docs" its tracked markdown (the id: a doc's path, "" the list).
+// "tasks" is a project's list of every task, "docs" its tracked markdown (the id: a doc's path, "" the list; the
+// section: a heading id in that doc, "" its top).
 
 export type Kind = "" | "p" | "s" | "tasks" | "docs" | "t" | "a" | "j" | "h";
 export interface Route {
   kind: Kind;
   project: string;
   id: string;
+  section: string;
 }
 
 const KINDS = new Set(["", "p", "s", "tasks", "docs", "t", "a", "j"]); // the kinds parseRoute splits ("h", help, is matched whole)
@@ -15,18 +17,23 @@ const dec = (s: string | undefined) => {
 };
 
 // parseRoute is a hash as its route: an unknown kind, or a project page with no project, is the fleet; help has none.
+// A doc's section is the "#<heading id>" after its path (href.docs encodes a "#" in the path, so the one there is the
+// section's); an id no heading has is kept as given, and the page opens the doc at its top.
 export function parseRoute(hash: string): Route {
-  if (/^#?\/?h\/?$/.test(String(hash || ""))) return { kind: "h", project: "", id: "" };
-  const parts = String(hash || "").replace(/^#\/?/, "").split("/");
+  if (/^#?\/?h\/?$/.test(String(hash || ""))) return { kind: "h", project: "", id: "", section: "" };
+  const raw = String(hash || "").replace(/^#\/?/, "");
+  const cut = raw.indexOf("#");
+  const section = cut < 0 ? "" : dec(raw.slice(cut + 1));
+  const parts = (cut < 0 ? raw : raw.slice(0, cut)).split("/");
   const kind = (parts[0] || "") as Kind;
   const project = dec(parts[1]);
   // a job's id keeps its slashes, encoded or not
   const id = parts.slice(2).map(dec).join("/");
   const needsId = kind === "t" || kind === "a" || kind === "j";
   if (!KINDS.has(kind) || (kind !== "" && !project) || (needsId && !id)) {
-    return { kind: "", project: "", id: "" };
+    return { kind: "", project: "", id: "", section: "" };
   }
-  return { kind, project, id };
+  return { kind, project, id, section: kind === "docs" ? section : "" };
 }
 
 const enc = encodeURIComponent;
@@ -36,8 +43,9 @@ export const href = {
   project: (p: string) => `#/p/${enc(p)}`,
   setup: (p: string) => `#/s/${enc(p)}`,
   tasks: (p: string) => `#/tasks/${enc(p)}`,
-  // docs is the docs page, at one doc when path is given (its slashes kept)
-  docs: (p: string, path = "") => `#/docs/${enc(p)}` + (path ? "/" + path.split("/").map(enc).join("/") : ""),
+  // docs is the docs page, at one doc when path is given (its slashes kept), at one section of it with section
+  docs: (p: string, path = "", section = "") =>
+    `#/docs/${enc(p)}` + (path ? "/" + path.split("/").map(enc).join("/") : "") + (section ? "#" + enc(section) : ""),
   task: (p: string, t: string) => `#/t/${enc(p)}/${enc(t)}`,
   agent: (p: string, a: string) => `#/a/${enc(p)}/${enc(a)}`,
   job: (p: string, j: string) => `#/j/${enc(p)}/${enc(j)}`,
