@@ -73,16 +73,16 @@ type DocMatch struct {
 }
 
 // GrepDocs is every line of root's tracked markdown files that holds all of words, case aside, a path's hits in path
-// and line order: one `git grep --cached` over the index (the doc set TrackedDocs lists: untracked, ignored and
-// worktree-only paths are not searched), the words as fixed strings, one -e each. --all-match keeps the files holding
-// all of them; the lines holding only some are dropped here. git's exit 1 is no hit, not an error, and -z keeps a path
-// with a colon in it whole.
+// and line order: one `git grep` over the checkout (the docs contract TrackedDocs states: the index's .md paths, their
+// text read from the working tree, so a hit's line number is the one /api/doc serves), the words as fixed strings, one
+// -e each. --all-match keeps the files holding all of them; the lines holding only some are dropped here. git's exit 1
+// is no hit, not an error, and -z keeps a path with a colon in it whole.
 func GrepDocs(ctx context.Context, root string, words []string) ([]DocMatch, error) {
 	if len(words) == 0 {
 		return nil, nil
 	}
 	// --all-match drops the files holding only some of the words; the lines holding only some are holdsAll's.
-	args := []string{"grep", "--cached", "--all-match", "-i", "-F", "-n", "-z"}
+	args := []string{"grep", "--all-match", "-i", "-F", "-n", "-z"}
 	for _, w := range words {
 		args = append(args, "-e", w)
 	}
@@ -125,6 +125,11 @@ func holdsAll(line string, words []string) bool {
 // TrackedDocs is the markdown files git tracks under root (ls-files: untracked and ignored files are not in it;
 // symlinks and submodules are left out, so a served path is always a regular file git has), each with the time of the
 // newest commit that touched it (one log over the same pathspec), in ls-files order.
+//
+// This set is the docs contract: git's index says which paths are docs, while a doc's text is its file in the checkout,
+// never the index's blob. The reader, the list's titles and GrepDocs all read that file, so an unstaged edit shows in
+// all three and a doc deleted from the checkout is skipped; a file a docs route reads is a regular file inside the root
+// (a symlink, or a path whose real path leaves the root, is not read).
 func TrackedDocs(ctx context.Context, root string) ([]TrackedDoc, error) {
 	ls, err := project.GitCtx(ctx, root, "ls-files", "-s", "-z", "--", docsSpec)
 	if err != nil {

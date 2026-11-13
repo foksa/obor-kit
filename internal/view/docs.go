@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -32,7 +33,8 @@ type DocGroup struct {
 }
 
 // DocList is a project's docs: the markdown files git's index tracks under its root at Head, the pinned ones first (in
-// PinnedDocs' order) and the rest by directory (the root first, then by name). Nothing else is ever served.
+// PinnedDocs' order) and the rest by directory (the root first, then by name). Nothing else is ever served; the text of
+// a listed doc is its file in the checkout (checks.TrackedDocs states the rule).
 type DocList struct {
 	Head   string     `json:"head"`
 	Pinned []Doc      `json:"pinned"`
@@ -165,6 +167,50 @@ func readTitle(realRoot, root, p string) string {
 	return DocTitle(f)
 }
 
+// docStat is one doc's checkout file as the title cache's key: the lstat's modification time (unix nanoseconds) and
+// size; exists is false for a path with no file on disk (a deleted doc).
+type docStat struct {
+	mtime, size int64
+	exists      bool
+}
+
+// docStats is each doc's checkout file's stat by path, one lstat each (the path itself, never a symlink's target).
+func docStats(root string, files []checks.TrackedDoc) map[string]docStat {
+	stats := make(map[string]docStat, len(files))
+	for _, f := range files {
+		fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(f.Path)))
+		if err != nil {
+			stats[f.Path] = docStat{}
+			continue
+		}
+		stats[f.Path] = docStat{mtime: fi.ModTime().UnixNano(), size: fi.Size(), exists: true}
+	}
+	return stats
+}
+
+// retitle is it with the title of every doc whose checkout file moved since it was read read again, one file read each
+// under ReadDoc's guards; changed is whether any file moved. A doc whose file did not move keeps its title, and its
+// list is returned unchanged when none did.
+func retitle(root string, it docItem) (docItem, bool) {
+	stats := docStats(root, it.files)
+	var moved []checks.TrackedDoc
+	for _, f := range it.files {
+		if stats[f.Path] != it.stats[f.Path] {
+			moved = append(moved, f)
+		}
+	}
+	if len(moved) == 0 {
+		return it, false
+	}
+	titles := maps.Clone(it.titles)
+	for p, t := range readTitles(root, moved) {
+		titles[p] = t
+	}
+	it.list = BuildDocs(it.list.Head, it.files, titles)
+	it.titles, it.stats = titles, stats
+	return it, true
+}
+
 // Has is whether p is one of the list's docs, exactly as listed.
 func (l DocList) Has(p string) bool {
 	has := func(d Doc) bool { return d.Path == p }
@@ -179,8 +225,9 @@ func (l DocList) Has(p string) bool {
 	return false
 }
 
-// DocCache is the doc list of each project root, read again when the root's HEAD or git index moves (one rev-parse and
-// one stat per request, the ls-files, log and one file read per doc only when either moved). The zero value reads real
+// DocCache is the doc list of each project root, read again when the root's HEAD or git index moves, or when a tracked
+// doc's file moves on disk (one rev-parse, one index stat and one stat per doc per request; the ls-files, log and one
+// file read per doc only when one of those moved, and just the title of a file that moved). The zero value reads real
 // git (checks.DocsHead, checks.TrackedDocs, checks.DocsIndex, checks.IndexFile, checks.GrepDocs); a test injects Head,
 // Files, Index, Tracked and Grep.
 type DocCache struct {
@@ -190,20 +237,25 @@ type DocCache struct {
 	Index func(root string) (mtime, size int64, err error)
 	// Tracked is whether the index tracks a path as a regular file (checks.IndexFile): a doc is read only while it does.
 	Tracked func(ctx context.Context, root, p string) (bool, error)
-	// Grep is the lines of root's tracked docs that hold every word of a search (checks.GrepDocs), for Search.
+	// Grep is the lines of root's tracked docs' files in the checkout that hold every word of a search
+	// (checks.GrepDocs), for Search.
 	Grep func(ctx context.Context, root string, words []string) ([]checks.DocMatch, error)
 
 	mu sync.Mutex
 	m  map[string]docItem // by root
 }
 
-// docItem is one root's list and the HEAD and index key it was read at.
+// docItem is one root's list, the tracked docs and titles it was built from, each doc's checkout stat, and the HEAD and
+// index key it was read at.
 type docItem struct {
 	list        DocList
+	files       []checks.TrackedDoc
+	titles      map[string]string
+	stats       map[string]docStat
 	mtime, size int64
 }
 
-// List is root's doc list at its HEAD and index.
+// List is root's doc list at its HEAD and index, with the titles of the docs whose files moved since the last read.
 func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
 	head, files, index := c.Head, c.Files, c.Index
 	if head == nil {
@@ -230,18 +282,28 @@ func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
 	it, ok := c.m[root]
 	c.mu.Unlock()
 	if ok && it.list.Head == h && it.mtime == mtime && it.size == size {
-		return it.list, nil
+		t, changed := retitle(root, it)
+		if !changed {
+			return it.list, nil
+		}
+		c.mu.Lock()
+		c.m[root] = t
+		c.mu.Unlock()
+		return t.list, nil
 	}
 	fs, err := files(ctx, root)
 	if err != nil {
 		return DocList{}, fmt.Errorf("%s: tracked docs: %w", root, err)
 	}
-	l := BuildDocs(h, fs, readTitles(root, fs))
+	stats := docStats(root, fs) // before the reads, so an edit after one is a moved file on the next read
+	titles := readTitles(root, fs)
+	l := BuildDocs(h, fs, titles)
+	it = docItem{list: l, files: fs, titles: titles, stats: stats, mtime: mtime, size: size}
 	c.mu.Lock()
 	if c.m == nil {
 		c.m = map[string]docItem{}
 	}
-	c.m[root] = docItem{list: l, mtime: mtime, size: size}
+	c.m[root] = it
 	c.mu.Unlock()
 	return l, nil
 }
@@ -276,6 +338,19 @@ func docFile(realRoot, root, p string) (string, os.FileInfo, error) {
 	return real, info, nil
 }
 
+// servedPath is p's real path under the checkout at root when ReadDoc serves it: docFile's guards (no symlink on disk,
+// a real path inside realRoot) hold, and it is a regular file of at most MaxDoc bytes.
+func servedPath(realRoot, root, p string) (string, error) {
+	real, info, err := docFile(realRoot, root, p)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() > MaxDoc {
+		return "", fmt.Errorf("%s: not a regular file of at most %d bytes", p, MaxDoc)
+	}
+	return real, nil
+}
+
 // ReadDoc is the text of p, one of l's docs, from the checkout at root. p is served only while git's index tracks it as
 // a regular file (Tracked at this read), so a path that is no longer tracked, a tracked path replaced on disk by a
 // symlink, a path not in the list (a "../" never is) and one whose real path leaves the root are ErrNotADoc.
@@ -298,12 +373,9 @@ func (c *DocCache) ReadDoc(ctx context.Context, root string, l DocList, p string
 	if err != nil {
 		return "", err
 	}
-	real, info, err := docFile(realRoot, root, p)
+	real, err := servedPath(realRoot, root, p)
 	if err != nil {
 		return "", err
-	}
-	if !info.Mode().IsRegular() || info.Size() > MaxDoc {
-		return "", fmt.Errorf("%s: not a regular file of at most %d bytes", p, MaxDoc)
 	}
 	b, err := os.ReadFile(real)
 	return string(b), err
