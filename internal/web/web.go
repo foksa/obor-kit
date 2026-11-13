@@ -79,7 +79,8 @@ type Server struct {
 	Call func(ctx context.Context, root string, r wire.Req) (string, error)
 	// Kit is the kit's root, whose README.md /api/help reads ("": project.KitRoot).
 	Kit string
-	// Docs is each project's doc list, cached per HEAD and git index (zero value: real git), for /api/docs and /api/doc.
+	// Docs is each project's doc list, cached per HEAD and git index (zero value: real git), for /api/docs, /api/doc
+	// and /api/docsearch.
 	Docs view.DocCache
 }
 
@@ -90,8 +91,8 @@ var errServeDown = errors.New("obor serve is not running")
 const callWait = 12 * time.Second
 
 // Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/tasks, /api/agent, /api/job,
-// /api/events, /api/help, /api/docs and /api/doc, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
-// routes the page itself reads).
+// /api/events, /api/help, /api/docs, /api/doc and /api/docsearch, the two POST routes /api/config and /api/pause, and
+// the page for every other path ("/" plus the hash routes the page itself reads).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/projects", s.projectsAPI)
@@ -105,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/help", s.helpAPI)
 	mux.HandleFunc("/api/docs", s.docsAPI)
 	mux.HandleFunc("/api/doc", s.docAPI)
+	mux.HandleFunc("/api/docsearch", s.docsearchAPI)
 	mux.HandleFunc("/api/config", s.configAPI)
 	mux.HandleFunc("/api/pause", s.pauseAPI)
 	mux.HandleFunc("/", s.page)
@@ -448,6 +450,23 @@ func (s *Server) docAPI(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, DocText{Path: doc, Text: text})
 	}
+}
+
+// docsearchAPI is /api/docsearch?project=<name>&q=<text>: the lines of the project's tracked docs that hold every word
+// of q, case aside (view.DocCache.Search), read-only like the other docs routes. A missing q is an empty one: no hits.
+func (s *Server) docsearchAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
+	defer cancel()
+	hits, err := s.Docs.Search(ctx, p.Root, r.URL.Query().Get("q"))
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, hits)
 }
 
 // configBody is POST /api/config's body: the changes, each a key path (config.EditKeys) and its new value, and

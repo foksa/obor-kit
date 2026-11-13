@@ -64,6 +64,64 @@ func IndexFile(ctx context.Context, root, p string) (bool, error) {
 	return false, nil
 }
 
+// DocMatch is one line of a tracked doc that a search's words all hold: the doc's path (relative to the root,
+// slash-separated), the line's number (1-based) and the line as it is.
+type DocMatch struct {
+	Path string
+	Line int
+	Text string
+}
+
+// GrepDocs is every line of root's tracked markdown files that holds all of words, case aside, a path's hits in path
+// and line order: one `git grep --cached` over the index (the doc set TrackedDocs lists: untracked, ignored and
+// worktree-only paths are not searched), the words as fixed strings, one -e each. --all-match keeps the files holding
+// all of them; the lines holding only some are dropped here. git's exit 1 is no hit, not an error, and -z keeps a path
+// with a colon in it whole.
+func GrepDocs(ctx context.Context, root string, words []string) ([]DocMatch, error) {
+	if len(words) == 0 {
+		return nil, nil
+	}
+	// --all-match drops the files holding only some of the words; the lines holding only some are holdsAll's.
+	args := []string{"grep", "--cached", "--all-match", "-i", "-F", "-n", "-z"}
+	for _, w := range words {
+		args = append(args, "-e", w)
+	}
+	out, err := project.GitCtx(ctx, root, append(args, "--", docsSpec)...)
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var ms []DocMatch
+	for _, rec := range strings.Split(out, "\n") {
+		path, rest, ok := strings.Cut(rec, "\x00")
+		if !ok {
+			continue // no -z fields: git's own "Binary file … matches"
+		}
+		number, text, ok := strings.Cut(rest, "\x00")
+		if !ok || !holdsAll(text, words) {
+			continue
+		}
+		if n, err := strconv.Atoi(number); err == nil {
+			ms = append(ms, DocMatch{Path: path, Line: n, Text: text})
+		}
+	}
+	return ms, nil
+}
+
+// holdsAll is whether line holds every one of words, case aside.
+func holdsAll(line string, words []string) bool {
+	lower := strings.ToLower(line)
+	for _, w := range words {
+		if !strings.Contains(lower, strings.ToLower(w)) {
+			return false
+		}
+	}
+	return true
+}
+
 // TrackedDocs is the markdown files git tracks under root (ls-files: untracked and ignored files are not in it;
 // symlinks and submodules are left out, so a served path is always a regular file git has), each with the time of the
 // newest commit that touched it (one log over the same pathspec), in ls-files order.
