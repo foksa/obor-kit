@@ -136,14 +136,28 @@ func fenceLine(line string) string {
 	return ""
 }
 
-// readTitle is p's title from the checkout at root, the source ReadDoc serves; a doc whose file on disk is missing, no
-// regular file or a symlink has none (the list still names it, and nothing outside the root is read).
-func readTitle(root, p string) string {
-	onDisk := filepath.Join(root, filepath.FromSlash(p))
-	if fi, err := os.Lstat(onDisk); err != nil || !fi.Mode().IsRegular() {
+// readTitles is each tracked doc's title by path, read from the checkout at root (the source ReadDoc serves): one
+// EvalSymlinks of the root, then one file read per doc. A root that cannot be resolved gives no titles.
+func readTitles(root string, files []checks.TrackedDoc) map[string]string {
+	titles := make(map[string]string, len(files))
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return titles
+	}
+	for _, f := range files {
+		titles[f.Path] = readTitle(realRoot, root, f.Path)
+	}
+	return titles
+}
+
+// readTitle is p's title (realRoot is EvalSymlinks(root)): "" when the file cannot be read under ReadDoc's guards (gone,
+// no regular file, or a real path outside the root), so nothing outside the root is read; the list still names it.
+func readTitle(realRoot, root, p string) string {
+	real, info, err := docFile(realRoot, root, p)
+	if err != nil || !info.Mode().IsRegular() {
 		return ""
 	}
-	f, err := os.Open(onDisk)
+	f, err := os.Open(real)
 	if err != nil {
 		return ""
 	}
@@ -220,11 +234,7 @@ func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
 	if err != nil {
 		return DocList{}, fmt.Errorf("%s: tracked docs: %w", root, err)
 	}
-	titles := make(map[string]string, len(fs))
-	for _, f := range fs {
-		titles[f.Path] = readTitle(root, f.Path)
-	}
-	l := BuildDocs(h, fs, titles)
+	l := BuildDocs(h, fs, readTitles(root, fs))
 	c.mu.Lock()
 	if c.m == nil {
 		c.m = map[string]docItem{}
@@ -240,6 +250,29 @@ const MaxDoc = 4 << 20
 // ErrNotADoc is a path ReadDoc refuses: git's index does not track it as a regular file under the root, or the list does
 // not have it.
 var ErrNotADoc = errors.New("not a tracked markdown file")
+
+// docFile is p's real path under the checkout at root and its file info, after ReadDoc's disk guards: p is no symlink on
+// disk and its real path is inside realRoot (EvalSymlinks(root)). A path that fails a guard is ErrNotADoc.
+func docFile(realRoot, root, p string) (string, os.FileInfo, error) {
+	onDisk := filepath.Join(root, filepath.FromSlash(p))
+	if fi, err := os.Lstat(onDisk); err != nil {
+		return "", nil, err
+	} else if fi.Mode()&os.ModeSymlink != 0 {
+		return "", nil, fmt.Errorf("%w: %s is a symlink on disk", ErrNotADoc, p)
+	}
+	real, err := filepath.EvalSymlinks(onDisk)
+	if err != nil {
+		return "", nil, err
+	}
+	if rel, err := filepath.Rel(realRoot, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", nil, fmt.Errorf("%w: %s leaves the project's root", ErrNotADoc, p)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", nil, err
+	}
+	return real, info, nil
+}
 
 // ReadDoc is the text of p, one of l's docs, from the checkout at root. p is served only while git's index tracks it as
 // a regular file (Tracked at this read), so a path that is no longer tracked, a tracked path replaced on disk by a
@@ -259,24 +292,11 @@ func (c *DocCache) ReadDoc(ctx context.Context, root string, l DocList, p string
 	if !ok {
 		return "", fmt.Errorf("%w: %s is not in git's index", ErrNotADoc, p)
 	}
-	onDisk := filepath.Join(root, filepath.FromSlash(p))
-	if fi, err := os.Lstat(onDisk); err != nil {
-		return "", err
-	} else if fi.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("%w: %s is a symlink on disk", ErrNotADoc, p)
-	}
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", err
 	}
-	real, err := filepath.EvalSymlinks(onDisk)
-	if err != nil {
-		return "", err
-	}
-	if rel, err := filepath.Rel(realRoot, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: %s leaves the project's root", ErrNotADoc, p)
-	}
-	info, err := os.Stat(real)
+	real, info, err := docFile(realRoot, root, p)
 	if err != nil {
 		return "", err
 	}

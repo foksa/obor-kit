@@ -85,53 +85,74 @@ func TestDocTitle(t *testing.T) {
 }
 
 // TestDocCacheTitles: a doc's title is read from the checkout when the list is rebuilt, so it follows the index key; a
-// listed doc whose file is missing or a symlink on disk has none.
+// listed doc whose file is missing, is a symlink on disk, or whose path runs through a symlinked directory out of the
+// root has none.
 func TestDocCacheTitles(t *testing.T) {
 	t.Parallel()
-	root, out := t.TempDir(), filepath.Join(t.TempDir(), "secret.md")
+	base := t.TempDir()
+	root, out := filepath.Join(base, "root"), filepath.Join(base, "out")
+	for _, d := range []string{root, out} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	write := func(p, s string) {
 		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(root, p), []byte(s), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	write("a.md", "# one\n")
-	if err := os.WriteFile(out, []byte("# outside the root\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(out, "secret.md"), []byte("# outside the root\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(out, filepath.Join(root, "link.md")); err != nil {
+	if err := os.Symlink(filepath.Join(out, "secret.md"), filepath.Join(root, "link.md")); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Symlink(out, filepath.Join(root, "esc")); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(out, "secret.md")); err != nil || !strings.HasPrefix(string(b), "# ") {
+		t.Fatalf("precondition: the file outside the root starts with a heading (%q, %v): an unguarded read would title it", b, err)
 	}
 	stamp := int64(1)
 	c := &DocCache{
 		Head:  func(context.Context, string) (string, error) { return "h", nil },
 		Index: func(string) (int64, int64, error) { return stamp, 0, nil },
 		Files: func(context.Context, string) ([]checks.TrackedDoc, error) {
-			return []checks.TrackedDoc{{Path: "a.md"}, {Path: "gone.md"}, {Path: "link.md"}}, nil
+			return []checks.TrackedDoc{{Path: "a.md"}, {Path: "esc/secret.md"}, {Path: "gone.md"}, {Path: "link.md"}}, nil
 		},
 	}
-	titles := func() (a, gone, link string) {
+	titles := func() map[string]string {
 		t.Helper()
 		l, err := c.List(context.Background(), root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(l.Groups) != 1 || len(l.Groups[0].Docs) != 3 {
-			t.Fatalf("groups = %+v, want a.md, gone.md and link.md", l.Groups)
+		got := map[string]string{}
+		for _, g := range l.Groups {
+			for _, d := range g.Docs {
+				got[d.Path] = d.Title
+			}
 		}
-		docs := l.Groups[0].Docs
-		return docs[0].Title, docs[1].Title, docs[2].Title
+		if len(got) != 4 {
+			t.Fatalf("list = %+v, want a.md, esc/secret.md, gone.md and link.md", l.Groups)
+		}
+		return got
 	}
-	if a, gone, link := titles(); a != "one" || gone != "" || link != "" {
-		t.Fatalf("titles = %q, %q, %q; want a.md's heading and none for the missing and symlinked files", a, gone, link)
+	if got := titles(); got["a.md"] != "one" || got["esc/secret.md"] != "" || got["gone.md"] != "" || got["link.md"] != "" {
+		t.Fatalf("titles = %v, want a.md's heading and none for the paths that leave or lack a file", got)
 	}
 	write("a.md", "# two\n")
-	if a, _, _ := titles(); a != "one" {
-		t.Errorf("title at the same HEAD and index = %q, want the cached one", a)
+	if got := titles(); got["a.md"] != "one" {
+		t.Errorf("title at the same HEAD and index = %q, want the cached one", got["a.md"])
 	}
 	stamp++
-	if a, _, _ := titles(); a != "two" {
-		t.Errorf("title after the index moved = %q, want the file's new heading", a)
+	if got := titles(); got["a.md"] != "two" {
+		t.Errorf("title after the index moved = %q, want the file's new heading", got["a.md"])
 	}
 }
 
