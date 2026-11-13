@@ -1,6 +1,8 @@
 // The docs page's components as served (svelte/server): the index's tree, matches and marked doc, the outline.
 import { describe, expect, it } from "vitest";
 import { render } from "svelte/server";
+import { compile } from "svelte/compiler";
+import indexSource from "../ui/DocIndex.svelte?raw";
 import { TextSearch } from "./docsearch.svelte";
 import type { DocHits, DocList } from "./types";
 import DocIndex from "../ui/DocIndex.svelte";
@@ -145,6 +147,15 @@ describe("a title with inline markdown in the index", () => {
     expect(found).toContain("1 of 2");
     expect(found).toContain("<code>internal/<mark>app</mark></code><mark>:</mark> <mark>bound</mark>aries");
     expect(found).not.toContain("`");
+  });
+});
+
+describe("the index's highlight style", () => {
+  it("reaches a mark inside a title's HTML (not scoped), the same rule as the component's own marks", () => {
+    const css = compile(indexSource, { filename: "DocIndex.svelte", css: "external" }).css?.code || "";
+    const rule = css.split("\n").find((l) => /(^|[\s,])mark\.svelte-/.test(l)) || "";
+    expect(rule).toContain("var(--accent)"); // the precondition: the component's own marks are tinted
+    expect(rule).toMatch(/\.name\.svelte-\w+ mark[\s,{]/);
   });
 });
 

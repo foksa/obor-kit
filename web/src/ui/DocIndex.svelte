@@ -270,7 +270,7 @@
   .mline .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .where { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tall .match, .tall .doc, .tall .dir { min-height: 44px; }
-  mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); border-radius: 3px; }
+  mark, .name :global(mark) { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); border-radius: 3px; }
   .modes { margin-top: -4px; }
   .body .lbl { margin: 10px 8px 2px; }
   .hgroup { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-top: 4px; }
