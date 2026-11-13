@@ -3,16 +3,18 @@
   // with aria-current and an accent edge), or with a filter typed the flat list of matches (↑/↓ move, Enter opens, Esc
   // clears). Given the page's text search, a toggle beside the filter sets its mode to "Search the text": the matching
   // paths first, under them the text hits grouped by doc, each its line number and the line with the words marked
-  // (a hit opens its doc and tells the page its line, onhit). One component for the reading sidebar and the narrow drawer (part "side"); the list page uses its tree
-  // ("tree") and its matches ("matches") on their own. The filter, order and folds belong to the page (they outlive a
-  // doc change).
+  // (a hit opens its doc and tells the page its line, onhit); a hit shows only under the words it answers. One component
+  // for the reading sidebar and the narrow drawer (part "side"); the list page uses its tree ("tree") and its matches
+  // ("matches", hits included) on their own, its filter's keys through key. The filter, mode, order and folds belong to
+  // the page (they outlive a doc change). A title shows its inline markdown; the match rows mark its words.
   import { href } from "../lib/route";
   import {
-    docLabel, folderOf, groupHits, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds, type Match,
-    type Order,
+    docLabel, folderOf, groupHits, labelHtml, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds,
+    type Match, type Order,
   } from "../lib/docs";
   import type { TextSearch } from "../lib/docsearch.svelte";
   import type { Doc, DocHit, DocList } from "../lib/types";
+  import DocModes from "./DocModes.svelte";
   import Rel from "./Rel.svelte";
 
   let {
@@ -29,7 +31,7 @@
   const total = $derived(list.pinned.length + list.groups.reduce((n, g) => n + g.docs.length, 0));
   const filtering = $derived(q.trim() !== "");
   const matches: Match[] = $derived(matchDocs(list, q));
-  const found = $derived(text ? search?.result : null);
+  const found = $derived(text ? search?.resultFor(q) : null);
   const groups = $derived(groupHits(found?.hits));
   const hits: DocHit[] = $derived(groups.flatMap((g) => g.hits));
   // byPath is each doc by its path: a hit group's label.
@@ -57,7 +59,9 @@
     input?.select();
   }
 
-  function onkey(e: KeyboardEvent) {
+  // key is what a key in the filter does: ↑/↓ mark a match or a hit, Enter opens the marked one, Escape clears (the
+  // list page's own filter calls it too).
+  export function key(e: KeyboardEvent) {
     const r = matchKey(e.key, sel, filtering ? count : 0);
     if (!r) return;
     if (!filtering && !r.clear) return;
@@ -78,8 +82,7 @@
     onhit?.(h.path, h.line);
     onpick?.();
   }
-  function setMode(m: "path" | "text") {
-    mode = m;
+  function modeSet() {
     sel = 0;
     input?.focus();
   }
@@ -113,7 +116,7 @@
       {@const d = byPath.get(g.path)}
       <div class="hgroup" role="list" aria-label="Lines in {g.path}">
         <a class="hdoc" href={href.docs(project, g.path)} title={g.path} onclick={() => onpick?.()}>
-          <span class="name ell" class:mono={!d?.title}>{d ? docLabel(d) : g.path}</span>
+          <span class="name ell" class:mono={!d?.title}>{#if d}{@html labelHtml(d)}{:else}{g.path}{/if}</span>
           <span class="count">{g.hits.length}</span>
         </a>
         {#each g.hits as h (h.line)}
@@ -165,7 +168,7 @@
         <a class="doc" class:on={r.doc.path === path} style:padding-left="{8 + r.depth * 16 + 4}px"
           href={href.docs(project, r.doc.path)} title={r.doc.path}
           aria-current={r.doc.path === path ? "page" : undefined} onclick={() => onpick?.()}>
-          <span class="name ell" class:mono={!r.doc.title}>{docLabel(r.doc)}</span>
+          <span class="name ell" class:mono={!r.doc.title}>{@html labelHtml(r.doc)}</span>
           {#if full}{@render age(r.doc)}{/if}
         </a>
       {/if}
@@ -180,15 +183,12 @@
 {:else}
   <nav class="index" class:tall aria-label="Docs index">
     <div class="filter">
-      <input bind:this={input} class="search" type="search" bind:value={q} oninput={() => (sel = 0)} onkeydown={onkey}
+      <input bind:this={input} class="search" type="search" bind:value={q} oninput={() => (sel = 0)} onkeydown={key}
         aria-label={text ? "Search the docs' text" : "Filter the docs"} placeholder={text ? "Search the text" : "Filter docs"} />
       <kbd aria-hidden="true">/</kbd>
     </div>
     {#if search}
-      <div class="modes" role="group" aria-label="What the filter searches">
-        <button type="button" class="mode" aria-pressed={!text} onclick={() => setMode("path")}>Names</button>
-        <button type="button" class="mode" aria-pressed={text} onclick={() => setMode("text")}>Search the text</button>
-      </div>
+      <div class="modes"><DocModes bind:mode {tall} onchange={modeSet} /></div>
     {/if}
     {#if filtering}
       <p class="count-line">{countLine}</p>
@@ -205,7 +205,7 @@
           {#each list.pinned as d (d.path)}
             <a class="doc" class:on={d.path === path} href={href.docs(project, d.path)} title={d.path}
               aria-current={d.path === path ? "page" : undefined} onclick={() => onpick?.()}>
-              <span class="name ell" class:mono={!d.title}>{d.title || d.path}</span></a>
+              <span class="name ell" class:mono={!d.title}>{#if d.title}{@html labelHtml(d)}{:else}{d.path}{/if}</span></a>
           {/each}
         {/if}
         {#if shown.length}
@@ -272,14 +272,7 @@
   .where { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tall .match, .tall .doc, .tall .dir { min-height: 44px; }
   mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); border-radius: 3px; }
-  .modes { display: flex; gap: 4px; margin-top: -4px; }
-  .mode {
-    flex: 1 1 0; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent;
-    color: var(--muted); font-size: 12px; cursor: pointer;
-  }
-  .mode:hover { color: var(--fg); }
-  .mode[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); border-color: var(--line-strong); font-weight: 600; }
-  .tall .mode { height: 44px; font-size: 13px; }
+  .modes { margin-top: -4px; }
   .body .lbl { margin: 10px 8px 2px; }
   .hgroup { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-top: 4px; }
   .hdoc, .hit { text-decoration: none; }

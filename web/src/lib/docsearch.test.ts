@@ -89,3 +89,37 @@ describe("the text search", () => {
     expect(search.busy).toBe(false);
   });
 });
+
+describe("the text search's answer under newer words", () => {
+  it("hides the old text's hits while a changed text is on its way, and shows the new answer once it is in", async () => {
+    search.set("lane");
+    await vi.advanceTimersByTimeAsync(DELAY);
+    calls[0].resolve(answer("lane"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(search.resultFor("lane")?.q).toBe("lane"); // precondition: the answer shows under its own words
+    expect(search.resultFor(" lane ")?.q).toBe("lane");
+    search.set("lanes");
+    expect(search.result?.q).toBe("lane"); // still held
+    expect(search.resultFor("lanes")).toBeNull();
+    await vi.advanceTimersByTimeAsync(DELAY);
+    calls[1].resolve(answer("lanes"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(search.resultFor("lanes")?.q).toBe("lanes");
+  });
+
+  it("leaves no old hit after a failed request", async () => {
+    search.set("gate");
+    await vi.advanceTimersByTimeAsync(DELAY);
+    calls[0].resolve(answer("gate"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(search.result?.q).toBe("gate");
+    search.set("gates");
+    await vi.advanceTimersByTimeAsync(DELAY);
+    calls[1].reject(new Error("502 Bad Gateway"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(search.error).toBe("502 Bad Gateway");
+    expect(search.result).toBeNull();
+    expect(search.resultFor("gate")).toBeNull();
+    expect(search.resultFor("gates")).toBeNull();
+  });
+});
