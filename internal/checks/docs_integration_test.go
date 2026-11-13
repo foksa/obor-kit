@@ -11,6 +11,64 @@ import (
 	"testing"
 )
 
+// TestGrepDocs: a search's hit is a line of a markdown file git's index tracks that holds every word, case aside, as a
+// fixed string; a line holding only some of them is no hit, a file git does not track (an untracked .md) or one that is
+// not markdown is not searched, and no match is no error.
+func TestGrepDocs(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(path, text string) {
+		t.Helper()
+		p := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("config", "user.email", "t@example.com")
+	git("config", "user.name", "t")
+	write("docs/a.md", "# a\nalpha beta on one line\nalpha only here\nbeta only here\nMiXeD CaSe both\n")
+	write("notes.txt", "alpha beta, not markdown\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "one")
+	write("docs/draft.md", "untracked alpha beta\n")
+
+	ctx := context.Background()
+	grep := func(words ...string) []DocMatch {
+		t.Helper()
+		ms, err := GrepDocs(ctx, root, words)
+		if err != nil {
+			t.Fatalf("GrepDocs%v: %v", words, err)
+		}
+		return ms
+	}
+	want := DocMatch{Path: "docs/a.md", Line: 2, Text: "alpha beta on one line"}
+	if got := grep("alpha", "beta"); len(got) != 1 || got[0] != want {
+		t.Errorf("GrepDocs(alpha, beta) = %+v, want only %+v: a line holding both words (lines 3 and 4 hold one each)", got, want)
+	}
+	if got := grep("mixed", "CASE"); len(got) != 1 || got[0].Path != "docs/a.md" || got[0].Line != 5 {
+		t.Errorf("GrepDocs(mixed, CASE) = %+v, want docs/a.md:5: case aside", got)
+	}
+	got := grep("alpha")
+	if len(got) != 2 || got[0].Line != 2 || got[1].Line != 3 {
+		t.Errorf("GrepDocs(alpha) = %+v, want docs/a.md's lines 2 and 3, and neither the untracked draft nor notes.txt", got)
+	}
+	for _, words := range [][]string{{"untracked"}, {"alpha", "zzz"}, {"alpha", "-n"}, nil} {
+		if got := grep(words...); len(got) != 0 {
+			t.Errorf("GrepDocs%v = %+v, want no hit", words, got)
+		}
+	}
+}
+
 // TestTrackedDocs: the doc list is the .md files git tracks under the root, in every directory, each with its newest
 // commit's time; an untracked file, a gitignored one, a symlink and a non-markdown file are not in it, and HEAD is the
 // sha rev-parse names. IndexFile is true only for a path the index tracks as a regular file (a staged one too, one git

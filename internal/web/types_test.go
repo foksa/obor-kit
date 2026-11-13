@@ -79,6 +79,8 @@ var goStructs = map[string]reflect.Type{
 	"DocGroup":         reflect.TypeOf(view.DocGroup{}),
 	"DocList":          reflect.TypeOf(view.DocList{}),
 	"DocText":          reflect.TypeOf(DocText{}),
+	"DocHit":           reflect.TypeOf(view.DocHit{}),
+	"DocHits":          reflect.TypeOf(view.DocHits{}),
 }
 
 // tsOnly are the interfaces with no same-named Go struct: help's rows are help.Command and help.Section (web.Help ties

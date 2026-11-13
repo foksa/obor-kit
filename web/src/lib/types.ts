@@ -549,3 +549,18 @@ export interface DocText {
   path: string;
   text: string;
 }
+
+// DocHit is one line a docs search finds (view.DocHit): the doc's path, the line's number and the line, cut around the
+// hit.
+export interface DocHit {
+  path: string;
+  line: number;
+  text: string;
+}
+
+// DocHits is /api/docsearch (view.DocHits): the text searched, its hits (at most 200) and whether the cap cut them.
+export interface DocHits {
+  q: string;
+  hits: DocHit[];
+  truncated: boolean;
+}

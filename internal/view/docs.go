@@ -108,7 +108,8 @@ func (l DocList) Has(p string) bool {
 
 // DocCache is the doc list of each project root, read again when the root's HEAD or git index moves (one rev-parse and
 // one stat per request, the ls-files and log only when either moved). The zero value reads real git (checks.DocsHead,
-// checks.TrackedDocs, checks.DocsIndex, checks.IndexFile); a test injects Head, Files, Index and Tracked.
+// checks.TrackedDocs, checks.DocsIndex, checks.IndexFile, checks.GrepDocs); a test injects Head, Files, Index, Tracked
+// and Grep.
 type DocCache struct {
 	Head  func(ctx context.Context, root string) (string, error)
 	Files func(ctx context.Context, root string) ([]checks.TrackedDoc, error)
@@ -116,6 +117,8 @@ type DocCache struct {
 	Index func(root string) (mtime, size int64, err error)
 	// Tracked is whether the index tracks a path as a regular file (checks.IndexFile): a doc is read only while it does.
 	Tracked func(ctx context.Context, root, p string) (bool, error)
+	// Grep is the lines of root's tracked docs that hold every word of a search (checks.GrepDocs), for Search.
+	Grep func(ctx context.Context, root string, words []string) ([]checks.DocMatch, error)
 
 	mu sync.Mutex
 	m  map[string]docItem // by root
