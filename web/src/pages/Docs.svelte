@@ -7,13 +7,15 @@
   // the order, the folds and the index's scroll survive a doc change; the open doc is read by its own Live, made per
   // path. The order and the folds are remembered per viewer in localStorage when it is there. The index's filter can
   // search the docs' text too (one TextSearch for the sidebar and the drawer); a text hit opens its doc scrolled to the
-  // nearest heading above its line.
+  // nearest heading above its line. A doc's section link (`#/docs/<project>/<path>#<heading id>`) opens it scrolled to
+  // that heading; a heading picked in "On this page" or a text hit's heading goes into the URL in place of the shown
+  // one, and every rendered heading carries a "Copy link" anchor.
   import { onDestroy, tick, untrack } from "svelte";
   import { Live } from "../lib/live.svelte";
   import { api } from "../lib/api";
   import { TextSearch } from "../lib/docsearch.svelte";
   import { md } from "../lib/md";
-  import { go } from "../lib/router.svelte";
+  import { go, replace } from "../lib/router.svelte";
   import { href } from "../lib/route";
   import {
     defaultOrder, docLabel, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, matchDocs, matchKey,
@@ -28,7 +30,7 @@
   import Segmented from "../ui/Segmented.svelte";
   import Stale from "../ui/Stale.svelte";
 
-  let { project, path = "" }: { project: string; path?: string } = $props();
+  let { project, path = "", section = "" }: { project: string; path?: string; section?: string } = $props();
   // svelte-ignore state_referenced_locally (App keys the page on its project: another project is a new page)
   const list = new Live<DocList>((s) => api.docs(project, s));
   list.start();
@@ -75,13 +77,18 @@
   $effect(() => search.set(mode === "text" && path ? q : ""));
   // jump is the line a text hit opened: once its doc is shown, the page scrolls to the nearest heading above it.
   let jump = $state<{ path: string; line: number } | null>(null);
+  // scrolled is the path#section the page last scrolled to: a section already shown is not scrolled to again when the
+  // doc is read once more.
+  let scrolled = "";
 
-  // A doc change: the open doc's folder and its parents unfold, the line filter and the sheets reset.
+  // A doc change: the open doc's folder and its parents unfold, the line filter and the sheets reset, and a section
+  // link in the URL scrolls again when the doc is back.
   $effect(() => {
     const p = path;
     untrack(() => {
       if (p) folds = unfold(folds, p);
       lq = "";
+      scrolled = "";
       drawer?.close();
       sheet?.close();
     });
@@ -115,7 +122,18 @@
       const el = id ? document.getElementById(id) : null;
       if (el) el.scrollIntoView({ block: "start" });
       else window.scrollTo(0, 0);
+      if (id && j.path === path) showSection(id);
     });
+  });
+  // A section link scrolls to its heading once the doc is rendered (its body, and the page past the list); an id no
+  // heading has leaves the doc at its top.
+  $effect(() => {
+    const s = section;
+    const shown = html;
+    if (!s || !path || !shown || !list.data) return;
+    if (scrolled === path + "#" + s) return;
+    scrolled = path + "#" + s;
+    void tick().then(() => document.getElementById(s)?.scrollIntoView({ block: "start" }));
   });
   const heads = $derived(outline(body));
   const lineCount = $derived(text ? text.replace(/\n$/, "").split("\n").length : 0);
@@ -202,6 +220,31 @@
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch { /* no clipboard: nothing to say */ }
+  }
+
+  // showSection puts a heading picked in "On this page" (or reached by a text hit) in the URL in place of the shown
+  // address: no history entry, so Back leaves the doc rather than walking its headings.
+  function showSection(id: string) {
+    if (!path || !id) return;
+    scrolled = path + "#" + id;
+    replace(href.docs(project, path, id));
+  }
+
+  // A prose click on a heading's anchor copies its link whole (origin, page and section); the anchor stays a link, so
+  // its address is there to copy as well.
+  function copyLink(node: HTMLElement) {
+    const onclick = async (e: MouseEvent) => {
+      const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>("a.hlink");
+      if (!a) return;
+      e.preventDefault();
+      try {
+        await navigator.clipboard.writeText(location.origin + location.pathname + a.hash);
+        a.dataset.copied = "";
+        setTimeout(() => delete a.dataset.copied, 1500);
+      } catch { /* no clipboard: nothing to say */ }
+    };
+    node.addEventListener("click", onclick);
+    return { destroy: () => node.removeEventListener("click", onclick) };
   }
 </script>
 
@@ -356,7 +399,7 @@
             </div>
           {/if}
         {:else}
-          <div class="card pad"><div class="prose">{@html html}</div></div>
+          <div class="card pad"><div class="prose" use:copyLink>{@html html}</div></div>
         {/if}
 
         {#if all.has(path)}
@@ -382,7 +425,7 @@
       {#if heads.length >= 2}
         <aside class="toc" aria-label="On this page">
           <h2 class="lbl">On this page · {heads.length}</h2>
-          <DocOutline headings={heads} />
+          <DocOutline headings={heads} onsection={showSection} />
           <button type="button" class="btn sm top-btn" onclick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>↑ Top</button>
         </aside>
       {/if}
@@ -410,7 +453,7 @@
           <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6"></path></svg></button>
       </header>
       <div class="dlg-body">
-        <DocOutline headings={heads} compact onpick={() => sheet?.close()} />
+        <DocOutline headings={heads} compact onsection={showSection} onpick={() => sheet?.close()} />
       </div>
     </dialog>
   {/if}

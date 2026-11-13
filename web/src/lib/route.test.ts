@@ -3,35 +3,47 @@ import { href, pageKey, parseRoute } from "./route";
 
 describe("routes", () => {
   it("parses every page's hash, a job's id keeping its slashes", () => {
-    expect(parseRoute("")).toEqual({ kind: "", project: "", id: "" });
-    expect(parseRoute("#/p/axis-alies")).toEqual({ kind: "p", project: "axis-alies", id: "" });
-    expect(parseRoute("#/s/obor-kit")).toEqual({ kind: "s", project: "obor-kit", id: "" });
-    expect(parseRoute("#/t/pj/T-12")).toEqual({ kind: "t", project: "pj", id: "T-12" });
-    expect(parseRoute("#/a/pj/pj-o1")).toEqual({ kind: "a", project: "pj", id: "pj-o1" });
-    expect(parseRoute("#/j/pj/T-12/1/work")).toEqual({ kind: "j", project: "pj", id: "T-12/1/work" });
-    expect(parseRoute("#/j/pj/T-12%2F1%2Fwork")).toEqual({ kind: "j", project: "pj", id: "T-12/1/work" });
+    expect(parseRoute("")).toEqual({ kind: "", project: "", id: "", section: "" });
+    expect(parseRoute("#/p/axis-alies")).toEqual({ kind: "p", project: "axis-alies", id: "", section: "" });
+    expect(parseRoute("#/s/obor-kit")).toEqual({ kind: "s", project: "obor-kit", id: "", section: "" });
+    expect(parseRoute("#/t/pj/T-12")).toEqual({ kind: "t", project: "pj", id: "T-12", section: "" });
+    expect(parseRoute("#/a/pj/pj-o1")).toEqual({ kind: "a", project: "pj", id: "pj-o1", section: "" });
+    expect(parseRoute("#/j/pj/T-12/1/work")).toEqual({ kind: "j", project: "pj", id: "T-12/1/work", section: "" });
+    expect(parseRoute("#/j/pj/T-12%2F1%2Fwork")).toEqual({ kind: "j", project: "pj", id: "T-12/1/work", section: "" });
   });
   it("sends an unknown kind, a page with no project or a task with no id to the fleet", () => {
     for (const h of ["#/x/pj", "#/p", "#/t/pj", "#/a/pj/", "#/%E0%A4%A"]) expect(parseRoute(h).kind).toBe("");
   });
   it("parses help, the one page of no project (T-854)", () => {
-    for (const h of ["#/h", "#/h/", "#h"]) expect(parseRoute(h)).toEqual({ kind: "h", project: "", id: "" });
-    expect(parseRoute(href.help())).toEqual({ kind: "h", project: "", id: "" });
+    for (const h of ["#/h", "#/h/", "#h"]) expect(parseRoute(h)).toEqual({ kind: "h", project: "", id: "", section: "" });
+    expect(parseRoute(href.help())).toEqual({ kind: "h", project: "", id: "", section: "" });
     for (const h of ["#/h/pj", "#/h/pj/x"]) expect(parseRoute(h).kind).toBe("");
   });
   it("parses a project's tasks page, tasks/<project>, and links to it", () => {
-    expect(parseRoute("#/tasks/obor-kit")).toEqual({ kind: "tasks", project: "obor-kit", id: "" });
-    expect(parseRoute("#/tasks/a%20b")).toEqual({ kind: "tasks", project: "a b", id: "" });
-    expect(parseRoute(href.tasks("a b"))).toEqual({ kind: "tasks", project: "a b", id: "" });
+    expect(parseRoute("#/tasks/obor-kit")).toEqual({ kind: "tasks", project: "obor-kit", id: "", section: "" });
+    expect(parseRoute("#/tasks/a%20b")).toEqual({ kind: "tasks", project: "a b", id: "", section: "" });
+    expect(parseRoute(href.tasks("a b"))).toEqual({ kind: "tasks", project: "a b", id: "", section: "" });
     for (const h of ["#/tasks", "#/tasks/", "#/task/pj"]) expect(parseRoute(h).kind).toBe("");
   });
   it("parses a project's docs page, docs/<project>[/<path>], and links to it with the path's slashes kept", () => {
-    expect(parseRoute("#/docs/pj")).toEqual({ kind: "docs", project: "pj", id: "" });
-    expect(parseRoute("#/docs/pj/docs/plan/a.md")).toEqual({ kind: "docs", project: "pj", id: "docs/plan/a.md" });
+    expect(parseRoute("#/docs/pj")).toEqual({ kind: "docs", project: "pj", id: "", section: "" });
+    expect(parseRoute("#/docs/pj/docs/plan/a.md")).toEqual({ kind: "docs", project: "pj", id: "docs/plan/a.md", section: "" });
     expect(href.docs("a b", "docs/x y.md")).toBe("#/docs/a%20b/docs/x%20y.md");
-    expect(parseRoute(href.docs("a b", "docs/x y.md"))).toEqual({ kind: "docs", project: "a b", id: "docs/x y.md" });
-    expect(parseRoute(href.docs("pj"))).toEqual({ kind: "docs", project: "pj", id: "" });
+    expect(parseRoute(href.docs("a b", "docs/x y.md"))).toEqual({ kind: "docs", project: "a b", id: "docs/x y.md", section: "" });
+    expect(parseRoute(href.docs("pj"))).toEqual({ kind: "docs", project: "pj", id: "", section: "" });
     for (const h of ["#/docs", "#/docs/"]) expect(parseRoute(h).kind).toBe("");
+  });
+  it("parses and links a doc's section, an id no heading has included", () => {
+    expect(href.docs("a b", "docs/x y.md", "h-a-b")).toBe("#/docs/a%20b/docs/x%20y.md#h-a-b");
+    expect(parseRoute("#/docs/pj/docs/design.md#h-needs-new-data"))
+      .toEqual({ kind: "docs", project: "pj", id: "docs/design.md", section: "h-needs-new-data" });
+    expect(parseRoute(href.docs("a b", "docs/x y.md", "h-a-b")))
+      .toEqual({ kind: "docs", project: "a b", id: "docs/x y.md", section: "h-a-b" });
+    expect(parseRoute(href.docs("pj", "docs/a.md", "h-gone")))
+      .toEqual({ kind: "docs", project: "pj", id: "docs/a.md", section: "h-gone" });
+    expect(parseRoute(href.docs("pj", "docs/a.md")).section).toBe("");
+    // a section belongs to a doc: anywhere else it is not part of the route
+    expect(parseRoute("#/t/pj/T-12#h-x")).toEqual({ kind: "t", project: "pj", id: "T-12", section: "" });
   });
   it("links every kind the router handles, and back", () => {
     const links = [href.project("a b"), href.setup("pj"), href.task("pj", "T-1"), href.agent("pj", "x"), href.job("pj", "T-1/1/work")];
@@ -46,6 +58,7 @@ describe("the routed page's key (T-1306)", () => {
     const a = pageKey(parseRoute(href.docs("pj", "docs/a.md")), 1);
     expect(a).toBe(pageKey(parseRoute(href.docs("pj", "docs/b.md")), 2));
     expect(a).toBe(pageKey(parseRoute(href.docs("pj")), 3));
+    expect(a).toBe(pageKey(parseRoute(href.docs("pj", "docs/a.md", "h-x")), 4)); // a section does not remount either
     expect(a).not.toBe(pageKey(parseRoute(href.docs("other", "docs/a.md")), 1));
   });
   it("remounts any other page on another route or a navigation to it", () => {

@@ -162,7 +162,7 @@
         {:else if route.kind === "p"}<Project project={route.project} />
         {:else if route.kind === "s"}<Setup project={route.project} />
         {:else if route.kind === "tasks"}<Tasks project={route.project} />
-        {:else if route.kind === "docs"}<Docs project={route.project} path={route.id} />
+        {:else if route.kind === "docs"}<Docs project={route.project} path={route.id} section={route.section} />
         {:else if route.kind === "t"}<Task project={route.project} id={route.id} />
         {:else if route.kind === "a"}<Agent project={route.project} id={route.id} />
         {:else if route.kind === "j"}<Job project={route.project} id={route.id} />

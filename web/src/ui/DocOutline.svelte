@@ -1,14 +1,15 @@
 <script lang="ts">
   // DocOutline is a doc's "On this page": its level 2–3 headings (### indented), the one the reader is in marked
-  // (aria-current="location"), a click scrolling to it. compact is the Sections sheet's style (44 px rows). It tracks
-  // the heading in view with one IntersectionObserver over the rendered headings (their ids are md's; a scroll measures
-  // again too), and renders nothing for fewer than two headings.
+  // (aria-current="location"), a click scrolling to it and telling the page the section picked (onsection, the URL's
+  // section link). compact is the Sections sheet's style (44 px rows). It tracks the heading in view with one
+  // IntersectionObserver over the rendered headings (their ids are md's; a scroll measures again too), and renders
+  // nothing for fewer than two headings.
   import { tick } from "svelte";
   import { currentHeading } from "../lib/docs";
   import type { Heading } from "../lib/md";
 
-  let { headings, compact = false, onpick = undefined }:
-    { headings: Heading[]; compact?: boolean; onpick?: (id: string) => void } = $props();
+  let { headings, compact = false, onpick = undefined, onsection = undefined }:
+    { headings: Heading[]; compact?: boolean; onpick?: (id: string) => void; onsection?: (id: string) => void } = $props();
 
   let cur = $state("");
   const plain = (s: string) => s.replace(/[`*]/g, "");
@@ -54,6 +55,7 @@
   function pick(id: string) {
     cur = id;
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    onsection?.(id);
     onpick?.(id);
   }
 </script>
