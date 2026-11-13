@@ -74,47 +74,62 @@ function cells(row: string): string[] {
 const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 
-export function md(text: string, links: ((id: string) => string) | Links): string {
-  const L: Links = typeof links === "function" ? { task: links } : links;
-  const a = (href: string, body: string, ext = false) =>
-    `<a href="${esc(href)}"${ext ? ' target="_blank" rel="noopener noreferrer"' : ""}>${body}</a>`;
+// a is a link around body: an external one opens in a new tab.
+const a = (href: string, body: string, ext = false) =>
+  `<a href="${esc(href)}"${ext ? ' target="_blank" rel="noopener noreferrer"' : ""}>${body}</a>`;
+
+// inline is one line's inline markdown as HTML: code spans, bold and links, its refs linked by L. With L null nothing
+// links (a code span stays code, a markdown link is its body): the label of a row that is itself a link.
+export function inline(s: string, L: Links | null): string {
   // plain is text escaped, its refs linked (a link's own body passes link=false); words bolds what plain gives back
-  const plain = (s: string, link = true) => {
-    const e = esc(s);
-    if (!link) return e;
+  const plain = (t: string, link = true) => {
+    const e = esc(t);
+    if (!link || !L) return e;
     return e.replace(REF, (m, _path, task) => {
       const h = task ? L.task(task) : L.ref?.(m);
       return h ? a(h, m) : m;
     });
   };
-  const words = (s: string, link = true) => plain(s, link).replace(BOLD, "<strong>$1</strong>");
-  // inline is a line: a code span or a link is one atom, held out of the pairing, so a code span's contents are never
-  // parsed for emphasis and `**a \`b\` c**` still finds its two delimiters.
-  const inline = (s: string) => {
-    const atoms: string[] = [];
-    const hold = (html: string) => {
-      atoms.push(html);
-      return "\u0000" + (atoms.length - 1) + "\u0000";
-    };
-    let out = "";
-    let last = 0;
-    for (const m of s.matchAll(SPAN)) {
-      out += plain(s.slice(last, m.index));
-      if (m[1] !== undefined) {
-        const code = "<code>" + esc(m[1]) + "</code>";
-        const t = m[1].trim().replace(/:\d+(-\d+)?$/, ""); // a path's :line
-        const h = /^T-\d+$/.test(t) ? L.task(t) : L.ref?.(t);
-        out += hold(h ? a(h, code) : code);
-      } else {
-        const ext = external(m[3]);
-        const h = L.url?.(m[3]) ?? ext;
-        out += hold(h ? a(h, words(m[2], false), h === ext) : words(m[2]));
-      }
-      last = m.index! + m[0].length;
-    }
-    return (out + plain(s.slice(last))).replace(BOLD, "<strong>$1</strong>")
-      .replace(PLACE, (_, i) => atoms[+i]).replace(SECTION, "<strong>$1:</strong>");
+  const words = (t: string, link = true) => plain(t, link).replace(BOLD, "<strong>$1</strong>");
+  // a code span or a link is one atom, held out of the pairing, so a code span's contents are never parsed for
+  // emphasis and `**a \`b\` c**` still finds its two delimiters.
+  const atoms: string[] = [];
+  const hold = (html: string) => {
+    atoms.push(html);
+    return "\u0000" + (atoms.length - 1) + "\u0000";
   };
+  let out = "";
+  let last = 0;
+  for (const m of s.matchAll(SPAN)) {
+    out += plain(s.slice(last, m.index));
+    if (m[1] !== undefined) {
+      const code = "<code>" + esc(m[1]) + "</code>";
+      const t = m[1].trim().replace(/:\d+(-\d+)?$/, ""); // a path's :line
+      const h = !L ? undefined : /^T-\d+$/.test(t) ? L.task(t) : L.ref?.(t);
+      out += hold(h ? a(h, code) : code);
+    } else {
+      const ext = L ? external(m[3]) : undefined;
+      const h = L ? L.url?.(m[3]) ?? ext : undefined;
+      out += hold(h ? a(h, words(m[2], false), h === ext) : words(m[2], !!L));
+    }
+    last = m.index! + m[0].length;
+  }
+  return (out + plain(s.slice(last))).replace(BOLD, "<strong>$1</strong>")
+    .replace(PLACE, (_, i) => atoms[+i]).replace(SECTION, "<strong>$1:</strong>");
+}
+
+// plainText is a line's inline markdown as its words: a code span's and a link's body, bold without its stars.
+export function plainText(s: string): string {
+  const atoms: string[] = [];
+  const held = String(s || "").replace(SPAN, (_, code, body) => {
+    atoms.push(code ?? body.replace(BOLD, "$1"));
+    return "\u0000" + (atoms.length - 1) + "\u0000";
+  });
+  return held.replace(BOLD, "$1").replace(PLACE, (_, i) => atoms[+i]);
+}
+
+export function md(text: string, links: ((id: string) => string) | Links): string {
+  const L: Links = typeof links === "function" ? { task: links } : links;
   const slug = slugger();
   // at is a heading's section link: the caller's address for that heading, or nothing when it has none.
   const at = (id: string) =>
@@ -126,8 +141,8 @@ export function md(text: string, links: ((id: string) => string) | Links): strin
   let list: string[] | null = null;
   let code: string[] | null = null;
   const flush = () => {
-    if (para.length) { out.push("<p>" + para.map(inline).join(" ") + "</p>"); para = []; }
-    if (list) { out.push("<ul>" + list.map((i) => "<li>" + inline(i) + "</li>").join("") + "</ul>"); list = null; }
+    if (para.length) { out.push("<p>" + para.map((p) => inline(p, L)).join(" ") + "</p>"); para = []; }
+    if (list) { out.push("<ul>" + list.map((i) => "<li>" + inline(i, L) + "</li>").join("") + "</ul>"); list = null; }
   };
   const lines = String(text || "").split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -142,7 +157,7 @@ export function md(text: string, links: ((id: string) => string) | Links): strin
     if (h) {
       flush();
       const id = slug(h[2]);
-      out.push(`<h${h[1].length} id="${id}">${inline(h[2])}${at(id)}</h${h[1].length}>`);
+      out.push(`<h${h[1].length} id="${id}">${inline(h[2], L)}${at(id)}</h${h[1].length}>`);
       continue;
     }
     if (raw.includes("|") && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]) && lines[i + 1].includes("-")) {
@@ -151,8 +166,8 @@ export function md(text: string, links: ((id: string) => string) | Links): strin
       const rows: string[][] = [];
       for (i += 2; i < lines.length && lines[i].includes("|") && lines[i].trim(); i++) rows.push(cells(lines[i]));
       i--;
-      out.push('<div class="table"><table><thead><tr>' + head.map((c) => "<th>" + inline(c) + "</th>").join("") +
-        "</tr></thead><tbody>" + rows.map((r) => "<tr>" + head.map((_, k) => "<td>" + inline(r[k] || "") + "</td>").join("") + "</tr>").join("") +
+      out.push('<div class="table"><table><thead><tr>' + head.map((c) => "<th>" + inline(c, L) + "</th>").join("") +
+        "</tr></thead><tbody>" + rows.map((r) => "<tr>" + head.map((_, k) => "<td>" + inline(r[k] || "", L) + "</td>").join("") + "</tr>").join("") +
         "</tbody></table></div>");
       continue;
     }

@@ -2,7 +2,7 @@
 // its review file, a repo path to that doc, both only when the doc list has them, a heading to its section), the
 // list's tree, order, matches, recent docs and neighbours, a doc's outline (levels 2–3), pinned captions and
 // accepted.md's filter.
-import { headings, type Heading, type Links } from "./md";
+import { esc, headings, inline, plainText, type Heading, type Links } from "./md";
 import { href } from "./route";
 import type { Doc, DocHit, DocList } from "./types";
 
@@ -186,9 +186,9 @@ export function tree(list: DocList | null | undefined, order?: Order): Folder {
 // words is a filter's words, lower case.
 const words = (q: string) => String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
 
-// matchDocs is list's docs whose path or title holds every word of q (case aside; a word may be in either): the
-// pinned ones first, then the list's order, each with where a word first matches its file name and its title (for
-// highlighting; -1 when none does). An empty q is every doc.
+// matchDocs is list's docs whose path or title (its words, the markup aside) holds every word of q (case aside; a word
+// may be in either): the pinned ones first, then the list's order, each with where a word first matches its file name
+// and its title (for highlighting; -1 when none does). An empty q is every doc.
 export function matchDocs(list: DocList | null | undefined, q: string): Match[] {
   const ws = words(q);
   const out: Match[] = [];
@@ -197,7 +197,7 @@ export function matchDocs(list: DocList | null | undefined, q: string): Match[] 
     return found.length ? Math.min(...found) : -1;
   };
   for (const d of [...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)]) {
-    const title = (d.title || "").toLowerCase();
+    const title = plainText(d.title || "").toLowerCase();
     const path = d.path.toLowerCase();
     if (!ws.every((w) => path.includes(w) || title.includes(w))) continue;
     out.push({ doc: d, at: first(base(path)), tat: title ? first(title) : -1 });
@@ -246,8 +246,8 @@ export function groupHits(hits: DocHit[] | null | undefined): HitGroup[] {
 }
 
 // sectionAt is the id, in body as rendered, of the nearest heading at or above line (1-based) of text, the doc's file:
-// body is text as shown (the title heading taken out), so the heading is found by its text and how many headings of
-// that text follow it. "" when no heading is above the line or the heading is not in body (the title): the doc's top.
+// body is text as shown (accepted.md's line filter may drop lines), so the heading is found by its text and how many
+// headings of that text follow it. "" when no heading is above the line or the heading is not in body: the doc's top.
 export function sectionAt(text: string, body: string, line: number): string {
   const upTo = headings(String(text || "").split("\n").slice(0, Math.max(0, line)).join("\n"));
   const above = upTo[upTo.length - 1];
@@ -258,30 +258,35 @@ export function sectionAt(text: string, body: string, line: number): string {
   return shown[shown.length - 1 - after]?.id || "";
 }
 
-// recent is the n newest docs across pinned and groups, a staged one (no updated) first.
-export function recent(list: DocList | null | undefined, n: number): Doc[] {
-  const all = [...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)];
-  const staged = all.filter((d) => !d.updated);
-  const dated = all.filter((d) => d.updated).sort((a, b) => (b.updated || 0) - (a.updated || 0));
-  return [...staged, ...dated].slice(0, Math.max(0, n));
+// byNewest is docs newest first: a staged one (no updated) first, then by updated descending (a tie keeps its place).
+function byNewest(docs: Doc[]): Doc[] {
+  const staged = docs.filter((d) => !d.updated);
+  const dated = docs.filter((d) => d.updated).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  return [...staged, ...dated];
 }
 
-// folderDocs is every doc of path's directory: the pinned ones first, then the group's (the served order there).
+// recent is the n newest docs across pinned and groups, a staged one (no updated) first.
+export function recent(list: DocList | null | undefined, n: number): Doc[] {
+  return byNewest([...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)]).slice(0, Math.max(0, n));
+}
+
+// folderDocs is every doc of path's directory, the pinned ones among them.
 function folderDocs(list: DocList | null | undefined, path: string): Doc[] {
   const dir = dirOf(path);
   const pinned = (list?.pinned || []).filter((d) => dirOf(d.path) === dir);
   return [...pinned, ...((list?.groups || []).find((g) => (g.dir || "") === dir)?.docs || [])];
 }
 
-// neighbours is the doc before and after path in its folder's order: newer and older under Newest, the previous and next
-// in the folder's list under A–Z. Without an order the folder's defaultOrder applies.
+// neighbours is the doc before and after path among every doc of its folder, the pinned ones too: newer and older by
+// updated under Newest (a staged one newest), the previous and next file name under A–Z. Without an order the folder's
+// defaultOrder applies.
 export function neighbours(
   list: DocList | null | undefined,
   path: string,
   order?: Order,
 ): { newer?: Doc; older?: Doc } {
   const docs = folderDocs(list, path);
-  const sorted = sortDocs(docs, order ?? defaultOrder({ docs }));
+  const sorted = (order ?? defaultOrder({ docs })) === "az" ? sortDocs(docs, "az") : byNewest(docs);
   const i = sorted.findIndex((d) => d.path === path);
   return i < 0 ? {} : { newer: sorted[i - 1], older: sorted[i + 1] };
 }
@@ -392,8 +397,22 @@ export function progress(top: number, height: number, view: number): number {
   return Math.min(1, Math.max(0, -top / span));
 }
 
-// docLabel is how a doc shows in a row: its title when it has one, its file name otherwise.
-export const docLabel = (d: Doc): string => d.title || base(d.path);
+// docLabel is how a doc reads in a row: its title's words (the markup aside) when it has one, its file name otherwise.
+export const docLabel = (d: Doc): string => (d.title ? plainText(d.title) : base(d.path));
+
+// labelHtml is how a doc shows in a row, as HTML: its title's inline markdown (code, bold; nothing links: the row is
+// the link), its file name otherwise.
+export const labelHtml = (d: Doc): string => (d.title ? inline(d.title, null) : esc(base(d.path)));
+
+// splitTitle is a doc's rendered HTML cut at its title heading (the <h1> with that id): the heading's inner HTML (its
+// text and section anchor) for the page's header, the rest for the body. No such heading: head "", the HTML whole.
+export function splitTitle(html: string, id: string): { head: string; rest: string } {
+  const open = `<h1 id="${id}">`;
+  const i = id ? html.indexOf(open) : -1;
+  if (i < 0) return { head: "", rest: html };
+  const j = html.indexOf("</h1>", i);
+  return { head: html.slice(i + open.length, j), rest: html.slice(0, i) + html.slice(j + "</h1>".length) };
+}
 
 // folderOf is a path's folder with its slash ("" at the top level).
 export const folderOf = (p: string): string => (dirOf(p) ? dirOf(p) + "/" : "");

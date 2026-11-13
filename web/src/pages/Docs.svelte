@@ -5,25 +5,27 @@
   // header and its newer/older neighbours, and "On this page"; under 1000 px a doc bar opens the index as a drawer and
   // the sections as a sheet. The page stays mounted from doc to doc (App keys it on the project only), so the filter,
   // the order, the folds and the index's scroll survive a doc change; the open doc is read by its own Live, made per
-  // path. The order and the folds are remembered per viewer in localStorage when it is there. The index's filter can
-  // search the docs' text too (one TextSearch for the sidebar and the drawer); a text hit opens its doc scrolled to the
-  // nearest heading above its line. A doc's section link (`#/docs/<project>/<path>#<heading id>`) opens it scrolled to
-  // that heading; a heading picked in "On this page" or a text hit's heading goes into the URL in place of the shown
-  // one, and every rendered heading carries a "Copy link" anchor.
+  // path. The order and the folds are remembered per viewer in localStorage when it is there. The list's filter and the
+  // index's can search the docs' text too (one mode and one TextSearch for the list, the sidebar and the drawer); a
+  // text hit opens its doc scrolled to the nearest heading above its line. A doc's section link
+  // (`#/docs/<project>/<path>#<heading id>`) opens it scrolled to that heading; a heading picked in "On this page" or a
+  // text hit's heading goes into the URL in place of the shown one, and every rendered heading, the title in the header
+  // too, carries a "Copy link" anchor. A title shows its inline markdown (code, bold, links) wherever it is a label.
   import { onDestroy, tick, untrack } from "svelte";
   import { Live } from "../lib/live.svelte";
   import { api } from "../lib/api";
   import { TextSearch } from "../lib/docsearch.svelte";
-  import { md } from "../lib/md";
-  import { go, replace } from "../lib/router.svelte";
+  import { headings, inline, md } from "../lib/md";
+  import { replace } from "../lib/router.svelte";
   import { href } from "../lib/route";
   import {
-    defaultOrder, docLabel, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, matchDocs, matchKey,
-    neighbours, outline, paths, pinnedCaption, progress, recent, sameName, sectionAt, tree, unfold, type Folds,
-    type Order,
+    defaultOrder, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, labelHtml, matchDocs,
+    neighbours, outline, paths, pinnedCaption, progress, recent, sameName, sectionAt, splitTitle, tree, unfold,
+    type Folds, type Order,
   } from "../lib/docs";
   import type { Doc, DocList, DocText } from "../lib/types";
   import DocIndex from "../ui/DocIndex.svelte";
+  import DocModes from "../ui/DocModes.svelte";
   import DocOutline from "../ui/DocOutline.svelte";
   import Rel from "../ui/Rel.svelte";
   import Section from "../ui/Section.svelte";
@@ -70,11 +72,11 @@
   let lq = $state(""); // accepted.md's line filter
   let mode = $state<"path" | "text">("path"); // what the index's filter searches
 
-  // The text search: the filter's text while the mode is "text", nothing otherwise.
+  // The text search: the filter's text while the mode is "text" (on the list and in a doc), nothing otherwise.
   // svelte-ignore state_referenced_locally
   const search = new TextSearch((t, s) => api.docsearch(project, t, s));
   onDestroy(() => search.stop());
-  $effect(() => search.set(mode === "text" && path ? q : ""));
+  $effect(() => search.set(mode === "text" ? q : ""));
   // jump is the line a text hit opened: once its doc is shown, the page scrolls to the nearest heading above it.
   let jump = $state<{ path: string; line: number } | null>(null);
   // scrolled is the path#section the page last scrolled to: a section already shown is not scrolled to again when the
@@ -103,16 +105,12 @@
   const title = $derived(docTitle(text));
   const accepted = $derived(isAccepted(path));
   const filtered = $derived(accepted ? filterLines(text, lq) : null);
-  // body is the text as shown: the line filter's, without the title heading the header already shows.
-  const body = $derived.by(() => {
-    const t = filtered ? filtered.text : text;
-    if (!title) return t;
-    const lines = t.split("\n");
-    const i = lines.findIndex((l) => /^#\s+/.test(l) && l.replace(/^#\s+/, "") === title);
-    if (i >= 0) lines.splice(i, 1);
-    return lines.join("\n");
-  });
-  const html = $derived(md(body, docLinks(project, all, path)));
+  // body is the text as shown (the line filter's), rendered whole so the title's heading id and every other one come
+  // from one slugger; the title's heading is then cut out of the HTML into the header (its id and anchor with it).
+  const body = $derived(filtered ? filtered.text : text);
+  const titleId = $derived(title ? headings(body).find((h) => h.level === 1 && h.text === title)?.id || "" : "");
+  const rendered = $derived(splitTitle(md(body, docLinks(project, all, path)), titleId));
+  const html = $derived(rendered.rest);
   $effect(() => {
     const j = jump;
     if (!j || j.path !== path || !text || !html) return;
@@ -146,6 +144,14 @@
     return defaultOrder({ docs: list.data?.groups.find((g) => (g.dir || "") === dir)?.docs || [] }) === "az";
   });
   const matches = $derived(matchDocs(list.data, q));
+  // listCount is the list's count over its matches: by name, and in text mode the lines found and a search out.
+  const listCount = $derived.by(() => {
+    if (mode !== "text") return `${matches.length} of ${total}`;
+    const found = search.resultFor(q);
+    const n = found?.hits.length ?? 0;
+    return [`${matches.length} of ${total} by name`, found ? `${n} ${n === 1 ? "line" : "lines"} in the text` : "",
+      search.busy ? "searching…" : ""].filter(Boolean).join(" · ");
+  });
   const folderCount = $derived.by(() => {
     let n = 0;
     const walk = (f: ReturnType<typeof tree>) => { n += f.folders.length; f.folders.forEach(walk); };
@@ -160,6 +166,7 @@
   let drawerIndex: DocIndex | undefined = $state();
   let sideIndex: DocIndex | undefined = $state();
   let listInput: HTMLInputElement | undefined = $state();
+  let listIndex: DocIndex | undefined = $state();
   function openDrawer() {
     drawer?.showModal();
     drawerIndex?.focus();
@@ -203,14 +210,10 @@
     else sideIndex?.focus();
   }
 
+  // The list's filter keys go to its matches (a path match or a text hit), shown while something is typed.
   function onListKey(e: KeyboardEvent) {
-    const filtering = q.trim() !== "";
-    const r = matchKey(e.key, sel, filtering ? matches.length : 0);
-    if (!r || (!filtering && !r.clear)) return;
-    e.preventDefault();
-    sel = r.sel;
-    if (r.clear) q = "";
-    if (r.open) go(href.docs(project, matches[r.sel].doc.path));
+    if (listIndex) listIndex.key(e);
+    else if (e.key === "Escape") q = "";
   }
 
   let copied = $state(false);
@@ -276,17 +279,21 @@
         <div class="big">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l3 3"></path></svg>
           <input bind:this={listInput} type="search" bind:value={q} oninput={() => (sel = 0)} onkeydown={onListKey}
-            aria-label="Filter the docs by name or path" placeholder="Filter {total} docs by name or path" />
+            aria-label={mode === "text" ? "Search the docs' text" : "Filter the docs by name or path"}
+            placeholder={mode === "text" ? `Search the text of ${total} docs` : `Filter ${total} docs by name or path`} />
           <kbd aria-hidden="true">/</kbd>
         </div>
+        <DocModes bind:mode onchange={() => { sel = 0; listInput?.focus(); }} />
         <Segmented label="Order in a folder" bind:value={order}
           options={[["", "Default"], ["new", "Newest"], ["az", "A–Z"]]} />
       </div>
 
       {#if q.trim()}
-        <Section title="Matches" count="{matches.length} of {total}" sub="↑ ↓ to move · ↵ opens · Esc clears">
+        <Section title="Matches" sub="↑ ↓ to move · ↵ opens · Esc clears"
+          count={listCount}>
           <div class="card box">
-            <DocIndex part="matches" {project} list={list.data} bind:q bind:sel />
+            <DocIndex bind:this={listIndex} part="matches" {project} list={list.data} bind:q bind:sel bind:mode {search}
+              onhit={(p, line) => (jump = { path: p, line })} />
           </div>
         </Section>
       {:else}
@@ -295,7 +302,7 @@
             <div class="pins">
               {#each list.data.pinned as d (d.path)}
                 <a class="card pin" href={href.docs(project, d.path)} title={d.path}>
-                  <span class="pin-name" class:mono={!d.title}>{docLabel(d)}</span>
+                  <span class="pin-name" class:mono={!d.title}>{@html labelHtml(d)}</span>
                   {#if pinnedCaption(d.path)}<span class="cap">{pinnedCaption(d.path)}</span>{/if}
                   <span class="pin-foot"><span class="mono ell">{folderOf(d.path) || "top level"}</span><span class="age">{@render age(d)}</span></span>
                 </a>
@@ -320,7 +327,7 @@
               <div class="card box recent">
                 {#each recent(list.data, 10) as d (d.path)}
                   <a class="rrow" href={href.docs(project, d.path)} title={d.path}>
-                    <span class="rline"><span class="ell" class:mono={!d.title}>{docLabel(d)}</span><span class="age">{@render age(d)}</span></span>
+                    <span class="rline"><span class="ell" class:mono={!d.title}>{@html labelHtml(d)}</span><span class="age">{@render age(d)}</span></span>
                     <span class="mono where ell">{folderOf(d.path) || "top level"}</span>
                   </a>
                 {/each}
@@ -356,7 +363,11 @@
             <button type="button" class="copy" onclick={copyPath} aria-label="Copy the path">{copied ? "Copied" : "Copy path"}</button>
           </div>
           {#if text || !all.has(path) || doc?.error}
-            <h1>{title || meta?.title || path}</h1>
+            {#if rendered.head}
+              <div class="prose doc-title" use:copyLink><h1 id={titleId}>{@html rendered.head}</h1></div>
+            {:else}
+              <h1>{#if meta?.title}{@html inline(meta.title, null)}{:else}{path}{/if}</h1>
+            {/if}
           {:else}
             <div class="skel title" aria-hidden="true"></div>
           {/if}
@@ -407,14 +418,14 @@
             {#if near.newer}
               <a class="card nb" href={href.docs(project, near.newer.path)} title={near.newer.path}>
                 <span class="nb-lbl">← {byName ? "previous" : "newer"} in {folderOf(path) || "top level"}</span>
-                <span class="nb-name" class:mono={!near.newer.title}>{docLabel(near.newer)}</span></a>
+                <span class="nb-name" class:mono={!near.newer.title}>{@html labelHtml(near.newer)}</span></a>
             {:else}
               <div class="nb none"><span class="nb-lbl">← {byName ? "previous" : "newer"} in {folderOf(path) || "top level"}</span><span class="nb-name">none</span></div>
             {/if}
             {#if near.older}
               <a class="card nb right" href={href.docs(project, near.older.path)} title={near.older.path}>
                 <span class="nb-lbl">{byName ? "next" : "older"} in {folderOf(path) || "top level"} →</span>
-                <span class="nb-name" class:mono={!near.older.title}>{docLabel(near.older)}</span></a>
+                <span class="nb-name" class:mono={!near.older.title}>{@html labelHtml(near.older)}</span></a>
             {:else}
               <div class="nb none right"><span class="nb-lbl">{byName ? "next" : "older"} in {folderOf(path) || "top level"} →</span><span class="nb-name">none</span></div>
             {/if}
@@ -515,7 +526,9 @@
     color: var(--muted); font: 11px var(--sans); cursor: pointer;
   }
   .copy:hover { color: var(--fg); }
-  .doc-head h1 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+  .doc-head h1 {
+    margin: 0; font-size: 24px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; overflow-wrap: anywhere;
+  }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12px; color: var(--muted); }
   .sections { display: none; }
   .lfilter { display: flex; align-items: center; gap: 12px; }

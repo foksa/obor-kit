@@ -1,9 +1,10 @@
 // The docs page's components as served (svelte/server): the index's tree, matches and marked doc, the outline.
 import { describe, expect, it } from "vitest";
 import { render } from "svelte/server";
-import type { TextSearch } from "./docsearch.svelte";
+import { TextSearch } from "./docsearch.svelte";
 import type { DocHits, DocList } from "./types";
 import DocIndex from "../ui/DocIndex.svelte";
+import DocModes from "../ui/DocModes.svelte";
 import DocOutline from "../ui/DocOutline.svelte";
 
 const list: DocList = {
@@ -52,7 +53,13 @@ describe("the doc index searching the text", () => {
     ],
     truncated: false,
   };
-  const search = (result: DocHits | null, busy = false) => ({ result, busy, error: "" }) as unknown as TextSearch;
+  const search = (result: DocHits | null, busy = false, error = "") => {
+    const s = new TextSearch(() => new Promise<DocHits>(() => {}));
+    s.result = result;
+    s.busy = busy;
+    s.error = error;
+    return s;
+  };
 
   it("lists the path matches first, then the text hits grouped by doc with their line numbers and the words marked", () => {
     const html = text(render(DocIndex, { props: { project: "pj", list, q: "pause", mode: "text", search: search(found) } }).body);
@@ -90,6 +97,54 @@ describe("the doc index searching the text", () => {
     const html = text(render(DocIndex, { props: { project: "pj", list, q: "r1", mode: "text" } }).body);
     expect(html).not.toContain("Search the text");
     expect(html).toContain("4 of 16");
+  });
+});
+
+describe("the list page's text search", () => {
+  const found: DocHits = { q: "pause", hits: [{ path: "docs/design.md", line: 12, text: "obor pause stops dispatch" }], truncated: false };
+  const search = (result: DocHits | null, error = "") => {
+    const s = new TextSearch(() => new Promise<DocHits>(() => {}));
+    s.result = result;
+    s.error = error;
+    return s;
+  };
+  it("lists a text hit under the list's matches, marked for Enter, its link opening its doc", () => {
+    const html = text(render(DocIndex, { props: { project: "pj", list, part: "matches", q: "pause", mode: "text", search: search(found) } }).body);
+    expect(html).toContain("In the text");
+    expect(html).toMatch(/<a class="hit[^"]*\bsel" href="#\/docs\/pj\/docs\/design.md" title="docs\/design.md:12"/);
+  });
+  it("hides the hits of older words, and shows none after a failed request", () => {
+    const old = text(render(DocIndex, { props: { project: "pj", list, part: "matches", q: "pauses", mode: "text", search: search(found) } }).body);
+    expect(old).not.toContain("In the text");
+    expect(old).not.toContain('class="hit');
+    const failed = text(render(DocIndex, {
+      props: { project: "pj", list, part: "matches", q: "pauses", mode: "text", search: search(null, "502 Bad Gateway") },
+    }).body);
+    expect(failed).not.toContain('class="hit');
+    expect(failed).toContain("Could not search the text: 502 Bad Gateway");
+  });
+  it("offers the same mode toggle as the index", () => {
+    const html = text(render(DocModes, { props: { mode: "text" } }).body);
+    expect(html).toContain('aria-pressed="false">Names');
+    expect(html).toContain('aria-pressed="true">Search the text');
+  });
+});
+
+describe("a title with inline markdown in the index", () => {
+  const coded: DocList = {
+    head: "h",
+    pinned: [{ path: "docs/app.md", title: "`internal/app`: boundaries", updated: 2 }],
+    groups: [{ dir: "docs", docs: [{ path: "docs/split.md", title: "`internal/app` split", updated: 1 }] }],
+  };
+  it("renders its code span in the pinned and tree rows, and matches and marks its words", () => {
+    const side = text(render(DocIndex, { props: { project: "pj", list: coded } }).body);
+    expect(side).toContain("<code>internal/app</code>: boundaries");
+    expect(side).toContain("<code>internal/app</code> split");
+    expect(side).not.toContain("`");
+    const found = text(render(DocIndex, { props: { project: "pj", list: coded, q: "app: bound" } }).body);
+    expect(found).toContain("1 of 2");
+    expect(found).toMatch(/internal\/<mark[^>]*>app:<\/mark> <mark[^>]*>bound<\/mark>aries/);
+    expect(found).not.toContain("`");
   });
 });
 

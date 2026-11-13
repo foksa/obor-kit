@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   currentHeading, defaultFolded, defaultOrder, docLabel, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, marks,
   matchDocs, matchKey, neighbours, normalize, outline, paths, pinnedCaption, progress, recent, resolve, rows, sameName,
-  sectionAt, sortDocs, tree, unfold,
+  labelHtml, sectionAt, sortDocs, splitTitle, tree, unfold,
 } from "./docs";
 import { md } from "./md";
 import type { DocList } from "./types";
@@ -230,10 +230,70 @@ describe("a doc's neighbours", () => {
     expect(neighbours(treeList, "docs/releases/v0.10.md", "new").newer).toBeUndefined();
     expect(neighbours(treeList, "docs/releases/v0.10.md", "new").older?.path).toBe("docs/releases/v0.9.md");
   });
-  it("reads a pinned doc in its folder's served order and nothing for an unlisted path", () => {
+  it("reads a pinned doc among its folder's docs and nothing for an unlisted path", () => {
     expect(neighbours(treeList, "AGENTS.md", "new").newer?.path).toBe("BACKLOG.md");
     expect(neighbours(treeList, "AGENTS.md", "new").older?.path).toBe("CHANGELOG.md");
     expect(neighbours(treeList, "docs/draft.md", "new")).toEqual({});
+  });
+});
+
+describe("a doc's neighbours with pinned docs", () => {
+  // docs/: two pinned docs (pin order: decisions, accepted) and grouped ones whose times fall between theirs.
+  const mixed: DocList = {
+    head: "h",
+    pinned: [{ path: "docs/decisions.md", updated: 100 }, { path: "docs/accepted.md", updated: 300 }],
+    groups: [{ dir: "docs", docs: [
+      { path: "docs/staged.md" },
+      { path: "docs/design.md", updated: 400 },
+      { path: "docs/module-map.md", updated: 200 },
+      { path: "docs/zz-old.md", updated: 50 },
+    ] }],
+  };
+  const chain = (start: string, order?: "new" | "az") => {
+    const out = [start];
+    for (let d = neighbours(mixed, start, order).older; d; d = neighbours(mixed, d.path, order).older) out.push(d.path);
+    return out;
+  };
+  it("walks the whole folder by updated under Newest, staged first, pinned docs in their time, not their pin order", () => {
+    expect(neighbours(mixed, "docs/staged.md", "new").newer).toBeUndefined();
+    expect(chain("docs/staged.md", "new")).toEqual([
+      "docs/staged.md", "docs/design.md", "docs/accepted.md", "docs/module-map.md", "docs/decisions.md", "docs/zz-old.md"]);
+    expect(neighbours(mixed, "docs/decisions.md", "new").newer?.path).toBe("docs/module-map.md");
+    expect(neighbours(mixed, "docs/accepted.md").older?.path).toBe("docs/module-map.md"); // the default: Newest
+  });
+  it("walks the whole folder by file name under A–Z", () => {
+    expect(neighbours(mixed, "docs/accepted.md", "az").newer).toBeUndefined();
+    expect(chain("docs/accepted.md", "az")).toEqual([
+      "docs/accepted.md", "docs/decisions.md", "docs/design.md", "docs/module-map.md", "docs/staged.md", "docs/zz-old.md"]);
+  });
+});
+
+describe("a doc's title as a label", () => {
+  const coded = { path: "docs/research/app.md", title: "`internal/app`: where the **real** boundaries are" };
+  it("renders a code span and bold, links nothing, and reads as its words", () => {
+    expect(labelHtml(coded)).toBe("<code>internal/app</code>: where the <strong>real</strong> boundaries are");
+    expect(labelHtml({ path: "a/x.md", title: "[See](docs/b.md) T-1" })).toBe("See T-1");
+    expect(labelHtml({ path: "a/<x>.md" })).toBe("&lt;x&gt;.md");
+    expect(docLabel(coded)).toBe("internal/app: where the real boundaries are");
+    expect(docLabel({ path: "a/x.md" })).toBe("x.md");
+  });
+  it("matches on its words, the markup aside", () => {
+    const l: DocList = { head: "h", pinned: [], groups: [{ dir: "docs/research", docs: [coded] }] };
+    expect(matchDocs(l, "internal/app: where").map((m) => m.doc.path)).toEqual(["docs/research/app.md"]);
+    expect(matchDocs(l, "real boundaries")[0].tat).toBe(24);
+    expect(matchDocs(l, "`internal")).toEqual([]);
+    expect(matchDocs(l, "**real")).toEqual([]);
+  });
+});
+
+describe("a doc's title cut out of its HTML", () => {
+  it("is the title heading's inner HTML, its anchor too, and the rest without it", () => {
+    const html = md("# A `b`\n\ntext\n\n# A `b`", { task: (id) => id, section: (id) => "#/d/x.md#" + id });
+    const { head, rest } = splitTitle(html, "h-a-b");
+    expect(head).toBe('A <code>b</code><a class="hlink" href="#/d/x.md#h-a-b" aria-label="Copy link to this section" title="Copy link">#</a>');
+    expect(rest).toBe('<p>text</p><h1 id="h-a-b-1">A <code>b</code><a class="hlink" href="#/d/x.md#h-a-b-1" aria-label="Copy link to this section" title="Copy link">#</a></h1>');
+    expect(splitTitle("<p>x</p>", "")).toEqual({ head: "", rest: "<p>x</p>" });
+    expect(splitTitle("<p>x</p>", "h-gone")).toEqual({ head: "", rest: "<p>x</p>" });
   });
 });
 
@@ -408,8 +468,9 @@ describe("sectionAt", () => {
     expect(sectionAt(text, body, 15)).toBe("h-use-1");
     expect(sectionAt(text, body, 13)).toBe("h-use-1"); // the heading's own line
   });
-  it("is the top for a line under the title (shown in the header) or above every heading", () => {
-    expect(sectionAt(text, body, 3)).toBe("");
+  it("is the title's id for a line under the title (shown in the header), the top above every heading", () => {
+    expect(sectionAt(text, text, 3)).toBe("h-title");
+    expect(sectionAt(text, body, 3)).toBe(""); // a body without the title: the top
     expect(sectionAt("plain\n\n## A\n", "plain\n\n## A\n", 1)).toBe("");
   });
 });
