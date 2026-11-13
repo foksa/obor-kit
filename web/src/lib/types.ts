@@ -529,7 +529,6 @@ export interface TaskRow {
 export interface Doc {
   path: string;
   updated?: number; // epoch seconds; absent: staged, not committed yet
-  title?: string; // the doc's first level-1 heading; absent: none
 }
 
 // DocGroup is one directory's docs (view.DocGroup; "" the root), newest commit first.
@@ -549,18 +548,4 @@ export interface DocList {
 export interface DocText {
   path: string;
   text: string;
-}
-
-// DocHit is one matching line of /api/docsearch: the doc, its 1-based line number, the line's text.
-export interface DocHit {
-  path: string;
-  line: number;
-  text: string;
-}
-
-// DocHits is /api/docsearch?project=&q=: the lines of tracked docs at HEAD holding every word of q (case aside).
-export interface DocHits {
-  q: string;
-  hits: DocHit[];
-  truncated: boolean; // more hits than the route returns
 }
