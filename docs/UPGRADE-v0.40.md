@@ -1,5 +1,21 @@
 # Upgrading an obor project from v0.39 to v0.40
 
+## v0.40.1 (submit fix; panes placed by kind)
+
+**Submit fix.** Since v0.40.0, a worker's submit failed with `git add … exit status 1` when one of obor's links
+(`lanes.links`, the auto-linked `.claude/settings.json`) is also in the project's `.gitignore`: git exits 1 when an
+exclude pathspec names an ignored path. Submit now excludes only the links git does not already ignore. A task stuck
+on it continues with `obor resume <T-xx>` after the upgrade.
+
+**Pane placement.** obor never adds a pane to the lead's tab, even when the lead's pane was relabelled. New lane panes
+go to a tab holding only lanes, and role panes to a tab holding only roles. A full tab (4 panes) opens another tab of
+the same kind (`lanes`, `roles`). This is the default with no flag; `--tab` and `--new-tab` still choose, except into
+the lead's tab. Existing panes are not moved.
+
+```sh
+# nothing to do
+```
+
 ## v0.40.0 (a lead started by you asks first; a redesigned Docs page; merge-gate and lane fixes)
 
 **Lead start.** A lead you start (`obor lead`, `/clear`, a typed `/obor:lead`) inspects the project and presents the
