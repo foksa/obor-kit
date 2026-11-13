@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  currentHeading, defaultFolded, defaultOrder, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, marks,
+  currentHeading, defaultFolded, defaultOrder, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, jumpReady, marks,
   matchDocs, matchKey, neighbours, normalize, outline, paths, pinnedCaption, progress, recent, resolve, rows, sameName,
   labelHtml, markHtml, sectionAt, sortDocs, splitTitle, tree, unfold,
 } from "./docs";
@@ -295,14 +295,28 @@ describe("a title's HTML with the filter's words marked", () => {
   });
 });
 
-describe("a doc that is only its title", () => {
-  const text = "# Questions for the lead\n";
-  it("renders its H1 into the header with the id a section link or a text hit on it reaches, and no body", () => {
+describe("jumpReady", () => {
+  const doc = "# Title\n\n## Use\n\ntext\n";
+  it("is ready once the doc is read and the list is in, for its top or one of its headings", () => {
+    expect(jumpReady(doc, true, "h-use")).toBe(true);
+    expect(jumpReady(doc, true, "h-title")).toBe(true);
+    expect(jumpReady(doc, true, "")).toBe(true);
+  });
+  it("waits while the doc or the list is not in, and for a heading the doc does not have", () => {
+    expect(jumpReady("", true, "")).toBe(false);
+    expect(jumpReady("", true, "h-use")).toBe(false);
+    expect(jumpReady(doc, false, "h-use")).toBe(false);
+    expect(jumpReady(doc, true, "h-gone")).toBe(false);
+  });
+  it("is ready for a doc that is only its title (QUESTIONS.md), its body past the title empty", () => {
+    const text = "# Questions for the lead\n";
     const id = sectionAt(text, text, 1);
     expect(id).toBe("h-questions-for-the-lead");
     const { head, rest } = splitTitle(md(text, { task: (t) => t, section: (h) => "#/d/QUESTIONS.md#" + h }), id);
     expect(head).toContain("Questions for the lead");
-    expect(rest.trim()).toBe(""); // nothing past the title: the page's jumps wait on the doc read, not on a body
+    expect(rest).toBe(""); // the precondition: nothing renders past the title
+    expect(jumpReady(text, true, id)).toBe(true); // the text hit on line 1
+    expect(jumpReady(text, true, "h-questions-for-the-lead")).toBe(true); // the section link
   });
 });
 

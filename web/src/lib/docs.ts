@@ -289,6 +289,14 @@ export function sectionAt(text: string, body: string, line: number): string {
   return shown[shown.length - 1 - after]?.id || "";
 }
 
+// jumpReady is whether a jump to the heading id (a text hit's, a section link's; "" the doc's top) can go: the doc's
+// text as shown is read, the list is in (the doc renders under it, its title's heading in the header), and id is ""
+// or one of that text's headings. A doc that is only its title is ready like any other.
+export function jumpReady(text: string, listed: boolean, id: string): boolean {
+  if (!text || !listed) return false;
+  return !id || headings(text).some((h) => h.id === id);
+}
+
 // byNewest is docs newest first: a staged one (no updated) first, then by updated descending (a tie keeps its place).
 function byNewest(docs: Doc[]): Doc[] {
   const staged = docs.filter((d) => !d.updated);
