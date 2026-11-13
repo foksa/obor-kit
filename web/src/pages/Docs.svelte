@@ -20,12 +20,13 @@
   import { replace } from "../lib/router.svelte";
   import { href } from "../lib/route";
   import {
-    defaultOrder, docKind, docLinks, docTitle, everyFold, KIND_TONE, fileOf, filterLines, folderOf, isAccepted, jumpReady, labelHtml, matchDocs,
+    defaultOrder, docKind, docLinks, docTitle, everyFold, KIND_TONE, fileOf, filterLines, folderOf, isAccepted, jumpReady, labelHtml,
     neighbours, outline, paths, pinnedCaption, progress, recent, sameName, sectionAt, splitTitle, tree, unfold,
     type Folds, type Order,
   } from "../lib/docs";
   import type { Doc, DocList, DocText } from "../lib/types";
   import DocAge from "../ui/DocAge.svelte";
+  import DocCount from "../ui/DocCount.svelte";
   import DocIndex from "../ui/DocIndex.svelte";
   import DocModes from "../ui/DocModes.svelte";
   import DocOutline from "../ui/DocOutline.svelte";
@@ -146,15 +147,6 @@
     if (order) return order === "az";
     const dir = folderOf(path).replace(/\/$/, "");
     return defaultOrder({ docs: list.data?.groups.find((g) => (g.dir || "") === dir)?.docs || [] }) === "az";
-  });
-  const matches = $derived(matchDocs(list.data, q));
-  // listCount is the list's count over its matches: by name, and in text mode the lines found and a search out.
-  const listCount = $derived.by(() => {
-    if (mode !== "text") return `${matches.length} of ${total}`;
-    const found = search.resultFor(q);
-    const n = found?.hits.length ?? 0;
-    return [`${matches.length} of ${total} by name`, found ? `${n} ${n === 1 ? "line" : "lines"} in the text` : "",
-      search.busy ? "searching…" : ""].filter(Boolean).join(" · ");
   });
   const folderCount = $derived.by(() => {
     let n = 0;
@@ -299,8 +291,8 @@
       </div>
 
       {#if q.trim()}
-        <Section title="Matches" sub="↑ ↓ to move · ↵ opens · Esc clears"
-          count={listCount}>
+        <Section title="Matches" sub="↑ ↓ to move · ↵ opens · Esc clears">
+          {#snippet meta()}{#if list.data}<DocCount list={list.data} {q} text={mode === "text"} {search} />{/if}{/snippet}
           <div class="card box">
             <DocIndex bind:this={listIndex} part="matches" {project} list={list.data} bind:q bind:sel bind:mode {search}
               onhit={(p, line) => (jump = { path: p, line })} />

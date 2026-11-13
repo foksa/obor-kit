@@ -9,7 +9,8 @@
   // the page (they outlive a doc change). A title shows its inline markdown; the match rows mark its words inside that markup.
   // A doc's kind shows as a dot (a folder's before its name; a doc row's in the tree only where it differs from its
   // folder's; the flat rows keep a gap when it has none), an age by its freshness (DocAge), the open doc and its folder
-  // chain in fg with the accent tint, the Enter target with the accent ring.
+  // chain in fg with the accent tint, the Enter target with the accent ring. The count line is DocCount's (the list page
+  // shows the same one over its matches).
   import { href } from "../lib/route";
   import {
     docKind, folderOf, groupHits, KIND_TONE, labelHtml, markHtml, marks, matchDocs, matchKey, rows, tree, type DocKind,
@@ -18,6 +19,7 @@
   import type { TextSearch } from "../lib/docsearch.svelte";
   import type { Doc, DocHit, DocList } from "../lib/types";
   import DocAge from "./DocAge.svelte";
+  import DocCount from "./DocCount.svelte";
   import DocModes from "./DocModes.svelte";
   import Dot from "./Dot.svelte";
 
@@ -43,16 +45,6 @@
   // hitAt is a hit's place in the marked order (after the path matches), for ↑/↓ and Enter.
   const hitAt = $derived(new Map(hits.map((h, i) => [h, matches.length + i])));
   const count = $derived(matches.length + hits.length);
-  const n = (k: number, one: string) => `${k} ${k === 1 ? one : one + "s"}`;
-  // countLine is the line over the matches: how many by name, and in text mode the hits (whether a search is out
-  // shows beside it).
-  const countLine = $derived.by(() => {
-    const names = `${matches.length} of ${total}`;
-    if (!text) return names;
-    const parts = [names + " by name"];
-    if (found) parts.push(`${n(hits.length, "line")} in ${n(groups.length, "doc")}`);
-    return parts.join(" · ");
-  });
   const root = $derived(tree(list, order || undefined));
   const shown = $derived(rows(root, folds));
 
@@ -107,10 +99,6 @@
 {#snippet kdot(p: string)}
   {@const k = docKind(p)}
   {#if k}<span class="kdot"><Dot tone={KIND_TONE[k]} size={6} title={k} /></span>{:else}<span class="kdot"></span>{/if}
-{/snippet}
-
-{#snippet searching()}
-  <span class="busy"><Dot tone="info" size={7} title="searching" />searching…</span>
 {/snippet}
 
 {#snippet match(m: Match, i: number)}
@@ -212,7 +200,7 @@
       <div class="modes"><DocModes bind:mode {tall} onchange={modeSet} /></div>
     {/if}
     {#if filtering}
-      <p class="count-line">{#each countLine.split(/(\d+)/) as part, i (i)}{#if i % 2}<span class="num">{part}</span>{:else}{part}{/if}{/each}{#if text && search?.busy}{countLine ? " · " : ""}{@render searching()}{/if}</p>
+      <p class="count-line"><DocCount {list} {q} {text} {search} /></p>
     {/if}
     <div class="card body">
       {#if filtering}
@@ -252,8 +240,7 @@
     position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 11px var(--mono); color: var(--muted);
     border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px;
   }
-  .count-line { margin: -4px 2px 0; font-size: 12px; color: var(--muted); }
-  .num { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .count-line { margin: -4px 2px 0; }
   .busy { display: inline-flex; align-items: center; gap: 6px; }
   .kdot { flex: none; width: 6px; display: inline-flex; align-items: center; }
   .body { padding: 8px 6px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
