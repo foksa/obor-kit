@@ -87,16 +87,17 @@ var Contract = []Row{
 		}
 		return nil
 	}},
-	{Name: "place", Run: func(ctx context.Context, t Terminal, pane string) error {
+	{Name: "place", Run: func(ctx context.Context, t Terminal, _ string) error {
 		switch {
 		case t.Setup == nil:
 			return errors.New("the terminal has no setup port: no placement")
 		case t.Cwd == "":
 			return errors.New("the contract's terminal has no cwd to place a pane in")
 		}
-		id, err := t.Setup.Place(ctx, port.Placement{Role: "contract", Cwd: t.Cwd,
-			Project: port.PlaceProject{Name: t.Group, Root: t.Cwd, Self: pane, MaxPanes: 16,
-				Has: func(cwd string) bool { return cwd == t.Cwd || strings.HasPrefix(cwd, t.Cwd+string(filepath.Separator)) }}})
+		id, err := t.Setup.Place(ctx, port.Placement{Role: "contract", Kind: port.KindRole, Cwd: t.Cwd,
+			Project: port.PlaceProject{Name: t.Group, Root: t.Cwd, MaxPanes: 16,
+				Has:    func(cwd string) bool { return cwd == t.Cwd || strings.HasPrefix(cwd, t.Cwd+string(filepath.Separator)) },
+				KindOf: func(string) port.PaneKind { return "" }}})
 		if err != nil {
 			return fmt.Errorf("place: %w", err)
 		}

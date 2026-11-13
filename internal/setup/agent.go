@@ -19,12 +19,10 @@ import (
 	"obor/internal/store"
 )
 
-// where is the placement of a new agent: at most one of --tab, --new-tab, --pane (the user's), or obor init's own
-// (a group of the role's own, beside a pane). The terminal adapter lays out all but --pane (port.Placement).
+// where is the placement of a new agent: at most one of --tab, --new-tab, --pane; none places it by its kind. The
+// terminal adapter lays out all but --pane (port.Placement).
 type where struct {
 	tab, newTab, pane string
-	own               bool   // in a group of the role's own
-	beside            string // beside this pane when its group is the project's
 }
 
 func parseWhere(args []string) (where, error) {
@@ -72,9 +70,8 @@ type Drive struct {
 	Task, Agent, Lane, Cwd, Type, Effort, Prompt string
 }
 
-// StartDrive starts the owner's drive agent d (role driver) in a new pane split in the caller's tab (the project's
-// busiest tab when the caller's is none of the project's), labelled d.Agent like a lane pane, with OBOR_ROLE=driver,
-// OBOR_LANE. Refused: another agent still runs in the lane's worktree.
+// StartDrive starts the owner's drive agent d (role driver) in a new pane placed as a lane's (a lanes tab of the
+// project), labelled d.Agent like a lane pane, with OBOR_ROLE=driver, OBOR_LANE. Refused: another agent still runs in the lane's worktree.
 func (s *Setup) StartDrive(ctx context.Context, d Drive) error {
 	if err := s.load(); err != nil {
 		return err
@@ -389,14 +386,35 @@ func (s *Setup) shellWait() time.Duration {
 // maxPanesPerTab is how many panes a tab holds: a constant, not a config key.
 const maxPanesPerTab = 4
 
-// placement is a's new pane as the terminal is asked for it: whose it is, its cwd and env, where w says, and the
-// project it is for (the layout is the adapter's). A tab holds maxPanesPerTab panes.
+// placement is a's new pane as the terminal is asked for it: whose it is, its kind, its cwd and env, where w says,
+// and the project it is for (the layout is the adapter's). A tab holds maxPanesPerTab panes.
 func (s *Setup) placement(a agent, w where, env []string) port.Placement {
-	name := s.cfg.ProjectName()
-	self, _ := project.Pane(s.Env) // "" when the caller has no pane
-	return port.Placement{Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Env: env, Own: w.own, Group: w.newTab, In: w.tab,
-		Beside: w.beside, Say: func(line string) { s.say("%s", line) },
-		Project: port.PlaceProject{Name: name, Root: s.root, Self: self, MaxPanes: maxPanesPerTab, Has: s.inProject}}
+	kind := port.KindRole
+	switch {
+	case a.lane != "":
+		kind = port.KindLane
+	case a.role.Name == "lead":
+		kind = port.KindLead
+	}
+	return port.Placement{Role: a.role.Name, Lane: a.lane, Kind: kind, Cwd: a.cwd, Env: env, Group: w.newTab, In: w.tab,
+		Say: func(line string) { s.say("%s", line) },
+		Project: port.PlaceProject{Name: s.cfg.ProjectName(), Root: s.root, MaxPanes: maxPanesPerTab, Has: s.inProject,
+			KindOf: s.paneKind}}
+}
+
+// paneKind is the kind of the pane labelled label: a lane's (its worker, its drive agent), the lead's, another role's;
+// "" when label names no agent of the project.
+func (s *Setup) paneKind(label string) port.PaneKind {
+	info, ok := s.cfg.AgentLookup(label, "")
+	switch {
+	case !ok:
+		return ""
+	case info.Lane != "":
+		return port.KindLane
+	case info.Role == "lead":
+		return port.KindLead
+	}
+	return port.KindRole
 }
 
 // withoutFlag is args without the bare flag, and whether it was there.

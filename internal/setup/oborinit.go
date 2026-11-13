@@ -37,10 +37,10 @@ package setup
 //	herdr      serve restarts its own panes after a herdr restart, so herdr must not resume agents: when its
 //	           config.toml does not set `[session] resume_agents_on_restore = false`, the summary says the line to
 //	           add (user-global: it affects every herdr pane; obor never edits that config).
-//	panes      the first two configured lanes (lanes.list's, else L-01 … L-max(2, lanes.count)): the first in a new tab
-//	           "workers", the second and the integrator beside it (the integrator in the caller's tab when that is the
-//	           project's), the reviewer in a new tab "review". A pane held by a trust dialog is listed, not fatal:
-//	           Enter there, then obor init again.
+//	panes      the first two configured lanes (lanes.list's, else L-01 … L-max(2, lanes.count)) in a lanes tab, the
+//	           integrator and the reviewer in a roles tab (the terminal's placement by kind: a tab of the project
+//	           whose panes are all of that kind, else a new one, "lanes" or "roles"; never the caller's tab). A pane
+//	           held by a trust dialog is listed, not fatal: Enter there, then obor init again.
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 //
 // The output ends with the setup table (setup show): per difficulty level each of its model refs with what runs
@@ -768,33 +768,20 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	role := func(name string) func(where) error {
 		return func(w where) error { return s.rolePane(ctx, name, w, false) }
 	}
-	// The layout is the terminal's: the first lane in a group of its own, the second beside it (the integrator by
-	// the caller's own pane when it has one), the reviewer in a group of its own. A config of fewer lanes places
-	// what it has, and more than two keep the panes they place at dispatch.
-	lanes := initLaneNames(s.cfg)
-	var beside where
-	for i, name := range lanes {
+	// The layout is the terminal's, by each pane's kind: the lanes in a lanes tab, the integrator and the reviewer in
+	// a roles tab. A config of fewer lanes places what it has, and more than two keep the panes they place at dispatch.
+	for i, name := range initLaneNames(s.cfg) {
 		if i >= 2 {
 			break
 		}
-		w := beside
-		if i == 0 {
-			w = where{own: true}
-		}
-		if err := place(name, s.laneWorker(name), lane(name), w); err != nil {
+		if err := place(name, s.laneWorker(name), lane(name), where{}); err != nil {
 			return nil, err
 		}
-		beside = where{beside: s.placed} // every outcome of the step but an error placed a pane
 	}
-	integrator := beside // beside the last lane pane; with no lane, the default placement
-	if _, err := project.Pane(s.Env); err == nil {
-		integrator = where{} // the default placement: the caller's tab when it is the project's
-	}
-	if err := place("integrator", s.cfg.AgentName("integrator", ""), role("integrator"), integrator); err != nil {
-		return nil, err
-	}
-	if err := place("reviewer", s.cfg.AgentName("reviewer", ""), role("reviewer"), where{own: true}); err != nil {
-		return nil, err
+	for _, name := range []string{"integrator", "reviewer"} {
+		if err := place(name, s.cfg.AgentName(name, ""), role(name), where{}); err != nil {
+			return nil, err
+		}
 	}
 	return waiting, nil
 }

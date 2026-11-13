@@ -26,7 +26,7 @@ var driveWait = 60 * time.Second
 // driveCmd is `obor drive <name> [--model <ref>]` and `obor drive <T-xx>`: the owner iterates by hand on a
 // branch in a plain interactive agent (role driver). Serve records a new drive (a new task on the first free lane) and
 // answers DRIVE <task> → <lane> (<agent>, <model>); this command then waits for the lane to be prepared and starts the
-// drive agent in a pane split in the caller's tab, labelled like a lane pane, its first prompt one line saying what it
+// drive agent in a pane placed as a lane's (a lanes tab of the project), labelled like a lane pane, its first prompt one line saying what it
 // is. On a drive already (by task id or name) serve records nothing: its agent not running, this command starts
 // it again on its recorded lane and model (a failed start's retry; --model ignored); running, serve's DRIVING reply
 // and OK, nothing started. A task id that is not a drive is serve's refusal (a drive is new work only). Its
@@ -122,7 +122,7 @@ func branchOf(cfg *config.Config, task string) string {
 }
 
 // startDrive starts d's agent: the lane prepared (serve's lane.prepare puts it on the branch; waited for up to
-// driveWait), then the drive agent started in the caller's tab. A drive agent already running there is left as it is.
+// driveWait), then the drive agent started in a pane placed as a lane's. A drive agent already running there is left as it is.
 func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.Env) error {
 	var dir string
 	for _, l := range cfg.Lanes() {

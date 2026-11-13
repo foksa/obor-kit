@@ -191,9 +191,9 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	tab := func(v string) string { return append(strings.Fields(v), "", "")[1] }
 	// No pane of the project anywhere: one workspace of its own, wn1, made first.
 	if len(panes) != 4 || !strings.HasPrefix(o, "wn1:n") || !strings.HasPrefix(r, "wn1:n") || tab(s) != tab(o) ||
-		tab(i) != tab(o) || tab(r) == tab(o) {
-		t.Errorf("agents (L-01 in a new tab of the new workspace, L-02 and the integrator beside it, the reviewer in a "+
-			"new tab): %v", panes)
+		tab(i) == tab(o) || tab(r) != tab(i) {
+		t.Errorf("agents (the lanes in a new tab of the new workspace, the integrator and the reviewer in another): %v",
+			panes)
 	}
 	if n := strings.Count(strings.Join(x.reqs(), "\n"), "workspace.create cwd="+x.Root+" focus=false label=proj"); n != 1 {
 		t.Errorf("workspace.create for the root %d times, want once", n)
@@ -204,7 +204,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 			tabs = append(tabs, q)
 		}
 	}
-	if len(tabs) != 2 || !strings.Contains(tabs[0], "label=workers") || !strings.Contains(tabs[1], "label=review") {
+	if len(tabs) != 2 || !strings.Contains(tabs[0], "label=lanes") || !strings.Contains(tabs[1], "label=roles") {
 		t.Errorf("tabs created: %q", tabs)
 	}
 	// obor has no monitor role: no monitor pane, no "system" tab, and nothing typed at a shell.
@@ -497,7 +497,7 @@ func TestOborInitPlacesTheConfiguredLanes(t *testing.T) {
 		if len(c.want) == 0 {
 			continue
 		}
-		// The lane panes share a tab, the integrator sits in it, the reviewer's tab is its own.
+		// The lane panes share a tab; the integrator and the reviewer share another.
 		tab := func(agent string) string {
 			if p := x.h.Pane(x.paneOf(agent)); p != nil {
 				return p.Tab
@@ -510,11 +510,12 @@ func TestOborInitPlacesTheConfiguredLanes(t *testing.T) {
 				t.Errorf("%s: %s in tab %q, %s in %q", c.name, lane, got, c.want[0], first)
 			}
 		}
-		if got := tab(cfg.AgentName("integrator", "")); got != first {
-			t.Errorf("%s: integrator in tab %q, the lanes in %q", c.name, got, first)
+		roles := tab(cfg.AgentName("integrator", ""))
+		if roles == "" || roles == first {
+			t.Errorf("%s: integrator in tab %q, the lanes in %q", c.name, roles, first)
 		}
-		if got := tab(cfg.AgentName("reviewer", "")); got == first {
-			t.Errorf("%s: reviewer in the lanes' tab %q", c.name, got)
+		if got := tab(cfg.AgentName("reviewer", "")); got != roles {
+			t.Errorf("%s: reviewer in tab %q, the integrator in %q", c.name, got, roles)
 		}
 	}
 }
@@ -862,7 +863,7 @@ func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 	out := x.init(t)
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "the mixed tab is not split")
-	has(t, calls, "label=workers workspace_id="+ows, "a new tab in the project's workspace")
+	has(t, calls, "label=lanes workspace_id="+ows, "a new tab in the project's workspace")
 	ns := x.paneOf("proj-l-02")
 	if ns == "" || x.h.Pane(ns).Tab == otab {
 		t.Errorf("L-02 in pane %q, want one in a new tab (not %s)", ns, otab)

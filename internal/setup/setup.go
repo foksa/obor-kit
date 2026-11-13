@@ -7,18 +7,20 @@
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
 //	        with its env typed but no agent in it unless --start (dispatch starts a fresh worker anyway) (agent
-//	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place): split the largest pane of --tab (default: the caller's tab
-//	        when it is the project's, else the project's busiest tab; a tab is the project's only when every
-//	        pane in it has a known cwd in the project, and with none a new tab), or a new tab in the project's
-//	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
+//	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place): split the largest pane of --tab
+//	        (refused for the lead's tab: the lead's pane keeps its tab alone; a full one: a new tab as below), or a
+//	        new tab labelled --new-tab in the project's workspace (the one with most panes in the project), or an
+//	        existing shell pane; with none of them, by the pane's kind: a lane's pane (a drive agent's too) splits the
+//	        project's first tab whose panes are all lane panes with room, else a new tab "lanes"; a role's pane the
+//	        same with role panes and "roles" (a tab is the project's only when every pane in it has a known cwd in the
+//	        project; a tab with a pane that is no agent of the project, a shell, is no kind's); without a pane of the
 //	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
 //	        herdr's active one), and another project's pane is never split; cwd the lane, env
 //	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars; no
 //	        OBOR_AGENT: a name is derived); then the pane label (= the agent) and herdr agent start with the
 //	        model's kind and args (+ Claude --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
 //	        made is used once herdr reports it an available shell (bounded at 10 s, agent_pane_busy retried).
-//	        Refuses a full tab
-//	        (4 panes, a constant). A failed start with a trust dialog or a Codex self-update in the
+//	        A tab holds 4 panes (a constant). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. First of all, before a pane is placed
 //	        or labelled, launch's Locate (port.Starter) decides: the agent running (serve's identity table, its
 //	        label, the terminal's name; a relabelled pane too) or any agent running in the lane's worktree → OK,
