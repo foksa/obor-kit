@@ -94,7 +94,7 @@ var Contract = []Row{
 		case t.Cwd == "":
 			return errors.New("the contract's terminal has no cwd to place a pane in")
 		}
-		id, err := t.Setup.Place(ctx, port.Placement{Role: "contract", Kind: port.KindRole, Cwd: t.Cwd,
+		id, err := t.Setup.Place(ctx, port.Placement{Kind: port.KindRole, Cwd: t.Cwd,
 			Project: port.PlaceProject{Name: t.Group, Root: t.Cwd, MaxPanes: 16,
 				Has:    func(cwd string) bool { return cwd == t.Cwd || strings.HasPrefix(cwd, t.Cwd+string(filepath.Separator)) },
 				KindOf: func(string) port.PaneKind { return "" }}})
