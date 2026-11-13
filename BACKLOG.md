@@ -7,6 +7,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
+- 2026-11-13 (lead): **Shipped v0.40.0 and v0.40.1.** Lead start modes (`/obor:lead handoff`), `obor review start`, moved re-gate runs `merge.check` without compile, lane dirt via `project.LaneDirt`, Docs page redesign + color (designer role, `docs/ui/`), light tones at 4.5:1, panes placed by kind (lead's tab the lead's only), submit fix for ignored links. Every lane free, no review open, no watch. Field reports from knight-tour-web and tunnel-game came in by `obor send`; answer them the same way.
 - 2026-11-12 ~19:45 (lead): **Features paused by the owner** (`docs/decisions.md` 11-12): they use obor first and bring what needs changing. Only nightly RED fixes and reported bugs go ahead; the next steps below (C1 included) wait for the owner. T-1291 merged (owner start presents options, `/obor:lead handoff` continues, `obor review start`), unreleased until `make ship`.
 - 2026-11-11 ~23:00 (lead; previous Handoff: `git show 935956b4:BACKLOG.md`). Every lane free, nothing queued, no
   watch, no open review (RV-196 closed). **Shipped today: v0.37.0, v0.38.0, v0.39.0.** v0.38: terminal plan steps
