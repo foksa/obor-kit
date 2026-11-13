@@ -385,6 +385,45 @@ func TestGateDecisions(t *testing.T) {
 			r.lacks(w, "UpdateRef", "a red gate pins nothing")
 		}
 	})
+	t.Run("no commands.compile: a moved input runs merge.check with the lane's env, red stops it; a lane input runs nothing", func(t *testing.T) {
+		t.Parallel()
+		check := cmd("check", `echo run >> "$TMP_DIR/check-runs"; echo 1 pass`)
+		k := newFk(t, check)
+		sha := k.submit()
+		k.gone(filepath.Join(k.Base, "check-runs"), "precondition: no check ran")
+		o := k.gate(lane(sha))
+		k.eq(o.Kind+"|"+o.Line, port.OutcomeGreen+"|GREEN T-05 (merged, no commands.compile)", "a lane input: green, nothing run")
+		k.gone(filepath.Join(k.Base, "check-runs"), "a lane input runs no check")
+		k.move("main moved")
+		o = k.gate(moved(sha))
+		k.eq(o.Kind+"|"+o.Candidate.Checks, port.OutcomeGreen+"|check 1 pass", "a moved input: merge.check ran, green")
+		k.eq(k.Read(filepath.Join(k.Base, "check-runs")), "run\n", "check ran once")
+
+		r := newFk(t, cmd("check", `echo "cpus=$OBOR_LANE_CPUS" > "$TMP_DIR/check-env"; echo 0 pass; exit 1`))
+		sha = r.submit()
+		r.move("main moved")
+		r.g.calls = nil
+		o = r.gate(moved(sha))
+		if o.Kind != port.OutcomeRed || !strings.HasPrefix(o.Line, "RED check") {
+			t.Errorf("a failing check on a moved input: %s %q; want red", o.Kind, o.Line)
+		}
+		if env := r.Read(filepath.Join(r.Base, "check-env")); env == "cpus=\n" {
+			t.Errorf("the moved check ran without the lane's CPU budget: %q", env)
+		}
+		for _, w := range r.g.writeCalls() {
+			r.lacks(w, "Commit", "a red moved gate commits nothing")
+			r.lacks(w, "UpdateRef", "a red moved gate pins nothing")
+		}
+	})
+	t.Run("commands.compile set: a moved input runs compile only", func(t *testing.T) {
+		t.Parallel()
+		k := newFk(t, cmd("compile", "echo 1 pass"), cmd("check", `echo run >> "$TMP_DIR/check-runs"; exit 1`))
+		sha := k.submit()
+		k.move("main moved")
+		o := k.gate(moved(sha))
+		k.eq(o.Kind+"|"+o.Candidate.Checks, port.OutcomeGreen+"|compile 1 pass", "compile ran, green")
+		k.gone(filepath.Join(k.Base, "check-runs"), "check did not run")
+	})
 	t.Run("lane conflict: the unmerged paths, the merge left open, no mismatch", func(t *testing.T) {
 		t.Parallel()
 		k := newFk(t)

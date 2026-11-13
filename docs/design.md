@@ -469,7 +469,9 @@ Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies sha
 - **Merge window:** serve's gate runs the checks (`docs/state-model.md`, rows 18–33). Worker prompts/skills say: focused
   tests while iterating; before `task_done` the tests the project's worker doc names (obor-kit: its packages only,
   2026-11-05); the gate runs the class check. A moved target is merged and compiled again in the gate, never
-  tested again: the accept binds to the task's own patch, which a move keeps.
+  tested again: the accept binds to the task's own patch, which a move keeps. A project without `merge.compile` runs
+  `merge.check` on the moved merge instead, as a lane test runs it (the lane env, one retest of a red's failing tests):
+  a moved candidate never lands with nothing run.
 - **Watchdogs:** a stalled or blocked worker and a pane that exits are serve's facts (`needs-you`), recorded and
   notified by the merge loop (`docs/state-model.md` "Timers").
 - **Dispatch:** refuses a lane with uncommitted leftovers (`dirty-free` → FAIL unless `--force`).
@@ -635,7 +637,11 @@ A task's tests run in its own lane, not in serve's merge slot; nothing is reused
 and tests have one split, not tiers.
 - **The slot compiles.** Serve's merge slot merges the task onto the target in its scratch worktree and runs
   `merge.compile` only (obor-kit: `make check-compile`: build, gofmt, vet, deadcode; no `go test`), after
-  `lane_setup`. A red compile holds the merge; no check of the classes runs there.
+  `lane_setup`. A red compile holds the merge; no check of the classes runs there. Without `merge.compile` a lane
+  input runs nothing in the slot, and a moved input (its target moved after its lane test) runs `merge.check` there
+  with the lane env and the lane test's retest: red holds the merge. `obor init` proposes `merge.compile` from a
+  `typecheck` script, else `build`; `obor config validate` and `obor init` warn when it is empty and
+  `merge.target_branch` is the repository's default branch.
 - **The lane tests.** Serve then checks the candidate out, detached, in the task's lane worktree (the lane must be
   clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
   (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),
@@ -661,7 +667,8 @@ and tests have one split, not tiers.
 - **A lane tests with importers**: the lane's class check covers the changed packages and the packages that import
   them; the slot's compile catches an importer's build break.
 - **The nightly** runs what "Change-based merge checks" lists, on the target's head: it covers what a moved candidate
-  publishes untested when `compile` alone ran (owner 11-09: `main` moves at release).
+  publishes untested when `compile` alone ran (owner 11-09: `main` moves at release); without `compile` the moved
+  candidate runs `merge.check` in the slot.
 - **A worker runs unit tests; the lane test and the nightly run the rest** (owner 2026-11-08).
   A worker's `go test ./<pkg>/...` is plain: it runs the unit tests of its package. A test that needs real git,
   a real socket or a built binary sits in a file with `//go:build integration`; every check that gates or measures

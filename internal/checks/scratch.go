@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/spec"
 )
@@ -114,7 +115,8 @@ func submitMessage(task, summary string) string {
 // Gate resets serve's worktree (created when missing) and merges in.Input there: a lane or moved input (the submitted
 // sha, never the old candidate) is merged onto the target (merge --no-ff --no-commit; a conflict stays open), a
 // resolved one is taken as committed. Then commands.compile runs on it (the slot compiles, it runs no test; red
-// when it fails), after lane_setup when compile is configured. Green: the merge committed and pinned at
+// when it fails), after lane_setup when compile is configured; without compile a moved input runs merge.check there
+// instead (gateSteps), a lane or resolved input nothing. Green: the merge committed and pinned at
 // refs/obor/candidate/<task>, its Patch, Stat and Diff the task's own diff Base..S (Base: merge-base(S, target); S the
 // submitted sha), which a move keeps. The merge commit's date is its newer parent's, so a repeat makes the same commit.
 //
@@ -175,12 +177,11 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	r := newRunner(ctx, &s.Options, dir, in.Task)
 	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two
 	defer r.releaseSlot()
-	if _, ok := s.command("compile"); ok {
-		if o, err := gateHalt(&r, r.laneSetup()); o != nil || err != nil {
-			return *o, err
-		}
-		if o, err := gateHalt(&r, r.compile()); o != nil || err != nil {
-			return *o, err
+	if steps := s.gateSteps(&r, in.Kind); len(steps) > 0 {
+		for _, h := range append([]func() *halt{r.laneSetup}, steps...) {
+			if o, err := gateHalt(&r, h()); o != nil || err != nil {
+				return *o, err
+			}
 		}
 	}
 	r.releaseSlot()
@@ -198,6 +199,26 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 		return port.GateOutcome{}, err
 	}
 	return greenGate(c, r.check), nil
+}
+
+// gateSteps are the gate's checks after lane_setup: commands.compile when it is configured; without it, a moved
+// input runs merge.check as a lane test runs it (the lane's env and CPU budget, a red's failing tests rerun once),
+// since a target that moved past the lane's test has nothing else to catch a break before the merge lands; none
+// otherwise.
+func (s Scratch) gateSteps(r *runner, kind string) []func() *halt {
+	if _, ok := s.command("compile"); ok {
+		return []func() *halt{r.compile}
+	}
+	if kind != port.InputMoved {
+		return nil
+	}
+	if _, ok := s.command("check"); !ok {
+		return nil
+	}
+	r.retest = true
+	r.env = append(r.env, config.LaneEnv(s.Cfg)...)
+	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
+	return []func() *halt{r.movedCheck}
 }
 
 // gateBase is what a gate resets serve's worktree to: the target for a lane or moved input, the resolved merge itself

@@ -20,7 +20,8 @@ package setup
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, check = its lint, typecheck, check and test scripts, each that the
 //	           check script does not already run, lane_setup the install, lane_ready test -d node_modules; a script
-//	           that writes files and a check with no test step are warnings. Only keys still null are written;
+//	           that writes files and a check with no test step are warnings; compile = its typecheck script, else
+//	           its build script (a moved candidate re-runs only it), none: config.NoCompileWarning. Only keys still null are written;
 //	           nothing found → they stay null.
 //	lanes      L-01 … L-max(2, lanes.count): at least two (setup lane: lanes 2; a task's Model:/Difficulty: picks
 //	           the model), and every lane an existing config counts, so init leaves no configured lane without a
@@ -285,6 +286,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	s.say("merge.check is what every merge must pass, keep it to a few minutes; slower tests go in check_milestone " +
 		"(the nightly), and obor nightly off if CI on main already does that")
+	s.say("merge.compile is what a candidate re-runs when its target moved after its lane test (a typecheck or build, " +
+		"no tests); without it that candidate re-runs merge.check")
 	// obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
 	// never run on them.
 	s.say("obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put formatting " +
@@ -392,11 +395,11 @@ func uniquePrefix(p string, running []port.Pane) string {
 // --- commands ---------------------------------------------------------------------------------------------------
 
 // detected is what detectCommands found: the commands by key ("": not found), where from, and the warnings init
-// prints: a chosen script that writes files, a check with no test step.
+// prints: a chosen script that writes files, a check with no test step, no compile found (noCompileDetected).
 type detected struct {
-	check, laneSetup, laneReady string
-	from                        []string
-	warn                        []string
+	check, compile, laneSetup, laneReady string
+	from                                 []string
+	warn                                 []string
 }
 
 var checkTarget = regexp.MustCompile(`(?m)^check\s*:`)
@@ -404,11 +407,19 @@ var checkTarget = regexp.MustCompile(`(?m)^check\s*:`)
 // composedScripts are the scripts a check is composed from, in the order they run: a check script goes before test.
 var composedScripts = []string{"lint", "typecheck", "check", "test"}
 
+// noCompileDetected is detectCommands' warning when it finds no compile: init prints the config's own
+// (config.NoCompileWarning) in its place, which says it only when the target is the default branch.
+var noCompileDetected = "no typecheck or build script for merge.compile: " + config.NoCompile
+
 // detectCommands reads root: a Makefile with a check: target, go.mod, package.json (its lockfile picks the package
-// manager). The first of the three gives check; package.json gives lane_setup and lane_ready and a check composed of
-// its lint, typecheck, check and test scripts.
-func detectCommands(root string) detected {
-	var d detected
+// manager). The first of the three gives check; package.json gives lane_setup and lane_ready, a check composed of
+// its lint, typecheck, check and test scripts, and compile: its typecheck script, else its build script.
+func detectCommands(root string) (d detected) {
+	defer func() {
+		if d.compile == "" {
+			d.warn = append(d.warn, noCompileDetected)
+		}
+	}()
 	if b, err := os.ReadFile(filepath.Join(root, "Makefile")); err == nil && checkTarget.Match(b) {
 		d.check = "make check"
 		d.from = append(d.from, "Makefile check:")
@@ -461,6 +472,12 @@ func detectCommands(root string) detected {
 			}
 		}
 	}
+	for _, name := range []string{"typecheck", "build"} {
+		if pkg.Scripts[name] != "" {
+			d.compile = pm + " run " + name
+			break
+		}
+	}
 	d.laneSetup, d.laneReady = install, "test -d node_modules"
 	return d
 }
@@ -499,10 +516,12 @@ func scriptWrites(name, script string) string {
 }
 
 // initCommands writes the detected commands whose key is still null in .obor/config.json: "key = cmd" each. Its
-// warnings are the detection's, when it wrote check.
+// warnings are the detection's when it wrote check (noCompileDetected aside), and config.NoCompileWarning when the
+// config has no compile.
 func (s *Setup) initCommands() (set, warn []string, err error) {
 	d := detectCommands(s.root)
-	for _, kv := range [][2]string{{"check", d.check}, {"lane_setup", d.laneSetup}, {"lane_ready", d.laneReady}} {
+	for _, kv := range [][2]string{{"check", d.check}, {"compile", d.compile}, {"lane_setup", d.laneSetup},
+		{"lane_ready", d.laneReady}} {
 		if kv[1] == "" {
 			continue
 		}
@@ -516,7 +535,11 @@ func (s *Setup) initCommands() (set, warn []string, err error) {
 		}
 		set = append(set, kv[0]+" = "+kv[1])
 		if kv[0] == "check" {
-			warn = d.warn
+			for _, w := range d.warn {
+				if w != noCompileDetected {
+					warn = append(warn, w)
+				}
+			}
 		}
 	}
 	if len(set) > 0 {
@@ -524,15 +547,18 @@ func (s *Setup) initCommands() (set, warn []string, err error) {
 			return nil, nil, err
 		}
 	}
+	if w := s.cfg.NoCompileWarning(); w != "" {
+		warn = append(warn, w)
+	}
 	return set, warn, nil
 }
 
 func (s *Setup) anyCommand() bool { return s.commandsLine() != "" }
 
-// commandsLine is the configured check, lane_setup and lane_ready ("key = cmd; …").
+// commandsLine is the configured check, compile, lane_setup and lane_ready ("key = cmd; …").
 func (s *Setup) commandsLine() string {
 	var have []string
-	for _, k := range []string{"check", "lane_setup", "lane_ready"} {
+	for _, k := range []string{"check", "compile", "lane_setup", "lane_ready"} {
 		if c, ok := run.Command(s.cfg, k); ok {
 			have = append(have, k+" = "+c.Cmd)
 		}

@@ -377,6 +377,17 @@ func (r *runner) compile() *halt {
 	return nil
 }
 
+// movedCheck runs merge.check, a moved gate's check when commands.compile is not configured: a failure is red.
+// r.check is "check <counts>".
+func (r *runner) movedCheck() *halt {
+	o, ok, h := r.must("check")
+	if h != nil || !ok {
+		return h
+	}
+	r.check = "check " + r.counts(o)
+	return nil
+}
+
 // runChecks runs the classes' checks: partial → merge.guard, then each class's checks (a missing command → fail; a
 // command two classes name runs once); full → check, then each matched class marked with_full's checks.
 // Every check runs: a run in a lane has nothing to reuse.
