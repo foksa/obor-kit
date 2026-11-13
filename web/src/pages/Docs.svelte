@@ -111,9 +111,12 @@
   const titleId = $derived(title ? headings(body).find((h) => h.level === 1 && h.text === title)?.id || "" : "");
   const rendered = $derived(splitTitle(md(body, docLinks(project, all, path)), titleId));
   const html = $derived(rendered.rest);
+  // shown is whether the open doc is read and on the page (its header and body render from text once the list is in):
+  // the hit and section jumps wait on it, a doc that is only its title included.
+  const shown = $derived(!!text && !!list.data);
   $effect(() => {
     const j = jump;
-    if (!j || j.path !== path || !text || !html) return;
+    if (!j || j.path !== path || !shown) return;
     jump = null;
     const id = sectionAt(text, body, j.line);
     void tick().then(() => {
@@ -123,12 +126,11 @@
       if (id && j.path === path) showSection(id);
     });
   });
-  // A section link scrolls to its heading once the doc is rendered (its body, and the page past the list); an id no
+  // A section link scrolls to its heading once the doc is shown (its title in the header is a heading too); an id no
   // heading has leaves the doc at its top.
   $effect(() => {
     const s = section;
-    const shown = html;
-    if (!s || !path || !shown || !list.data) return;
+    if (!s || !path || !shown) return;
     if (scrolled === path + "#" + s) return;
     scrolled = path + "#" + s;
     void tick().then(() => document.getElementById(s)?.scrollIntoView({ block: "start" }));

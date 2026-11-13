@@ -136,14 +136,14 @@ describe("a title with inline markdown in the index", () => {
     pinned: [{ path: "docs/app.md", title: "`internal/app`: boundaries", updated: 2 }],
     groups: [{ dir: "docs", docs: [{ path: "docs/split.md", title: "`internal/app` split", updated: 1 }] }],
   };
-  it("renders its code span in the pinned and tree rows, and matches and marks its words", () => {
+  it("renders its code span in the pinned, tree and filtered rows, and matches and marks its words", () => {
     const side = text(render(DocIndex, { props: { project: "pj", list: coded } }).body);
     expect(side).toContain("<code>internal/app</code>: boundaries");
     expect(side).toContain("<code>internal/app</code> split");
     expect(side).not.toContain("`");
     const found = text(render(DocIndex, { props: { project: "pj", list: coded, q: "app: bound" } }).body);
     expect(found).toContain("1 of 2");
-    expect(found).toMatch(/internal\/<mark[^>]*>app:<\/mark> <mark[^>]*>bound<\/mark>aries/);
+    expect(found).toContain("<code>internal/<mark>app</mark></code><mark>:</mark> <mark>bound</mark>aries");
     expect(found).not.toContain("`");
   });
 });

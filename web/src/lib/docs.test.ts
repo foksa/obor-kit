@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  currentHeading, defaultFolded, defaultOrder, docLabel, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, marks,
+  currentHeading, defaultFolded, defaultOrder, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, marks,
   matchDocs, matchKey, neighbours, normalize, outline, paths, pinnedCaption, progress, recent, resolve, rows, sameName,
-  labelHtml, sectionAt, sortDocs, splitTitle, tree, unfold,
+  labelHtml, markHtml, sectionAt, sortDocs, splitTitle, tree, unfold,
 } from "./docs";
 import { md } from "./md";
 import type { DocList } from "./types";
@@ -274,8 +274,6 @@ describe("a doc's title as a label", () => {
     expect(labelHtml(coded)).toBe("<code>internal/app</code>: where the <strong>real</strong> boundaries are");
     expect(labelHtml({ path: "a/x.md", title: "[See](docs/b.md) T-1" })).toBe("See T-1");
     expect(labelHtml({ path: "a/<x>.md" })).toBe("&lt;x&gt;.md");
-    expect(docLabel(coded)).toBe("internal/app: where the real boundaries are");
-    expect(docLabel({ path: "a/x.md" })).toBe("x.md");
   });
   it("matches on its words, the markup aside", () => {
     const l: DocList = { head: "h", pinned: [], groups: [{ dir: "docs/research", docs: [coded] }] };
@@ -283,6 +281,28 @@ describe("a doc's title as a label", () => {
     expect(matchDocs(l, "real boundaries")[0].tat).toBe(24);
     expect(matchDocs(l, "`internal")).toEqual([]);
     expect(matchDocs(l, "**real")).toEqual([]);
+  });
+});
+
+describe("a title's HTML with the filter's words marked", () => {
+  it("marks the words in the text only, across a code span's edge, the tags and entities kept whole", () => {
+    expect(markHtml("<code>internal/app</code>: the <strong>real</strong> one", "app: real")).toBe(
+      "<code>internal/<mark>app</mark></code><mark>:</mark> the <strong><mark>real</mark></strong> one");
+    expect(markHtml('<code class="code">a</code>', "code")).toBe('<code class="code">a</code>'); // never inside a tag
+    expect(markHtml("a &lt;b&gt; &amp; c", "<b>")).toBe("a <mark>&lt;b&gt;</mark> &amp; c");
+    expect(markHtml("a &amp; c", "amp")).toBe("a &amp; c");
+    expect(markHtml("<code>x</code> y", "")).toBe("<code>x</code> y");
+  });
+});
+
+describe("a doc that is only its title", () => {
+  const text = "# Questions for the lead\n";
+  it("renders its H1 into the header with the id a section link or a text hit on it reaches, and no body", () => {
+    const id = sectionAt(text, text, 1);
+    expect(id).toBe("h-questions-for-the-lead");
+    const { head, rest } = splitTitle(md(text, { task: (t) => t, section: (h) => "#/d/QUESTIONS.md#" + h }), id);
+    expect(head).toContain("Questions for the lead");
+    expect(rest.trim()).toBe(""); // nothing past the title: the page's jumps wait on the doc read, not on a body
   });
 });
 
@@ -438,13 +458,6 @@ describe("reading progress", () => {
     expect(progress(-5000, 3000, 800)).toBe(1);
     expect(progress(0, 500, 800)).toBe(1); // a doc shorter than the view
     expect(progress(10, 500, 800)).toBe(0);
-  });
-});
-
-describe("a doc's label", () => {
-  it("is its title where it has one, its file name otherwise", () => {
-    expect(docLabel({ path: "docs/design.md", title: "obor-kit design" })).toBe("obor-kit design");
-    expect(docLabel({ path: "docs/design.md" })).toBe("design.md");
   });
 });
 
