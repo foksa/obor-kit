@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   currentHeading, defaultFolded, defaultOrder, docLinks, docTitle, everyFold, filterLines, groupHits, isOpen, jumpReady, marks,
   matchDocs, matchKey, neighbours, normalize, outline, paths, pinnedCaption, progress, recent, resolve, rows, sameName,
-  labelHtml, markHtml, sectionAt, sortDocs, splitTitle, tree, unfold,
+  labelHtml, markHtml, sectionAt, sortDocs, splitTitle, tree, unfold, docKind, freshness, KIND_TONE,
 } from "./docs";
 import { md } from "./md";
 import type { DocList } from "./types";
@@ -499,5 +499,53 @@ describe("sectionAt", () => {
     expect(sectionAt(text, text, 3)).toBe("h-title");
     expect(sectionAt(text, body, 3)).toBe(""); // a body without the title: the top
     expect(sectionAt("plain\n\n## A\n", "plain\n\n## A\n", 1)).toBe("");
+  });
+});
+
+describe("docKind", () => {
+  it("reads obor-kit's paths: file names anywhere first, then the deepest folder with a kind", () => {
+    const want: Record<string, string> = {
+      "BACKLOG.md": "open", "QUESTIONS.md": "open", "docs/BACKLOG.md": "open",
+      "docs/decisions.md": "record", "docs/accepted.md": "record", "docs/reviews/RV-201.md": "record",
+      "AGENTS.md": "agents", "CLAUDE.md": "agents", "docs/agents/worker.md": "agents", "templates/agents/worker.md": "agents",
+      "skills/lead/SKILL.md": "agents",
+      "docs/plan/test-suite-rework.md": "plan", "docs/research/x.md": "plan", "docs/ui/docs-page-color.md": "plan",
+      "docs/releases/v0.39.md": "release", "CHANGELOG.md": "release", "docs/UPGRADE-v0.39.md": "release",
+      "RELEASING.md": "release",
+      "docs/design.md": "", "README.md": "", "docs/module-map.md": "",
+    };
+    for (const [p, k] of Object.entries(want)) expect(docKind(p), p).toBe(k);
+  });
+  it("is empty on a project with no kinded paths, and a file name beats its folder", () => {
+    expect(docKind("art/terrain/x.md")).toBe("");
+    expect(docKind("docs/plan/BACKLOG.md")).toBe("open"); // the file name first
+    expect(docKind("docs/agents/plan/x.md")).toBe("plan"); // the deepest folder
+    expect(docKind("docs/reviewsx/a.md")).toBe(""); // a whole segment, not a prefix
+    expect(docKind("constructor/x.md")).toBe(""); // not an Object key
+  });
+  it("gives a folder's kind from its dir and a slash", () => {
+    expect(docKind("docs/agents/")).toBe("agents");
+    expect(docKind("skills/")).toBe("agents");
+    expect(docKind("docs/")).toBe("");
+    expect(docKind("templates/")).toBe("");
+    expect(docKind("")).toBe("");
+  });
+  it("tones each kind; red is never one", () => {
+    expect(KIND_TONE).toEqual({ open: "wait", record: "ok", agents: "accent", plan: "info", release: "done" });
+    expect(Object.values(KIND_TONE)).not.toContain("bad");
+  });
+});
+
+describe("freshness", () => {
+  const now = 1_000_000;
+  it("is staged without a commit, hour under 3600 s, day under 86400 s, old after", () => {
+    expect(freshness(undefined, now)).toBe("staged");
+    expect(freshness(0, now)).toBe("staged");
+    expect(freshness(now - 600, now)).toBe("hour");
+    expect(freshness(now - 3599, now)).toBe("hour");
+    expect(freshness(now - 3600, now)).toBe("day");
+    expect(freshness(now - 86399, now)).toBe("day");
+    expect(freshness(now - 86400, now)).toBe("old");
+    expect(freshness(now + 30, now)).toBe("hour"); // a clock a little behind the commit's
   });
 });

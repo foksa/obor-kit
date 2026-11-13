@@ -10,7 +10,8 @@
   // text hit opens its doc scrolled to the nearest heading above its line. A doc's section link
   // (`#/docs/<project>/<path>#<heading id>`) opens it scrolled to that heading; a heading picked in "On this page" or a
   // text hit's heading goes into the URL in place of the shown one, and every rendered heading, the title in the header
-  // too, carries a "Copy link" anchor. A title shows its inline markdown (code, bold, links) wherever it is a label.
+  // too, carries a "Copy link" anchor. A title shows its inline markdown (code, bold, links) wherever it is a label. A
+  // doc's kind (docKind) shows as a dot beside its name and a tint on its pinned card; ages show by freshness (DocAge).
   import { onDestroy, tick, untrack } from "svelte";
   import { Live } from "../lib/live.svelte";
   import { api } from "../lib/api";
@@ -19,15 +20,17 @@
   import { replace } from "../lib/router.svelte";
   import { href } from "../lib/route";
   import {
-    defaultOrder, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, jumpReady, labelHtml, matchDocs,
+    defaultOrder, docKind, docLinks, docTitle, everyFold, KIND_TONE, fileOf, filterLines, folderOf, isAccepted, jumpReady, labelHtml, matchDocs,
     neighbours, outline, paths, pinnedCaption, progress, recent, sameName, sectionAt, splitTitle, tree, unfold,
     type Folds, type Order,
   } from "../lib/docs";
   import type { Doc, DocList, DocText } from "../lib/types";
+  import DocAge from "../ui/DocAge.svelte";
   import DocIndex from "../ui/DocIndex.svelte";
   import DocModes from "../ui/DocModes.svelte";
   import DocOutline from "../ui/DocOutline.svelte";
-  import Rel from "../ui/Rel.svelte";
+  import Dot from "../ui/Dot.svelte";
+  import Pill from "../ui/Pill.svelte";
   import Section from "../ui/Section.svelte";
   import Segmented from "../ui/Segmented.svelte";
   import Stale from "../ui/Stale.svelte";
@@ -103,6 +106,7 @@
   );
   const text = $derived(doc?.data && doc.data.path === path ? doc.data.text : "");
   const title = $derived(docTitle(text));
+  const kind = $derived(docKind(path));
   const accepted = $derived(isAccepted(path));
   const filtered = $derived(accepted ? filterLines(text, lq) : null);
   // body is the text as shown (the line filter's), rendered whole so the title's heading id and every other one come
@@ -253,15 +257,21 @@
 
 <svelte:window onkeydown={onkey} {onscroll} onresize={onscroll} />
 
-{#snippet age(d: Doc | undefined)}
-  {#if d?.updated}<Rel at={d.updated} mode="for" />{:else if d}<span class="staged">staged</span>{/if}
+{#snippet age(d: Doc)}
+  <span class="when"><DocAge updated={d.updated} /></span>
+{/snippet}
+
+{#snippet kdot(p: string, gap: boolean)}
+  {@const k = docKind(p)}
+  {#if k}<span class="kdot"><Dot tone={KIND_TONE[k]} size={6} title={k} /></span>{:else if gap}<span class="kdot"></span>{/if}
 {/snippet}
 
 <div class="page docs-page" class:reading={!!path} style="--top: {topH}px">
   {#if !path}
     <header class="page-head">
       <h1>Docs</h1>
-      <span class="muted small">{total} markdown files git tracks{list.data ? " · at " + list.data.head.slice(0, 7) : ""} · read-only</span>
+      <Pill state="idle" text="read-only" dot={false} />
+      <span class="muted small">{total} markdown files git tracks{list.data ? " · at " + list.data.head.slice(0, 7) : ""}</span>
       <Stale error={list.data ? list.error : ""} />
     </header>
   {/if}
@@ -301,10 +311,14 @@
           <Section title="Pinned">
             <div class="pins">
               {#each list.data.pinned as d (d.path)}
-                <a class="card pin" href={href.docs(project, d.path)} title={d.path}>
+                {@const k = docKind(d.path)}
+                <a class="card pin" class:kinded={!!k} style={k ? `--k: var(--${KIND_TONE[k]})` : undefined}
+                  data-kind={k || undefined} href={href.docs(project, d.path)} title={d.path}>
                   <span class="pin-name" class:mono={!d.title}>{@html labelHtml(d)}</span>
                   {#if pinnedCaption(d.path)}<span class="cap">{pinnedCaption(d.path)}</span>{/if}
-                  <span class="pin-foot"><span class="mono ell">{folderOf(d.path) || "top level"}</span><span class="age">{@render age(d)}</span></span>
+                  <span class="pin-foot">
+                    {#if k}<Dot tone={KIND_TONE[k]} size={7} title={k} /><span class="kind">{k}</span><span aria-hidden="true">·</span>{/if}
+                    <span class="mono ell">{folderOf(d.path) || "top level"}</span>{@render age(d)}</span>
                 </a>
               {/each}
             </div>
@@ -327,7 +341,7 @@
               <div class="card box recent">
                 {#each recent(list.data, 10) as d (d.path)}
                   <a class="rrow" href={href.docs(project, d.path)} title={d.path}>
-                    <span class="rline"><span class="ell" class:mono={!d.title}>{@html labelHtml(d)}</span><span class="age">{@render age(d)}</span></span>
+                    <span class="rline">{@render kdot(d.path, true)}<span class="ell" class:mono={!d.title}>{@html labelHtml(d)}</span>{@render age(d)}</span>
                     <span class="mono where ell">{folderOf(d.path) || "top level"}</span>
                   </a>
                 {/each}
@@ -342,11 +356,13 @@
     <div class="docbar">
       <button type="button" class="btn bar-btn" onclick={openDrawer}>
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 1.8h5.2L12.5 5v9.2H4z"></path><path d="M9 1.8V5.2h3.5"></path></svg>Docs</button>
+      {@render kdot(path, false)}
       <span class="bar-path mono" title={path}><bdi>{path}</bdi></span>
       {#if heads.length >= 2}
         <button type="button" class="btn bar-btn" onclick={() => sheet?.showModal()}>Sections
           <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg></button>
       {/if}
+      <span class="bar-track" aria-hidden="true"></span>
       <span class="bar-line" style:width="{through * 100}%" aria-hidden="true"></span>
     </div>
 
@@ -372,7 +388,8 @@
             <div class="skel title" aria-hidden="true"></div>
           {/if}
           <div class="meta">
-            {#if meta}<span>{#if meta.updated}changed <Rel at={meta.updated} />{:else}<span class="staged">staged</span>{/if}</span>{/if}
+            {#if kind}<span class="kind-meta"><Dot tone={KIND_TONE[kind]} title={kind} />{kind}</span>{/if}
+            {#if meta}<span class="changed">{#if meta.updated}changed {/if}<DocAge updated={meta.updated} mode="ago" /></span>{/if}
             {#if text}<span>{lineCount} lines</span><span>{heads.length} sections</span>{/if}
             <span>at <span class="mono">{list.data.head.slice(0, 7)}</span></span>
             <Stale error={list.error || doc?.error || ""} />
@@ -418,14 +435,14 @@
             {#if near.newer}
               <a class="card nb" href={href.docs(project, near.newer.path)} title={near.newer.path}>
                 <span class="nb-lbl">← {byName ? "previous" : "newer"} in {folderOf(path) || "top level"}</span>
-                <span class="nb-name" class:mono={!near.newer.title}>{@html labelHtml(near.newer)}</span></a>
+                <span class="nb-line">{@render kdot(near.newer.path, false)}<span class="nb-name" class:mono={!near.newer.title}>{@html labelHtml(near.newer)}</span></span></a>
             {:else}
               <div class="nb none"><span class="nb-lbl">← {byName ? "previous" : "newer"} in {folderOf(path) || "top level"}</span><span class="nb-name">none</span></div>
             {/if}
             {#if near.older}
               <a class="card nb right" href={href.docs(project, near.older.path)} title={near.older.path}>
                 <span class="nb-lbl">{byName ? "next" : "older"} in {folderOf(path) || "top level"} →</span>
-                <span class="nb-name" class:mono={!near.older.title}>{@html labelHtml(near.older)}</span></a>
+                <span class="nb-line">{@render kdot(near.older.path, false)}<span class="nb-name" class:mono={!near.older.title}>{@html labelHtml(near.older)}</span></span></a>
             {:else}
               <div class="nb none right"><span class="nb-lbl">{byName ? "next" : "older"} in {folderOf(path) || "top level"} →</span><span class="nb-name">none</span></div>
             {/if}
@@ -475,11 +492,8 @@
   .docs-page.reading { max-width: 1440px; padding-top: 18px; }
   .pad { padding: 18px 24px; }
   .box { padding: 8px 6px; min-width: 0; }
-  .age { margin-left: auto; flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .staged {
-    font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; color: var(--info);
-    background: color-mix(in srgb, var(--info) var(--tint), transparent);
-  }
+  .when { margin-left: auto; flex: none; display: inline-flex; font-size: 11px; }
+  .kdot { flex: none; width: 6px; display: inline-flex; align-items: center; }
   .where { font-size: 11px; color: var(--muted); }
 
   /* the list */
@@ -499,6 +513,11 @@
   .pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
   .pin { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; color: var(--fg-2); min-width: 0; }
   .pin:hover { text-decoration: none; border-color: var(--line-strong); }
+  .pin.kinded {
+    background: color-mix(in srgb, var(--k) 7%, var(--surface)); border-color: color-mix(in srgb, var(--k) 35%, var(--line));
+  }
+  .pin.kinded:hover { border-color: color-mix(in srgb, var(--k) 55%, var(--line)); }
+  .kind { color: var(--fg-2); }
   .pin-name { color: var(--fg); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
   .cap { font-size: 12px; color: var(--muted); }
   .pin-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 11px; color: var(--muted); min-width: 0; }
@@ -530,6 +549,8 @@
     margin: 0; font-size: 24px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; overflow-wrap: anywhere;
   }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+  .kind-meta { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); }
+  .changed { display: inline-flex; align-items: center; gap: 4px; }
   .sections { display: none; }
   .lfilter { display: flex; align-items: center; gap: 12px; }
   .search {
@@ -549,7 +570,9 @@
   .near { display: flex; flex-wrap: wrap; gap: 12px; }
   .nb { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; min-width: 0; color: var(--fg-2); }
   .nb.right { text-align: right; }
-  a.nb:hover { text-decoration: none; border-color: var(--line-strong); }
+  a.nb:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .nb-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .nb.right .nb-line { justify-content: flex-end; }
   .nb.none { border: 1px dashed var(--line); border-radius: 10px; }
   .nb-lbl { font-size: 11px; color: var(--muted); }
   .nb-name { font-size: 13px; overflow-wrap: anywhere; }
@@ -565,6 +588,7 @@
     flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; direction: rtl; text-align: left;
   }
+  .bar-track { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--line-soft); }
   .bar-line { position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--accent); }
 
   /* the drawer and the sheet */

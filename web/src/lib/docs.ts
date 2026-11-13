@@ -1,8 +1,9 @@
 // The docs page's logic: the docs as one path list, how a doc's text links (a task to its page, an RV-n or DD-… to
 // its review file, a repo path to that doc, both only when the doc list has them, a heading to its section), the
 // list's tree, order, matches, recent docs and neighbours, a doc's outline (levels 2–3), pinned captions and
-// accepted.md's filter.
+// accepted.md's filter, a doc's kind and a change's freshness.
 import { esc, headings, inline, plainText, type Heading, type Links } from "./md";
+import type { Tone } from "./format";
 import { href } from "./route";
 import type { Doc, DocHit, DocList } from "./types";
 
@@ -455,3 +456,46 @@ export const folderOf = (p: string): string => (dirOf(p) ? dirOf(p) + "/" : "");
 
 // fileOf is a path's file name.
 export const fileOf = base;
+
+// DocKind is what a doc is for, read from its path: open (lists what is still open), record (settled decisions and
+// findings), agents (the texts agents run on), plan (proposals), release (release notes and upgrade guides).
+export type DocKind = "open" | "record" | "agents" | "plan" | "release";
+
+// KIND_TONE is each kind's tone: its dot, its pinned card's tint.
+export const KIND_TONE: Record<DocKind, Tone> = { open: "wait", record: "ok", agents: "accent", plan: "info", release: "done" };
+
+// FILE_KIND is a kind by file name, anywhere in the tree; DIR_KIND a kind by folder name.
+const FILE_KIND: [RegExp, DocKind][] = [
+  [/^(BACKLOG|QUESTIONS)\.md$/, "open"],
+  [/^(decisions|accepted)\.md$/, "record"],
+  [/^(AGENTS|CLAUDE)\.md$/, "agents"],
+  [/^(CHANGELOG.*|UPGRADE.*|RELEASING)\.md$/, "release"],
+];
+const DIR_KIND: Record<string, DocKind> = {
+  reviews: "record", agents: "agents", skills: "agents", plan: "plan", research: "plan", ui: "plan", releases: "release",
+};
+
+// docKind is path's kind: its file name's first, else its deepest folder with one ("" when neither has one). A folder's
+// kind is docKind(dir + "/").
+export function docKind(path: string): DocKind | "" {
+  const name = base(path);
+  for (const [re, k] of FILE_KIND) if (re.test(name)) return k;
+  const dirs = dirOf(path).split("/");
+  for (let i = dirs.length - 1; i >= 0; i--) {
+    const k = Object.hasOwn(DIR_KIND, dirs[i]) ? DIR_KIND[dirs[i]] : undefined;
+    if (k) return k;
+  }
+  return "";
+}
+
+// Freshness is how recent a change is: "hour" (the last hour: the doc is being worked on), "day", "old", or "staged"
+// (no commit yet).
+export type Freshness = "hour" | "day" | "old" | "staged";
+
+// freshness is the freshness of a change at updated (unix seconds) seen at now.
+export function freshness(updated: number | undefined, now: number): Freshness {
+  if (!updated) return "staged";
+  const age = now - updated;
+  if (age < 3600) return "hour";
+  return age < 86400 ? "day" : "old";
+}

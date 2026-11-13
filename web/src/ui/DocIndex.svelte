@@ -7,15 +7,19 @@
   // for the reading sidebar and the narrow drawer (part "side"); the list page uses its tree ("tree") and its matches
   // ("matches", hits included) on their own, its filter's keys through key. The filter, mode, order and folds belong to
   // the page (they outlive a doc change). A title shows its inline markdown; the match rows mark its words inside that markup.
+  // A doc's kind shows as a dot (a folder's before its name; a doc row's in the tree only where it differs from its
+  // folder's; the flat rows keep a gap when it has none), an age by its freshness (DocAge), the open doc and its folder
+  // chain in fg with the accent tint, the Enter target with the accent ring.
   import { href } from "../lib/route";
   import {
-    folderOf, groupHits, labelHtml, markHtml, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds,
-    type Match, type Order,
+    docKind, folderOf, groupHits, KIND_TONE, labelHtml, markHtml, marks, matchDocs, matchKey, rows, tree, type DocKind,
+    type Folder, type Folds, type Match, type Order,
   } from "../lib/docs";
   import type { TextSearch } from "../lib/docsearch.svelte";
   import type { Doc, DocHit, DocList } from "../lib/types";
+  import DocAge from "./DocAge.svelte";
   import DocModes from "./DocModes.svelte";
-  import Rel from "./Rel.svelte";
+  import Dot from "./Dot.svelte";
 
   let {
     project, list, path = "", q = $bindable(""), order = "", folds = $bindable({}), sel = $bindable(0),
@@ -40,13 +44,13 @@
   const hitAt = $derived(new Map(hits.map((h, i) => [h, matches.length + i])));
   const count = $derived(matches.length + hits.length);
   const n = (k: number, one: string) => `${k} ${k === 1 ? one : one + "s"}`;
-  // countLine is the line over the matches: how many by name, and in text mode the hits and whether a search is out.
+  // countLine is the line over the matches: how many by name, and in text mode the hits (whether a search is out
+  // shows beside it).
   const countLine = $derived.by(() => {
     const names = `${matches.length} of ${total}`;
     if (!text) return names;
     const parts = [names + " by name"];
     if (found) parts.push(`${n(hits.length, "line")} in ${n(groups.length, "doc")}`);
-    if (search?.busy) parts.push("searching…");
     return parts.join(" · ");
   });
   const root = $derived(tree(list, order || undefined));
@@ -86,6 +90,9 @@
     sel = 0;
     input?.focus();
   }
+  // dirKind is a folder's kind ("" for the top level); chain is whether a folder row is on the open doc's path.
+  const dirKind = (f: Folder): DocKind | "" => (f.dir ? docKind(f.dir + "/") : "");
+  const chain = (f: Folder) => !!path && (f.dir ? folderOf(path).startsWith(f.dir + "/") : folderOf(path) === "");
   // newest is a folder row's newest age: its docs and below; the top level's own docs only (its folders have rows).
   const newest = (f: Folder) => (f.dir ? f.updated : Math.max(0, ...f.docs.map((d) => d.updated || 0)) || undefined);
   function toggle(dir: string, open: boolean) {
@@ -94,13 +101,23 @@
 </script>
 
 {#snippet age(d: Doc)}
-  {#if d.updated}<span class="age"><Rel at={d.updated} mode="for" /></span>{:else}<span class="staged">staged</span>{/if}
+  <span class="when"><DocAge updated={d.updated} /></span>
+{/snippet}
+
+{#snippet kdot(p: string)}
+  {@const k = docKind(p)}
+  {#if k}<span class="kdot"><Dot tone={KIND_TONE[k]} size={6} title={k} /></span>{:else}<span class="kdot"></span>{/if}
+{/snippet}
+
+{#snippet searching()}
+  <span class="busy"><Dot tone="info" size={7} title="searching" />searching…</span>
 {/snippet}
 
 {#snippet match(m: Match, i: number)}
   <a class="match" class:sel={i === sel} class:on={m.doc.path === path} href={href.docs(project, m.doc.path)}
     title={m.doc.path} aria-current={m.doc.path === path ? "page" : undefined} onclick={() => onpick?.()}>
     <span class="mline">
+      {@render kdot(m.doc.path)}
       <span class="name" class:mono={!m.doc.title}>{@html markHtml(labelHtml(m.doc), q)}</span>
       {@render age(m.doc)}
     </span>
@@ -115,8 +132,9 @@
       {@const d = byPath.get(g.path)}
       <div class="hgroup" role="list" aria-label="Lines in {g.path}">
         <a class="hdoc" href={href.docs(project, g.path)} title={g.path} onclick={() => onpick?.()}>
+          {@render kdot(g.path)}
           <span class="name ell" class:mono={!d?.title}>{#if d}{@html labelHtml(d)}{:else}{g.path}{/if}</span>
-          <span class="count">{g.hits.length}</span>
+          <span class="hcount">{g.hits.length}</span>
         </a>
         {#each g.hits as h (h.line)}
           <div role="listitem">
@@ -144,7 +162,7 @@
       <p class="none">No doc's path, title or text has every word of “{q.trim()}”.
         <button type="button" class="link" onclick={() => { q = ""; sel = 0; }}>Clear the filter</button></p>
     {:else if !hits.length && search?.busy}
-      <p class="note">searching the text…</p>
+      <p class="note"><span class="busy"><Dot tone="info" size={7} title="searching" />searching the text…</span></p>
     {/if}
   {:else if !matches.length}
     <p class="none">No doc's path or title has every word of “{q.trim()}”.
@@ -156,17 +174,21 @@
   <div class="tree">
     {#each shown as r (r.kind === "dir" ? "d:" + r.folder.dir : r.doc.path)}
       {#if r.kind === "dir"}
-        <button type="button" class="dir" style:padding-left="{8 + r.depth * 16}px" aria-expanded={r.open}
-          onclick={() => toggle(r.folder.dir, r.open)}>
+        {@const fk = dirKind(r.folder)}
+        <button type="button" class="dir" class:chain={chain(r.folder)} style:padding-left="{8 + r.depth * 16}px"
+          aria-expanded={r.open} onclick={() => toggle(r.folder.dir, r.open)}>
           <svg class="chev" class:open={r.open} width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5L7.5 6L4 9.5" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>
+          {#if fk}<Dot tone={KIND_TONE[fk]} title={fk} />{/if}
           <span class="mono ell">{r.folder.dir ? r.folder.name + "/" : r.folder.name}</span>
           <span class="count">{r.folder.dir ? r.folder.count : r.folder.docs.length}</span>
-          {#if full && newest(r.folder)}<span class="newest">newest <Rel at={newest(r.folder)} mode="for" /></span>{/if}
+          {#if full && newest(r.folder)}<span class="newest">newest <DocAge updated={newest(r.folder)} /></span>{/if}
         </button>
       {:else}
+        {@const k = docKind(r.doc.path)}
         <a class="doc" class:on={r.doc.path === path} style:padding-left="{8 + r.depth * 16 + 4}px"
           href={href.docs(project, r.doc.path)} title={r.doc.path}
           aria-current={r.doc.path === path ? "page" : undefined} onclick={() => onpick?.()}>
+          {#if k && k !== docKind(folderOf(r.doc.path))}<span class="kdot"><Dot tone={KIND_TONE[k]} size={6} title={k} /></span>{/if}
           <span class="name ell" class:mono={!r.doc.title}>{@html labelHtml(r.doc)}</span>
           {#if full}{@render age(r.doc)}{/if}
         </a>
@@ -190,7 +212,7 @@
       <div class="modes"><DocModes bind:mode {tall} onchange={modeSet} /></div>
     {/if}
     {#if filtering}
-      <p class="count-line">{countLine}</p>
+      <p class="count-line">{#each countLine.split(/(\d+)/) as part, i (i)}{#if i % 2}<span class="num">{part}</span>{:else}{part}{/if}{/each}{#if text && search?.busy}{countLine ? " · " : ""}{@render searching()}{/if}</p>
     {/if}
     <div class="card body">
       {#if filtering}
@@ -204,6 +226,7 @@
           {#each list.pinned as d (d.path)}
             <a class="doc" class:on={d.path === path} href={href.docs(project, d.path)} title={d.path}
               aria-current={d.path === path ? "page" : undefined} onclick={() => onpick?.()}>
+              {@render kdot(d.path)}
               <span class="name ell" class:mono={!d.title}>{#if d.title}{@html labelHtml(d)}{:else}{d.path}{/if}</span></a>
           {/each}
         {/if}
@@ -230,6 +253,9 @@
     border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px;
   }
   .count-line { margin: -4px 2px 0; font-size: 12px; color: var(--muted); }
+  .num { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .busy { display: inline-flex; align-items: center; gap: 6px; }
+  .kdot { flex: none; width: 6px; display: inline-flex; align-items: center; }
   .body { padding: 8px 6px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .body h2 { margin: 10px 8px 2px; }
   .all {
@@ -243,29 +269,32 @@
     font-size: 12px; color: var(--fg-2); min-width: 0;
   }
   .doc:hover, .dir:hover, .all:hover, .match:hover { background: var(--surface-2); color: var(--fg); }
-  .doc.on { background: var(--surface-3); color: var(--fg); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+  .doc.on, .match.on {
+    background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
   .dir {
     display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding: 4px 8px; border: 0;
     border-radius: 6px; background: transparent; color: var(--fg-2); font-size: 12px; font-weight: 600;
     text-align: left; cursor: pointer; margin-top: 2px; min-width: 0;
   }
+  .dir.chain { color: var(--fg); }
   .chev { flex: none; color: var(--muted); transition: transform 0.12s; }
   .chev.open { transform: rotate(90deg); }
   .count { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
   .newest { font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; min-width: 92px; text-align: right; }
   .name { min-width: 0; flex: 1 1 auto; }
-  .age { margin-left: auto; flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .staged {
-    margin-left: auto; flex: none; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
-    color: var(--info); background: color-mix(in srgb, var(--info) var(--tint), transparent);
-  }
+  .when { margin-left: auto; flex: none; display: inline-flex; font-size: 11px; font-weight: 400; }
   .matches { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .match {
     display: flex; flex-direction: column; gap: 1px; padding: 5px 10px; border-radius: 6px; color: var(--fg-2);
     font-size: 13px; min-width: 0;
   }
-  .match.sel { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
-  .match.on { color: var(--fg); font-weight: 600; }
+  .match.sel, .hit.sel {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  .match.sel.on { box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
   .mline { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .mline .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .where { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -284,7 +313,10 @@
     color: var(--fg-2); min-width: 0;
   }
   .hdoc:hover, .hit:hover { background: var(--surface-2); color: var(--fg); }
-  .hit.sel { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .hcount {
+    margin-left: auto; flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 999px;
+    background: var(--surface-3); color: var(--fg-2); font-variant-numeric: tabular-nums;
+  }
   .ln { flex: none; min-width: 3ch; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .htext {
     min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
