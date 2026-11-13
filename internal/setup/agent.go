@@ -396,7 +396,7 @@ func (s *Setup) placement(a agent, w where, env []string) port.Placement {
 	case a.role.Name == "lead":
 		kind = port.KindLead
 	}
-	return port.Placement{Role: a.role.Name, Lane: a.lane, Kind: kind, Cwd: a.cwd, Env: env, Group: w.newTab, In: w.tab,
+	return port.Placement{Kind: kind, Cwd: a.cwd, Env: env, Group: w.newTab, In: w.tab,
 		Say: func(line string) { s.say("%s", line) },
 		Project: port.PlaceProject{Name: s.cfg.ProjectName(), Root: s.root, MaxPanes: maxPanesPerTab, Has: s.inProject,
 			KindOf: s.paneKind}}

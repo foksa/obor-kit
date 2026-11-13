@@ -140,13 +140,23 @@ func projectTab(panes []Pane, has func(string) bool, tab string) bool {
 	return n > 0
 }
 
-// paneKind is p's kind by its label, else (a pane nobody labelled) its agent's name: "" for a pane that names no
-// agent of the project (a shell, obor web, a person's own agent).
+// paneKind is p's kind by the identity evidence launch reads (launch.Locate's name proof, Socket.Named): the name
+// herdr holds for p's live agent, whatever the label says (a person may relabel a running agent's pane); else, no
+// live agent named, its label; else the name herdr keeps for it. "" for a pane that names no agent of the project (a
+// shell, obor web, a person's own agent).
 func paneKind(p Pane, kindOf func(string) port.PaneKind) port.PaneKind {
+	if p.Agent != "" && p.Name != "" {
+		return kindOf(p.Name)
+	}
 	if name := cmp.Or(p.Label, p.Name); name != "" {
 		return kindOf(name)
 	}
 	return ""
+}
+
+// leadPane: p is the lead's by its live agent (paneKind) or by its label: either keeps its tab the lead's alone.
+func leadPane(p Pane, kindOf func(string) port.PaneKind) bool {
+	return paneKind(p, kindOf) == port.KindLead || p.Label != "" && kindOf(p.Label) == port.KindLead
 }
 
 // tabKind is the kind every pane of tab is of; "" when tab has no pane, or a pane of another kind or of none.
@@ -165,10 +175,10 @@ func tabKind(panes []Pane, kindOf func(string) port.PaneKind, tab string) port.P
 	return kind
 }
 
-// leadTab: a pane of tab is the lead's.
+// leadTab: a pane of tab is the lead's (leadPane).
 func leadTab(panes []Pane, kindOf func(string) port.PaneKind, tab string) bool {
 	for _, p := range panes {
-		if p.Tab == tab && paneKind(p, kindOf) == port.KindLead {
+		if p.Tab == tab && leadPane(p, kindOf) {
 			return true
 		}
 	}
@@ -187,8 +197,9 @@ func inTab(panes []Pane, tab string) int {
 }
 
 // kindTab is the tab a placement of kind k with no place named goes to: the first tab of the project's workspace, in
-// herdr's order, that is a project tab, whose panes are all of kind k and which holds fewer than MaxPanes; "" when
-// none (a new tab then). The lead's pane keeps its tab alone: a lead placement never shares one.
+// herdr's order, that is a project tab, whose panes are all of kind k (paneKind), none the lead's by label or live
+// agent (leadTab), and which holds fewer than MaxPanes; "" when none (a new tab then). The lead's pane keeps its tab
+// alone: a lead placement never shares one.
 func kindTab(panes []Pane, pr port.PlaceProject, k port.PaneKind) string {
 	proj := projectWorkspace(panes, pr.Has)
 	if proj == "" || k == port.KindLead {
@@ -196,7 +207,7 @@ func kindTab(panes []Pane, pr port.PlaceProject, k port.PaneKind) string {
 	}
 	for _, p := range panes {
 		if p.Workspace == proj && inTab(panes, p.Tab) < pr.MaxPanes && projectTab(panes, pr.Has, p.Tab) &&
-			tabKind(panes, pr.KindOf, p.Tab) == k {
+			tabKind(panes, pr.KindOf, p.Tab) == k && !leadTab(panes, pr.KindOf, p.Tab) {
 			return p.Tab
 		}
 	}

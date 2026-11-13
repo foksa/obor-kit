@@ -207,14 +207,13 @@ type TerminalSetup interface {
 // the lead's alone: nothing else goes there, not even by In. The terminal adapter decides the layout (which group, a
 // split or a new one, its label).
 type Placement struct {
-	Role, Lane string   // whose pane: its role ("worker" for a lane's) and lane ("" for none)
-	Kind       PaneKind // what the pane is to placement
-	Cwd        string   // the new pane's cwd
-	Env        []string // NAME=VALUE for the new pane's shell ("NAME=": set empty)
-	Group      string   // in a new group labelled Group (obor setup --new-tab)
-	In         string   // in the group the terminal knows by this id (obor setup --tab), unless it is the lead's
-	Project    PlaceProject
-	Say        func(line string) // the placement's progress lines (a new group, a split)
+	Kind    PaneKind // what the pane is to placement
+	Cwd     string   // the new pane's cwd
+	Env     []string // NAME=VALUE for the new pane's shell ("NAME=": set empty)
+	Group   string   // in a new group labelled Group (obor setup --new-tab)
+	In      string   // in the group the terminal knows by this id (obor setup --tab), unless it is the lead's
+	Project PlaceProject
+	Say     func(line string) // the placement's progress lines (a new group, a split)
 }
 
 // PaneKind is what a pane is to placement: the lead's, a lane's (its worker or drive agent), or a role's (any other

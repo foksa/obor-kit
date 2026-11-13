@@ -454,3 +454,109 @@ func TestOborInitPlacesByKind(t *testing.T) {
 			x.h.TabLabels[roles])
 	}
 }
+
+// live makes pane id of x's fake herdr run an agent herdr holds as name (its label as label): a pane a person
+// relabelled while its agent runs.
+func (x *fx) live(t *testing.T, id, label, name string) {
+	t.Helper()
+	p := x.h.Pane(id)
+	if p == nil {
+		t.Fatalf("precondition: no pane %s", id)
+	}
+	p.Label, p.Name, p.Kind, p.Status = label, name, "claude", "idle"
+}
+
+// A pane's kind is the identity launch reads, herdr's live agent name, whatever its label says (RV-203 finding 1): the
+// lead relabelled "notes" still keeps its tab alone (--tab refused, no default lane or role placement picks it); a
+// lead whose pane is labelled with a lane agent's name does not make its tab a lanes tab; a pane labelled for the lead
+// keeps its tab the lead's, whatever agent runs there.
+func TestPlacementReadsTheLiveAgentNotTheLabel(t *testing.T) {
+	t.Parallel()
+	refusedNothingTouched := func(t *testing.T, x *fx, tab string, args ...string) {
+		t.Helper()
+		x.failing(t, "FAIL tab "+tab+" holds the lead's pane, which keeps its tab alone: pass --new-tab <label> (or --pane <id>)",
+			args...)
+		calls := strings.Join(x.reqs(), "\n")
+		for _, m := range []string{"pane.split", "tab.create", "agent.start"} {
+			hasNot(t, calls, m, "refused: no "+m)
+		}
+	}
+	// newTabNotSplit: the start made a new tab labelled label, split nothing, and its agent is not in a tab of avoid.
+	newTabNotSplit := func(t *testing.T, x *fx, agent, label string, avoid ...string) {
+		t.Helper()
+		calls := strings.Join(x.reqs(), "\n")
+		has(t, calls, "focus=false label="+label+" workspace_id=w1", "a new tab "+label)
+		hasNot(t, calls, "pane.split", "no split")
+		got := x.tabOf(agent)
+		if got == "" {
+			t.Fatalf("%s placed nowhere", agent)
+		}
+		for _, a := range avoid {
+			if got == a {
+				t.Errorf("%s in tab %s, want a new tab", agent, got)
+			}
+		}
+	}
+	notes := func(t *testing.T, tabs map[string][]string) *fx {
+		t.Helper()
+		x := kindFx(t, tabs)
+		x.where = serveSaysNone
+		x.live(t, "w1:p1", "notes", "pj-lead")
+		if p := x.h.Pane("w1:p1"); p.Label != "notes" || p.Name != "pj-lead" || p.Tab != "w1:lead" {
+			t.Fatalf("precondition: the lead labelled notes in w1:lead, got %+v", p)
+		}
+		x.reset()
+		return x
+	}
+	t.Run("lead labelled notes: --tab into its tab refused", func(t *testing.T) {
+		t.Parallel()
+		x := notes(t, nil)
+		refusedNothingTouched(t, x, "w1:lead", "pane", "--start", "L-03", "--tab", "w1:lead")
+		if n := len(x.inTab("w1:lead")); n != 1 {
+			t.Errorf("the lead's tab holds %d panes, want the lead alone", n)
+		}
+	})
+	t.Run("lead labelled notes, a lane pane beside it: default lane placement does not pick its tab", func(t *testing.T) {
+		t.Parallel()
+		x := notes(t, nil)
+		x.h.Tab("w1:lead", 200, 50, "w1:p2")
+		x.h.Pane("w1:p2").Cwd, x.h.Pane("w1:p2").Label = x.LaneDir("L-01"), "pj-l-01"
+		x.reset()
+		x.ok(t, "pane", "--start", "L-03")
+		newTabNotSplit(t, x, "pj-l-03", "lanes", "w1:lead")
+	})
+	t.Run("lead labelled notes, a role pane beside it: default role placement does not pick its tab", func(t *testing.T) {
+		t.Parallel()
+		x := notes(t, nil)
+		x.h.Tab("w1:lead", 200, 50, "w1:p2")
+		x.h.Pane("w1:p2").Cwd, x.h.Pane("w1:p2").Label = x.Root, "pj-int"
+		x.reset()
+		x.ok(t, "role", "designer", "--start")
+		newTabNotSplit(t, x, "pj-designer", "roles", "w1:lead")
+	})
+	lanes := map[string][]string{"w1:x3": {"pj-l-01", "pj-l-02"}}
+	t.Run("lead in a pane labelled pj-l-01: its tab is not a lanes tab", func(t *testing.T) {
+		t.Parallel()
+		x := kindFx(t, lanes)
+		x.where = serveSaysNone
+		x.h.Pane("w1:p1").Label = "" // the lead's own pane: a shell now, the lead runs in w1:x3-0
+		x.live(t, "w1:x3-0", "pj-l-01", "pj-lead")
+		x.reset()
+		x.ok(t, "pane", "--start", "L-03")
+		newTabNotSplit(t, x, "pj-l-03", "lanes", "w1:x3", "w1:lead")
+		x.reset()
+		refusedNothingTouched(t, x, "w1:x3", "pane", "--start", "L-04", "--tab", "w1:x3")
+	})
+	t.Run("a pane labelled pj-lead running a lane agent: its tab is still the lead's", func(t *testing.T) {
+		t.Parallel()
+		x := kindFx(t, lanes)
+		x.where = serveSaysNone
+		x.h.Pane("w1:p1").Label = ""
+		x.live(t, "w1:x3-0", "pj-lead", "pj-l-01")
+		x.reset()
+		x.ok(t, "pane", "--start", "L-03")
+		newTabNotSplit(t, x, "pj-l-03", "lanes", "w1:x3", "w1:lead")
+		x.reset()
+		refusedNothingTouched(t, x, "w1:x3", "pane", "--start", "L-04", "--tab", "w1:x3")
+	})
+}
