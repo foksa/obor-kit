@@ -21,6 +21,12 @@ const REF = /(?<![\w./-])((?:[\w.-]+\/)*[\w-][\w.-]*\.md)(?![\w/])|\b(T-\d+)\b|\
 // SPAN is the inline markup md takes apart before escaping: a code span, a markdown link.
 const SPAN = /`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)/g;
 
+// BOLD is **…**: words bolds a link's body, inline bolds a whole line once its spans are held out.
+const BOLD = /\*\*([^*]+)\*\*/g;
+
+// PLACE is how inline holds a line's code spans and links while it pairs bold across them.
+const PLACE = /\u0000(\d+)\u0000/g;
+
 const external = (t: string) => (/^https?:\/\//i.test(t) ? t : undefined);
 
 // slugger is a heading's id, unique in one document: "h-" and its words, a repeat numbered.
@@ -70,33 +76,42 @@ export function md(text: string, links: ((id: string) => string) | Links): strin
   const L: Links = typeof links === "function" ? { task: links } : links;
   const a = (href: string, body: string, ext = false) =>
     `<a href="${esc(href)}"${ext ? ' target="_blank" rel="noopener noreferrer"' : ""}>${body}</a>`;
-  // words is plain text: escaped, bold, and its refs linked
-  const words = (s: string, link = true) => {
-    const e = esc(s).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // plain is text escaped, its refs linked (a link's own body passes link=false); words bolds what plain gives back
+  const plain = (s: string, link = true) => {
+    const e = esc(s);
     if (!link) return e;
     return e.replace(REF, (m, _path, task) => {
       const h = task ? L.task(task) : L.ref?.(m);
       return h ? a(h, m) : m;
     });
   };
+  const words = (s: string, link = true) => plain(s, link).replace(BOLD, "<strong>$1</strong>");
+  // inline is a line: a code span or a link is one atom, held out of the pairing, so a code span's contents are never
+  // parsed for emphasis and `**a \`b\` c**` still finds its two delimiters.
   const inline = (s: string) => {
+    const atoms: string[] = [];
+    const hold = (html: string) => {
+      atoms.push(html);
+      return "\u0000" + (atoms.length - 1) + "\u0000";
+    };
     let out = "";
     let last = 0;
     for (const m of s.matchAll(SPAN)) {
-      out += words(s.slice(last, m.index));
+      out += plain(s.slice(last, m.index));
       if (m[1] !== undefined) {
         const code = "<code>" + esc(m[1]) + "</code>";
         const t = m[1].trim().replace(/:\d+(-\d+)?$/, ""); // a path's :line
         const h = /^T-\d+$/.test(t) ? L.task(t) : L.ref?.(t);
-        out += h ? a(h, code) : code;
+        out += hold(h ? a(h, code) : code);
       } else {
         const ext = external(m[3]);
         const h = L.url?.(m[3]) ?? ext;
-        out += h ? a(h, words(m[2], false), h === ext) : words(m[2]);
+        out += hold(h ? a(h, words(m[2], false), h === ext) : words(m[2]));
       }
       last = m.index! + m[0].length;
     }
-    return (out + words(s.slice(last))).replace(SECTION, "<strong>$1:</strong>");
+    return (out + plain(s.slice(last))).replace(BOLD, "<strong>$1</strong>")
+      .replace(PLACE, (_, i) => atoms[+i]).replace(SECTION, "<strong>$1:</strong>");
   };
   const slug = slugger();
   const out: string[] = [];

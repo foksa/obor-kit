@@ -55,6 +55,14 @@ describe("md", () => {
     expect(out).toContain('<h3 id="h-deep-x">Deep <code>x</code></h3>');
     expect(out).toContain("<pre><code>## not one</code></pre>");
   });
+  it("keeps bold that holds a code span, and never parses a code span for emphasis", () => {
+    expect(md("**Runtime deps: git, `bin/obor`, herdr.**", h))
+      .toBe("<p><strong>Runtime deps: git, <code>bin/obor</code>, herdr.</strong></p>");
+    expect(md("**a `b` c** and **plain**", h)).toBe("<p><strong>a <code>b</code> c</strong> and <strong>plain</strong></p>");
+    expect(md("**a `T-1` and `**b**`**", h))
+      .toBe('<p><strong>a <a href="#/t/pj/T-1"><code>T-1</code></a> and <code>**b**</code></strong></p>');
+    expect(md("`a ** b`", h)).toBe("<p><code>a ** b</code></p>");
+  });
   it("draws a rule", () => {
     expect(md("a\n\n---\n\nb", h)).toBe("<p>a</p><hr><p>b</p>");
   });
