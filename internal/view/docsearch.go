@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -33,8 +34,9 @@ const snippetCut = 200
 
 // Search is the lines of root's tracked docs that hold every word of q, case aside: at most MaxDocHits of them, each
 // text trimmed and cut to snippetCut characters around its first hit. The docs are the list /api/docs serves, and the
-// search is checks.GrepDocs over git's index; a hit in a path the list does not have (a symlink git grep reads) is
-// none, and a q without words is no hit at all.
+// search is checks.GrepDocs over their files in the checkout (the text /api/doc serves, so a hit's line is the reader's
+// line, unstaged edits included); a hit in a path the list does not have, or whose file ReadDoc would refuse (gone, a
+// symlink, out of the root, over MaxDoc), is none, and a q without words is no hit at all.
 func (c *DocCache) Search(ctx context.Context, root, q string) (DocHits, error) {
 	out := DocHits{Q: q, Hits: []DocHit{}}
 	words := strings.Fields(q)
@@ -53,8 +55,26 @@ func (c *DocCache) Search(ctx context.Context, root, q string) (DocHits, error) 
 	if err != nil {
 		return DocHits{}, fmt.Errorf("%s: search: %w", root, err)
 	}
+	var realRoot string
+	resolved := false
+	served := map[string]bool{} // by path: whether ReadDoc would serve the hits' file
 	for _, m := range ms {
 		if !l.Has(m.Path) {
+			continue
+		}
+		ok, seen := served[m.Path]
+		if !seen {
+			if !resolved {
+				if realRoot, err = filepath.EvalSymlinks(root); err != nil {
+					return DocHits{}, fmt.Errorf("%s: %w", root, err)
+				}
+				resolved = true
+			}
+			_, err := servedPath(realRoot, root, m.Path)
+			ok = err == nil
+			served[m.Path] = ok
+		}
+		if !ok {
 			continue
 		}
 		if len(out.Hits) == MaxDocHits {

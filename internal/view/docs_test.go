@@ -84,10 +84,11 @@ func TestDocTitle(t *testing.T) {
 	}
 }
 
-// TestDocCacheTitles: a doc's title is read from the checkout when the list is rebuilt, so it follows the index key; a
-// listed doc whose file is missing, is a symlink on disk, or whose path runs through a symlinked directory out of the
-// root has none.
-func TestDocCacheTitles(t *testing.T) {
+// TestDocCacheTitlesFollowTheCheckoutFile: a doc's title is read from the checkout when the list is read and read again
+// when that file's stat (its mtime or size) moves, at the same HEAD and index key, so an unstaged edit shows on the next
+// list read while the tracked docs are not listed again; a listed doc whose file is missing, is a symlink on disk, or
+// whose path runs through a symlinked directory out of the root has none.
+func TestDocCacheTitlesFollowTheCheckoutFile(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
 	root, out := filepath.Join(base, "root"), filepath.Join(base, "out")
@@ -118,11 +119,12 @@ func TestDocCacheTitles(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(out, "secret.md")); err != nil || !strings.HasPrefix(string(b), "# ") {
 		t.Fatalf("precondition: the file outside the root starts with a heading (%q, %v): an unguarded read would title it", b, err)
 	}
-	stamp := int64(1)
+	reads := 0
 	c := &DocCache{
 		Head:  func(context.Context, string) (string, error) { return "h", nil },
-		Index: func(string) (int64, int64, error) { return stamp, 0, nil },
+		Index: func(string) (int64, int64, error) { return 1, 0, nil },
 		Files: func(context.Context, string) ([]checks.TrackedDoc, error) {
+			reads++
 			return []checks.TrackedDoc{{Path: "a.md"}, {Path: "esc/secret.md"}, {Path: "gone.md"}, {Path: "link.md"}}, nil
 		},
 	}
@@ -146,19 +148,52 @@ func TestDocCacheTitles(t *testing.T) {
 	if got := titles(); got["a.md"] != "one" || got["esc/secret.md"] != "" || got["gone.md"] != "" || got["link.md"] != "" {
 		t.Fatalf("titles = %v, want a.md's heading and none for the paths that leave or lack a file", got)
 	}
-	write("a.md", "# two\n")
-	if got := titles(); got["a.md"] != "one" {
-		t.Errorf("title at the same HEAD and index = %q, want the cached one", got["a.md"])
+	if reads != 1 {
+		t.Fatalf("first list: %d ls-files reads, want 1", reads)
 	}
-	stamp++
+	write("a.md", "# two\n")
 	if got := titles(); got["a.md"] != "two" {
-		t.Errorf("title after the index moved = %q, want the file's new heading", got["a.md"])
+		t.Errorf("title after an unstaged edit = %q, want the file's new heading", got["a.md"])
+	}
+	if reads != 1 {
+		t.Errorf("an edited title listed the docs again: %d ls-files reads, want the cached 1", reads)
+	}
+	fi, err := os.Stat(filepath.Join(root, "a.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("a.md", "# six\n") // the same size as "# two\n"
+	if err := os.Chtimes(filepath.Join(root, "a.md"), fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := titles(); got["a.md"] != "two" {
+		t.Errorf("title after an edit whose mtime and size did not move = %q, want the cached one", got["a.md"])
+	}
+	write("a.md", "# seven\n") // a size of its own, the mtime put back
+	if err := os.Chtimes(filepath.Join(root, "a.md"), fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := titles(); got["a.md"] != "seven" {
+		t.Errorf("title after an edit that moved the size alone = %q, want the file's new heading", got["a.md"])
+	}
+	write("gone.md", "# back\n")
+	if got := titles(); got["gone.md"] != "back" {
+		t.Errorf("title of a doc whose file appeared = %q, want its heading", got["gone.md"])
+	}
+	if err := os.Remove(filepath.Join(root, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	if got := titles(); got["gone.md"] != "" {
+		t.Errorf("title of a deleted doc = %q, want none", got["gone.md"])
+	}
+	if reads != 1 {
+		t.Errorf("title reads listed the docs %d times, want the ls-files once", reads)
 	}
 }
 
-// TestDocCacheReadsAgainOnlyForANewHeadOrIndex: the list is read once per HEAD, index key and root; a moved HEAD or a
-// changed index reads it again, and an unreadable index is an error.
-func TestDocCacheReadsAgainOnlyForANewHeadOrIndex(t *testing.T) {
+// TestDocCacheListsAgainOnlyForANewHeadOrIndex: the tracked docs are listed once per HEAD, index key and root; a moved
+// HEAD or a changed index lists them again, and an unreadable index is an error.
+func TestDocCacheListsAgainOnlyForANewHeadOrIndex(t *testing.T) {
 	t.Parallel()
 	head, stamp, reads := "h1", int64(1), 0
 	c := &DocCache{

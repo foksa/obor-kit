@@ -79,8 +79,8 @@ type Server struct {
 	Call func(ctx context.Context, root string, r wire.Req) (string, error)
 	// Kit is the kit's root, whose README.md /api/help reads ("": project.KitRoot).
 	Kit string
-	// Docs is each project's doc list, cached per HEAD and git index (zero value: real git), for /api/docs, /api/doc
-	// and /api/docsearch.
+	// Docs is each project's doc list, cached per HEAD, git index and each doc's file stat (zero value: real git), for
+	// /api/docs, /api/doc and /api/docsearch.
 	Docs view.DocCache
 }
 
@@ -400,7 +400,7 @@ func (s *Server) helpAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // docsAPI is /api/docs?project=<name>: the markdown files git's index tracks in the project's main checkout
-// (view.DocList), read again when its HEAD or index moves.
+// (view.DocList), read again when its HEAD or index moves or one of the docs' files does.
 func (s *Server) docsAPI(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.project(w, r)
 	if !ok {

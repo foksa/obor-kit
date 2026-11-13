@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,9 +17,16 @@ import (
 // missing q is an empty one with no hits, so nothing is searched, and an unknown project is the docs routes' 404.
 func TestDocSearchAPI(t *testing.T) {
 	t.Parallel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "a.md"), []byte("the alpha beta line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var searched []string
 	s := &Server{
-		Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: "/roots/pj"}} },
+		Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: root}} },
 		Docs: view.DocCache{
 			Head:  func(context.Context, string) (string, error) { return "h1", nil },
 			Index: func(string) (int64, int64, error) { return 1, 1, nil },
@@ -41,7 +50,7 @@ func TestDocSearchAPI(t *testing.T) {
 		Text: "the alpha beta line"}) || got.Truncated {
 		t.Errorf("/api/docsearch = %+v, want docs/a.md:3's line for alpha beta", got)
 	}
-	if len(searched) != 1 || searched[0] != "/roots/pj: alpha beta" {
+	if len(searched) != 1 || searched[0] != root+": alpha beta" {
 		t.Errorf("searched %v, want the project's root and the two words once", searched)
 	}
 	r = get(t, h, "/api/docsearch?project=pj")
