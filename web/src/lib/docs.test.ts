@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { docLinks, filterLines, normalize, outline, paths, resolve } from "./docs";
+import {
+  defaultFolded, defaultOrder, docLinks, docTitle, filterLines, matchDocs, neighbours, normalize, outline, paths,
+  pinnedCaption, recent, resolve, sameName, sortDocs, tree,
+} from "./docs";
 import { md } from "./md";
 import type { DocList } from "./types";
 
@@ -50,10 +53,11 @@ describe("link rules", () => {
   });
 });
 
-describe("BACKLOG's outline", () => {
-  it("is its ## headings with md's ids", () => {
-    expect(outline("# Backlog\n## Now\ntext\n### detail\n## Later")).toEqual([
-      { level: 2, text: "Now", id: "h-now" }, { level: 2, text: "Later", id: "h-later" }]);
+describe("a doc's outline", () => {
+  it("is its ## and ### headings with md's ids", () => {
+    expect(outline("# Backlog\n## Now\ntext\n### detail\n## Later\n#### deep")).toEqual([
+      { level: 2, text: "Now", id: "h-now" }, { level: 3, text: "detail", id: "h-detail" },
+      { level: 2, text: "Later", id: "h-later" }]);
   });
 });
 
@@ -88,5 +92,175 @@ describe("accepted.md's filter", () => {
   });
   it("is the document unchanged with no words", () => {
     expect(filterLines(multi, "")).toEqual({ text: multi, shown: 2, total: 2 });
+  });
+});
+
+const treeList: DocList = {
+  head: "h",
+  pinned: [{ path: "BACKLOG.md", updated: 10 }, { path: "AGENTS.md", updated: 9 }],
+  groups: [
+    { dir: "", docs: [{ path: "CHANGELOG.md", updated: 5 }, { path: "NOTES.md", updated: 1 }] },
+    { dir: "docs", docs: [{ path: "docs/design.md", updated: 20 }, { path: "docs/decisions.md", updated: 4 }] },
+    { dir: "docs/plan", docs: [{ path: "docs/plan/phase-7.md", updated: 30 }] },
+    { dir: "docs/releases", docs: [{ path: "docs/releases/v0.10.md", updated: 8 }, { path: "docs/releases/v0.9.md", updated: 7 }] },
+    { dir: "skills/lead", docs: [{ path: "skills/lead/a.md", updated: 3 }] },
+  ],
+};
+
+describe("the docs tree", () => {
+  it("nests folders by path, with each folder's docs, count and newest updated", () => {
+    const t = tree(treeList);
+    expect(t).toMatchObject({ dir: "", name: "top level", count: 8, updated: 30 });
+    expect(t.docs.map((d) => d.path)).toEqual(["CHANGELOG.md", "NOTES.md"]);
+    expect(t.folders.map((f) => f.dir)).toEqual(["docs", "skills"]);
+    const docs = t.folders[0];
+    expect(docs).toMatchObject({ name: "docs", count: 5, updated: 30 });
+    expect(docs.docs.map((d) => d.path)).toEqual(["docs/design.md", "docs/decisions.md"]);
+    expect(docs.folders.map((f) => f.dir)).toEqual(["docs/plan", "docs/releases"]);
+    expect(docs.folders[1].docs.map((d) => d.path)).toEqual(["docs/releases/v0.9.md", "docs/releases/v0.10.md"]); // its default
+    const skills = t.folders[1]; // a parent with no docs of its own still gets a row
+    expect(skills).toMatchObject({ name: "skills", docs: [], count: 1, updated: 3 });
+    expect(skills.folders[0].dir).toBe("skills/lead");
+  });
+  it("sorts every folder in an order it is given, Newest or A–Z", () => {
+    expect(tree(treeList, "new").folders[0].folders[1].docs.map((d) => d.path)).toEqual([
+      "docs/releases/v0.10.md", "docs/releases/v0.9.md"]);
+    const az = tree(treeList, "az");
+    expect(az.folders[0].docs.map((d) => d.path)).toEqual(["docs/decisions.md", "docs/design.md"]);
+    expect(az.folders[0].folders[1].docs.map((d) => d.path)).toEqual([
+      "docs/releases/v0.9.md", "docs/releases/v0.10.md"]);
+  });
+  it("is the bare top level for no list", () => {
+    expect(tree(null)).toEqual({ dir: "", name: "top level", docs: [], folders: [], count: 0 });
+  });
+});
+
+describe("sorting docs", () => {
+  it("keeps the served order for Newest and sorts file names naturally for A–Z", () => {
+    const served = [{ path: "docs/releases/v0.10.md" }, { path: "docs/releases/v0.9.md" }, { path: "docs/a.md" }];
+    expect(sortDocs(served, "new")).toEqual(served);
+    expect(sortDocs(served, "az").map((d) => d.path)).toEqual([
+      "docs/a.md", "docs/releases/v0.9.md", "docs/releases/v0.10.md"]);
+    expect(served.map((d) => d.path)).toEqual(["docs/releases/v0.10.md", "docs/releases/v0.9.md", "docs/a.md"]);
+    expect(sortDocs(null, "az")).toEqual([]);
+  });
+});
+
+describe("a folder's default order", () => {
+  it("is A–Z when every doc is a version file, Newest otherwise", () => {
+    expect(defaultOrder(tree(treeList).folders[0].folders[1])).toBe("az");
+    expect(defaultOrder({ docs: [{ path: "docs/UPGRADE-v0.34.md" }, { path: "docs/UPGRADE-v0.35.md" }] })).toBe("az");
+    expect(defaultOrder({ docs: [{ path: "docs/UPGRADE-v0.34.md" }, { path: "docs/design.md" }] })).toBe("new");
+    expect(defaultOrder({ docs: [] })).toBe("new");
+  });
+});
+
+describe("matching docs", () => {
+  const matchList: DocList = {
+    head: "h",
+    pinned: [{ path: "README.md", updated: 1 }],
+    groups: [
+      { dir: "docs", docs: [
+        { path: "docs/design.md", updated: 2 },
+        { path: "docs/decisions.md", updated: 3 },
+      ] },
+      { dir: "notes", docs: [{ path: "notes/design-notes.md", updated: 4 }] },
+    ],
+  };
+  it("keeps the docs whose path holds every word, case aside", () => {
+    expect(matchDocs(matchList, "DESIGN").map((m) => m.doc.path)).toEqual(["docs/design.md", "notes/design-notes.md"]);
+    expect(matchDocs(matchList, "docs design").map((m) => m.doc.path)).toEqual(["docs/design.md"]);
+    expect(matchDocs(matchList, "notes design").map((m) => m.doc.path)).toEqual(["notes/design-notes.md"]);
+    expect(matchDocs(matchList, "obor")).toEqual([]); // the path only; a doc's title is not matched here
+  });
+  it("keeps the pinned docs first and says where a word first matches the file name", () => {
+    const all = matchDocs(matchList, "");
+    expect(all.map((m) => m.doc.path)).toEqual([
+      "README.md", "docs/design.md", "docs/decisions.md", "notes/design-notes.md"]);
+    expect(all[0].at).toBe(-1);
+    expect(matchDocs(matchList, "sign")[0].at).toBe(2); // "design.md"
+    expect(matchDocs(matchList, "ign des")[0].at).toBe(0);
+    expect(matchDocs(matchList, "docs")[0].at).toBe(-1); // the folder only
+    expect(matchDocs(matchList, "nothing here")).toEqual([]);
+  });
+});
+
+describe("recent docs", () => {
+  const list: DocList = {
+    head: "h",
+    pinned: [{ path: "README.md" }, { path: "AGENTS.md", updated: 4 }],
+    groups: [
+      { dir: "a", docs: [{ path: "a/staged.md" }, { path: "a/old.md", updated: 1 }] },
+      { dir: "b", docs: [{ path: "b/new.md", updated: 9 }] },
+    ],
+  };
+  it("is the n newest across pinned and groups, a staged doc first", () => {
+    expect(recent(list, 3).map((d) => d.path)).toEqual(["README.md", "a/staged.md", "b/new.md"]);
+    expect(recent(list, 9).map((d) => d.path)).toEqual(["README.md", "a/staged.md", "b/new.md", "AGENTS.md", "a/old.md"]);
+    expect(recent(list, 0)).toEqual([]);
+    expect(recent(null, 3)).toEqual([]);
+  });
+});
+
+describe("a doc's neighbours", () => {
+  it("is the doc before and after it in its folder's order", () => {
+    expect(neighbours(treeList, "docs/design.md", "new").newer).toBeUndefined();
+    expect(neighbours(treeList, "docs/design.md", "new").older?.path).toBe("docs/decisions.md");
+    expect(neighbours(treeList, "docs/decisions.md", "new").newer?.path).toBe("docs/design.md");
+    expect(neighbours(treeList, "docs/decisions.md", "new").older).toBeUndefined();
+    expect(neighbours(treeList, "docs/plan/phase-7.md", "new").newer).toBeUndefined();
+    expect(neighbours(treeList, "docs/plan/phase-7.md", "new").older).toBeUndefined();
+    expect(neighbours(treeList, "docs/design.md", "az").newer?.path).toBe("docs/decisions.md");
+    expect(neighbours(treeList, "docs/design.md", "az").older).toBeUndefined();
+  });
+  it("reads a folder's default order when none is given", () => {
+    expect(neighbours(treeList, "docs/design.md").newer).toBeUndefined(); // docs/ is not a version folder
+    expect(neighbours(treeList, "docs/design.md").older?.path).toBe("docs/decisions.md");
+    expect(neighbours(treeList, "docs/releases/v0.10.md").newer?.path).toBe("docs/releases/v0.9.md"); // A–Z
+    expect(neighbours(treeList, "docs/releases/v0.10.md").older).toBeUndefined();
+    expect(neighbours(treeList, "docs/releases/v0.10.md", "new").newer).toBeUndefined();
+    expect(neighbours(treeList, "docs/releases/v0.10.md", "new").older?.path).toBe("docs/releases/v0.9.md");
+  });
+  it("reads a pinned doc in its folder's served order and nothing for an unlisted path", () => {
+    expect(neighbours(treeList, "AGENTS.md", "new").newer?.path).toBe("BACKLOG.md");
+    expect(neighbours(treeList, "AGENTS.md", "new").older?.path).toBe("CHANGELOG.md");
+    expect(neighbours(treeList, "docs/draft.md", "new")).toEqual({});
+  });
+});
+
+describe("same-name docs", () => {
+  it("is the listed docs with that file name, the path itself aside", () => {
+    expect(sameName(list, "drafts/RV-7.md").map((d) => d.path)).toEqual(["docs/reviews/RV-7.md", "notes/RV-7.md"]);
+    expect(sameName(list, "docs/accepted.md")).toEqual([]);
+    expect(sameName(null, "x/a.md")).toEqual([]);
+  });
+});
+
+describe("a doc's title", () => {
+  it("is its first level-1 heading, and empty without one", () => {
+    expect(docTitle("# Obor design\n\n## Part\ntext")).toBe("Obor design");
+    expect(docTitle("## Part\n# Obor design v2")).toBe("Obor design v2");
+    expect(docTitle("```\n# not a heading\n```\n# Yes")).toBe("Yes");
+    expect(docTitle("no heading")).toBe("");
+  });
+});
+
+describe("the fold threshold", () => {
+  it("folds a folder over 12 docs", () => {
+    expect(defaultFolded(12)).toBe(false);
+    expect(defaultFolded(13)).toBe(true);
+    expect(defaultFolded(0)).toBe(false);
+  });
+});
+
+describe("pinned captions", () => {
+  it("is one line for each pinned file, and empty for the rest", () => {
+    expect(pinnedCaption("BACKLOG.md")).toBe("what is open, the handoff");
+    expect(pinnedCaption("docs/BACKLOG.md")).toBe("what is open, the handoff");
+    expect(pinnedCaption("docs/decisions.md")).toBe("owner decisions on record");
+    expect(pinnedCaption("docs/accepted.md")).toBe("review findings accepted, by rule");
+    expect(pinnedCaption("AGENTS.md")).toBe("the rules every agent obeys");
+    expect(pinnedCaption("README.md")).toBe("what obor is, and how to start");
+    expect(pinnedCaption("docs/design.md")).toBe("");
   });
 });

@@ -1,9 +1,29 @@
 // The docs page's logic: the docs as one path list, how a doc's text links (a task to its page, an RV-n or DD-… to
-// its review file and a repo path to that doc, both only when the doc list has them), BACKLOG's outline and
-// accepted.md's filter.
+// its review file and a repo path to that doc, both only when the doc list has them), the list's tree, order, matches,
+// recent docs and neighbours, a doc's outline (levels 2–3), pinned captions and accepted.md's filter.
 import { headings, type Heading, type Links } from "./md";
 import { href } from "./route";
-import type { DocList } from "./types";
+import type { Doc, DocList } from "./types";
+
+// Order is how a folder's docs are listed: the server's newest first, or A–Z in natural order (v0.9 before v0.10).
+export type Order = "new" | "az";
+
+// Folder is one row of the docs tree: its path from the root ("" the root itself), its own docs and child folders, with
+// the count of every doc here and below and the newest updated among them.
+export interface Folder {
+  dir: string;
+  name: string;
+  docs: Doc[];
+  folders: Folder[];
+  count: number;
+  updated?: number;
+}
+
+// Match is one doc matchDocs keeps: the doc and where a word first matches its file name (-1: only its folder does).
+export interface Match {
+  doc: Doc;
+  at: number;
+}
 
 // paths is every doc's path, pinned first.
 export function paths(l: DocList | null | undefined): string[] {
@@ -68,8 +88,8 @@ export function docLinks(project: string, docs: Set<string>, from: string): Link
 export const isBacklog = (p: string) => base(p) === "BACKLOG.md";
 export const isAccepted = (p: string) => base(p) === "accepted.md";
 
-// outline is BACKLOG's sections: its ## headings.
-export const outline = (text: string): Heading[] => headings(text).filter((h) => h.level === 2);
+// outline is every level-2 and level-3 heading: the page's "On this page" list.
+export const outline = (text: string): Heading[] => headings(text).filter((h) => h.level === 2 || h.level === 3);
 
 // filterLines is accepted.md under the filter box: its headings and every list item with each word of q (case aside),
 // an item whole with its indented continuation lines; the count is of its list items, shown and in all. An empty q is
@@ -98,3 +118,135 @@ export function filterLines(text: string, q: string): { text: string; shown: num
 
 // groupName is a directory's label in the list.
 export const groupName = (dir: string) => (dir ? dir + "/" : "root");
+
+// sortDocs is docs in order: "new" keeps the served (newest first) order, "az" sorts the file names naturally.
+export function sortDocs(docs: Doc[] | null | undefined, order: Order): Doc[] {
+  const out = [...(docs || [])];
+  if (order === "az") {
+    out.sort((a, b) =>
+      base(a.path).localeCompare(base(b.path), undefined, { numeric: true }) || a.path.localeCompare(b.path));
+  }
+  return out;
+}
+
+// isVersion is a release note or upgrade guide: v<digits>.…md or UPGRADE-v*.md.
+const isVersion = (d: Doc) => /^(?:v\d+\..*|UPGRADE-v.*)\.md$/.test(base(d.path));
+
+// defaultOrder is the order a folder lists in until the page's toggle says otherwise: A–Z when every doc in it is a
+// version file, Newest otherwise.
+export function defaultOrder(folder: Pick<Folder, "docs">): Order {
+  return folder.docs.length > 0 && folder.docs.every(isVersion) ? "az" : "new";
+}
+
+// tree is list's groups nested by path: the root ("top level") and every directory row (one with no docs of its own
+// included), each with its docs in order, the count of the docs here and below, and the newest updated among them. An
+// order given applies to every folder; without one each folder uses defaultOrder.
+export function tree(list: DocList | null | undefined, order?: Order): Folder {
+  const root: Folder = { dir: "", name: "top level", docs: [], folders: [], count: 0 };
+  const byDir = new Map<string, Folder>([["", root]]);
+  const folder = (dir: string): Folder => {
+    const have = byDir.get(dir);
+    if (have) return have;
+    const cut = dir.lastIndexOf("/");
+    const parent = folder(cut < 0 ? "" : dir.slice(0, cut));
+    const made: Folder = { dir, name: dir.slice(cut + 1), docs: [], folders: [], count: 0 };
+    parent.folders.push(made);
+    byDir.set(dir, made);
+    return made;
+  };
+  for (const g of list?.groups || []) {
+    const f = folder(g.dir || "");
+    f.docs.push(...sortDocs(g.docs, order ?? defaultOrder({ docs: g.docs })));
+  }
+  const measure = (f: Folder): void => {
+    let count = 0;
+    let updated = 0;
+    for (const d of f.docs) {
+      count++;
+      if (d.updated && d.updated > updated) updated = d.updated;
+    }
+    for (const c of f.folders) {
+      measure(c);
+      count += c.count;
+      if (c.updated && c.updated > updated) updated = c.updated;
+    }
+    f.count = count;
+    if (updated) f.updated = updated;
+  };
+  measure(root);
+  const sort = (f: Folder): void => {
+    f.folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    f.folders.forEach(sort);
+  };
+  sort(root);
+  return root;
+}
+
+// matchDocs is list's docs whose path holds every word of q (case aside): the pinned ones first, then the list's order,
+// each with where a word first matches its file name (for highlighting; -1 when only the folder does). An empty q is
+// every doc.
+export function matchDocs(list: DocList | null | undefined, q: string): Match[] {
+  const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const out: Match[] = [];
+  for (const d of [...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)]) {
+    if (!words.every((w) => d.path.toLowerCase().includes(w))) continue;
+    const name = base(d.path).toLowerCase();
+    const found = words.map((w) => name.indexOf(w)).filter((i) => i >= 0);
+    out.push({ doc: d, at: found.length ? Math.min(...found) : -1 });
+  }
+  return out;
+}
+
+// recent is the n newest docs across pinned and groups, a staged one (no updated) first.
+export function recent(list: DocList | null | undefined, n: number): Doc[] {
+  const all = [...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)];
+  const staged = all.filter((d) => !d.updated);
+  const dated = all.filter((d) => d.updated).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  return [...staged, ...dated].slice(0, Math.max(0, n));
+}
+
+// folderDocs is every doc of path's directory: the pinned ones first, then the group's (the served order there).
+function folderDocs(list: DocList | null | undefined, path: string): Doc[] {
+  const dir = dirOf(path);
+  const pinned = (list?.pinned || []).filter((d) => dirOf(d.path) === dir);
+  return [...pinned, ...((list?.groups || []).find((g) => (g.dir || "") === dir)?.docs || [])];
+}
+
+// neighbours is the doc before and after path in its folder's order: newer and older under Newest, the previous and next
+// in the folder's list under A–Z. Without an order the folder's defaultOrder applies.
+export function neighbours(
+  list: DocList | null | undefined,
+  path: string,
+  order?: Order,
+): { newer?: Doc; older?: Doc } {
+  const docs = folderDocs(list, path);
+  const sorted = sortDocs(docs, order ?? defaultOrder({ docs }));
+  const i = sorted.findIndex((d) => d.path === path);
+  return i < 0 ? {} : { newer: sorted[i - 1], older: sorted[i + 1] };
+}
+
+// sameName is the listed docs with path's file name, path itself aside: what the not-tracked state offers instead.
+export function sameName(list: DocList | null | undefined, path: string): Doc[] {
+  const name = base(path);
+  return [...(list?.pinned || []), ...(list?.groups || []).flatMap((g) => g.docs)].filter(
+    (d) => d.path !== path && base(d.path) === name,
+  );
+}
+
+// docTitle is the doc's first level-1 heading's text ("" when it has none).
+export const docTitle = (text: string): string => headings(text).find((h) => h.level === 1)?.text || "";
+
+// defaultFolded is whether a folder of count docs starts folded: over 12 docs.
+export const defaultFolded = (count: number): boolean => count > 12;
+
+// pinnedCaption is a pinned doc's one-line caption. It knows PinnedDocs and a pinned BACKLOG.md wherever it is; any
+// other doc gets "".
+export function pinnedCaption(path: string): string {
+  switch (path) {
+    case "docs/decisions.md": return "owner decisions on record";
+    case "docs/accepted.md": return "review findings accepted, by rule";
+    case "AGENTS.md": return "the rules every agent obeys";
+    case "README.md": return "what obor is, and how to start";
+  }
+  return base(path) === "BACKLOG.md" ? "what is open, the handoff" : "";
+}
