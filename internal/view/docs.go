@@ -1,10 +1,12 @@
 package view
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,10 +17,11 @@ import (
 	"obor/internal/checks"
 )
 
-// Doc is one markdown file of a project's docs page: its path from the root (slash-separated) and its newest commit's
-// time (epoch seconds; 0: staged, not committed yet).
+// Doc is one markdown file of a project's docs page: its path from the root (slash-separated), its first level-1
+// heading's text when it has one, and its newest commit's time (epoch seconds; 0: staged, not committed yet).
 type Doc struct {
 	Path    string `json:"path"`
+	Title   string `json:"title,omitempty"`
 	Updated int64  `json:"updated,omitempty"`
 }
 
@@ -43,14 +46,14 @@ var PinnedDocs = []string{"docs/decisions.md", "docs/accepted.md", "AGENTS.md", 
 // backlog is the pinned file name tracked wherever it is.
 const backlog = "BACKLOG.md"
 
-// BuildDocs is the doc list of the tracked files at head.
-func BuildDocs(head string, files []checks.TrackedDoc) DocList {
+// BuildDocs is the doc list of the tracked files at head; titles is each doc's title by path (nil: no titles).
+func BuildDocs(head string, files []checks.TrackedDoc, titles map[string]string) DocList {
 	l := DocList{Head: head, Pinned: []Doc{}, Groups: []DocGroup{}}
 	var backlogs []Doc
 	pinned := map[string]*Doc{}
 	byDir := map[string][]Doc{}
 	for _, f := range files {
-		d := Doc{Path: f.Path, Updated: f.Updated}
+		d := Doc{Path: f.Path, Title: titles[f.Path], Updated: f.Updated}
 		switch {
 		case path.Base(f.Path) == backlog:
 			backlogs = append(backlogs, d)
@@ -92,6 +95,62 @@ func BuildDocs(head string, files []checks.TrackedDoc) DocList {
 	return l
 }
 
+// maxTitleScan is how much of a doc DocTitle reads: a title is a leading line, so the rest of a long doc is not read.
+const maxTitleScan = 8 << 10
+
+// DocTitle is a doc's title: the text of its first line starting "# " (a level-1 heading), trimmed; "" when it has
+// none. A "# " line inside a fenced code block is no heading, and at most maxTitleScan bytes of r are read.
+func DocTitle(r io.Reader) string {
+	br := bufio.NewReader(io.LimitReader(r, maxTitleScan))
+	fence := "" // the open fence's marker (a run of at least three backticks or tildes); "" outside a fenced block
+	for {
+		line, err := br.ReadString('\n')
+		if f := fenceLine(line); f != "" {
+			switch {
+			case fence == "":
+				fence = f
+			case f[0] == fence[0] && len(f) >= len(fence):
+				fence = ""
+			}
+		} else if fence == "" && strings.HasPrefix(line, "# ") {
+			return strings.TrimSpace(line[2:])
+		}
+		if err != nil {
+			return ""
+		}
+	}
+}
+
+// fenceLine is line's code fence marker (a run of at least three backticks or tildes, indented at most three spaces),
+// or "" when the line opens or closes no fence.
+func fenceLine(line string) string {
+	s := strings.TrimLeft(line, " ")
+	if len(line)-len(s) > 3 {
+		return ""
+	}
+	for _, c := range []byte{'`', '~'} {
+		if run := s[:len(s)-len(strings.TrimLeft(s, string(c)))]; len(run) >= 3 {
+			return run
+		}
+	}
+	return ""
+}
+
+// readTitle is p's title from the checkout at root, the source ReadDoc serves; a doc whose file on disk is missing, no
+// regular file or a symlink has none (the list still names it, and nothing outside the root is read).
+func readTitle(root, p string) string {
+	onDisk := filepath.Join(root, filepath.FromSlash(p))
+	if fi, err := os.Lstat(onDisk); err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	f, err := os.Open(onDisk)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	return DocTitle(f)
+}
+
 // Has is whether p is one of the list's docs, exactly as listed.
 func (l DocList) Has(p string) bool {
 	has := func(d Doc) bool { return d.Path == p }
@@ -107,8 +166,9 @@ func (l DocList) Has(p string) bool {
 }
 
 // DocCache is the doc list of each project root, read again when the root's HEAD or git index moves (one rev-parse and
-// one stat per request, the ls-files and log only when either moved). The zero value reads real git (checks.DocsHead,
-// checks.TrackedDocs, checks.DocsIndex, checks.IndexFile); a test injects Head, Files, Index and Tracked.
+// one stat per request, the ls-files, log and one file read per doc only when either moved). The zero value reads real
+// git (checks.DocsHead, checks.TrackedDocs, checks.DocsIndex, checks.IndexFile); a test injects Head, Files, Index and
+// Tracked.
 type DocCache struct {
 	Head  func(ctx context.Context, root string) (string, error)
 	Files func(ctx context.Context, root string) ([]checks.TrackedDoc, error)
@@ -160,7 +220,11 @@ func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
 	if err != nil {
 		return DocList{}, fmt.Errorf("%s: tracked docs: %w", root, err)
 	}
-	l := BuildDocs(h, fs)
+	titles := make(map[string]string, len(fs))
+	for _, f := range fs {
+		titles[f.Path] = readTitle(root, f.Path)
+	}
+	l := BuildDocs(h, fs, titles)
 	c.mu.Lock()
 	if c.m == nil {
 		c.m = map[string]docItem{}

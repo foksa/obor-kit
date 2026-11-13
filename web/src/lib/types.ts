@@ -525,9 +525,11 @@ export interface TaskRow {
   last?: number; // last activity, epoch seconds
 }
 
-// Doc is one markdown file git tracks in a project (view.Doc): its path from the root, its newest commit's time.
+// Doc is one markdown file git tracks in a project (view.Doc): its path from the root, its title, its newest commit's
+// time.
 export interface Doc {
   path: string;
+  title?: string; // the doc's first level-1 heading; absent: none
   updated?: number; // epoch seconds; absent: staged, not committed yet
 }
 
