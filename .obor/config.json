@@ -18,7 +18,13 @@
       "lead": "opus:high",
       "deep_dive": "opus:high",
       "integrator": "opus:medium",
-      "researcher": "sonnet:medium"
+      "researcher": "sonnet:medium",
+      "designer": {
+        "model": "opus:high",
+        "write": [
+          "docs/ui/"
+        ]
+      }
     },
     "difficulty": {
       "hard": [
