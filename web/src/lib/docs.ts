@@ -205,14 +205,19 @@ export function matchDocs(list: DocList | null | undefined, q: string): Match[] 
   return out;
 }
 
-// marks is text cut into pieces, each piece that is a word of q (case aside) marked as a hit: a match row's highlight.
-export function marks(text: string, q: string): { text: string; hit: boolean }[] {
-  const ws = words(q);
+// hitsOf is, for each character of text, whether it is in a word of q (case aside).
+function hitsOf(text: string, q: string): boolean[] {
   const low = text.toLowerCase();
   const hit = new Array<boolean>(text.length).fill(false);
-  for (const w of ws) {
+  for (const w of words(q)) {
     for (let i = low.indexOf(w); i >= 0; i = low.indexOf(w, i + 1)) hit.fill(true, i, i + w.length);
   }
+  return hit;
+}
+
+// marks is text cut into pieces, each piece that is a word of q (case aside) marked as a hit: a match row's highlight.
+export function marks(text: string, q: string): { text: string; hit: boolean }[] {
+  const hit = hitsOf(text, q);
   const out: { text: string; hit: boolean }[] = [];
   for (let i = 0; i < text.length; i++) {
     const last = out[out.length - 1];
@@ -220,6 +225,32 @@ export function marks(text: string, q: string): { text: string; hit: boolean }[]
     else out.push({ text: text[i], hit: hit[i] });
   }
   return out;
+}
+
+// ENTITY is what esc writes for a character, read back.
+const ENTITY: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
+
+// markHtml is inline HTML (a rendered title) with the words of q marked in its text, never inside a tag: the text as
+// shown is matched whole (a word may run from a code span into the words after it), and a marked run is cut at each
+// tag, so every <mark> sits inside one element.
+export function markHtml(html: string, q: string): string {
+  const parts = String(html || "").split(/(<[^>]*>)/); // odd places are tags
+  // units is each shown character of the text parts: its source (an entity whole) and its part.
+  const units: { src: string; ch: string; part: number }[] = [];
+  parts.forEach((p, k) => {
+    if (k % 2) return;
+    for (const m of p.matchAll(/&(?:amp|lt|gt|quot|#39);|[\s\S]/g)) units.push({ src: m[0], ch: ENTITY[m[0]] ?? m[0], part: k });
+  });
+  const hit = hitsOf(units.map((u) => u.ch).join(""), q);
+  const out = parts.map((p, k) => (k % 2 ? p : ""));
+  let open = -1; // the part a <mark> is open in
+  units.forEach((u, i) => {
+    if (open >= 0 && (!hit[i] || open !== u.part)) { out[open] += "</mark>"; open = -1; }
+    if (hit[i] && open < 0) { out[u.part] += "<mark>"; open = u.part; }
+    out[u.part] += u.src;
+  });
+  if (open >= 0) out[open] += "</mark>";
+  return out.join("");
 }
 
 // HitGroup is one doc's text-search hits, in the served order.
@@ -256,6 +287,14 @@ export function sectionAt(text: string, body: string, line: number): string {
   const after = headings(text).filter(same).length - upTo.filter(same).length;
   const shown = headings(body).filter(same);
   return shown[shown.length - 1 - after]?.id || "";
+}
+
+// jumpReady is whether a jump to the heading id (a text hit's, a section link's; "" the doc's top) can go: the doc's
+// text as shown is read, the list is in (the doc renders under it, its title's heading in the header), and id is ""
+// or one of that text's headings. A doc that is only its title is ready like any other.
+export function jumpReady(text: string, listed: boolean, id: string): boolean {
+  if (!text || !listed) return false;
+  return !id || headings(text).some((h) => h.id === id);
 }
 
 // byNewest is docs newest first: a staged one (no updated) first, then by updated descending (a tie keeps its place).
@@ -396,9 +435,6 @@ export function progress(top: number, height: number, view: number): number {
   if (span <= 0) return top <= 0 ? 1 : 0;
   return Math.min(1, Math.max(0, -top / span));
 }
-
-// docLabel is how a doc reads in a row: its title's words (the markup aside) when it has one, its file name otherwise.
-export const docLabel = (d: Doc): string => (d.title ? plainText(d.title) : base(d.path));
 
 // labelHtml is how a doc shows in a row, as HTML: its title's inline markdown (code, bold; nothing links: the row is
 // the link), its file name otherwise.

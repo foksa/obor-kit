@@ -6,10 +6,10 @@
   // (a hit opens its doc and tells the page its line, onhit); a hit shows only under the words it answers. One component
   // for the reading sidebar and the narrow drawer (part "side"); the list page uses its tree ("tree") and its matches
   // ("matches", hits included) on their own, its filter's keys through key. The filter, mode, order and folds belong to
-  // the page (they outlive a doc change). A title shows its inline markdown; the match rows mark its words.
+  // the page (they outlive a doc change). A title shows its inline markdown; the match rows mark its words inside that markup.
   import { href } from "../lib/route";
   import {
-    docLabel, folderOf, groupHits, labelHtml, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds,
+    folderOf, groupHits, labelHtml, markHtml, marks, matchDocs, matchKey, rows, tree, type Folder, type Folds,
     type Match, type Order,
   } from "../lib/docs";
   import type { TextSearch } from "../lib/docsearch.svelte";
@@ -98,11 +98,10 @@
 {/snippet}
 
 {#snippet match(m: Match, i: number)}
-  {@const label = docLabel(m.doc)}
   <a class="match" class:sel={i === sel} class:on={m.doc.path === path} href={href.docs(project, m.doc.path)}
     title={m.doc.path} aria-current={m.doc.path === path ? "page" : undefined} onclick={() => onpick?.()}>
     <span class="mline">
-      <span class="name" class:mono={!m.doc.title}>{#each marks(label, q) as p, k (k)}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}</span>
+      <span class="name" class:mono={!m.doc.title}>{@html markHtml(labelHtml(m.doc), q)}</span>
       {@render age(m.doc)}
     </span>
     <span class="where mono">{#if m.doc.title}{#each marks(m.doc.path, q) as p, k (k)}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}{:else}{folderOf(m.doc.path) || "top level"}{/if}</span>
@@ -271,7 +270,7 @@
   .mline .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .where { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tall .match, .tall .doc, .tall .dir { min-height: 44px; }
-  mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); border-radius: 3px; }
+  mark, .name :global(mark) { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); border-radius: 3px; }
   .modes { margin-top: -4px; }
   .body .lbl { margin: 10px 8px 2px; }
   .hgroup { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-top: 4px; }

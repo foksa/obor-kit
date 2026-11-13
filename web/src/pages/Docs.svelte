@@ -19,7 +19,7 @@
   import { replace } from "../lib/router.svelte";
   import { href } from "../lib/route";
   import {
-    defaultOrder, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, labelHtml, matchDocs,
+    defaultOrder, docLinks, docTitle, everyFold, fileOf, filterLines, folderOf, isAccepted, jumpReady, labelHtml, matchDocs,
     neighbours, outline, paths, pinnedCaption, progress, recent, sameName, sectionAt, splitTitle, tree, unfold,
     type Folds, type Order,
   } from "../lib/docs";
@@ -113,9 +113,10 @@
   const html = $derived(rendered.rest);
   $effect(() => {
     const j = jump;
-    if (!j || j.path !== path || !text || !html) return;
-    jump = null;
+    if (!j || j.path !== path) return;
     const id = sectionAt(text, body, j.line);
+    if (!jumpReady(body, !!list.data, id)) return;
+    jump = null;
     void tick().then(() => {
       const el = id ? document.getElementById(id) : null;
       if (el) el.scrollIntoView({ block: "start" });
@@ -123,12 +124,11 @@
       if (id && j.path === path) showSection(id);
     });
   });
-  // A section link scrolls to its heading once the doc is rendered (its body, and the page past the list); an id no
-  // heading has leaves the doc at its top.
+  // A section link scrolls to its heading once the doc is shown with it (jumpReady); an id no heading has leaves the
+  // doc at its top.
   $effect(() => {
     const s = section;
-    const shown = html;
-    if (!s || !path || !shown || !list.data) return;
+    if (!s || !path || !jumpReady(body, !!list.data, s)) return;
     if (scrolled === path + "#" + s) return;
     scrolled = path + "#" + s;
     void tick().then(() => document.getElementById(s)?.scrollIntoView({ block: "start" }));
