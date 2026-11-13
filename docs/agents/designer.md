@@ -29,6 +29,8 @@ to write.
 - Follow the current visual language (`web/src/app.css`, `web/src/ui/`) unless the brief asks for a new one.
 - If a tool you need is missing (the design artifact, a browser), say so in the doc and in your reply; don't work
   around it silently.
+- Your reply is the end of your turn: a short summary in your pane. Serve tells the lead when you finish; don't
+  message the lead yourself.
 - When the lead says done, stop: the lead stops it (`obor restart <designer> --stop`); the next brief starts it clean.
 
 ## This project
