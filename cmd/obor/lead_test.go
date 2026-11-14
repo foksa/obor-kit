@@ -196,6 +196,33 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 	}
 }
 
+// roles.lead may name an effort (`opus:high`): a fresh lead still gets the plain /obor:lead, in a labelled pane at its
+// shell and in a new tab, never the handoff form (only the lead's own `obor restart <lead> --fresh` asks for that).
+func TestLeadPromptWithAnEffort(t *testing.T) {
+	t.Parallel()
+	start := func(name, pane string) string {
+		return startCall(name, pane, "--permission-mode", "auto", "--model", "opus", "--effort", "high", "--session-id", "NEW", "/obor:lead")
+	}
+	x := newLeadFx(t, testkit.Set("agents.roles.lead", "opus:high"))
+	x.f.Shell("w1:p1", "pj-lead", x.p.Root)
+	out, rc := x.run(t)
+	if rc != 0 || !strings.HasPrefix(lastLine(out), "RESTARTED pj-lead") {
+		t.Fatalf("labelled pane: exit %d\n%s", rc, out)
+	}
+	if c := noSessionID(x.calls()); !strings.Contains(c, start("pj-lead", "w1:p1")) || strings.Contains(c, "handoff") {
+		t.Errorf("labelled pane: starts %s, never the handoff form:\n%s", start("pj-lead", "w1:p1"), c)
+	}
+
+	x = newLeadFx(t, testkit.Set("agents.roles.lead", "opus:high"))
+	out, rc = x.run(t)
+	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" {
+		t.Fatalf("no pane: exit %d\n%s", rc, out)
+	}
+	if c := noSessionID(x.calls()); !strings.Contains(c, start("pj-lead", "wn1:n2")) || strings.Contains(c, "handoff") {
+		t.Errorf("no pane: starts %s, never the handoff form:\n%s", start("pj-lead", "wn1:n2"), c)
+	}
+}
+
 // From the lead's own pane at its shell obor lead itself has the foreground, and herdr starts an agent only at the
 // shell prompt: the start runs detached once obor lead has exited (fresh unless --resume).
 func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {

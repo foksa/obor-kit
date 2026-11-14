@@ -12,7 +12,6 @@ import (
 	"obor/internal/help"
 	"obor/internal/launch"
 	"obor/internal/project"
-	"obor/internal/roles"
 	"obor/internal/setup"
 )
 
@@ -105,12 +104,8 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		return 0
 	}
 	if pane := loc.Pane; pane != "" {
+		// A fresh start passes no first prompt: launch gives it the role's, the lead's plain /obor:lead.
 		req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
-		if rc, _ := cfg.Role("lead"); fresh && rc.Type != "" { // a fresh Claude lead loads its skill itself
-			lt, _ := cfg.Model(rc.Type)
-			lead, _ := roles.Lookup("lead")
-			req.Prompt = lead.StartPrompt(lt.Kind)
-		}
 		line, err := l.Restart(ctx, req)
 		if err == nil && strings.HasPrefix(line, "SCHEDULED ") {
 			line = fmt.Sprintf("STARTING %s in this pane (%s) once obor lead exits", agent, pane)
