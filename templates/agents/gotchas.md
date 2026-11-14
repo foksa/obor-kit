@@ -57,7 +57,7 @@ otherwise.
   sessions short: every dispatch starts a fresh worker, the reviewer gets a fresh session per review
   (`obor brief <reviewer> --fresh "…"`), `/clear` the integrator when it holds no job and advisors per topic.
 - Above `agents.handoff_tokens` (default 500k) each prompt reminds the lead to hand off; nothing forces it, the
-  lead picks the next logical break, writes the Handoff and restarts itself fresh (`obor restart <lead> --fresh`).
+  lead picks the next logical break, writes the Handoff and runs the handoff restart (`obor restart <lead> --handoff`).
 
 ## bash
 - macOS `/bin/bash` is 3.2: no associative arrays, no `mapfile`, no `${var,,}`; `stat -f %m` (BSD) vs `stat -c %Y`

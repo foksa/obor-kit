@@ -197,7 +197,7 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 }
 
 // roles.lead may name an effort (`opus:high`): a fresh lead still gets the plain /obor:lead, in a labelled pane at its
-// shell and in a new tab, never the handoff form (only the lead's own `obor restart <lead> --fresh` asks for that).
+// shell and in a new tab, never the handoff form (only the lead's own `obor restart <lead> --handoff` asks for that).
 func TestLeadPromptWithAnEffort(t *testing.T) {
 	t.Parallel()
 	start := func(name, pane string) string {

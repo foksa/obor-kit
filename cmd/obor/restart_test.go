@@ -12,11 +12,11 @@ import (
 	"obor/internal/testkit"
 )
 
-// obor restart's first prompt: only the lead's own `obor restart <lead> --fresh`, the skill's handoff restart, starts
-// the lead with /obor:lead handoff. A restart that names its pane (obor lead's start at its own shell, restore), a lead
-// whose recorded session has no transcript (a fresh start without --fresh) and every other role's start get the plain
-// role prompt.
-func TestRestartHandoffOnlyForTheLeadsOwnFresh(t *testing.T) {
+// obor restart's first prompt: only `--handoff`, the lead's handoff restart, starts the lead with /obor:lead handoff.
+// The lead's own --fresh, a restart that names its pane (obor lead's start at its own shell, restore), a lead whose
+// recorded session has no transcript (a fresh start without --fresh) and every other role's start get the plain role
+// prompt.
+func TestRestartHandoffOnlyWithTheFlag(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, roles, agent string
@@ -24,10 +24,12 @@ func TestRestartHandoffOnlyForTheLeadsOwnFresh(t *testing.T) {
 		args               []string
 		prompt             string // in the start's args ("": none)
 	}{
-		{"the lead's own --fresh: the handoff form", `{"lead":"opus"}`, "pj-lead", nil,
-			[]string{"restart", "pj-lead", "--fresh"}, "/obor:lead handoff"},
-		{"a lead's restart that names its pane: the plain role prompt", `{"lead":"opus"}`, "pj-lead", nil,
-			[]string{"restart", "pj-lead", "--pane", "w1:p1", "--fresh"}, "/obor:lead"},
+		{"the lead's --handoff: the handoff form", `{"lead":"opus"}`, "pj-lead", nil,
+			[]string{"restart", "pj-lead", "--handoff"}, "/obor:lead handoff"},
+		{"the lead's --handoff with its pane named: the handoff form", `{"lead":"opus"}`, "pj-lead", nil,
+			[]string{"restart", "pj-lead", "--pane", "w1:p1", "--handoff"}, "/obor:lead handoff"},
+		{"the lead's own --fresh: the plain role prompt", `{"lead":"opus"}`, "pj-lead", nil,
+			[]string{"restart", "pj-lead", "--fresh"}, "/obor:lead"},
 		{"a lead's fresh start without --fresh (its recorded session has no transcript): the plain role prompt",
 			`{"lead":"opus"}`, "pj-lead", func(p *testkit.Project) {
 				p.Session("pj-lead", "sid-1")
@@ -70,6 +72,60 @@ func TestRestartHandoffOnlyForTheLeadsOwnFresh(t *testing.T) {
 				t.Errorf("obor %v: start %s names the handoff form", c.args, start)
 			}
 		})
+	}
+}
+
+// --handoff is the lead's handoff restart: any other agent is refused in one line, with nothing started or typed.
+func TestRestartHandoffRefusedForANonLead(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config(testkit.Set("agents.roles", `{"reviewer":"opus"}`))
+	f := p.Herdr()
+	f.Shell("w1:p1", "pj-rev", p.Root)
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
+		"OBOR_STATE_HOME=" + p.Base + "/state", "OBOR_RESTART_WAIT=1"}
+	rc, stdout, stderr := run(t, p.Root, env, "restart", "pj-rev", "--handoff")
+	want := "FAIL --handoff is the lead's handoff restart: pj-rev is not the lead"
+	if rc != 1 || stdout != want+"\n" || stderr != "" {
+		t.Fatalf("obor restart pj-rev --handoff: exit %d, %q, %q; want the one FAIL line", rc, stdout, stderr)
+	}
+	if calls := srv.Requests(); len(calls) != 0 {
+		t.Errorf("nothing looked up or touched: %+v", calls)
+	}
+	// The lead's agent is the one that takes it, and only the lead: an agent no config knows is no lead either.
+	if rc, stdout, _ := run(t, p.Root, env, "restart", "nobody", "--handoff"); rc != 1 ||
+		lastLine(stdout) != "FAIL --handoff is the lead's handoff restart: nobody is not the lead" {
+		t.Errorf("obor restart nobody --handoff: exit %d, %q", rc, stdout)
+	}
+}
+
+// No .obor/config.json (load's exit 3): restart fails in load's one diagnostic line, before any agent lookup and
+// before anything is started or typed.
+func TestRestartWithoutAConfig(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t) // no p.Config(): the project has no .obor/config.json
+	if _, err := os.Stat(p.Path(".obor/config.json")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: the config exists (%v)", err)
+	}
+	for _, args := range [][]string{
+		{"restart", "pj-lead", "--stop"},
+		{"restart", "pj-lead", "--fresh"},
+		{"restart", "pj-lead", "--handoff"},
+	} {
+		rc, stdout, stderr := run(t, p.Root, nil, args...)
+		lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
+		if rc != 3 || stdout != "" || len(lines) != 1 || !strings.Contains(lines[0], "no "+p.Root+"/.obor/config.json") {
+			t.Errorf("obor %v: exit %d, stdout %q, stderr %q; want one line naming the missing config", args, rc, stdout, stderr)
+		}
+	}
+}
+
+// the usage offers --handoff beside --fresh: it is restart's own flag, not a start parameter.
+func TestRestartUsageNamesHandoff(t *testing.T) {
+	t.Parallel()
+	if u := help.Usage("restart"); !strings.Contains(u, "--handoff") {
+		t.Errorf("usage %q does not name --handoff", u)
 	}
 }
 
@@ -186,6 +242,10 @@ func TestRestartCommand(t *testing.T) {
 		{[]string{"restart"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "a", "b"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --fresh"},
+		{[]string{"restart", "pj-l-01", "--stop", "--handoff"}, 1, "FAIL --stop takes no --handoff"},
+		// --handoff is the lead's alone: a worker's and the integrator's restart is refused, nothing started.
+		{[]string{"restart", "pj-l-01", "--handoff"}, 1, "FAIL --handoff is the lead's handoff restart: pj-l-01 is not the lead"},
+		{[]string{"restart", "pj-int", "--handoff"}, 1, "FAIL --handoff is the lead's handoff restart: pj-int is not the lead"},
 		// --keep-inbox is an unknown flag.
 		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + help.Usage("restart")},
 		// the flags restart does not take are unknown flags: the usage.

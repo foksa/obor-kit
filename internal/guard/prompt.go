@@ -99,9 +99,9 @@ func promptContext(out io.Writer, ctx string) {
 
 // handoffReminder (reminder): the lead's session context (sid, else the transcript file's name;
 // the transcript at path, else project.TranscriptOf) above handoff_tokens → a reminder to hand off at the next logical
-// break: the Handoff section of BACKLOG.md, then a fresh restart of agent ("<you>" when unknown), which obor restart
-// schedules from the agent's own pane until it is idle. Nothing forces the handoff: the agent picks the break. "" = no
-// reminder.
+// break: the Handoff section of BACKLOG.md, then the handoff restart `obor restart <you> --handoff` of agent ("<you>"
+// when unknown), which obor restart schedules from the agent's own pane until it is idle. Only the lead is reminded:
+// a role agent restarts with a plain --fresh. Nothing forces the handoff: the agent picks the break. "" = no reminder.
 func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path string) string {
 	limit := cfg.HandoffTokens()
 	if sid == "" && path != "" {
@@ -117,7 +117,7 @@ func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path strin
 	if !ok || int64(ctx) <= limit {
 		return ""
 	}
-	restart := "`obor restart " + cmp.Or(agent, "<you>") + " --fresh` (scheduled: it waits until you are idle)"
+	restart := "`obor restart " + cmp.Or(agent, "<you>") + " --handoff` (scheduled: it waits until you are idle)"
 	when := "when the current task or discussion has reached its conclusion (nothing half-done, no question to the " +
 		"person open), write the Handoff section at the top of BACKLOG.md (state, in-flight tasks, open decisions, next " +
 		"steps), commit it, then run " + restart

@@ -17,7 +17,7 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
 fresh session, `--resume` continues the last one.
 
 How you were started:
-- With `handoff` (`/obor:lead handoff`: the fresh session `obor restart <you> --fresh` starts after a Handoff): run the
+- With `handoff` (`/obor:lead handoff`: the fresh session `obor restart <you> --handoff` starts after a Handoff): run the
   start checks below and continue from the Handoff's next steps.
 - Without it (`obor lead`, a `/clear`, a typed `/obor:lead`: a person started you and has picked nothing): run
   only read-only commands (`obor whoami`, `obor status`, `obor setup show`, `obor watch`, `obor spec show`, `git log`,
@@ -148,7 +148,7 @@ Speak up unprompted about anything systemic (complexity, fragile dependencies, y
 ## Handoff
 Past `agents.handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
 mid-task, ask the person first if they are talking with you): write the Handoff section at the top of `BACKLOG.md`
-(state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --fresh`: the next session
+(state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --handoff`: the next session
 starts with `/obor:lead handoff` and continues from those next steps.
 
 Hooks deny: `git push`, `pkill`/`killall`, `git commit -a` in the main checkout. Expect it in reports.

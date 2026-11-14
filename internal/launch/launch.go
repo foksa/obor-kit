@@ -143,7 +143,7 @@ var _ port.Agents = (*Launcher)(nil)
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
 // ParseRequest reads that back, so a flag cannot be carried on one side only. The Prompt, Effort and Type are not
 // restart's (a brief's or a dispatch's start): a scheduled run is the CLI's restart, which carries none of them.
-// Handoff is carried: the detached run cannot tell the lead's own restart from obor lead's start in its own pane.
+// Handoff is carried: the detached run asks for the lead's handoff form only if its argv names --handoff.
 func Args(r Request) []string {
 	args := []string{r.Agent}
 	if r.Pane != "" {
@@ -163,8 +163,8 @@ func Args(r Request) []string {
 
 // ParseRequest reads an `obor restart` argument list (after the subcommand) back into the Request Args wrote; the
 // other half of that pair. Flags restart owns but a Request does not carry (--stop) are not its business and
-// are an error, as is every flag restart gave up (--prompt, --type, --effort, --sid). --handoff is the one Request
-// field a scheduled run carries (its Handoff); it is no flag of `obor restart` itself.
+// are an error, as is every flag restart gave up (--prompt, --type, --effort, --sid). --handoff is restart's flag for
+// the lead's handoff form (its Handoff), and a scheduled run reads it back from the argv Args wrote.
 func ParseRequest(args []string) (Request, error) {
 	var r Request
 	for i := 0; i < len(args); i++ {

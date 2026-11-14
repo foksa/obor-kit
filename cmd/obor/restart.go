@@ -18,8 +18,8 @@ import (
 // restart is `obor restart` (internal/launch): progress lines, then the result line last, RESTARTED / STOPPED,
 // SCHEDULED (the caller's own pane: a detached run does it once the agent is idle) or FAIL (exit 1).
 // A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here; the flags restart
-// does not take are unknown, so they get the usage. --handoff is no start parameter either: it is the carrier of
-// launch.Request.Handoff in a scheduled run's argv (Args).
+// does not take are unknown, so they get the usage. --handoff is the lead's handoff restart: it implies --fresh and
+// sets launch.Request.Handoff, which a scheduled run carries in its argv (Args).
 func restart(args []string) int {
 	usage := func() int { fmt.Fprintln(out, "FAIL "+help.Usage("restart")); return 1 }
 	// --stop is restart's own flag, not a Request field: take it out, then let launch.ParseRequest own every flag
@@ -36,30 +36,42 @@ func restart(args []string) int {
 	if perr != nil {
 		return usage()
 	}
+	req.Fresh = req.Fresh || req.Handoff // the handoff form is a fresh session
 	switch {
 	case req.Agent == "":
 		return usage()
+	case stopIt && req.Handoff:
+		fmt.Fprintln(out, "FAIL --stop takes no --handoff")
+		return 1
 	case stopIt && req.Fresh:
 		fmt.Fprintln(out, "FAIL --stop takes no --fresh")
 		return 1
 	}
 
 	_, cfg, rc := load()
-	if rc != 0 && rc != 3 {
+	switch rc {
+	case 3: // no .obor/config.json: load named it, and there is no config to look the agent up in
+		return 3
+	case 1:
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
 		return 1
 	}
-	req = withHandoff(cfg, req)
+	// --handoff is the lead's alone: only the lead's role has the handoff form of its first prompt. A role agent's
+	// restart asks for a new session with --fresh and gets its plain prompt.
+	if req.Handoff {
+		if info, ok := cfg.AgentLookup(req.Agent, ""); !ok || info.Role != "lead" {
+			fmt.Fprintln(out, "FAIL --handoff is the lead's handoff restart: "+req.Agent+" is not the lead")
+			return 1
+		}
+	}
 	t, err := terminal(cfg, project.OSEnv)
 	if err != nil {
 		fmt.Fprintln(out, "FAIL "+err.Error())
 		return 1
 	}
 	l := &launch.Launcher{Env: project.OSEnv, H: t.Control, Out: out, Cfg: cfg}
-	if rc == 0 {
-		l.Job = func(ctx context.Context, role, lane string) (string, error) {
-			return serveAgentJob(ctx, cfg, req.Agent, role, lane)
-		}
+	l.Job = func(ctx context.Context, role, lane string) (string, error) {
+		return serveAgentJob(ctx, cfg, req.Agent, role, lane)
 	}
 	ctx := context.Background()
 	var line string
@@ -69,16 +81,6 @@ func restart(args []string) int {
 		line, err = l.Restart(ctx, req)
 	}
 	return launchResult(out, line, err)
-}
-
-// withHandoff is req with the handoff flag the restart asks for: only the lead's own restart, `obor restart <lead>
-// --fresh` (the skill's handoff restart), asks for the handoff form of the first prompt. A restart that names its pane
-// starts that pane (obor lead's start at its own shell, restore), and every other role's, never does. A scheduled
-// run's own --handoff (Args) already decided: the detached restart of the lead's handoff names its pane.
-func withHandoff(cfg *config.Config, req launch.Request) launch.Request {
-	info, ok := cfg.AgentLookup(req.Agent, "")
-	req.Handoff = req.Handoff || (req.Fresh && req.Pane == "" && ok && info.Role == "lead")
-	return req
 }
 
 // launchResult prints a launch's result (obor restart): the evidence of a give-up, then the result line
