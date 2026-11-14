@@ -184,7 +184,7 @@ func (s *Server) answersTo(host string) bool {
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
 // its needs-you count, its queue length (the merge loop's tasks and the dispatches waiting), the steps running without
-// an agent, the agents it lists as at work (Roles: the role agents with work or a brief waiting, and the lead) with how
+// an agent, the agents at work (the lead and role agents) with how
 // many of them work (Working), and why its view could not be built.
 type ProjectsEntry struct {
 	Name     string         `json:"name"`
