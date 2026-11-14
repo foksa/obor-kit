@@ -1,5 +1,19 @@
 # Upgrading an obor project from v0.39 to v0.40
 
+## v0.40.2 (lead start fix; `obor restart --handoff`; web nav shows agents at work)
+
+**Lead start.** `obor lead` started the lead with `/obor:lead handoff` when `roles.lead` named an effort
+(`opus:high`), so the lead continued the Handoff's next steps instead of asking you. A lead you start now always
+gets the plain `/obor:lead`. The lead's own handoff restart is now asked for by name: `obor restart <lead> --handoff`
+(it implies `--fresh`). A plain `obor restart <lead> --fresh` gets the plain prompt; `--handoff` on any other agent
+is refused. `obor restart` outside a project (no `.obor/config.json`) prints one line instead of crashing.
+
+**Web.** The left nav shows a project as working while its lead or a role agent works, not only while a lane is busy.
+
+```sh
+# nothing to do: the lead skill and the handoff reminder already say `obor restart <you> --handoff`
+```
+
 ## v0.40.1 (submit fix; panes placed by kind)
 
 **Submit fix.** Since v0.40.0, a worker's submit failed with `git add … exit status 1` when one of obor's links
