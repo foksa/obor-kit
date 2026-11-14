@@ -7,7 +7,7 @@ Finished items leave this file (history: git log, task specs, reviews). Owner de
 
 ## Handoff
 <!-- Who holds the lead seat (agent/pane), the date, current state in 2–3 lines, then numbered next steps. Rewrite at
-every handoff (`obor restart <you> --fresh`, whose next session starts with `/obor:lead handoff` and continues from
+every handoff (`obor restart <you> --handoff`, whose next session starts with `/obor:lead handoff` and continues from
 these next steps) or before the lead's quota runs out. -->
 
 ## Owner decisions pending

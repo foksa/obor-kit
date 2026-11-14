@@ -222,29 +222,41 @@ func (w polled) Write(ctx context.Context, pane, text string, submit bool) error
 	return w.PaneControl.Write(ctx, pane, text, submit)
 }
 
-// the handoff is `obor restart <you> --fresh` from the agent's own pane, with no --force and no handoff
-// machinery: SCHEDULED while it works (nothing stopped or typed), and the detached run, its args round-tripped, waits
-// until the agent is idle and restarts it with a new session.
+// a fresh restart from the agent's own pane, with no --force: SCHEDULED while it works (nothing stopped or typed), and
+// the detached run, its args round-tripped, waits until the agent is idle and restarts it with a new session. The lead's
+// handoff restart is `obor restart <you> --handoff`, which carries the handoff form of its first prompt; a role agent's
+// is a plain --fresh.
 func TestRestartSelfFreshHandoff(t *testing.T) {
 	t.Parallel()
-	for _, agent := range []string{"pj-lead", "pj-l-01"} {
-		t.Run(agent, func(t *testing.T) {
+	for _, c := range []struct {
+		agent, args, prompt string
+		req                 launch.Request
+	}{
+		{"pj-lead", "restart pj-lead --pane w1:p3 --fresh --handoff", "/obor:lead handoff",
+			launch.Request{Agent: "pj-lead", Fresh: true, Handoff: true}},
+		{"pj-lead", "restart pj-lead --pane w1:p3 --fresh", "/obor:lead",
+			launch.Request{Agent: "pj-lead", Fresh: true}},
+		{"pj-l-01", "restart pj-l-01 --pane w1:p3 --fresh", "",
+			launch.Request{Agent: "pj-l-01", Fresh: true}},
+	} {
+		t.Run(c.args, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
-			x.sid(agent, "sid-1")
-			a := x.agent("w1:p3", agent, "claude", "working")
-			out, ok, spawns := x.self("w1:p3", false, launch.Request{Agent: agent, Fresh: true}, false, nil)
-			eq(t, last(out), "SCHEDULED restart of "+agent+" (pane w1:p3): runs once it is idle", "result")
+			x.sid(c.agent, "sid-1")
+			a := x.agent("w1:p3", c.agent, "claude", "working")
+			out, ok, spawns := x.self("w1:p3", false, c.req, false, nil)
+			eq(t, last(out), "SCHEDULED restart of "+c.agent+" (pane w1:p3): runs once it is idle", "result")
 			if !ok || len(spawns) != 1 {
 				t.Fatalf("one detached run: %v\n%s", spawns, out)
 			}
-			eq(t, spawns[0].args, "restart "+agent+" --pane w1:p3 --fresh", "detached args: no --force")
+			eq(t, spawns[0].args, c.args, "detached args: no --force")
 			if len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
 				t.Fatalf("nothing typed, stopped or started while it works: %q", x.srv.Calls())
 			}
 			req, err := launch.ParseRequest(strings.Fields(spawns[0].args)[1:])
-			if err != nil || !req.Fresh || req.Force {
-				t.Fatalf("the detached argv: %+v, %v", req, err)
+			if err != nil || req.Agent != c.agent || req.Pane != "w1:p3" || !req.Fresh || req.Handoff != c.req.Handoff ||
+				req.Force || req.Prompt != "" {
+				t.Fatalf("the detached argv: %+v, %v; want the agent, its pane and its flags", req, err)
 			}
 			got := 0
 			x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 2, &got} }
@@ -255,7 +267,13 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 			if got <= 2 {
 				t.Errorf("the detached run polled %d times: it did not wait for idle", got)
 			}
-			eq(t, last(out), "RESTARTED "+agent+" (pane w1:p3, session new)", "result: a fresh session")
+			eq(t, last(out), "RESTARTED "+c.agent+" (pane w1:p3, session new)", "result: a fresh session")
+			switch {
+			case c.prompt != "" && !strings.Contains(x.startCall(), c.prompt):
+				t.Errorf("the start: %q, want the first prompt %q", x.startCall(), c.prompt)
+			case c.prompt == "" && strings.Contains(x.startCall(), "/obor:lead"):
+				t.Errorf("the start: %q, want no first prompt", x.startCall())
+			}
 		})
 	}
 }

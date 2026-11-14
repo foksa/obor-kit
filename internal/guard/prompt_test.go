@@ -248,12 +248,12 @@ func TestPersonTyped(t *testing.T) {
 	}
 }
 
-// the handoff reminder text up to the session-specific numbers: the restart of the agent named.
+// the handoff reminder text up to the session-specific numbers: the handoff restart of the agent named.
 func leadWhenOf(agent string) string {
 	return "Hand off at the next logical break, not in the middle of work: when the current task or discussion has " +
 		"reached its conclusion (nothing half-done, no question to the person open), write the Handoff section at the " +
 		"top of BACKLOG.md (state, in-flight tasks, open decisions, next steps), commit it, then run `obor restart " +
-		agent + " --fresh` (scheduled: it waits until you are idle). If the person is talking with you, ask them first."
+		agent + " --handoff` (scheduled: it waits until you are idle). If the person is talking with you, ask them first."
 }
 
 var leadWhen = leadWhenOf("pj-lead")
@@ -309,8 +309,9 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	}
 }
 
-// only the lead gets the handoff reminder; a worker above any limit gets only the wrong-tab guard (a
-// person's prompt) or nothing (obor's), and the integrator nothing.
+// only the lead gets the handoff reminder, and it names the lead's handoff restart (--handoff); a worker above any
+// limit gets only the wrong-tab guard (a person's prompt) or nothing (obor's), and the integrator nothing: its own
+// handoffs restart it with a plain --fresh.
 func TestPromptHandoffOnlyForTheLead(t *testing.T) {
 	t.Parallel()
 	f, o1, tr := handoffFx(t, 900000)
@@ -325,8 +326,9 @@ func TestPromptHandoffOnlyForTheLead(t *testing.T) {
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=integrator"); c != "" {
 		t.Errorf("integrator at 900k (handoff_tokens 1000): %q, want no reminder", c)
 	}
-	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c == "" {
-		t.Fatal("precondition: the lead at 900k gets the reminder")
+	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); !strings.Contains(c, "`obor restart pj-lead --handoff`") ||
+		strings.Contains(c, "--fresh") {
+		t.Errorf("the lead's reminder: %q, want the --handoff restart and no --fresh", c)
 	}
 }
 

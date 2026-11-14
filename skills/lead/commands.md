@@ -4,7 +4,7 @@
 `obor lead` starts a fresh lead session (`RESTARTED <agent> (pane <p>, session new)`), its first prompt `/obor:lead`:
 the session presents the state and the options and waits for your pick; `obor lead --resume` continues
 the last one (`session <sid>`). An already running lead: `OK <agent> runs (pane <p>)`, nothing touched.
-`obor restart <you> --fresh` is the handoff restart: its first prompt is `/obor:lead handoff`, so the new session
+`obor restart <you> --handoff` is the handoff restart: its first prompt is `/obor:lead handoff`, so the new session
 continues from the Handoff's next steps without waiting (SKILL.md, Handoff).
 
 ## obor status

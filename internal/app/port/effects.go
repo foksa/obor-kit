@@ -34,8 +34,8 @@ type Launch struct {
 	Agent, Pane  string
 	Fresh, Force bool
 	// Handoff is the request asks for the handoff form of the role's first prompt (the lead's
-	// `/obor:lead handoff`): the fresh session a lead starts for itself after writing its Handoff. Only the lead's
-	// own `obor restart <lead> --fresh` sets it; a scheduled restart carries it as --handoff.
+	// `/obor:lead handoff`): the fresh session a lead starts for itself after writing its Handoff.
+	// `obor restart <lead> --handoff` sets it (a plain --fresh does not), and a scheduled restart carries it.
 	Handoff bool
 	// Prompt is the first prompt for a fresh session: a job's wake, or a brief's text (serve's).
 	Prompt string
