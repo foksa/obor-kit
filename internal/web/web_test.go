@@ -687,8 +687,8 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 }
 
 // TestOverviewShowsWorkingRoles: a project whose only work is a working deep dive lists it in /api/projects
-// (busy stays the lane count); a role with a brief waiting counts; a stopped role and an idle one are not listed; and
-// the page script shows the roles on the card.
+// (busy stays the lane count, and working counts the deep dive alone); a role with a brief waiting counts as listed,
+// not as at work; a stopped role and an idle one are not listed; and the page script shows the roles on the card.
 func TestOverviewShowsWorkingRoles(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -730,8 +730,62 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 	if _, ok := got["reviewer"]; ok {
 		t.Errorf("roles %v: the stopped reviewer is listed", got)
 	}
+	// the advisor has a brief but no working pane: listed, not one of the agents at work
+	if entries[0].Working != 1 {
+		t.Errorf("/api/projects: working %d, want 1 (the deep dive only)", entries[0].Working)
+	}
 	if !strings.Contains(bundle(t), ".roles") {
 		t.Error("the page does not read the overview's roles")
+	}
+}
+
+// TestOverviewShowsWorkingLead: /api/projects lists the lead among the agents at work while its pane works (with every
+// lane free, its status is not the lane count's), and not while it is idle.
+func TestOverviewShowsWorkingLead(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := cfg.AgentName("lead", "")
+	if lead == "" {
+		t.Fatal("precondition: the config names a lead agent")
+	}
+	entries := func(t *testing.T, status string) ProjectsEntry {
+		t.Helper()
+		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: lead, Agent: "claude", Status: status, Age: 90}}}}
+		v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Events: 20})
+		if v.Lead == nil || v.Lead.Status != status {
+			t.Fatalf("precondition: the view's lead has status %q: %+v", status, v.Lead)
+		}
+		if len(v.Lanes) != 0 || slices.ContainsFunc(v.Roles, func(r view.Role) bool { return r.Status != "" || r.Brief != nil }) {
+			t.Fatalf("precondition: no busy lane and no role agent at work: %+v, %+v", v.Lanes, v.Roles)
+		}
+		s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
+			Build: func(context.Context, string) (view.Project, error) { return v, nil }}
+		var got []ProjectsEntry
+		decode(t, get(t, s.Handler(), "/api/projects"), &got)
+		if len(got) != 1 {
+			t.Fatalf("/api/projects: %+v, want one project", got)
+		}
+		return got[0]
+	}
+	working := entries(t, "working")
+	if working.Busy != 0 || working.Free != 0 {
+		t.Errorf("/api/projects: busy %d, free %d, want no lane", working.Busy, working.Free)
+	}
+	if len(working.Roles) != 1 || working.Roles[0].Role != "lead" || working.Roles[0].Agent != lead {
+		t.Errorf("/api/projects roles %+v, want the working lead %s", working.Roles, lead)
+	}
+	if working.Working != 1 {
+		t.Errorf("/api/projects: working %d, want 1 (the lead at work)", working.Working)
+	}
+	idle := entries(t, "idle")
+	if len(idle.Roles) != 0 || idle.Working != 0 {
+		t.Errorf("/api/projects: roles %+v, working %d, want none with the lead idle", idle.Roles, idle.Working)
 	}
 }
 

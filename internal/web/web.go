@@ -184,12 +184,14 @@ func (s *Server) answersTo(host string) bool {
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
 // its needs-you count, its queue length (the merge loop's tasks and the dispatches waiting), the steps running without
-// an agent, the role agents at work and why its view could not be built.
+// an agent, the agents it lists as at work (Roles: the role agents with work or a brief waiting, and the lead) with how
+// many of them work (Working), and why its view could not be built.
 type ProjectsEntry struct {
 	Name     string         `json:"name"`
 	Root     string         `json:"root"`
 	Up       bool           `json:"up"`
 	Busy     int            `json:"busy"`
+	Working  int            `json:"working"` // the agents at work: the listed ones whose pane works
 	Free     int            `json:"free"`
 	NeedsYou int            `json:"needs_you"`
 	Queue    int            `json:"queue"`
@@ -244,6 +246,14 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 			for _, r := range v.Roles {
 				if r.Status == "working" || r.Brief != nil { // a brief waiting to be delivered counts, as on the project page
 					e.Roles = append(e.Roles, r)
+				}
+			}
+			if v.Lead != nil && v.Lead.Status == "working" { // the lead is no lane's agent: it counts as at work here
+				e.Roles = append(e.Roles, *v.Lead)
+			}
+			for _, r := range e.Roles { // the agents at work, a brief waiting aside: serve's status says who works
+				if r.Status == "working" {
+					e.Working++
 				}
 			}
 			for _, l := range v.Lanes {

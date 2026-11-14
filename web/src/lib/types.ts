@@ -321,6 +321,7 @@ export interface ProjectsEntry {
   root: string;
   up: boolean;
   busy: number;
+  working: number; // the agents at work: the roles' entries whose pane works
   free: number;
   needs_you: number;
   queue: number;
