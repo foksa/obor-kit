@@ -687,8 +687,8 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 }
 
 // TestOverviewShowsWorkingRoles: a project whose only work is a working deep dive lists it in /api/projects
-// (busy stays the lane count); a role with a brief waiting counts; a stopped role and an idle one are not listed; and
-// the page script shows the roles on the card.
+// (busy stays the lane count, and working counts the deep dive alone); a role with a brief waiting counts as listed,
+// not as at work; a stopped role and an idle one are not listed; and the page script shows the roles on the card.
 func TestOverviewShowsWorkingRoles(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -729,6 +729,10 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 	}
 	if _, ok := got["reviewer"]; ok {
 		t.Errorf("roles %v: the stopped reviewer is listed", got)
+	}
+	// the advisor has a brief but no working pane: listed, not one of the agents at work
+	if entries[0].Working != 1 {
+		t.Errorf("/api/projects: working %d, want 1 (the deep dive only)", entries[0].Working)
 	}
 	if !strings.Contains(bundle(t), ".roles") {
 		t.Error("the page does not read the overview's roles")
@@ -776,8 +780,12 @@ func TestOverviewShowsWorkingLead(t *testing.T) {
 	if len(working.Roles) != 1 || working.Roles[0].Role != "lead" || working.Roles[0].Agent != lead {
 		t.Errorf("/api/projects roles %+v, want the working lead %s", working.Roles, lead)
 	}
-	if idle := entries(t, "idle"); len(idle.Roles) != 0 {
-		t.Errorf("/api/projects roles %+v, want none with the lead idle", idle.Roles)
+	if working.Working != 1 {
+		t.Errorf("/api/projects: working %d, want 1 (the lead at work)", working.Working)
+	}
+	idle := entries(t, "idle")
+	if len(idle.Roles) != 0 || idle.Working != 0 {
+		t.Errorf("/api/projects: roles %+v, working %d, want none with the lead idle", idle.Roles, idle.Working)
 	}
 }
 

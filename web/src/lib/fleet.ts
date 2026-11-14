@@ -6,17 +6,14 @@ import type { ProjectsEntry, Role } from "./types";
 // ProjectState is a project's dot in the nav: the worst of its facts first, then whether anything works in it.
 export type ProjectState = "fail" | "down" | "needs-you" | "working" | "free";
 
-// working is whether a listed agent's pane works: /api/projects lists a role agent with a brief waiting too, and that
-// agent is not at work yet.
-const working = (r: Role) => r.status === "working";
-
 // projectState is a project's state dot: fail (its view could not be built), serve down, needs you, working (a busy
-// lane or an agent at work, the lead included) and free otherwise. The busy/total beside the name stays a lane count.
+// lane or an agent at work, the lead included: the overview's working count) and free otherwise. The busy/total beside
+// the name stays a lane count.
 export function projectState(p: ProjectsEntry): ProjectState {
   if (p.error) return "fail";
   if (!p.up) return "down";
   if (p.needs_you > 0) return "needs-you";
-  if (p.busy > 0 || (p.roles || []).some(working)) return "working";
+  if (p.busy > 0 || p.working > 0) return "working";
   return "free";
 }
 
