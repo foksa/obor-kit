@@ -143,6 +143,7 @@ var _ port.Agents = (*Launcher)(nil)
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
 // ParseRequest reads that back, so a flag cannot be carried on one side only. The Prompt, Effort and Type are not
 // restart's (a brief's or a dispatch's start): a scheduled run is the CLI's restart, which carries none of them.
+// Handoff is carried: the detached run cannot tell the lead's own restart from obor lead's start in its own pane.
 func Args(r Request) []string {
 	args := []string{r.Agent}
 	if r.Pane != "" {
@@ -150,6 +151,9 @@ func Args(r Request) []string {
 	}
 	if r.Fresh {
 		args = append(args, "--fresh")
+	}
+	if r.Handoff {
+		args = append(args, "--handoff")
 	}
 	if r.Force {
 		args = append(args, "--force")
@@ -159,7 +163,8 @@ func Args(r Request) []string {
 
 // ParseRequest reads an `obor restart` argument list (after the subcommand) back into the Request Args wrote; the
 // other half of that pair. Flags restart owns but a Request does not carry (--stop) are not its business and
-// are an error, as is every flag restart gave up (--prompt, --type, --effort, --sid).
+// are an error, as is every flag restart gave up (--prompt, --type, --effort, --sid). --handoff is the one Request
+// field a scheduled run carries (its Handoff); it is no flag of `obor restart` itself.
 func ParseRequest(args []string) (Request, error) {
 	var r Request
 	for i := 0; i < len(args); i++ {
@@ -180,6 +185,8 @@ func ParseRequest(args []string) (Request, error) {
 			r.Pane = v
 		case "--fresh":
 			r.Fresh = true
+		case "--handoff":
+			r.Handoff = true
 		case "--force":
 			r.Force = true
 		default:
@@ -579,12 +586,12 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	case job != "":
 		prompt = wake
 	case prompt == "":
-		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead: the lead's fresh session
-		// continues from a Handoff (`/obor:lead handoff`) when it is a handoff restart (--fresh), and presents its
-		// options when the owner started it (`obor lead` passes the role's prompt itself).
+		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead: a session the owner
+		// starts presents the state and options. Only a handoff restart, which asks for it (Request.Handoff), continues
+		// from a Handoff (`/obor:lead handoff`).
 		if rc, ok := l.Cfg.Role(t.info.Role); ok {
 			prompt = rc.Role.StartPrompt(t.kind)
-			if req.Fresh && t.info.Role == "lead" {
+			if req.Handoff {
 				prompt = rc.Role.HandoffPrompt(t.kind)
 			}
 		}

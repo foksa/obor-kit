@@ -12,6 +12,67 @@ import (
 	"obor/internal/testkit"
 )
 
+// obor restart's first prompt: only the lead's own `obor restart <lead> --fresh`, the skill's handoff restart, starts
+// the lead with /obor:lead handoff. A restart that names its pane (obor lead's start at its own shell, restore), a lead
+// whose recorded session has no transcript (a fresh start without --fresh) and every other role's start get the plain
+// role prompt.
+func TestRestartHandoffOnlyForTheLeadsOwnFresh(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, roles, agent string
+		prep               func(p *testkit.Project)
+		args               []string
+		prompt             string // in the start's args ("": none)
+	}{
+		{"the lead's own --fresh: the handoff form", `{"lead":"opus"}`, "pj-lead", nil,
+			[]string{"restart", "pj-lead", "--fresh"}, "/obor:lead handoff"},
+		{"a lead's restart that names its pane: the plain role prompt", `{"lead":"opus"}`, "pj-lead", nil,
+			[]string{"restart", "pj-lead", "--pane", "w1:p1", "--fresh"}, "/obor:lead"},
+		{"a lead's fresh start without --fresh (its recorded session has no transcript): the plain role prompt",
+			`{"lead":"opus"}`, "pj-lead", func(p *testkit.Project) {
+				p.Session("pj-lead", "sid-1")
+				if err := os.Remove(p.Path(".obor/state/sessions/sid-1.jsonl")); err != nil {
+					t.Fatal(err)
+				}
+			}, []string{"restart", "pj-lead"}, "/obor:lead"},
+		{"a non-lead role's --fresh: its plain prompt", `{"reviewer":"opus"}`, "pj-rev", nil,
+			[]string{"restart", "pj-rev", "--fresh"}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p := testkit.NewPlain(t)
+			p.Config(testkit.Set("agents.roles", c.roles))
+			f := p.Herdr()
+			f.Shell("w1:p1", c.agent, p.Root)
+			srv := herdrtest.Serve(t, f)
+			env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
+				"OBOR_STATE_HOME=" + p.Base + "/state", "OBOR_RESTART_WAIT=1", callDown}
+			if c.prep != nil {
+				c.prep(p)
+			}
+			rc, stdout, stderr := run(t, p.Root, env, c.args...)
+			if rc != 0 || !strings.HasPrefix(lastLine(stdout), "RESTARTED "+c.agent) || stderr != "" {
+				t.Fatalf("obor %v: exit %d\n%s---\n%s", c.args, rc, stdout, stderr)
+			}
+			var start string
+			for _, r := range srv.Requests() {
+				if r.Method == "agent.start" {
+					start = string(r.Params)
+				}
+			}
+			if start == "" {
+				t.Fatalf("precondition: no agent.start\n%s", stdout)
+			}
+			if c.prompt != "" && !strings.Contains(start, `"`+c.prompt+`"`) {
+				t.Errorf("obor %v: start %s, want the first prompt %q", c.args, start, c.prompt)
+			}
+			if c.prompt != "/obor:lead handoff" && strings.Contains(start, "handoff") {
+				t.Errorf("obor %v: start %s names the handoff form", c.args, start)
+			}
+		})
+	}
+}
+
 // obor restart asks serve for the job an agent's restart carries (restart_job), with the project, the
 // agent, its role and a worker's lane; serve's answer is the job, or none.
 func TestRestartJob(t *testing.T) {
