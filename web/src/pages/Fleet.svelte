@@ -1,12 +1,14 @@
 <script lang="ts">
-  // The fleet, obor web's home: what runs now across every project (the busy lanes with their tasks, the role agents at
-  // work, the steps running), the counts across them, a card per project, and their events together.
+  // The fleet, obor web's home: what runs now across every project (the busy lanes with their tasks, the agents at
+  // work — the lead and the role agents —, the steps running), the counts across them, a card per project, and their
+  // events together.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
   import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
-  import { dur, human, now, roleName, tone, unixOf } from "../lib/format";
+  import { dur, human, now, tone, unixOf } from "../lib/format";
+  import { fleetRoles } from "../lib/fleet";
   import { stageOf } from "../lib/stages";
   import { reviewBadge, reviewTone } from "../lib/review";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
@@ -34,7 +36,7 @@
   // running is every busy lane across the fleet, longest running first
   const running = $derived(ps.flatMap((p) => busyLanes(p).map((l) => ({ p: p.name, l })))
     .sort((a, b) => (a.l.since || Infinity) - (b.l.since || Infinity)));
-  const roles = $derived(ps.flatMap((p) => (p.roles || []).map((r) => ({ p: p.name, r }))));
+  const roles = $derived(fleetRoles(ps));
   const steps = $derived(ps.flatMap((p) => (p.running || []).map((x) => ({ p: p.name, x }))));
   const events = $derived(ps.flatMap((p) => (p.events || []).map((e) => ({ ...e, project: p.name })))
     .sort((a, b) => unixOf(b.ts) - unixOf(a.ts)).slice(0, 30));
@@ -80,19 +82,19 @@
             <span class="mono el"><Rel at={l.since} mode="for" /></span>
           </div>
         {/each}
-        {#each roles as { p, r } (p + r.agent)}
+        {#each roles as { project, role, label } (project + role.agent)}
           <div class="rrow">
-            <a class="proj" href={href.project(p)}>{p}</a>
-            <span class="lane muted small">{roleName(r.role)}</span>
+            <a class="proj" href={href.project(project)}>{project}</a>
+            <span class="lane muted small">{label}</span>
             <div class="what">
-              <div class="t"><AgentLink project={p} agent={r.agent} /></div>
+              <div class="t"><AgentLink project={project} agent={role.agent} /></div>
               <div class="sub small">
-                {#if r.status}<Pill state={r.status} />{/if}
-                {#if r.brief}<span class="muted">brief {r.brief.worked ? "being worked" : r.brief.delivered ? "delivered" : "not delivered"}</span>{/if}
+                {#if role.status}<Pill state={role.status} />{/if}
+                {#if role.brief}<span class="muted">brief {role.brief.worked ? "being worked" : role.brief.delivered ? "delivered" : "not delivered"}</span>{/if}
               </div>
             </div>
             <div class="steps"></div>
-            <span class="mono el">{r.age ? dur(r.age) : ""}</span>
+            <span class="mono el">{role.age ? dur(role.age) : ""}</span>
           </div>
         {/each}
         {#each steps as { p, x }, i (p + i)}

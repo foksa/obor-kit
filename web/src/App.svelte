@@ -6,6 +6,7 @@
   import { href, pageKey } from "./lib/route";
   import { Live, mark } from "./lib/live.svelte";
   import { api } from "./lib/api";
+  import { projectState } from "./lib/fleet";
   import type { ProjectsEntry } from "./lib/types";
   import Fleet from "./pages/Fleet.svelte";
   import Project from "./pages/Project.svelte";
@@ -24,9 +25,6 @@
   const projects = new Live<ProjectsEntry[]>((s) => api.projects(s));
   projects.start();
   onDestroy(() => projects.stop());
-
-  const pstate = (p: ProjectsEntry) =>
-    p.error ? "fail" : !p.up ? "down" : p.needs_you ? "needs-you" : p.busy ? "working" : "free";
 
   // crumbs is where you are, after the fleet.
   const crumbs = $derived.by(() => {
@@ -108,8 +106,9 @@
       <h2 class="lbl group">Projects</h2>
       {#each projects.data || [] as p (p.name)}
         {@const here = route.project === p.name}
+        {@const state = projectState(p)}
         <a class="item" class:on={here && route.kind === "p"} href={href.project(p.name)}>
-          <Dot state={pstate(p)} title={pstate(p)} />
+          <Dot state={state} title={state} />
           <span class="ell">{p.name}</span>
           {#if p.needs_you}<span class="badge bad">{p.needs_you}</span>
           {:else}<span class="meta mono">{p.busy}/{p.busy + p.free}</span>{/if}
