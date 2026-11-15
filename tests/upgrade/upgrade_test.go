@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestUpgradeCheck is `make upgrade-check`: the previous release (OBOR_UPGRADE_PREV, else the catalog's newest version
-// below VERSION; its binary fetched into the cache when missing) upgraded to this checkout's build (dist/obor;
+// TestUpgradeCheck is `make upgrade-check`: the previous release (OBOR_UPGRADE_PREV, else the shipped catalog's newest
+// version below VERSION; its binary fetched into the cache when missing) upgraded to this checkout's build (dist/obor;
 // OBOR_UPGRADE_NEW another binary), with this checkout's guide. Skipped unless OBOR_UPGRADE_CHECK=1.
 func TestUpgradeCheck(t *testing.T) {
 	if os.Getenv("OBOR_UPGRADE_CHECK") != "1" {
@@ -24,10 +24,9 @@ func TestUpgradeCheck(t *testing.T) {
 	next := strings.TrimSpace(string(b))
 	prev := os.Getenv("OBOR_UPGRADE_PREV")
 	if prev == "" {
-		catalog, _ := os.ReadFile(filepath.Join(kit, "bin", "checksums.txt"))
 		var ok bool
-		if prev, ok = previous(string(catalog), next); !ok {
-			t.Fatalf("FAIL upgrade check: bin/checksums.txt has no release below %s", next)
+		if prev, ok = previous(shippedCatalog(t, kit), next); !ok {
+			t.Fatalf("FAIL upgrade check: the shipped catalog has no release below %s", next)
 		}
 	}
 	c, err := newCheck(t, kit, prev, next, true)
@@ -130,5 +129,67 @@ func TestPrevious(t *testing.T) {
 	}
 	if got, ok := previous(catalog, "0.22.0"); ok {
 		t.Errorf("previous of 0.22.0 = %q, want none", got)
+	}
+}
+
+// A version tagged locally and never shipped is no release: the shipped catalog stops at 0.40.1, while HEAD's catalog
+// has the abandoned 0.40.2's lines too. The check's previous release of 0.40.3 is 0.40.1.
+func TestPreviousSkipsAnUnshippedVersion(t *testing.T) {
+	shipped := "aa  dist/obor-0.40.0-linux-amd64\nbb  dist/obor-0.40.1-darwin-arm64\n"
+	head := "cc  dist/obor-0.40.2-darwin-arm64\n" + shipped
+	// Precondition: HEAD's catalog does name the abandoned tag, else a check reading it would not pick 0.40.2.
+	if got, ok := previous(head, "0.40.3"); !ok || got != "0.40.2" {
+		t.Fatalf("precondition: previous in HEAD's catalog = %q (%v), want the abandoned 0.40.2", got, ok)
+	}
+	if got, ok := previous(shipped, "0.40.3"); !ok || got != "0.40.1" {
+		t.Errorf("previous in the shipped catalog = %q (%v), want 0.40.1", got, ok)
+	}
+}
+
+// shippedCatalog reads the users' catalog from origin/main, which `make ship` pushes; when git has no origin/main (a
+// fork, a fixture repo without the remote) it is HEAD's, this checkout's bin/checksums.txt.
+func TestShippedCatalog(t *testing.T) {
+	kit := t.TempDir()
+	head := "hh  dist/obor-0.40.1-darwin-arm64\n"
+	if err := os.MkdirAll(filepath.Join(kit, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kit, "bin", "checksums.txt"), []byte(head), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A stub git, first on PATH: it logs the question and answers with origin/main's catalog, or exits 1 as `git show`
+	// does without the ref. The budget run counts real git processes only, and this needs no repository.
+	stub, calls := filepath.Join(kit, "stub", "git"), filepath.Join(kit, "stub", "calls")
+	t.Setenv("PATH", filepath.Join(kit, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, tc := range []struct {
+		name, shipped, want string
+	}{
+		{"origin/main's catalog", "ss  dist/obor-0.40.0-darwin-arm64\n", "ss  dist/obor-0.40.0-darwin-arm64\n"},
+		{"no origin/main: HEAD's catalog", "", head},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := "#!/bin/sh\necho \"$*\" > " + calls + "\n"
+			if tc.shipped == "" {
+				script += "exit 1\n"
+			} else {
+				script += "printf '%s' '" + tc.shipped + "'\n"
+			}
+			if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if got := shippedCatalog(t, kit); got != tc.want {
+				t.Errorf("shippedCatalog = %q, want %q", got, tc.want)
+			}
+			asked, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := string(asked), "-C "+kit+" show origin/main:bin/checksums.txt\n"; got != want {
+				t.Errorf("git was asked %q, want %q", got, want)
+			}
+		})
 	}
 }

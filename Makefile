@@ -270,8 +270,9 @@ deadcode:
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 
 # upgrade-check: a project made by the previous release survives this build installed over it. The previous
-# release is the catalog's newest x.y.z below VERSION (PREV=x.y.z another; the check's fixture needs a spec's
-# Model:, so a release before v0.23 fails it), its binary the kit's cache
+# release is the shipped catalog's newest x.y.z below VERSION (PREV=x.y.z another; the check's fixture needs a spec's
+# Model:, so a release before v0.23 fails it): the shipped catalog is origin/main's bin/checksums.txt, the one users
+# have, and HEAD's when there is no origin/main. Its binary is the kit's cache
 # (~/.obor/bin, fetched with curl and checked against bin/checksums.txt when missing); the new build is dist/obor; the
 # steps are the sh blocks of docs/UPGRADE-v<x.y>.md. The check is tests/upgrade's TestUpgradeCheck: a failure names
 # its step and the output. scripts/release runs it before the tag.
@@ -288,8 +289,9 @@ deps:
 
 # release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on the loop's branch,
 # the scratch worktree with marketplace obor-kit and the eight binaries (obor and each kind, per platform), the tag, the catalog committed on the branch and
-# main fast-forwarded to it); without V it writes only the local release files. DRY=1 (with V) prints the steps and
-# changes nothing. The owner's next command: ship.
+# main fast-forwarded to it); without V it writes only the local release files: the build and bin/checksums.txt, the
+# shipped catalog's lines (origin/main's; HEAD's when there is no origin/main) plus this version's. DRY=1 (with V)
+# prints the steps and changes nothing. The owner's next command: ship.
 release:
 ifeq ($(strip $(V)),)
 	@plugin=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n 1); \
@@ -308,8 +310,9 @@ ifeq ($(strip $(V)),)
 	    done; \
 	  done; \
 	done
-	awk -v version="$(VERSION)" -v bins="$(RELEASE_BINARIES)" 'BEGIN { n = split(bins, b, " ") } \
-	  { for (i = 1; i <= n; i++) if (index($$2, "dist/" b[i] "-" version "-") == 1) next; print }' bin/checksums.txt > dist/checksums.old.tmp
+	{ git show origin/main:bin/checksums.txt 2> /dev/null || cat bin/checksums.txt; } | \
+	  awk -v version="$(VERSION)" -v bins="$(RELEASE_BINARIES)" 'BEGIN { n = split(bins, b, " ") } \
+	  { for (i = 1; i <= n; i++) if (index($$2, "dist/" b[i] "-" version "-") == 1) next; print }' > dist/checksums.old.tmp
 	cat dist/checksums.old.tmp dist/checksums.tmp | LC_ALL=C sort -k2,2 > dist/checksums.sorted.tmp
 	mv dist/checksums.sorted.tmp bin/checksums.txt
 	rm -f dist/checksums.tmp dist/checksums.old.tmp
