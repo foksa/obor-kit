@@ -560,3 +560,32 @@ func TestPlacementReadsTheLiveAgentNotTheLabel(t *testing.T) {
 		refusedNothingTouched(t, x, "w1:x3", "pane", "--start", "L-04", "--tab", "w1:x3")
 	})
 }
+
+// serve places a lane's missing pane at a worker's start (PlaceLane): obor setup pane <LANE>'s own placement, a pane in
+// the lane's worktree labelled the lane's agent, no agent started in it (the start that wanted it runs there).
+func TestPlaceLanePlacesALanePane(t *testing.T) {
+	t.Parallel()
+	x := kindFx(t, map[string][]string{"w1:x3": {"pj-l-01"}})
+	x.lane(t, "L-03")
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	x.reset()
+	pane, err := s.PlaceLane(context.Background(), "L-03")
+	if err != nil {
+		t.Fatalf("PlaceLane: %v\n%s", err, out)
+	}
+	calls := strings.Join(x.reqs(), "\n")
+	hasNot(t, calls, "agent.start", "no agent started: the start that wanted the pane runs there")
+	if p := x.h.Pane(pane); p == nil || p.Cwd != x.LaneDir("L-03") || p.Label != "pj-l-03" {
+		t.Errorf("placed pane %s = %+v, want the lane's worktree and the label pj-l-03", pane, p)
+	}
+	if got := x.tabOf("pj-l-03"); got != "w1:x3" {
+		t.Errorf("pj-l-03 in tab %q, want the lanes tab w1:x3", got)
+	}
+	has(t, out.String(), "pane "+pane+" placed in lane L-03 for pj-l-03", "the placement said")
+
+	_, err = s.PlaceLane(context.Background(), "L-09")
+	if want := "unknown lane L-09 (lanes: 5; obor setup lane L-09 first)"; err == nil || err.Error() != want {
+		t.Errorf("PlaceLane of an unknown lane: %v, want %q", err, want)
+	}
+}

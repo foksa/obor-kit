@@ -187,6 +187,9 @@ set` refuses a model the config lacks) puts those models first, then the level's
   a free lane (<level>: <models>)`, or, every model paused, `WAITING T-xx (queued): <model> paused: <why> (until …), …`
   (also in `obor status`): serve dispatches it when a lane frees or a pause ends. `--after` adds `WAITING T-xx after
   T-yy (queued)`.
+- A lane with no pane (one added with `obor setup lane` after serve started) gets one from serve at the dispatch: a
+  pane in a lanes tab, labelled the lane's worker, and the worker starts in it. A failed placement is a needs-you
+  naming `obor setup pane <LANE>`.
 - `obor dispatch <T-xx> --model a,b` — overrides the level (a smoke test's model); no free lane is
   a refusal, not a wait. A level's models are the config's `agents.difficulty` entry for it, else the built-in default: hard
   `opus:high`, medium `sonnet, deepseek`, simple `deepseek, sonnet, haiku`; `obor setup show` prints them.

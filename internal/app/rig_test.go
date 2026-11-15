@@ -2657,7 +2657,14 @@ func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness
 	kit, _ := filepath.Abs("../..")
 	f := &boxPrompter{box: map[string]string{}}
 	ag := &startAgents{h: h, sid: "new-session"}
-	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, Prompter: f, Kit: kit}, f, ag
+	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, PlaceLane: h.placeLane, Prompter: f, Kit: kit}, f, ag
+}
+
+// placeLane is serve's lane placement on the harness (Loop.PlaceLane): the lane it was asked about, and a new pane's id
+// in the lane that the test brings into the snapshot (a created event) as herdr would, or not.
+func (h *harness) placeLane(_ context.Context, lane string) (string, error) {
+	h.placed = append(h.placed, lane)
+	return "w1:p9", nil
 }
 
 // proj is pj now (a reload replaces it).
@@ -3959,6 +3966,7 @@ type harness struct {
 	snap     port.Snapshot     // herdr's session now
 	sidMap   map[string]string // sids: agent → session id, put in the store (applySids)
 	sidSeq   int64
+	placed   []string // the lanes serve placed a pane for (Loop.PlaceLane, placeLane)
 }
 
 func newHarness(t *testing.T) *harness {

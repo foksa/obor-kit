@@ -101,18 +101,57 @@ func (s *Setup) lanePane(ctx context.Context, lane string, w where, startNow boo
 	if err := s.load(); err != nil {
 		return err
 	}
+	l, err := s.laneWorktree(lane)
+	if err != nil {
+		return err
+	}
+	worker, _ := roles.Lookup("worker")
+	return s.start(ctx, agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, role: worker, lane: lane,
+		noStart: !startNow}, w)
+}
+
+// laneWorktree is the configured lane lane and its worktree (which must be there): unknown lane, or no dir, is its
+// refusal.
+func (s *Setup) laneWorktree(lane string) (config.Lane, error) {
 	for _, l := range s.cfg.Lanes() {
 		if l.Name != lane {
 			continue
 		}
 		if _, err := os.Stat(l.Dir); err != nil {
-			return project.Failf("no lane dir %s (obor setup lane %s)", l.Dir, lane)
+			return config.Lane{}, project.Failf("no lane dir %s (obor setup lane %s)", l.Dir, lane)
 		}
-		worker, _ := roles.Lookup("worker")
-		return s.start(ctx, agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, role: worker, lane: lane,
-			noStart: !startNow}, w)
+		return l, nil
 	}
-	return project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.LaneCount(), lane)
+	return config.Lane{}, project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.LaneCount(), lane)
+}
+
+// PlaceLane places a pane for lane's worker in the lane's worktree, labelled with the lane's agent and with no agent in
+// it: obor setup pane <LANE>'s placement (a lanes tab of the project, the pane in the lane, its label the worker's
+// name). serve calls it at a worker's start when its lane has no pane; the start that wanted the pane runs there next,
+// typing the lane's env line and cd (launch). The lane must be configured and its worktree there; a terminal that
+// refuses the placement is its error.
+func (s *Setup) PlaceLane(ctx context.Context, lane string) (string, error) {
+	if err := s.load(); err != nil {
+		return "", err
+	}
+	l, err := s.laneWorktree(lane)
+	if err != nil {
+		return "", err
+	}
+	// The layout is chosen against the panes as they are now: a long-lived terminal adapter keeps its last read.
+	if _, err := s.T.Panes(ctx); err != nil {
+		return "", project.Failf("terminal pane list failed (is the terminal running?)")
+	}
+	a := agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, lane: lane}
+	pane, err := s.T.Place(ctx, s.placement(a, where{}, nil))
+	if err != nil {
+		return "", err
+	}
+	if err := s.T.RenamePane(ctx, pane, a.name); err != nil {
+		return "", project.Failf("terminal pane rename %s %s failed", pane, a.name)
+	}
+	s.say("pane %s placed in lane %s for %s", pane, lane, a.name)
+	return pane, nil
 }
 
 func (s *Setup) role(ctx context.Context, args []string) error {

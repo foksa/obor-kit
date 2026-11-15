@@ -58,7 +58,7 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		}
 		s.say("lane_setup ok: %s", c.Cmd)
 	}
-	s.say("OK lane %s at %s", lane, dir)
+	s.say("OK lane %s at %s (no pane: serve places it at the lane's first dispatch)", lane, dir)
 	return nil
 }
 

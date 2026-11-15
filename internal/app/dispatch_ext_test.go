@@ -557,7 +557,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			}
 		})
 	})
-	t.Run("no pane in the lane", func(t *testing.T) {
+	t.Run("no pane in the lane: serve places one", func(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
@@ -569,15 +569,26 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			r.waitStep("1 result lane.prepare")
 			r.passes()
 			r.later(time.Minute)
-			r.waitPrefix("1 fact needs-you{no pane in lane L-01")
-			if r.has("1 intent agent.start") {
-				t.Errorf("a start with no pane: %q", r.steps())
+			r.waitFor("a pane placed in L-01", func() bool { return len(r.placements()) == 1 })
+			r.waitStep("1 result agent.start")
+			if r.hasPrefix("1 fact needs-you{no pane in lane") {
+				t.Errorf("needs-you with a placement: %q", r.steps())
+			}
+			placed := r.placements()
+			r.mu.Lock()
+			launch := r.launches[0]
+			r.mu.Unlock()
+			if placed[0].lane != "L-01" || launch.Pane != placed[0].pane {
+				t.Errorf("placed %+v, started in %q; want a pane in L-01 started in", placed, launch.Pane)
+			}
+			if len(r.placements()) != 1 {
+				t.Errorf("placements: %+v, want the one", r.placements())
 			}
 		})
 	})
 	// obor setup pane moved a pane into the lane after serve started (its shell cd'd there, and a cd gives no herdr
-	// event), so the snapshot keeps its old cwd. Herdr's panes are read again before the needs-you: the start goes
-	// ahead. When herdr has no pane in the lane either, the needs-you goes out.
+	// event), so the snapshot keeps its old cwd. Herdr's panes are read again before anything is placed: the start goes
+	// ahead.
 	t.Run("a pane moved into the lane", func(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
@@ -593,20 +604,33 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			if r.hasPrefix("1 fact needs-you{no pane in lane") {
 				t.Errorf("needs-you with a pane in the lane: %q", r.steps())
 			}
+			if n := len(r.placements()); n != 0 {
+				t.Errorf("placements with a pane the read found: %d, want none", n)
+			}
 			r.waitStep("1 result work")
 		})
 	})
-	t.Run("herdr has no pane in the lane either", func(t *testing.T) {
+	t.Run("the placement fails: needs-you with its error", func(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root })
+			r.placeErr = errors.New("terminal pane split w1:p1 failed: boom")
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 result lane.prepare")
 			r.passes()
 			r.later(time.Minute)
-			r.waitPrefix("1 fact needs-you{no pane in lane L-01")
+			r.waitFor("needs-you naming the placement's error", func() bool {
+				for _, s := range r.steps() {
+					if strings.Contains(s, "needs-you{no pane in lane L-01") &&
+						strings.Contains(s, "terminal pane split w1:p1 failed: boom") &&
+						strings.Contains(s, "obor setup pane L-01") {
+						return true
+					}
+				}
+				return false
+			})
 			if r.has("1 intent agent.start") {
 				t.Errorf("a start with no pane: %q", r.steps())
 			}

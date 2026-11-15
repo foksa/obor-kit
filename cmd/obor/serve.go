@@ -28,6 +28,7 @@ import (
 	"obor/internal/project"
 	"obor/internal/selfexec"
 	"obor/internal/service"
+	"obor/internal/setup"
 )
 
 // serveCmd is `obor serve` (the app; one per project, run in it; the merge loop), `obor serve
@@ -191,6 +192,11 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		}
 		l := &app.Loop{Workflow: wf, Agents: agents, Prompter: term.Control, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{repo.Root}}
+		// A lane with no pane at its worker's start: serve places one, as obor setup pane <LANE> does.
+		l.PlaceLane = func(ctx context.Context, lane string) (string, error) {
+			s := &setup.Setup{Kit: project.KitRoot(env), Dir: repo.Root, Env: env, T: term.Setup, Out: flushWriter{}}
+			return s.PlaceLane(ctx, lane)
+		}
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
 		l.Restart = serveRestarter(cfg, env, end)
