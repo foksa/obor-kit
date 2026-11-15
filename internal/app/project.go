@@ -126,6 +126,10 @@ func (p *proj) fold(r event.Record) {
 			p.folded.active[r.Task] = append(p.folded.active[r.Task], r)
 		}
 	case event.StepResumed:
+		if r.Task == event.TrustTask { // one pane's dialog answered: the others stay
+			p.trustAnswered(r.Fact().Pane)
+			return
+		}
 		p.resume(r.Task)
 	case event.StepUnblocked:
 		if p.asks(r.Task) { // obor resume --regate of a worker's question: the question ends with it
@@ -277,7 +281,7 @@ func (p *proj) keptTask(l port.Lane) port.Lane {
 // review requests', a failed self-restart's, a failing rule's, the config rewrite's), not a task's.
 func projectKey(task string) bool {
 	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
-		task == event.ServeTask || task == event.RuleTask || task == event.ConfigTask
+		task == event.ServeTask || task == event.RuleTask || task == event.ConfigTask || task == event.TrustTask
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

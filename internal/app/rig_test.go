@@ -2929,16 +2929,21 @@ func (g *reviewGitFake) detachedAt() string {
 	return strings.Join(out, ",")
 }
 
-// agentsSpy is an Agents that records every Launch and starts nothing; launchErr fails each launch.
+// agentsSpy is an Agents that records every Launch and starts nothing; launchErr fails each launch, trust (a pane)
+// holds each at a trust dialog there (its Started and a port.TrustDialog).
 type agentsSpy struct {
 	launches  []port.Launch
 	launchErr error
+	trust     string
 }
 
 func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
 	s.launches = append(s.launches, l)
 	if s.launchErr != nil {
 		return port.Started{}, s.launchErr
+	}
+	if s.trust != "" {
+		return port.Started{Line: "RESTARTED " + l.Agent, Pane: s.trust}, &port.TrustDialog{Pane: s.trust, Hint: "a dialog"}
 	}
 	return port.Started{Line: "RESTARTED " + l.Agent}, nil
 }
@@ -3761,11 +3766,15 @@ type startEffects struct {
 	*concFakes
 	start func(port.Launch)
 	typed []string
+	trust string // a pane: each start held at a trust dialog there (its Started and a port.TrustDialog)
 }
 
 func (f *startEffects) Launch(_ context.Context, l port.Launch) (port.Started, error) {
 	if f.start != nil {
 		f.start(l)
+	}
+	if f.trust != "" {
+		return port.Started{Line: "STARTED", Pane: f.trust}, &port.TrustDialog{Pane: f.trust, Hint: "a dialog"}
 	}
 	return port.Started{Line: "STARTED"}, nil
 }

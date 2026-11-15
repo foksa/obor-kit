@@ -24,7 +24,8 @@ import (
 // ("running": no second start of the job). A later start of the job (start.<job step>.2 … once its start is done
 // and the integrator is gone again) runs when the snapshot shows it does not run. An integrator that
 // runs, or a start that did not carry the wake, gets the job's wake typed (send); a job whose prompt failed is sent
-// again under its key.
+// again under its key. A start held by a trust dialog (port.TrustDialog) is a start that carried the wake, then the
+// trust needs-you.
 func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep string) bool {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: jobStep}
 	start := event.Key{Task: mt.task, Attempt: mt.attempt, Step: stepStart + jobStep}
@@ -62,9 +63,13 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	}
 	data := promptData{Agent: p.integrator, Patch: mt.cand.Patch}
 	if fresh || w.State != Identified || replay {
-		if !a.startJob(ctx, p, mt, event.Intent{Key: start, Class: event.ClassStart, Data: d}, key, data,
+		var trust *port.TrustDialog
+		ok := a.startJob(ctx, p, mt, event.Intent{Key: start, Class: event.ClassStart, Data: d}, key, data,
 			func(ctx context.Context, first string) (any, error) {
 				s, err := a.startIntegrator(ctx, fx.Agents, p.root, port.Launch{Prompt: first, Fresh: fresh, Force: force})
+				if trust = port.TrustHeld(err); trust != nil { // started: its first prompt is taken once the dialog is answered
+					err = nil
+				}
 				switch {
 				case err != nil:
 					return nil, fmt.Errorf("integrator %s not started: %w", p.integrator, err)
@@ -73,7 +78,11 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 				}
 				return startOut{Line: s.Line, Agent: p.integrator, Pane: s.Pane, Terminal: s.Terminal, Kind: s.Kind,
 					Session: s.Session}, nil
-			}) {
+			})
+		if trust != nil { // after the start's facts: the trust needs-you of the start the dialog holds
+			a.trustNeeds(p, p.integrator, trust)
+		}
+		if !ok {
 			return false
 		}
 		if p.log.Done(key) {

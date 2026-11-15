@@ -30,8 +30,9 @@ const workerStartSettle = 30 * time.Second
 // labelled pane is at its shell: labelledShell), no stop step or other claim pending for it (busy), and the project's
 // pause not in force (any reason; a model's pause does not hold it). Action: the worker started in that pane as
 // a restart without --fresh starts it — its recorded session resumed where its kind resumes, else a new one — with
-// that job's wake (launch carries the Prompt: typed into a resumed session, a new one's first prompt). Keyed by the
-// task's dispatch fact; done when the pane runs an agent.
+// that job's wake (launch carries the Prompt: typed into a resumed session, a new one's first prompt); a start held by a
+// trust dialog is a start, then the trust needs-you. Keyed by the task's dispatch fact; done when the pane runs an
+// agent.
 func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
 	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
@@ -58,10 +59,14 @@ func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time
 		req := port.Launch{Agent: mt.agent, Pane: pane.ID, Prompt: wakeLine(JobID(job)), Effort: mt.disp.Effort, Type: typ}
 		return mt.dispSeq, action{call: func(ctx context.Context) error {
 			s, err := fx.Agents.Launch(ctx, req)
-			if err != nil {
+			trust := port.TrustHeld(err)
+			if err != nil && trust == nil {
 				return fmt.Errorf("%s's worker %s not started in %s: %w", task, req.Agent, req.Pane, err)
 			}
 			a.logf("%s: %s's worker started again for %s: %s", p.name, task, JobID(job), s.Line)
+			if trust != nil { // started: the worker takes its wake once the dialog is answered
+				a.trustNeeds(p, req.Agent, trust)
+			}
 			return nil
 		}}, true
 	}
@@ -286,7 +291,8 @@ func otherAgent(root, label string, names []string) bool {
 // start does there when that pane is at its shell; one that runs an agent is cannot tell (moved): the intent
 // stays the gone pane's (its key is pending), so a start there that ran and left no result cannot be told from any
 // other agent, and a second start would stop a worker already at its job. A launch refusal (background
-// tasks without force, the agent proven live in another pane) is final: needs-you{start: why}. It runs under
+// tasks without force, the agent proven live in another pane) is final: needs-you{start: why}. A start held by a
+// trust dialog (port.TrustDialog) is a start: its result, then the trust needs-you. It runs under
 // work job's intent and carries its wake (startJob).
 func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
 	pending := p.log.Open(key)
@@ -299,6 +305,12 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 	replay := pending && rec.Pane == d.Pane
 	moved := pending && rec.Pane != d.Pane // the recorded pane is gone: d.Pane was chosen again
 	in := event.Intent{Key: key, Class: event.ClassStart, Data: d}
+	var trust *port.TrustDialog
+	defer func() { // after the start's facts: the trust needs-you of a start held by the dialog
+		if trust != nil {
+			a.trustNeeds(p, d.Agent, trust)
+		}
+	}()
 	return a.startJob(ctx, p, mt, in, work, promptData{Agent: mt.agent}, func(ctx context.Context, first string) (any, error) {
 		if moved {
 			if runs := a.runsIn(d.Pane); runs != "" {
@@ -320,6 +332,9 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 		typ, _ := config.ParseModelRef(mt.disp.Type) // the dispatch's type, not the lane's configured one
 		s, err := fx.Agents.Launch(ctx, port.Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
 			Prompt: first, Effort: mt.disp.Effort, Type: typ})
+		if trust = port.TrustHeld(err); trust != nil { // started: its first prompt is taken once the dialog is answered
+			err = nil
+		}
 		switch {
 		case err != nil && startRefused(err):
 			return startOut{Refused: err.Error()}, nil

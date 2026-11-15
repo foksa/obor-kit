@@ -36,6 +36,9 @@ const (
 	// VersionTask is the task key of the versions of the tools obor drives (the agent CLIs, the terminal): the
 	// project's facts, one per change (internal/app/versions.go).
 	VersionTask = "version"
+	// TrustTask is the task key of the needs-you of an agent start held by a "Trust this folder?" dialog: one per
+	// pane (its data's Pane), ended by a resumed fact naming the pane.
+	TrustTask = "trust"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).

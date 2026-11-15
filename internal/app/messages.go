@@ -438,6 +438,7 @@ func sameSession(a, b string) bool {
 // deliverLine posts q's line to target's session through kind post's inbox (the lead, or an agent whose kind has
 // one) or, post "", types it into target (its pane) under its delivery key (P, transmit). Refused before a byte went
 // out: fact failed, no result, delivered again on a later pass; a byte went out and then an error: result "sent: …".
+// A fresh start held by a trust dialog (port.TrustDialog) carried the line: sent, then the trust needs-you.
 // A post cut before a byte (serve's own stop, or the post's own cancellation): nothing recorded, the line still
 // queued, and while serve runs not posted again before a delay (uncounted). sent: its delivery's
 // result is in the log and it went out (not closed unsent); a line another deliverLine is sending now is left to it.
@@ -472,6 +473,7 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 		post = startRoute
 	}
 	began := false
+	var trust *port.TrustDialog
 	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassPrompt, Data: outbox.LineData{To: q.Msg().To}},
 		func(ctx context.Context) (any, error) {
 			if closing {
@@ -479,6 +481,9 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 			}
 			if post == startRoute { // the stopped agent's fresh start in its pane carries the line
 				_, err := fx.Agents.Launch(ctx, port.Launch{Agent: q.Msg().To, Pane: target, Fresh: true, Prompt: q.Msg().Line})
+				if trust = port.TrustHeld(err); trust != nil { // started: the line is taken once the dialog is answered
+					err = nil
+				}
 				if err != nil {
 					return nil, fmt.Errorf("%s not started on its brief: %w", q.Msg().To, err)
 				}
@@ -488,6 +493,9 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 			began, err = fx.transmit(ctx, post, target, q.Msg().Line, false)
 			return sentResult(began, err)
 		})
+	if trust != nil { // after the delivery's result: the trust needs-you of the start the dialog holds
+		a.trustNeeds(p, q.Msg().To, trust)
+	}
 	if err != nil && !began { // nothing went out: the next pass delivers it
 		if cutByServe(ctx, err) { // the post was cut, not refused
 			a.uncounted(ctx, p, key, event.MsgTask+" "+event.StepFailed+"{"+key.Step+": "+err.Error()+"}")

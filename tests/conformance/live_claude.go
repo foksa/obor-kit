@@ -231,11 +231,11 @@ func (l *lab) manifestPlugin() (string, error) {
 // trustDialog: CC-L5's trust dialog against the driver's trustRE, and H-L2 there (agent.prompt refused, nothing typed;
 // pane.send_input typed, which answers the dialog). Whether a trust dialog showed.
 func trustDialog(l *lab, pane string, s started) bool {
-	whereT := at("internal/launch/start.go", "var trustRE") + ", CAP §2.1"
+	whereT := at("internal/agents/agents.go", "var trustRE") + ", CAP §2.1"
 	whereB := at(launchGo, "l.H.Prompt(") + ", " + at(socketGo, "func (s *Socket) Prompt") + ", F3.3"
-	trust := sourceRegexp("internal/launch/start.go", "trustRE")
+	trust := sourceRegexp("internal/agents/agents.go", "trustRE")
 	if trust == nil {
-		report("FAIL", "CC-L5", "internal/launch/start.go has no trustRE to check", whereT)
+		report("FAIL", "CC-L5", "internal/agents/agents.go has no trustRE to check", whereT)
 		return false
 	}
 	var screen string
