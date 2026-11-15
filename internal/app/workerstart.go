@@ -124,8 +124,8 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // pane it names that is gone (its tab closed, a new labelled one made by obor setup pane) is chosen again, as a first
 // start's is, and never the recorded id (one that runs an agent is cannot tell, startWorker). No pane in the
 // lane for Gone: herdr's panes are read again (a cd or a rename in one gives no event) and the agent
-// starts if that finds one; still none: needs-you{no pane in lane}. A failed read is no answer: nothing is recorded and
-// the next pass reads again.
+// starts if that finds one; still none: serve places a pane there (PlaceLane) and the next pass starts in it. A failed
+// read is no answer: nothing is recorded and the next pass reads again.
 func (a *App) nextStart(p *proj, mt mtask) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
@@ -151,10 +151,11 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 }
 
 // waitPane is nextStart's wait for a pane of the lane (under mu): nothing until opt.Gone has passed since the first pass
-// without one, then herdr's panes are read again before the owner is told; the agent starts in a pane the read finds
-// (the next pass: the wait ends only once the snapshot, with the read's cwd and label, places it there), and none is
-// needs-you{no pane in lane}. serve stopping while the read runs is no answer either: the pass is the last and nothing
-// is recorded.
+// without one, then herdr's panes are read again. The agent starts in a pane the read finds (the next pass: the wait
+// ends only once the snapshot, with the read's cwd and label, places it there); a lane the read finds none in gets a
+// pane placed (PlaceLane, obor setup pane <LANE>'s own placement) and the next pass starts in it. A failed placement is
+// needs-you{no pane in lane} with its error. serve stopping while the read runs is no answer either: the pass is the
+// last and nothing is recorded.
 func (a *App) waitPane(p *proj, mt mtask) step {
 	now := a.opt.Now()
 	since, ok := p.nopane[mt.task]
@@ -165,9 +166,9 @@ func (a *App) waitPane(p *proj, mt mtask) step {
 	if now.Sub(since) < a.opt.Gone {
 		return nil
 	}
-	return func(ctx context.Context, _ *Loop) bool {
+	return func(ctx context.Context, fx *Loop) bool {
 		// The snapshot's cwd can be stale (a cd in the pane gives no event): read herdr's panes again before
-		// the owner is told there is none. A failed or canceled read records nothing, so the task keeps waiting on
+		// anything is placed. A failed or canceled read records nothing, so the task keeps waiting on
 		// the same clock and the next pass tries again.
 		panes, err := a.rereadPanes(ctx)
 		if err != nil {
@@ -196,10 +197,26 @@ func (a *App) waitPane(p *proj, mt mtask) step {
 			if ctx.Err() != nil { // serve stopped after the read answered: the last pass of it, the owner told nothing
 				return false
 			}
-			return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
+			return a.placeLane(ctx, p, fx, mt)
 		}
 		return usable
 	}
+}
+
+// placeLane is waitPane's answer to a lane the read finds no pane in: a pane for its worker, placed as obor setup pane
+// <LANE> places one (PlaceLane). The next pass starts the worker in it, as in a pane the read found. A failed placement
+// is needs-you{no pane in lane} with its error and the command that places a pane by hand.
+func (a *App) placeLane(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
+	what := "no pane in lane " + mt.lane + " (" + mt.disp.Dir + ")"
+	if fx.PlaceLane == nil {
+		return a.needsYou(p, &mt, causeNoPane, what+": serve has no pane placement; obor setup pane "+mt.lane)
+	}
+	pane, err := fx.PlaceLane(ctx, mt.lane)
+	if err != nil {
+		return a.needsYou(p, &mt, causeNoPane, what+": "+err.Error()+"; obor setup pane "+mt.lane)
+	}
+	a.logf("%s: %s: pane %s placed in lane %s for its worker", p.name, mt.task, pane, mt.lane)
+	return true
 }
 
 // placement is paneIn over the snapshot (under mu): the pane of p's group to start the lane at dir's agent in; nil:

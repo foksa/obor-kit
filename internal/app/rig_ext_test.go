@@ -800,9 +800,6 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	if err := d.enter("start"); err != nil {
 		return port.Started{}, err
 	}
-	if req.Pane != "w1:p1" {
-		return port.Started{}, errors.New("unexpected start of pj-l-01: " + req.Pane)
-	}
 	if err := d.hold(ctx, "start", "before"); err != nil {
 		return port.Started{}, err
 	}
@@ -819,9 +816,12 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 		sid = ""
 	}
 	d.mu.Unlock()
-	d.r.f.Set("w1:p1", func(p *herdrtest.Pane) {
+	// The lane's pane the start names: the lane's own, or the one serve placed for it.
+	if !d.r.f.Set(req.Pane, func(p *herdrtest.Pane) {
 		p.Kind, p.Name, p.Status, p.Transcript, p.Session = "claude", "pj-l-01", "idle", transcript, sid
-	})
+	}) {
+		return port.Started{}, errors.New("unexpected start of pj-l-01 in " + req.Pane)
+	}
 	d.r.push()
 	d.mu.Lock()
 	gate := d.gate
@@ -836,7 +836,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	if err := d.hold(ctx, "start", "after"); err != nil {
 		return port.Started{}, err
 	}
-	return port.Started{Line: "STARTED pj-l-01", Pane: "w1:p1", Kind: "claude", Session: sid}, nil
+	return port.Started{Line: "STARTED pj-l-01", Pane: req.Pane, Kind: "claude", Session: sid}, nil
 }
 
 // cutPrompter is the herdr prompter with the work job's cut points.
@@ -1835,6 +1835,10 @@ type loopRig struct {
 	mu       sync.Mutex
 	stops    []string      // "<agent> <pane>" per Agents.Stop
 	launches []port.Launch // every Agents.Launch, in order
+	// places: the Loop's PlaceLane calls, in order; placeErr: what PlaceLane fails with instead of placing (nil: it
+	// places). placeErr is set before start.
+	places   []placedPane
+	placeErr error
 	// onStart, onStop: an error a start or stop gives instead of acting (nil: none; under mu).
 	onStart, onStop func() error
 	loopErr         error // what the Loop adapters' constructor fails with (nil: none; under mu)
@@ -2067,6 +2071,36 @@ func (r *loopRig) stopped() []string {
 	return append([]string(nil), r.stops...)
 }
 
+// placedPane is one Loop.PlaceLane call: the lane, and the pane it answered.
+type placedPane struct{ lane, pane string }
+
+// placeLane is the Loop's PlaceLane on the rig: a shell pane in the lane, labelled the lane's worker (obor setup pane
+// <LANE>'s placement is setup's, which the app does not run), and herdr's created event for it, so the app starts the
+// worker there. placeErr fails it instead.
+func (r *loopRig) placeLane(_ context.Context, lane string) (string, error) {
+	r.mu.Lock()
+	err := r.placeErr
+	id := fmt.Sprintf("w1:p%d", 70+len(r.places)+1)
+	if err == nil {
+		r.places = append(r.places, placedPane{lane: lane, pane: id})
+	}
+	r.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	r.f.Shell(id, "pj-"+strings.ToLower(lane), r.p.LaneDir(lane))
+	r.srv.Push(herdr.EventCreated, map[string]any{"type": "pane_created",
+		"pane": map[string]any{"pane_id": id, "cwd": r.p.LaneDir(lane)}})
+	return id, nil
+}
+
+// placements is the Loop's PlaceLane calls so far.
+func (r *loopRig) placements() []placedPane {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]placedPane(nil), r.places...)
+}
+
 // workerStops is the stops of agents but the integrator (serve stops pj-int after each verdict that leaves no
 // job for it).
 func (r *loopRig) workerStops() []string {
@@ -2157,7 +2191,7 @@ func (r *loopRig) launch() {
 				night = r.nightOf()
 			}
 			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
-				Inbox: r.inbox, Restart: r.restart, Config: r.config}
+				Inbox: r.inbox, Restart: r.restart, Config: r.config, PlaceLane: r.placeLane}
 			if r.disp != nil {
 				r.disp.loop(fx, panes)
 			}

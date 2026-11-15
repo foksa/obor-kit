@@ -4,7 +4,8 @@
 //	lane <L-NN>  git worktree add --detach <lanes.dir>/<L-NN> <current branch>; symlink lanes.links; raise lanes.count
 //	        to NN when it is the next lane (lanes are L-01 … L-NN); run lanes.setup in the lane (under its timeout), leaving
 //	        <state>/lanes/<LANE>.setup when it finished (obor init's rerun skips a lane only then, and
-//	        only while that marker names the lane_setup configured now).
+//	        only while that marker names the lane_setup configured now). No pane: serve places the lane's worker pane at
+//	        its first dispatch (PlaceLane; obor setup pane <LANE> places one before).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
 //	        with its env typed but no agent in it unless --start (dispatch starts a fresh worker anyway) (agent
 //	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place): split the largest pane of --tab

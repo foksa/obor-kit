@@ -188,7 +188,7 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 		t.Fatal("precondition: no lane dir, no lanes")
 	}
 	out := x.ok(t, "lane", "L-01")
-	if want := "OK lane L-01 at " + lane; last(out) != want {
+	if want := "OK lane L-01 at " + lane + " (no pane: serve places it at the lane's first dispatch)"; last(out) != want {
 		t.Errorf("last line %q, want %q", last(out), want)
 	}
 	has(t, out, "config lanes.count = 1 (uncommitted)", "the count raised")

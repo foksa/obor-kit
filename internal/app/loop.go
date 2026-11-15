@@ -36,6 +36,11 @@ type Loop struct {
 	// is gated, published, dispatched or reviewed.
 	Workflow port.Workflow
 	Agents   port.Agents
+	// PlaceLane places a new pane for lane's worker in its worktree and returns its id, as obor setup pane <LANE> does
+	// (a lane-only tab of the project, labelled the lane's agent); no agent runs there yet. serve's start places one
+	// when a dispatch finds no pane in the lane, and starts the worker in it on the next pass. Nil: a Loop without one
+	// (tests): a lane with no pane is needs-you{no pane in lane}.
+	PlaceLane func(ctx context.Context, lane string) (string, error)
 	// Prompter types job wakes and lines to the agents in their panes (nil: none typed; posted ones need Inbox).
 	Prompter port.Prompter
 	// Specs is what a dispatch reads of a task's id and spec; Kit is the obor kit (the worker prompt's template).

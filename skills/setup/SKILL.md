@@ -20,7 +20,8 @@ obor setup lane L-03
 Takes the next lane name (`L-01` … `L-NN`, in order) or one already configured (a rerun). It raises the config's
 `lanes.count` (a `lanes.list` names the lanes: add `{"name": "L-03"}` to the list by hand first, then run it), adds a
 worktree detached at the main checkout's branch under `<lanes.dir>`, symlinks `lanes.links`, runs `lanes.setup`
-there. A `FAIL lane_setup …` shows the command's output: fix with the user. A lane has no model: the task spec's
+there. It places no pane: serve places the lane's worker pane in a lanes tab at its first dispatch (`obor setup pane L-03`
+places one now, if you want it there before). A `FAIL lane_setup …` shows the command's output: fix with the user. A lane has no model: the task spec's
 `Model:` line tries those models first, its `Difficulty:` level picks the rest at dispatch, and
 `obor dispatch <task> --model <model>[,<model>…]` overrides both (`obor setup show` prints the levels).
 
