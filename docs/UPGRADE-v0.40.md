@@ -1,6 +1,12 @@
 # Upgrading an obor project from v0.39 to v0.40
 
-## v0.40.2 (lead start fix; `obor restart --handoff`; web nav shows agents at work)
+## v0.40.3 (lead start fix; `obor restart --handoff`; nightly needs-you follows the last check; web nav shows agents at work)
+
+v0.40.2 was tagged but never published; v0.40.3 carries its changes.
+
+**Nightly.** A RED nightly's needs-you now follows the last full check, a hand `obor nightly` included: GREEN ends it,
+RED at another commit replaces the commit it names. `obor resume nightly "<why>"` acknowledges a RED nightly: the
+needs-you and its hourly repeat end, the why is recorded, and the next RED run raises a fresh one.
 
 **Lead start.** `obor lead` started the lead with `/obor:lead handoff` when `roles.lead` named an effort
 (`opus:high`), so the lead continued the Handoff's next steps instead of asking you. A lead you start now always
