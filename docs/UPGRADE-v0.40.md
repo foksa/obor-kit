@@ -1,5 +1,22 @@
 # Upgrading an obor project from v0.39 to v0.40
 
+## v0.40.5 (the monitor shows a new version; review briefs say the gate passed)
+
+**Web monitor.** When `obor web` starts serving a new page (it follows a new obor binary by itself), an open tab
+shows a "New version: reload" link in the nav instead of running the old page. Unsaved edits stay until you click it.
+A tab opened before v0.40.5 cannot learn this: reload it by hand once after upgrading.
+
+**Reviews.** The review and verify briefs tell the reviewer that each merge in scope passed serve's merge gate, so it
+runs probes and the tests a finding names, not the project's check. The brief names `docs/accepted.md` only once the
+file exists.
+
+**Lead commands.** `skills/lead/commands.md` names `obor serve restart`, and says that a task's report is in its merge
+commit's body after the spec.
+
+```sh
+# nothing to do (reload open obor web tabs once)
+```
+
 ## v0.40.4 (serve opens a missing lane pane; trust dialogs; `obor idle` on a fresh project; config reload rule)
 
 **Lane panes.** A worker start in a lane with no pane (`obor setup lane` makes only the worktree) no longer stops at
