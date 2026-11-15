@@ -92,9 +92,9 @@ or reviewed task, a merge-loop needs-you's regate, reprompt or retry; a flag onl
 field comments of `config.Data` (`internal/config/config.go`); `obor config validate` checks it (`validate.go`), and
 a load warns on every key it does not know. Serve reads the file at each pass, so a change counts at its next pass with
 no restart; it reads `project.name`, `project.agent_prefix`, `project.terminal`, whether `agents.roles.integrator` is
-set and `agents.roles.lead` (the lead's name and the kind its outbox routes to) once, at its start, so a change to one
-needs `obor serve` restarted (`obor config validate`'s OK line says so). The file is **shape 2**: ten top-level keys —
-nine groups by what they are about, and `version` — in this order.
+set, `agents.roles.lead` (the lead's name) and the kind its outbox routes to (`agents.models.<the lead's model>.kind`)
+once, at its start, so a change to one needs `obor serve` restarted (`obor config validate`'s OK line says so).
+The file is **shape 2**: ten top-level keys — nine groups by what they are about, and `version` — in this order.
 ```jsonc
 {
   "version": 2,
