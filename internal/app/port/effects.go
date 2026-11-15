@@ -14,8 +14,8 @@ import (
 // Agents starts and stops obor agents in their panes; the kill sequence is the implementation's (launch.Launcher).
 type Agents interface {
 	// Launch starts req.Agent (a lane's agent, a role, an agents entry) in its pane, its kind and args from its lane
-	// type or role, after stopping what runs there. Returns the one-line result and the agent it started; a start
-	// held by a trust dialog returns them too, with a *TrustDialog error (TrustHeld).
+	// type or role, after stopping what runs there. Returns the one-line result and the agent it started; a fresh
+	// start held by a trust dialog returns them too, with a *TrustDialog error (TrustHeld).
 	Launch(ctx context.Context, req Launch) (Started, error)
 	// Stop quits agent in pane ("": the pane labelled agent) and leaves the pane at its shell; force also stops a
 	// working one (up to StopIdle to go idle after Escape). Returns the STOPPED line.
@@ -314,8 +314,9 @@ type StartError struct {
 	// Retry: Hint carries the command that starts the agent again (a kind's startup hint): a caller adding that
 	// command to a whole failure adds none of its own.
 	Retry bool
-	// Trust (with NotReady): the terminal accepted the start and the pane shows a "Trust this folder?" dialog: the
-	// agent runs and takes its first prompt once a person answers it (Launch's TrustDialog).
+	// Trust (with NotReady): the terminal accepted a fresh start (its first prompt in its argv) and the pane shows a
+	// "Trust this folder?" dialog: the agent runs and takes its first prompt once a person answers it (Launch's
+	// TrustDialog). A resumed start at the dialog is no Trust: its wake is not delivered, so it is a failed start.
 	Trust bool
 }
 
@@ -326,12 +327,13 @@ func (e *StartError) Error() string {
 	return e.Err.Error()
 }
 
-// TrustDialog is Agents.Launch's error for a start held by a "Trust this folder?" dialog in Pane: the agent runs
-// there and takes the start's first prompt (an argument of its start) once a person answers the dialog, so the start
-// happened and Launch's Started is filled as for a start that succeeded. Hint names the pane and the answer. serve
-// records such a start as started and raises the trust needs-you; any other caller fails on it as on a failed start.
+// TrustDialog is Agents.Launch's error for a fresh start held by a "Trust this folder?" dialog in its Started's pane:
+// the agent runs there and takes the start's first prompt (an argument of its start) once a person answers the dialog,
+// so the start happened and Launch's Started is filled as for a start that succeeded. Hint is the one guidance
+// (agents.TrustHint: the agent, the pane, the answer of its kind). serve records such a start as started and raises the
+// trust needs-you with Hint as its reason; any other caller fails on it as on a failed start.
 type TrustDialog struct {
-	Pane, Hint string
+	Hint string
 }
 
 func (e *TrustDialog) Error() string { return e.Hint }

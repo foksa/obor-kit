@@ -473,18 +473,15 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 		post = startRoute
 	}
 	began := false
-	var trust *port.TrustDialog
+	var trust *trustHold
 	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassPrompt, Data: outbox.LineData{To: q.Msg().To}},
 		func(ctx context.Context) (any, error) {
 			if closing {
 				return outbox.RetiredResult, nil
 			}
 			if post == startRoute { // the stopped agent's fresh start in its pane carries the line
-				_, err := fx.Agents.Launch(ctx, port.Launch{Agent: q.Msg().To, Pane: target, Fresh: true, Prompt: q.Msg().Line})
-				if trust = port.TrustHeld(err); trust != nil { // started: the line is taken once the dialog is answered
-					err = nil
-				}
-				if err != nil {
+				st, err := fx.Agents.Launch(ctx, port.Launch{Agent: q.Msg().To, Pane: target, Fresh: true, Prompt: q.Msg().Line})
+				if trust, err = trustHeld(st, err); err != nil { // held: started, the line is taken once the dialog is answered
 					return nil, fmt.Errorf("%s not started on its brief: %w", q.Msg().To, err)
 				}
 				return sentStart, nil

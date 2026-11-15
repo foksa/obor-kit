@@ -489,12 +489,11 @@ func (a *App) roleIdle(p *proj, agent string) bool {
 // merges since the review's head.
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s ReviewSetup, cfgErr error) {
 	id, brief, tasks, head, err := a.prepareReview(ctx, p, fx.Workflow, q, s, cfgErr)
-	var trust *port.TrustDialog
+	var trust *trustHold
 	if err == nil {
-		_, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.Agent, Fresh: true, Prompt: brief})
-		if trust = port.TrustHeld(err); trust != nil { // started: the reviewer takes its brief once the dialog is answered
-			err = nil
-		}
+		var st port.Started
+		st, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.Agent, Fresh: true, Prompt: brief})
+		trust, err = trustHeld(st, err) // held: started, the reviewer takes its brief once the dialog is answered
 	}
 	if err != nil {
 		reason := "next id: " + err.Error()

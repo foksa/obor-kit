@@ -3,6 +3,7 @@ package launch_test
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"obor/internal/app/port"
@@ -10,9 +11,15 @@ import (
 	"obor/internal/launch"
 )
 
-// A start herdr gives up on (agent_not_ready) whose pane shows a "Trust this folder?" dialog is a started agent:
-// Launch returns its Started with a port.TrustDialog naming the pane, the start reported (the success path), and
-// obor restart's line says RESTARTED with the dialog. The same start whose screen shows no dialog fails as before.
+// trustHint is the guidance at pj-l-01's (a Claude worker's) trust dialog in pane w1:p3.
+const trustHint = "pj-l-01 waits at a 'Trust this folder?' dialog in pane w1:p3: select its trust option (\"Yes, I trust this folder\") " +
+	"there, not the default \"No, exit\", which quits Claude (once per repo)"
+
+// A fresh start herdr gives up on (agent_not_ready) whose pane shows a "Trust this folder?" dialog is a started agent:
+// Launch returns its Started (its pane the dialog's) with a port.TrustDialog carrying the hint, the start reported (the
+// success path), and obor restart's line says RESTARTED with the hint. A resumed start at the dialog (its prompt not in
+// the argv) is a failed start, its wake not typed, nothing reported. The same start whose screen shows no dialog fails
+// as before.
 func TestLaunchHeldByTrustDialog(t *testing.T) {
 	t.Parallel()
 	const dialog = "> You are in /x\n  Do you trust the files in this folder?\n  Trust this folder? 1. Yes  2. No\n"
@@ -35,8 +42,7 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 		if td == nil {
 			t.Fatalf("err %v, want a TrustDialog\n%s", err, out.String())
 		}
-		eq(t, td.Pane, "w1:p3", "the dialog's pane")
-		eq(t, td.Hint, "a 'Trust this folder?' dialog in pane w1:p3: answer it there (Enter = trust; once per repo)", "hint")
+		eq(t, td.Hint, trustHint, "hint")
 		eq(t, s.Pane, "w1:p3", "Started's pane")
 		eq(t, s.Line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "Started's line")
 		if len(reported) != 1 || reported[0] != "pj-l-01" {
@@ -54,8 +60,39 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 		if !ok {
 			t.Fatalf("a restart held by the dialog failed:\n%s", out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new): it waits at a 'Trust this folder?' dialog in "+
-			"pane w1:p3: answer it there (Enter = trust; once per repo)", "result")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new): "+trustHint, "result")
+	})
+	t.Run("a resumed start (its wake typed once up): the failed start, no trust result, the wake not typed", func(t *testing.T) {
+		t.Parallel()
+		const wake = "[obor job T-1/1/fix] call the obor job_next tool"
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Screen = dialog })
+		x.srv.Once("agent.start", notReady)
+		var out bytes.Buffer
+		l := x.launcher(&out)
+		var reported []string
+		l.Started = func(_ context.Context, agent string) error {
+			reported = append(reported, agent)
+			return nil
+		}
+		_, err := l.Launch(context.Background(), launch.Request{Agent: "pj-l-01", Prompt: wake})
+		if !strings.Contains(x.startCall(), "--resume sid-1") {
+			t.Fatalf("precondition: not a resume: %q", x.startCall())
+		}
+		if err == nil || port.TrustHeld(err) != nil {
+			t.Fatalf("err %v, want a failed start that is no trust result\n%s", err, out.String())
+		}
+		eq(t, err.Error(), "start failed in w1:p3 ("+trustHint+")", "error")
+		eqInt(t, len(x.calls("agent.prompt")), 0, "wakes typed")
+		eqInt(t, len(reported), 0, "starts reported")
+		x.srv.Once("agent.start", notReady) // obor restart's resume, held the same way
+		got, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if ok {
+			t.Errorf("obor restart of a resume held by the dialog succeeded, want its failed start:\n%s", got)
+		}
+		contains(t, got, "start failed in w1:p3 ("+trustHint+")", "obor restart's failure")
 	})
 	t.Run("a screen without it: the existing NotReady failure, no trust result", func(t *testing.T) {
 		t.Parallel()

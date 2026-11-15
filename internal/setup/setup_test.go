@@ -715,7 +715,8 @@ func TestDriveStartHintNamesTheDrive(t *testing.T) {
 		x.screen = "Trust this folder?"
 		x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
 		err := drive(t, x)
-		if want := "agent not ready: a 'Trust this folder?' dialog in pane w1:n1: answer it there (Enter = trust; once per repo)"; err == nil || err.Error() != want {
+		if want := "agent not ready: pj-l-01-drive waits at a 'Trust this folder?' dialog in pane w1:n1: select its trust option " +
+			"there (once per repo)"; err == nil || err.Error() != want {
 			t.Errorf("StartDrive: %v, want %q", err, want)
 		}
 		if err != nil && project.RetryHinted(err) {
@@ -945,7 +946,8 @@ func TestPaneNotReadyHints(t *testing.T) {
 		want   string
 	}{
 		{"> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n", notReady,
-			"FAIL agent not ready: a 'Trust this folder?' dialog in pane w1:n1: answer it there (Enter = trust; once per repo)"},
+			"FAIL agent not ready: pj-l-01 waits at a 'Trust this folder?' dialog in pane w1:n1: select its trust option there " +
+				"(once per repo)"},
 		{"Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n", exited,
 			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: start it again with " +
 				"obor restart pj-l-01 --fresh --pane w1:n1"},

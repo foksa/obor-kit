@@ -350,6 +350,18 @@ func TrustDialog(screen string) bool {
 	return trustRE.MatchString(screen)
 }
 
+// TrustHint is the one guidance for agent (of kind; "": Default) held by a trust dialog (TrustDialog) in pane: select
+// the dialog's trust option there. It names a key only where the kind's default option is trust; Claude's default is
+// "No, exit" (the live probes answer it with down, Enter), so Enter alone quits Claude, and the hint warns of it. No
+// other kind's default is established, so no hint names a key.
+func TrustHint(kind, agent, pane string) string {
+	how := "select its trust option there"
+	if kind == "" || kind == Default {
+		how = `select its trust option ("Yes, I trust this folder") there, not the default "No, exit", which quits Claude`
+	}
+	return agent + " waits at a 'Trust this folder?' dialog in pane " + pane + ": " + how + " (once per repo)"
+}
+
 // Stop is a kind's quit recipe.
 type Stop struct {
 	Quit        string   // typed with Enter ("/exit", "/quit")
