@@ -341,6 +341,15 @@ func StartRefusal(kind string, h InstallHost) string {
 	return ""
 }
 
+var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you trust`)
+
+// TrustDialog: screen, an agent's pane as it shows now, shows a "Trust this folder?" dialog, every kind's (Claude's
+// and Codex's word it; a kind with none never shows one). The agent runs and holds its first prompt (every kind takes
+// it as an argument) until a person answers the dialog in the pane.
+func TrustDialog(screen string) bool {
+	return trustRE.MatchString(screen)
+}
+
 // Stop is a kind's quit recipe.
 type Stop struct {
 	Quit        string   // typed with Enter ("/exit", "/quit")

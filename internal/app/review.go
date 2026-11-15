@@ -484,13 +484,17 @@ func (a *App) roleIdle(p *proj, agent string) bool {
 }
 
 // fireReview starts the review of the fired request q: the facts, the reviewer's fresh start on the brief, its brief recorded, fact review.started; a step failing records needs-you {<id>: <error>} instead and
-// starts nothing. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
+// starts nothing. A start held by a trust dialog (port.TrustDialog) is a start: its facts, then the trust needs-you. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
 // <error>} (the review runs, serve does not know it). The lead gets no line: obor status counts the
 // merges since the review's head.
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s ReviewSetup, cfgErr error) {
 	id, brief, tasks, head, err := a.prepareReview(ctx, p, fx.Workflow, q, s, cfgErr)
+	var trust *port.TrustDialog
 	if err == nil {
 		_, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.Agent, Fresh: true, Prompt: brief})
+		if trust = port.TrustHeld(err); trust != nil { // started: the reviewer takes its brief once the dialog is answered
+			err = nil
+		}
 	}
 	if err != nil {
 		reason := "next id: " + err.Error()
@@ -516,6 +520,9 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		reason := id + ": started but not recorded: " + lost.Error()
 		a.logf("FAIL review of %s: %s", p.name, reason)
 		a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Machine: Machine, Reason: reason})
+	}
+	if trust != nil {
+		a.trustNeeds(p, s.Agent, trust)
 	}
 }
 

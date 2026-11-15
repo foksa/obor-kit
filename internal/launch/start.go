@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -35,7 +34,8 @@ type (
 // that took the name after the start's decision (Locate) is a port.Refused, Locate's line. The pane label put back over
 // another label is said. A failed start is a *StartError,
 // herdr's error printed: NoShell when the pane never became its shell, NotReady with a hint when the pane shows a trust
-// dialog or a Codex self-update, or herdr says NotReady. A failed env line is its own error; a failed pane label is a
+// dialog (Trust too when the terminal accepted the start: the agent runs and holds its first prompt) or a Codex
+// self-update, or herdr says NotReady. A failed env line is its own error; a failed pane label is a
 // Fail (nothing started). A start reports the confirmed start (serve ends the agent's skew entry) and, for a kind whose
 // sessions its transcript names,
 // its session (done).
@@ -120,6 +120,9 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	// Only a failed start looks at the screen (a started agent's prompt delivery is judged by herdr alone).
 	screen, _ := l.H.Screen(ctx, s.Pane, 60)
+	if agents.TrustDialog(screen) { // Trust only for a start the terminal accepted: a refused one ran no agent
+		return port.Pane{}, &StartError{Err: err, NotReady: true, Trust: t.accepted, Hint: trustHint(s.Pane)}
+	}
 	if hint, retry := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint, Retry: retry}
 	}
@@ -332,16 +335,16 @@ func sameSid(live, sid string) bool {
 	return live == sid || sid != "" && strings.TrimSuffix(filepath.Base(live), filepath.Ext(live)) == sid
 }
 
-var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you trust`)
+// trustHint is what a person does at a start held by a trust dialog (agents.TrustDialog) in pane.
+func trustHint(pane string) string {
+	return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)"
+}
 
-// notReady is why the agent cannot take a prompt yet, from its pane's screen after the start: every kind's trust
-// dialog, else what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none shows. The hint
-// names what a person does next: answer the dialog, or the command that starts the agent again (project.RestartCmd,
-// which retry says the hint carries).
+// notReady is why the agent cannot take a prompt yet, from its pane's screen after the start, a screen with no trust
+// dialog (start's own case): what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none
+// shows. The hint names the command that starts the agent again (project.RestartCmd, which retry says the hint
+// carries).
 func notReady(screen, kind, name, pane, again string, hasSession bool) (hint string, retry bool) {
-	if trustRE.MatchString(screen) {
-		return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)", false
-	}
 	if k, ok := agents.Lookup(kind); ok {
 		if why := k.NotReady(screen); why != "" {
 			return kind + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane), true

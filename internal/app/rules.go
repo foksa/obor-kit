@@ -46,6 +46,7 @@ const ruleFails = 3
 
 // rules are serve's rules, in the order a pass runs them.
 var rules = []rule{
+	{name: ruleTrust, when: trustRule}, // before needs: an answered dialog's needs-you is not lined again
 	{name: ruleNeeds, when: needsRule},
 	{name: ruleStopAlarm, when: stopAlarmRule},
 	{name: ruleWatch, when: watchRule},
