@@ -90,8 +90,11 @@ or reviewed task, a merge-loop needs-you's regate, reprompt or retry; a flag onl
 `.obor/config.json` (committed) deep-merged with `.obor/local.json` (gitignored; overrides) by the Go loader
 (`config.Load`). Defaults live in the loader so most projects omit most fields. The reference for each key is the
 field comments of `config.Data` (`internal/config/config.go`); `obor config validate` checks it (`validate.go`), and
-a load warns on every key it does not know. The file is **shape 2**: ten
-top-level keys — nine groups by what they are about, and `version` — in this order.
+a load warns on every key it does not know. Serve reads the file at each pass, so a change counts at its next pass with
+no restart; it reads `project.name`, `project.agent_prefix`, `project.terminal`, whether `agents.roles.integrator` is
+set and `agents.roles.lead` (the lead's name and the kind its outbox routes to) once, at its start, so a change to one
+needs `obor serve` restarted (`obor config validate`'s OK line says so). The file is **shape 2**: ten top-level keys —
+nine groups by what they are about, and `version` — in this order.
 ```jsonc
 {
   "version": 2,
@@ -648,8 +651,7 @@ and tests have one split, not tiers.
   input runs nothing in the slot, and a moved input (its target moved after its lane test) runs `merge.check` there
   with the lane env and the lane test's retest: red holds the merge. `obor init` suggests `merge.compile` from a
   `typecheck` script, never a `build` (a script name is no proof the command type-checks what the check covers);
-  `obor config validate` and `obor init` warn when it is empty and `merge.target_branch` is the repository's
-  default branch.
+  `obor init` warns when it is empty and `merge.target_branch` is the repository's default branch.
 - **The lane tests.** Serve then checks the candidate out, detached, in the task's lane worktree (the lane must be
   clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
   (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),

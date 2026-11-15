@@ -83,8 +83,11 @@ the owner commits them together: serve writes them as one commit on main itself 
 A save made on a config that changed since the owner's page read it (your hand edit, say) is refused, nothing written:
 the owner reviews it against yours.
 
-It counts from the next dispatch (a role's type at its next start); nothing to do unless it changes your plan. The
-commit is on main: pull before you edit the config by hand. A pause set or cleared there is the same as `obor pause`.
+It counts from serve's next pass, no restart — except `project.name`, `project.agent_prefix`, `project.terminal`,
+whether `agents.roles.integrator` is set and `agents.roles.lead`, which serve reads at its start: restart serve for
+those. Another role's type counts at its next start; the lead's needs that restart too, because serve's outbox routes
+the lead's lines by its name and kind. Nothing to do unless it changes your plan. The commit is on main: pull before
+you edit the config by hand. A pause set or cleared there is the same as `obor pause`.
 
 ## obor nightly on|off
 `nightly.at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While

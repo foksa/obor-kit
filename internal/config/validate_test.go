@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -47,7 +46,7 @@ func del(path string) edit {
 // deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	t.Helper()
-	// a compile: without one the fixture's target, its default branch, warns (TestValidateTrunkRef)
+	// a compile: the fixture's target is its default branch, and no compile is no validate line (TestValidateTrunkRef)
 	base := []edit{set("agents.roles.integrator", "opus"), set("merge.compile", `{"cmd": "true"}`)}
 	p.Config(append(base, edits...)...)
 	c, unknown, err := config.LoadForValidate(p.Root)
@@ -348,8 +347,9 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 const neutralBase = `{"guard": "g", "rules": [{"name": "skills", "paths": ["skills/**"], "run": ["c"]},
 	{"name": "ui", "paths": ["src/ui/**"], "run": ["c"]}]}`
 
-// the trunk branch exists in the main checkout (present: the fixture's main is OK; missing: FAIL with the hint); no
-// merge.compile warns when the trunk is the default branch (the checkout's), never on another branch.
+// the trunk branch exists in the main checkout (present: the fixture's main is OK; missing: FAIL with the hint). No
+// merge.compile is no validate line, not even with the trunk on the default branch: obor init gives that warning, where
+// the choice is made (NoCompileWarning names it on the default branch, never on another).
 func TestValidateTrunkRef(t *testing.T) {
 	p := newProject(t)
 	if got := validate(t, p); len(got) != 0 {
@@ -364,13 +364,26 @@ func TestValidateTrunkRef(t *testing.T) {
 		t.Errorf("trunk created: %q", got)
 	}
 	noCompile := set("merge.compile", nil)
-	want = "WARN merge.compile is empty and merge.target_branch main is the default branch: a moved candidate re-runs " +
+	if got := validate(t, p, set("merge.target_branch", "main"), noCompile); len(got) != 0 {
+		t.Errorf("no compile, target the default branch: %q, want no validate line (obor init warns)", got)
+	}
+	c, err := config.Load(p.Root) // the config the last validate wrote: target main, no compile
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = "merge.compile is empty and merge.target_branch main is the default branch: a moved candidate re-runs " +
 		"the full check (no compile)"
-	if got := validate(t, p, set("merge.target_branch", "main"), noCompile); !reflect.DeepEqual(got, []string{want}) {
-		t.Errorf("no compile, target the default branch: %q, want %q", got, want)
+	if got := c.NoCompileWarning(); got != want {
+		t.Errorf("obor init's warning: %q, want %q", got, want)
 	}
 	if got := validate(t, p, set("merge.target_branch", "trunk"), noCompile); len(got) != 0 {
 		t.Errorf("no compile, target a branch other than the default: %q, want none", got)
+	}
+	if c, err = config.Load(p.Root); err != nil { // target trunk, no compile
+		t.Fatal(err)
+	}
+	if got := c.NoCompileWarning(); got != "" {
+		t.Errorf("obor init's warning, target a branch other than the default: %q, want none", got)
 	}
 }
 
@@ -394,8 +407,6 @@ func TestValidateTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
-	// the template has no merge.compile (obor init suggests one) and the fixture's target is its default branch
-	warns = slices.DeleteFunc(warns, func(w string) bool { return strings.HasSuffix(w, config.NoCompile) })
 	if len(warns)+len(fails) != 0 {
 		t.Errorf("templates: %q %q", warns, fails)
 	}

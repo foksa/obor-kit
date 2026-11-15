@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
@@ -50,7 +51,8 @@ func TestSetupPaneUsesTheHerdrSocket(t *testing.T) {
 // obor init end to end (the binary): stub herdr on its socket, a fake claude and a fake launchctl on PATH, HOME a
 // temp dir. It sets the project up, installs serve (bootstrap of obor.serve.proj's plist under HOME) and says next:
 // obor lead; a rerun leaves the loaded agent alone (no second bootstrap). Off darwin the serve step is skipped with
-// the run-it-yourself line and init still succeeds.
+// the run-it-yourself line and init still succeeds. A project with no merge.compile gets that warning here, where the
+// choice is made.
 func TestInitEndToEnd(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -60,6 +62,10 @@ func TestInitEndToEnd(t *testing.T) {
 		"and `merge.check` (lanes.setup, lanes.ready); until then every gate stops on \"missing command\"\n") ||
 		!strings.HasSuffix(stdout, "starting point: the lead goes through it with you at its first session\n") {
 		t.Fatalf("obor init: exit %d\n%s%s", rc, stdout, stderr)
+	}
+	if want := "warning: merge.compile is empty and merge.target_branch main is the default branch: " +
+		config.NoCompile; !strings.Contains(stdout, want) {
+		t.Errorf("obor init does not warn of the missing merge.compile:\n%s", stdout)
 	}
 	calls, _ := os.ReadFile(log)
 	if !strings.Contains(string(calls), "claude plugin install obor@") {
