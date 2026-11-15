@@ -70,7 +70,7 @@ func (s *Setup) levelLine(level string, paused map[string]*event.Pause) string {
 	}
 	parts := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		line := ref + s.modelDetail(ref)
+		line := ref + s.cfg.ModelDetail(ref)
 		if name, _ := config.ParseModelRef(ref); paused[name] != nil {
 			line += " (paused until " + pauseUntil(paused[name]) + ")"
 		}
@@ -85,25 +85,6 @@ func pauseUntil(p *event.Pause) string {
 		return "cleared"
 	}
 	return time.Unix(p.Until, 0).Format("15:04")
-}
-
-// modelDetail is a model ref as the table shows it after its name: " (<kind> <model id>, effort <effort>)", the
-// model id left out when the kind picks its own, the effort when the ref names none; " (no such model)" for an
-// unknown one.
-func (s *Setup) modelDetail(ref string) string {
-	name, effort := config.ParseModelRef(ref)
-	m, ok := s.cfg.Model(name)
-	if !ok {
-		return " (no such model)"
-	}
-	detail := m.Kind
-	if m.ID != "" {
-		detail += " " + m.ID
-	}
-	if effort != "" {
-		detail += ", effort " + effort
-	}
-	return " (" + detail + ")"
 }
 
 // lanesLine is the lanes: "2 (L-01, L-02; each runs the model its dispatch picks)", "0" for none.
@@ -135,7 +116,7 @@ func (s *Setup) rolesLine() string {
 			part = role + " - (no model named)"
 		case rc.Type != "":
 			ref := config.ModelRef(rc.Type, rc.Effort)
-			part = role + " " + ref + s.modelDetail(ref)
+			part = role + " " + ref + s.cfg.ModelDetail(ref)
 		}
 		parts = append(parts, part+verbsDetail(rc.Role.Verbs))
 	}

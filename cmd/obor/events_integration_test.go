@@ -49,8 +49,8 @@ func TestEventsCommand(t *testing.T) {
 	}
 	tracker := append(slices.Clone(env), "OBOR_ROLE=tracker")
 	if rc, stdout, stderr := run(t, p.Root, tracker, "spec", "set", "T-01", spec("T-01", "TICKET-1")); rc != 0 ||
-		stdout != "SET T-01 rev 1\n" {
-		t.Fatalf("the tracker's spec set: exit %d, %q, %q; want SET (its verb)", rc, stdout, stderr)
+		stdout != "SET T-01 rev 1\nmodels: sonnet (claude sonnet), deepseek (opencode opencode-go/deepseek-v4.1-flash)\n" {
+		t.Fatalf("the tracker's spec set: exit %d, %q, %q; want SET and the models (its verb)", rc, stdout, stderr)
 	}
 	want := "dispatch: the lead or the owner dispatches, not pj-tracker (role tracker): role tracker has no verb dispatch (add it to roles.tracker.verbs)"
 	if rc, stdout, _ := run(t, p.Root, tracker, "dispatch", "T-01"); rc != 1 || !strings.Contains(stdout, want) {

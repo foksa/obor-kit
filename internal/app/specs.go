@@ -21,7 +21,8 @@ import (
 // working (or dispatching) worker changes no message: its next task_done at the older rev is refused once.
 
 // specSet answers a spec request: a call id is required and a repeated one gets the stored reply. A new rev wakes the
-// merge loop (a waiting task of it may dispatch now); the reply is SET <task> rev <n>.
+// merge loop (a waiting task of it may dispatch now); the reply is SET <task> rev <n>, then a line naming the models a
+// dispatch would try (specSetModels).
 func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New(wire.MethodSpecSet + ": a call id and a task are required")
@@ -53,15 +54,13 @@ func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 	if err := spec.Validate(c.Task, sp); err != nil {
 		return "", fmt.Errorf("spec set %s: %w", c.Task, err)
 	}
-	if len(sp.Models) > 0 {
-		cfg, err := config.Load(p.root)
-		if err != nil {
-			return "", fmt.Errorf("spec set %s: %v", c.Task, err)
-		}
-		for _, t := range sp.Models { // `<model>[:<effort>]`
-			if err := cfg.CheckModelRef(t); err != nil {
-				return "", fmt.Errorf("spec set %s: \"Model: %s\": %v", c.Task, t, err)
-			}
+	cfg, err := config.Load(p.root)
+	if err != nil {
+		return "", fmt.Errorf("spec set %s: %v", c.Task, err)
+	}
+	for _, t := range sp.Models { // `<model>[:<effort>]`
+		if err := cfg.CheckModelRef(t); err != nil {
+			return "", fmt.Errorf("spec set %s: \"Model: %s\": %v", c.Task, t, err)
 		}
 	}
 	by := c.Agent
@@ -77,6 +76,9 @@ func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 		return "", err
 	}
 	reply = specSetReply(c.Task, rev, changed)
+	if models := specSetModels(cfg, sp); models != "" {
+		reply += "\n" + models
+	}
 	// The receipt is a fact folded into folded.calls, so it outlives a restart. A crash between the store's commit and
 	// this append makes the retry re-apply its text: UNCHANGED if nothing changed the spec meanwhile, else the old text
 	// is written as a new rev (accepted).
@@ -147,10 +149,26 @@ func specSetReply(task string, rev int, changed bool) string {
 	return fmt.Sprintf("SET %s rev %d", task, rev)
 }
 
+// specSetModels is the reply's line after the set one: the models a dispatch of sp would try, in order — its `Model:`
+// refs, then its level's — each as obor setup show prints it ("opus:high (claude opus, effort high)"). "" when none of
+// them names a model of cfg.
+func specSetModels(cfg *config.Config, sp spec.Spec) string {
+	refs := specFirst(cfg, sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
+	if len(refs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		parts = append(parts, ref+cfg.ModelDetail(ref))
+	}
+	return "models: " + strings.Join(parts, ", ")
+}
+
 // specSetRev is the rev a spec_set's reply (specSetReply) names; 0 when it names none. The fact carries no rev of its
-// own: its reply is the one record of it in every log.
+// own: its reply is the one record of it in every log. The rev is on the reply's first line; the models' line follows.
 func specSetRev(reply string) int {
-	_, n, ok := strings.Cut(reply, " rev ")
+	first, _, _ := strings.Cut(reply, "\n")
+	_, n, ok := strings.Cut(first, " rev ")
 	rev, err := strconv.Atoi(n)
 	if !ok || err != nil {
 		return 0

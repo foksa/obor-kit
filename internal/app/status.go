@@ -159,7 +159,7 @@ func (a *App) Status() wire.Status {
 			w := p.folded.watches[set]
 			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
-		if n := p.idleNow(); n.ok {
+		if n := p.idleNow(); n.ok && n.end != 0 { // the first end keys it and ages it; before that there is nothing to show
 			ps.Idle = &wire.IdleStatus{Since: n.at.Unix(), Last: n.last}
 			if ack := p.folded.idleAck; ack.Key == n.end {
 				ps.Idle.Acked, ps.Idle.Why = true, ack.Why

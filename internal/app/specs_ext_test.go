@@ -41,14 +41,14 @@ func workingT1(t *testing.T) *loopRig {
 	return r
 }
 
-// A spec set on a working task replies with the plain set line and sends the worker no line: its next task_done at the
-// older rev is the only notice.
+// A spec set on a working task replies with the set line (its models' line after it) and sends the worker no line: its
+// next task_done at the older rev is the only notice.
 func TestSpecSetOnAWorkingTaskSendsNoLine(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := workingT1(t)
 		if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\n## Files you may touch\n`more.txt`\n",
-			"widen the guard"); got != "SET T-1 rev 2" {
+			"widen the guard"); specSetLine(got) != "SET T-1 rev 2" {
 			t.Fatalf("spec set on a working task: %q, want SET T-1 rev 2", got)
 		}
 		if n := r.inbox.count("pj-l-01", "[obor] "+specRevLine("T-1", 2, "widen the guard")); n != 0 {
@@ -66,7 +66,8 @@ func TestSpecSetOnAWorkingTaskSendsNoLine(t *testing.T) {
 				t.Errorf("a line to the worker is queued: %+v", m)
 			}
 		}
-		if got := r.setSpecT("s2", "# T-1 — other text\n\nDifficulty: medium\n", "another note"); got != "SET T-1 rev 2" {
+		if got := r.setSpecT("s2", "# T-1 — other text\n\nDifficulty: medium\n", "another note"); specSetLine(got) !=
+			"SET T-1 rev 2" {
 			t.Errorf("the same call id again: %q, want the stored reply", got)
 		}
 	})
@@ -79,7 +80,7 @@ func TestTaskDoneRefusesAnOlderSpecRev(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := workingT1(t)
 		if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\n## Files you may touch\n`more.txt`\n",
-			"widen the guard"); got != "SET T-1 rev 2" {
+			"widen the guard"); specSetLine(got) != "SET T-1 rev 2" {
 			t.Fatalf("spec set: %q", got)
 		}
 		want := specRevLine("T-1", 2, "widen the guard")
@@ -147,7 +148,7 @@ func TestMoveAfterSpecSetStartsOnTheNewRev(t *testing.T) {
 		if !strings.Contains(jr.Text, "The spec of T-1 (rev 1") {
 			t.Fatalf("precondition: attempt 1's job carries rev 1: %q", jr.Text)
 		}
-		if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\nmore\n", "widen the guard"); got !=
+		if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\nmore\n", "widen the guard"); specSetLine(got) !=
 			"SET T-1 rev 2" {
 			t.Fatalf("spec set: %q", got)
 		}
@@ -197,7 +198,7 @@ func TestTaskDoneSpecRefusalSurvivesARetry(t *testing.T) {
 
 // obor spec set is serve's request: the lead stores a spec (rev 1), the same text again changes nothing, another text is
 // the next rev; a repeated call id gets its stored reply; the owner (no role) sets one too; every other role is refused
-// and stores nothing. A set on a dispatched task sends no line; the reply is the plain set line.
+// and stores nothing. A set on a dispatched task sends no line; the reply is the set line, then the models' line.
 func TestSpecSet(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -212,7 +213,7 @@ func TestSpecSet(t *testing.T) {
 			{"s3", "# T-1 — B\n\nDifficulty: medium\n", "SET T-1 rev 2"},
 			{"s1", "# T-1 — C\n\nDifficulty: medium\n", "SET T-1 rev 1"}, // s1's stored reply: nothing stored
 		} {
-			if got := r.setSpec(c.call, c.text); got != c.want {
+			if got := r.setSpec(c.call, c.text); specSetLine(got) != c.want {
 				t.Errorf("spec set %s: %q, want %q", c.call, got, c.want)
 			}
 		}
@@ -230,13 +231,40 @@ func TestSpecSet(t *testing.T) {
 		}
 		reply, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 			CallID: "o1"}, Task: "T-1", Spec: "# T-1 — by the owner\n\nDifficulty: medium\n"})
-		if err != nil || reply != "SET T-1 rev 3" {
+		if err != nil || specSetLine(reply) != "SET T-1 rev 3" {
 			t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3", reply, err)
 		}
 		if row, ok, err := r.specRow("T-1"); err != nil || !ok || row.Rev != 3 || row.SetBy != "owner" {
 			t.Errorf("stored spec %+v, %v, %v; want rev 3 set by owner", row, ok, err)
 		}
 	})
+}
+
+// The SET reply names the models a dispatch would try, in order: the spec's `Model:` refs, then its level's, each as
+// obor setup show prints it.
+func TestSpecSetNamesTheModels(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, spec, want string }{
+		{name: "the Model: line's first, then the level's", spec: "# T-1 — Named\n\nDifficulty: medium\nModel: opus\n",
+			want: "SET T-1 rev 1\nmodels: opus (claude opus), sonnet (claude sonnet), " +
+				"deepseek (opencode opencode-go/deepseek-v4.1-flash)"},
+		{name: "a Model: ref's effort", spec: "# T-1 — Named\n\nDifficulty: medium\nModel: opus:high\n",
+			want: "SET T-1 rev 1\nmodels: opus:high (claude opus, effort high), sonnet (claude sonnet), " +
+				"deepseek (opencode opencode-go/deepseek-v4.1-flash)"},
+		{name: "the level's alone", spec: "# T-1 — Leveled\n\nDifficulty: medium\n",
+			want: "SET T-1 rev 1\nmodels: sonnet (claude sonnet), deepseek (opencode opencode-go/deepseek-v4.1-flash)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			bubble(t, func(t *testing.T) {
+				r := newLoopRig(t)
+				r.start()
+				if got := r.setSpec("s1", c.spec); got != c.want {
+					t.Errorf("spec set: %q, want %q", got, c.want)
+				}
+			})
+		})
+	}
 }
 
 // A spec with no title is refused beside the Difficulty refusal, and nothing is stored.
@@ -270,7 +298,7 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 		r := newLoopRig(t)
 		r.start()
 		good := "# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n"
-		if got := r.setSpec("r1", good); got != "SET T-1 rev 1" {
+		if got := r.setSpec("r1", good); specSetLine(got) != "SET T-1 rev 1" {
 			t.Fatalf("spec set with \"Review: on merge\": %q, want SET T-1 rev 1", got)
 		}
 		_, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
@@ -291,7 +319,7 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 		}
 		// A fix spec alone (no Review line) is accepted, whatever its difficulty.
 		fix := "# T-1 — D\n\nDifficulty: hard\nFixes: RV-12\n\n## Do\n"
-		if got := r.setSpec("r4", fix); got != "SET T-1 rev 2" {
+		if got := r.setSpec("r4", fix); specSetLine(got) != "SET T-1 rev 2" {
 			t.Errorf("spec set of a fix spec: %q, want SET T-1 rev 2", got)
 		}
 	})
@@ -402,15 +430,15 @@ func TestSpecSetRetryAfterRestartPreservesNewerSpec(t *testing.T) {
 		r := newLoopRig(t)
 		r.start()
 		a, b := "# T-1 — A\n\nDifficulty: medium\n", "# T-1 — B\n\nDifficulty: medium\n"
-		if got := r.setSpec("s1", a); got != "SET T-1 rev 1" {
+		if got := r.setSpec("s1", a); specSetLine(got) != "SET T-1 rev 1" {
 			t.Fatalf("precondition: s1 replied %q", got)
 		}
-		if got := r.setSpec("s2", b); got != "SET T-1 rev 2" {
+		if got := r.setSpec("s2", b); specSetLine(got) != "SET T-1 rev 2" {
 			t.Fatalf("precondition: s2 replied %q", got)
 		}
 		r.stop()
 		r.start() // serve restarts: the live reply cache is gone
-		if got := r.setSpec("s1", a); got != "SET T-1 rev 1" {
+		if got := r.setSpec("s1", a); specSetLine(got) != "SET T-1 rev 1" {
 			t.Errorf("s1 retried after the restart: %q, want its original SET T-1 rev 1", got)
 		}
 		row, ok, err := r.specRow("T-1")
@@ -437,7 +465,7 @@ func TestSpecSetConcurrentRetriesShareReply(t *testing.T) {
 				got, err := r.ask(
 					&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root, Role: "lead", CallID: "same"}, Task: "T-1",
 						Spec: text})
-				if err != nil || got != "SET T-1 rev 1" {
+				if err != nil || specSetLine(got) != "SET T-1 rev 1" {
 					t.Errorf("concurrent retry: %q, %v; want the original SET T-1 rev 1", got, err)
 				}
 			}()

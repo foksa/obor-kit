@@ -73,11 +73,6 @@ func TestIdleRefusalNamesWhatIsInFlight(t *testing.T) {
 				r.a.mu.Unlock()
 				return r.a, r.p
 			}},
-		{name: "no merge or drop yet", want: "NOT IDLE: no merge or drop yet",
-			setup: func(t *testing.T) (*App, *proj) {
-				r := newReviewRigWith(t, false)
-				return r.a, r.p
-			}},
 		{name: "a needs-you", want: "NOT IDLE: T-c needs you (L-03)",
 			setup: func(t *testing.T) (*App, *proj) {
 				r := newReviewRig(t)
@@ -103,6 +98,23 @@ func TestIdleRefusalNamesWhatIsInFlight(t *testing.T) {
 				t.Errorf("idle refusal %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// A project that never merged or dropped is idle: the last says "no merge yet", and its end is none (0), so no state
+// is keyed and no line goes out before the first end.
+func TestIdleNowFreshProject(t *testing.T) {
+	t.Parallel()
+	r := newReviewRigWith(t, false)
+	r.a.mu.Lock()
+	n := r.p.idleNow()
+	text := r.p.idleText(n)
+	r.a.mu.Unlock()
+	if !n.ok || n.end != 0 || n.last != "no merge yet" {
+		t.Fatalf("idle %+v, want idle with no end and last \"no merge yet\"", n)
+	}
+	if text != "IDLE (last: no merge yet)" {
+		t.Errorf("idle text %q, want IDLE (last: no merge yet)", text)
 	}
 }
 

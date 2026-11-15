@@ -1276,7 +1276,7 @@ func TestLoopResolvedFirstConflictReviewsThenMerges(t *testing.T) {
 		r := newLoopRig(t)
 		r.conflicting()
 		r.start()
-		if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
+		if reply := r.spec("sp1", specOne); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q", reply)
 		}
 		r.submit()
@@ -1358,7 +1358,7 @@ func TestLoopResolvedFirstConflictNewSpecRevReviews(t *testing.T) {
 		if n := r.scratch.Gates.Load(); n != 1 {
 			t.Fatalf("precondition: %d gates before the spec rev, want the conflict's one", n)
 		}
-		if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
+		if reply := r.spec("sp1", specOne); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q", reply)
 		}
 		free.Store(50 << 30)
@@ -1402,7 +1402,7 @@ func TestLoopMovedConflictNewSpecRevReviews(t *testing.T) {
 		if !strings.Contains(job, "CONFLICT in "+scratch) {
 			t.Fatalf("the resolve job does not name the moved gate's conflict:\n%s", job)
 		}
-		if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
+		if reply := r.spec("sp1", specOne); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q", reply)
 		}
 		resolution := r.resolveInScratch()

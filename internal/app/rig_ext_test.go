@@ -2540,6 +2540,13 @@ func (r *loopRig) setSpec(callID, text string) string {
 	return reply
 }
 
+// specSetLine is a spec-set reply's first line, `<SET|UNCHANGED> <task> rev <n>`; the line after it names the models a
+// dispatch would try (specSetModels).
+func specSetLine(reply string) string {
+	line, _, _ := strings.Cut(reply, "\n")
+	return line
+}
+
 // TestMain is the hook testkit.New requires: it removes the project template the run copies. Run, not Main:
 // internal/app's tests re-exec their own binary carrying OBOR_TEST_DO_CRASH and rewrite goldens under OBOR_UPDATE_GOLDEN,
 // and Main's Isolate clears every OBOR_* variable.

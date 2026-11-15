@@ -10,6 +10,37 @@ import (
 	"obor/internal/testkit"
 )
 
+// Before the first merge the lead's rule and obor idle agree: a fresh project is idle, so its ack is ACKED. No end
+// keys that state yet, so no line goes out for it. A dispatch makes it busy again, and the refusal names the task.
+func TestIdleFreshProject(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, dispatching())
+		r.start()
+		if reply, err := r.line("i1", &wire.IdleReq{Why: "nothing to dispatch"}); err != nil ||
+			reply != "ACKED idle: nothing to dispatch" {
+			t.Fatalf("obor idle on a fresh project: %q, %v; want ACKED", reply, err)
+		}
+		if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "IDLE (last: no merge yet)" {
+			t.Errorf("obor idle (the state): %q, %v; want IDLE (last: no merge yet)", reply, err)
+		}
+		if st := r.app.Status().Project.Idle; st != nil {
+			t.Errorf("status idle %+v before the first end, want none (nothing keys or ages it)", st)
+		}
+		r.passes()
+		r.later(2 * idleSettle) // past the window: a line would have gone out for any keyed state
+		if n := len(r.idlePosts()); n != 0 {
+			t.Errorf("%d idle lines before the first end, want none", n)
+		}
+		r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+		r.mustDispatch("d1")
+		if reply, err := r.line("i3", &wire.IdleReq{Why: "nothing to dispatch"}); err != nil ||
+			reply != "NOT IDLE: T-1 open (L-01)" {
+			t.Errorf("obor idle with T-1 dispatched: %q, %v; want the refusal naming the task", reply, err)
+		}
+	})
+}
+
 // A waiting dispatch, a needs-you and a reviewer's open brief each keep the pipeline from being idle.
 func TestIdleBlockers(t *testing.T) {
 	t.Parallel()

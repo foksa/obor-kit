@@ -49,9 +49,9 @@ func specSetArgs(args []string) (task, path, note string, ok bool) {
 // specSet is `obor spec set <T-xx> <path> [--note "<what changed>"]`: path (any file, read once) stored as the task's
 // spec, a request to obor serve, the store's one writer. A later set with another text is the next rev (a running
 // task's guard reads its protected unlocks at its next call; its worker's next task_done at the older rev is refused).
-// SET <task> rev <n> | UNCHANGED <task> rev <n>, or FAIL … exit 1 (serve down too). The caller is the session's (caller:
-// a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent as no role), and
-// serve refuses every role but the lead and the owner.
+// SET <task> rev <n> | UNCHANGED <task> rev <n> and the line naming the models a dispatch would try, or FAIL … exit 1
+// (serve down too). The caller is the session's (caller: a lane's cwd is a worker's whatever OBOR_ROLE says; none, the
+// owner in a plain terminal, is sent as no role), and serve refuses every role but the lead and the owner.
 func specSet(task, path, note string) int {
 	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		if err := taskIDs(cfg, task); err != nil {

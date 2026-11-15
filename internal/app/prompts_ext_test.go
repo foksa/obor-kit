@@ -156,7 +156,7 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 
 		first := r.workerNext("n1")
 		r.waitFor("the delivered fact", func() bool { return len(r.deliveries()) == 1 })
-		if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
+		if reply := r.spec("sp1", specOne); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q, want SET T-1 rev 1", reply)
 		}
 		second := r.workerNext("n2")
@@ -200,7 +200,7 @@ func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 			t.Fatalf("the fix job: %+v", first)
 		}
 		r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
-		if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
+		if reply := r.spec("sp1", specOne); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q, want SET T-1 rev 1", reply)
 		}
 		second := r.workerNext("f2")
@@ -225,7 +225,7 @@ func TestPromptsReviewJobRefetchedAfterASpecChange(t *testing.T) {
 		r := fetchRig(t)
 		r.work("feature.txt", "feature\n")
 		r.start()
-		if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
+		if reply := r.spec("sp1", specOne); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q, want SET T-1 rev 1", reply)
 		}
 		r.mustDispatch("d1")
@@ -242,7 +242,7 @@ func TestPromptsReviewJobRefetchedAfterASpecChange(t *testing.T) {
 		}
 		r.waitFor("delivered", func() bool { return len(r.deliveries()) == 2 })
 
-		if reply := r.spec("sp2", specTwo); reply != "SET T-1 rev 2" {
+		if reply := r.spec("sp2", specTwo); specSetLine(reply) != "SET T-1 rev 2" {
 			t.Fatalf("spec set: %q, want SET T-1 rev 2", reply)
 		}
 		again, _, err := r.jobNext("pj-int", "integrator", "", "i2", "")
