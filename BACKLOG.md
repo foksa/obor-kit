@@ -24,6 +24,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
 ## Later candidates
+- (druckometer field report 11-15, #7) `herdr pane list` dumps every workspace as one JSON blob; finding a project's lane tab means scanning all of them. Owner action, upstream: ask herdr for a workspace/cwd filter. The other six items: T-1326..T-1329.
 - (owner 11-13) A role agent left running long after its work: ob-researcher and ob-advisor sat `done` 12h+; `obor status` showed `done 8h` at the lead's session start and the lead did not act. Idea: serve's idle line (or status) names role agents done for over an hour with the `obor restart <agent> --stop` to run. Parked: features paused.
 - (knight-tour-web field report 11-12, #5) A worker cannot preview its branch merged with the integration branch (no git writes in lanes); a worker hand-built a scratch merge with `git merge-file`. Idea: a read-only job tool returning the merged tree's conflicts (`git merge-tree`) or check result. Parked: features paused (decisions 11-12).
 - **Terminal port: herdr, rex, or both** (advisor 11-11, `docs/research/terminal-port-advice.md`, `docs/plan/terminal-adapters.md`): steps 1-5 done 11-11 (T-1245..T-1253, RV-188/189, DD-v0.38; strings T-1255, name rule T-1254). Next only with a decided second terminal: D3, step 6 (the start split), step 7, step 8 a Rex probe. Step 6's spec lists every message and state file it touches and what each becomes (DD-v0.38: T-1250..T-1253 each repaired one a step had changed).
