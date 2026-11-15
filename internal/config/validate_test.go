@@ -739,3 +739,15 @@ func TestValidateOverrideFiles(t *testing.T) {
 		}
 	}
 }
+
+// The OK line names the lead model's kind beside the lead's role: serve resolves the kind with the lead's role, so a
+// change to it needs a restart. The literal text, because a phrase a reader is told to look for is the promise.
+func TestReloadLineNamesLeadModelKind(t *testing.T) {
+	line := config.ReloadLine()
+	if !strings.Contains(line, "agents.roles.lead") {
+		t.Fatalf("the OK line does not name agents.roles.lead: %q", line)
+	}
+	if !strings.Contains(line, "agents.models.<the lead's model>.kind") {
+		t.Errorf("the OK line does not name the lead model's kind among the keys a restart is for: %q", line)
+	}
+}

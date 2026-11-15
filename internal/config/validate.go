@@ -588,11 +588,13 @@ const ReloadRule = "serve reads it at its next pass (no restart)"
 // StartKeys are the config keys serve loads once, at its start, so a change to one counts at `obor serve`'s next start:
 // project.terminal (the terminal adapter it builds then), project.name (its logs and the machine's project list it
 // registers then), project.agent_prefix (the agent names it derives), agents.roles.integrator (whether it merges at
-// all) and agents.roles.lead (the lead's name and the kind its outbox routes to).
+// all), agents.roles.lead (the lead's name) and agents.models.<the lead's model>.kind (the kind its outbox routes to,
+// resolved with the lead's role).
 var StartKeys = []string{"project.name", "project.agent_prefix", "project.terminal", "agents.roles.integrator",
-	"agents.roles.lead"}
+	"agents.roles.lead", "agents.models.<the lead's model>.kind"}
 
-// ReloadLine is `obor config validate`'s OK line: ReloadRule, then the keys a restart is for (StartKeys).
+// ReloadLine is `obor config validate`'s OK line: ReloadRule, then the keys a restart is for (StartKeys, the lead
+// model's kind beside the lead's role).
 func ReloadLine() string {
 	return "OK: " + ReloadRule + ". It reads these once, at its start (restart obor serve for those): " +
 		strings.Join(StartKeys, ", ")
