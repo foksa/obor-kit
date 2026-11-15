@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // webSource is web/ (the page's source) from this package's directory.
@@ -68,6 +69,54 @@ func TestDistFresh(t *testing.T) {
 	if got := strings.TrimSpace(string(stamp)); got != want {
 		t.Errorf("internal/web/dist is stale: built from web/ at %s, web/ is %s now: run make web and commit dist/",
 			got[:min(12, len(got))], want[:12])
+	}
+}
+
+// TestBuildID: the page's build id is its index.html's hash — another page is another id, the same page the same one.
+func TestBuildID(t *testing.T) {
+	page := func(script string) fs.FS {
+		return fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(`<script src="/assets/` + script + `"></script>`)}}
+	}
+	a := buildID(page("index-a.js"))
+	if a == "" || len(a) != 12 {
+		t.Fatalf("buildID: %q, want a 12 hex digit id", a)
+	}
+	if got := buildID(page("index-a.js")); got != a {
+		t.Errorf("buildID of one page = %q, then %q", a, got)
+	}
+	if b := buildID(page("index-b.js")); b == a {
+		t.Errorf("buildID of two pages = %q twice", a)
+	}
+	if got := buildID(fstest.MapFS{}); got != "" {
+		t.Errorf("buildID without index.html = %q, want none", got)
+	}
+	if pageBuild() != buildID(distFS) {
+		t.Errorf("pageBuild() = %q, dist/index.html is %q", pageBuild(), buildID(distFS))
+	}
+}
+
+// TestAPIBuildHeader: every /api/ response, refusal or not, names the embedded page's build, the same id for every
+// request to one server: the page reloads itself when a response names another build than the one it loaded.
+func TestAPIBuildHeader(t *testing.T) {
+	_, _, s := fixture(t)
+	h := s.Handler()
+	first := get(t, h, "/api/projects")
+	if first.Code != http.StatusOK {
+		t.Fatalf("/api/projects: %d, %s", first.Code, first.Body)
+	}
+	id := first.Header().Get(BuildHeader)
+	if id == "" || id != buildID(distFS) {
+		t.Fatalf("%s = %q, want the page's build %q", BuildHeader, id, buildID(distFS))
+	}
+	if got := get(t, h, "/api/projects").Header().Get(BuildHeader); got != id {
+		t.Errorf("second request's %s = %q, first's %q", BuildHeader, got, id)
+	}
+	refused := get(t, h, "/api/task")
+	if refused.Code != http.StatusBadRequest {
+		t.Fatalf("/api/task without a project: %d, want 400", refused.Code)
+	}
+	if got := refused.Header().Get(BuildHeader); got != id {
+		t.Errorf("refusal's %s = %q, want %q", BuildHeader, got, id)
 	}
 }
 
