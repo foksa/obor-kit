@@ -120,7 +120,7 @@ func (s *Server) Handler() http.Handler {
 var writeRoutes = map[string]bool{"/api/config": true, "/api/pause": true}
 
 // BuildHeader names the embedded page's build on every /api/ response: the page keeps the build it loaded with and
-// reloads itself when a later response names another one, so a UI change reaches a tab that was open before it.
+// offers a reload when a later response names another one, so a UI change reaches a tab that was open before it.
 const BuildHeader = "X-Obor-Build"
 
 // buildID is the build id of the page in fsys: the sha256 of its index.html (which names the hashed bundle), first 12
