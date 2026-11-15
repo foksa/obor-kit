@@ -393,10 +393,19 @@ func TestAnswerPathEveryCause(t *testing.T) {
 			}
 		})
 	}
-	for _, task := range []string{event.LoopTask, event.NightlyTask, event.MsgTask} { // a project's fact: fix what it names
+	for _, task := range []string{event.LoopTask, event.MsgTask} { // a project's fact: fix what it names
 		if path := answerPath(nil, event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, mtask{}); path != "" {
 			t.Errorf("%s: suggests %q, want none", task, path)
 		}
+	}
+	// The nightly's full-check RED is the one project fact a verb answers; its other needs-you names no command.
+	if path := answerPath(nil, event.Record{Task: event.NightlyTask, Step: event.StepNeedsYou, Kind: event.KindFact,
+		Data: []byte(`{"reason":"full-check RED abc1234"}`)}, mtask{}); path != `obor resume nightly "<why>"` {
+		t.Errorf("a nightly RED: suggests %q, want obor resume nightly", path)
+	}
+	if path := answerPath(nil, event.Record{Task: event.NightlyTask, Step: event.StepNeedsYou, Kind: event.KindFact,
+		Data: []byte(`{"reason":"nightly failed: cannot take the lock"}`)}, mtask{}); path != "" {
+		t.Errorf("a failed nightly: suggests %q, want none", path)
 	}
 }
 

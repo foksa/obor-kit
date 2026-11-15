@@ -95,6 +95,14 @@ that time, whatever merged since; off, never.
   `00:00`–`23:59` is refused, the config unchanged.
 - `obor nightly off` — `NIGHTLY OFF` (`NIGHTLY OFF already`). A run in progress is not stopped.
 - `obor nightly` — one run now, as before.
+- `obor resume nightly "<why>"` — ends a `needs-you{full-check RED <sha7>}` in force; the why says what was done
+  about it and is recorded on the `resumed` fact. Refused without a why, with a flag, or when no full-check RED
+  needs-you is in force (naming the nightly needs-you that is). The next RED full check, scheduled or by hand, raises
+  a fresh needs-you.
+
+A hand run's verdict settles the needs-you at the next pass while it is in force: GREEN ends it, RED at another sha
+replaces it (the needs-you names the last full check). An acknowledged RED stays ended until a later full check is RED
+again.
 
 Serve writes it as a setup edit (one commit on main, your `[obor] config: nightly.at …` line) and reads it from
 the next pass: no serve restart. `obor status` shows `nightly check at HH:MM (in …)`, or `nightly: off (obor nightly

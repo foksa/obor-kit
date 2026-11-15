@@ -214,7 +214,8 @@ The Codex and OpenCode trims are best effort, not a project-only view: whatever 
 - `obor status`: serve, lanes, agents, what needs you, the last full check
 - `obor web`: a localhost page for every project on this machine
 - `obor dispatch T-12`: run a task on the first free lane of its difficulty
-- `obor resume T-12 "<text>"`: answer a task's needs-you, send it back or re-run its gate
+- `obor resume T-12 "<text>"`: answer a task's needs-you, send it back or re-run its gate; `obor resume nightly
+  "<why>"` ends a RED full check
 - `obor drop T-12 "<why>"`: stop a task's worker and free its lane
 
 The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templates/agents/`.

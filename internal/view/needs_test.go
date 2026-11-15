@@ -37,3 +37,19 @@ func TestNeedsYouCarriesABlockedPanesQuestion(t *testing.T) {
 		t.Errorf("the task detail's needs-you %+v (found %v), want %q", td.NeedsYou, ok, want)
 	}
 }
+
+// The web's needs-you list is serve's facts in force: a nightly full-check RED is listed with serve's answer, obor
+// resume nightly's form, and a status whose nightly needs-you ended lists none.
+func TestNeedsYouListsTheNightlyRed(t *testing.T) {
+	red := event.Record{Seq: 7, Task: event.NightlyTask, Step: event.StepNeedsYou, Kind: event.KindFact,
+		TS: "2026-11-10T11:00:00Z", Data: []byte(`{"reason":"full-check RED abc1234"}`)}
+	inForce := wire.ProjectStatus{Facts: []event.Record{red},
+		Answers: map[int64]string{7: `obor resume nightly "<why>"`}}
+	if n := needsYou(inForce); len(n) != 1 || n[0].Task != "nightly" || n[0].Reason != "full-check RED abc1234" ||
+		n[0].Answer != `obor resume nightly "<why>"` {
+		t.Fatalf("needs-you %+v, want the nightly RED with obor resume nightly's form", n)
+	}
+	if n := needsYou(wire.ProjectStatus{}); len(n) != 0 {
+		t.Errorf("needs-you %+v once the nightly's needs-you ended, want none", n)
+	}
+}
