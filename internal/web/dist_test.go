@@ -96,7 +96,7 @@ func TestBuildID(t *testing.T) {
 }
 
 // TestAPIBuildHeader: every /api/ response, refusal or not, names the embedded page's build, the same id for every
-// request to one server: the page reloads itself when a response names another build than the one it loaded.
+// request to one server: the page marks a tab as behind when a response names another build than the one it loaded.
 func TestAPIBuildHeader(t *testing.T) {
 	_, _, s := fixture(t)
 	h := s.Handler()

@@ -6,6 +6,7 @@
   import { href, pageKey } from "./lib/route";
   import { Live, mark } from "./lib/live.svelte";
   import { api } from "./lib/api";
+  import { build, reload } from "./lib/build.svelte";
   import { projectState } from "./lib/fleet";
   import type { ProjectsEntry } from "./lib/types";
   import Fleet from "./pages/Fleet.svelte";
@@ -18,6 +19,7 @@
   import Docs from "./pages/Docs.svelte";
   import Help from "./pages/Help.svelte";
   import Dot from "./ui/Dot.svelte";
+  import NewBuild from "./ui/NewBuild.svelte";
 
   const route = $derived(router.route);
 
@@ -147,6 +149,7 @@
         <input bind:this={jumpEl} bind:value={jump} aria-label="Jump to a task, agent or project" placeholder="Jump to T-…, an agent, a project" />
         <kbd>⌘K</kbd>
       </form>
+      <NewBuild newer={build.newer} onreload={reload} />
       <span class="live {mark.state}" title={mark.state === "on" ? "live: new records and a refresh every few seconds update the page" : mark.text}>
         <span class="ld"></span>{mark.state === "off" ? "" : mark.text}
       </span>
