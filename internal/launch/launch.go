@@ -458,19 +458,19 @@ func restartOf(lane, agent string) string {
 }
 
 // Restart brings req.Agent (back) up in its pane; the last line it means is RESTARTED (the caller prints it). A
-// start held by a trust dialog is a restart: its line names the dialog and what to do.
+// fresh start held by a trust dialog is a restart: its line names the dialog and what to do (a resumed one failed).
 func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 	s, err := l.Launch(ctx, req)
 	if td := port.TrustHeld(err); td != nil {
-		return s.Line + ": it waits at " + td.Hint, nil
+		return s.Line + ": " + td.Hint, nil
 	}
 	return s.Line, err
 }
 
 // Launch is Restart (port.Agents): its line, and the agent it started there with its session id: herdr's for it, else
 // the id obor named it (the identity serve records for a later rename; none for a scheduled restart of the caller's
-// own pane). A start held by a trust dialog returns both too, with a *port.TrustDialog naming the pane: started, its
-// first prompt taken once a person answers the dialog.
+// own pane). A fresh start held by a trust dialog returns both too, with a *port.TrustDialog (its pane: Started's):
+// started, its first prompt taken once a person answers the dialog. A resumed one is a failed start (NotReady).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
 		return port.Started{}, project.Failf("bad agent name %q", req.Agent)
@@ -627,11 +627,12 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	var trust *port.TrustDialog
 	switch {
 	case errors.As(err, &se) && se.Trust:
-		// Started: the agent runs at the dialog and takes its first prompt (in its args) once a person answers it.
-		// The start's success path (done) and its Started, with the dialog as the error a caller adopts or fails on.
-		l.say("%s runs in %s and waits at %s", t.agent, t.pane, se.Hint)
+		// Started (a fresh start only, start's Trust): the agent runs at the dialog and takes its first prompt (in its
+		// args) once a person answers it. The start's success path (done) and its Started, with the dialog as the error
+		// a caller adopts or fails on. A resumed start at the dialog is NotReady below: its wake is not typed, so it failed.
+		l.say("started: %s", se.Hint)
 		l.done(ctx, st, port.Pane{})
-		trust, err = &port.TrustDialog{Pane: t.pane, Hint: se.Hint}, nil
+		trust, err = &port.TrustDialog{Hint: se.Hint}, nil
 	case errors.As(err, &se) && se.NoShell:
 		return port.Started{}, l.giveUp(ctx, t, "pane %s is not a shell after %s (the old agent has not left): nothing started",
 			t.pane, l.shellWait())
@@ -647,9 +648,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return port.Started{}, err
 	}
 	switch {
-	case wake != "" && sid != "" && trust != nil: // typed now, the dialog would take it as its answer
-		l.say("warning: %s's wake not typed into pane %s: the dialog is open (type it there once it is answered: %s)",
-			what, t.pane, wake)
 	case wake != "" && sid != "":
 		if _, err := l.H.Prompt(ctx, t.pane, wake, false); err != nil {
 			l.say("warning: %s's wake not typed into pane %s: %v (type it there: %s)", what, t.pane, err, wake)

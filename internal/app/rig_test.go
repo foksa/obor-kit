@@ -2930,11 +2930,12 @@ func (g *reviewGitFake) detachedAt() string {
 }
 
 // agentsSpy is an Agents that records every Launch and starts nothing; launchErr fails each launch, trust (a pane)
-// holds each at a trust dialog there (its Started and a port.TrustDialog).
+// holds each at a trust dialog there (heldAtTrust: launch's result, by resume).
 type agentsSpy struct {
 	launches  []port.Launch
 	launchErr error
 	trust     string
+	resume    bool // a launch without Fresh resumes a recorded session (heldAtTrust)
 }
 
 func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
@@ -2943,7 +2944,7 @@ func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, erro
 		return port.Started{}, s.launchErr
 	}
 	if s.trust != "" {
-		return port.Started{Line: "RESTARTED " + l.Agent, Pane: s.trust}, &port.TrustDialog{Pane: s.trust, Hint: "a dialog"}
+		return heldAtTrust(l, s.trust, "RESTARTED "+l.Agent, s.resume && !l.Fresh)
 	}
 	return port.Started{Line: "RESTARTED " + l.Agent}, nil
 }
@@ -3764,17 +3765,30 @@ func same[T comparable](t *testing.T, got, want T, what string) {
 // texts.
 type startEffects struct {
 	*concFakes
-	start func(port.Launch)
-	typed []string
-	trust string // a pane: each start held at a trust dialog there (its Started and a port.TrustDialog)
+	start  func(port.Launch)
+	typed  []string
+	trust  string // a pane: each start held at a trust dialog there (heldAtTrust: launch's result, by resume)
+	resume bool   // a launch without Fresh resumes a recorded session (heldAtTrust)
+	starts []port.Launch
+}
+
+// heldAtTrust is launch's result for l held by a Claude trust dialog in pane: a fresh start (its prompt in the argv)
+// is its Started with a port.TrustDialog (agents.TrustHint); a resumed one is the failed start launch gives up on.
+func heldAtTrust(l port.Launch, pane, line string, resumed bool) (port.Started, error) {
+	hint := agents.TrustHint(agents.Default, l.Agent, pane)
+	if resumed {
+		return port.Started{}, fmt.Errorf("start failed in %s (%s)", pane, hint)
+	}
+	return port.Started{Line: line, Pane: pane}, &port.TrustDialog{Hint: hint}
 }
 
 func (f *startEffects) Launch(_ context.Context, l port.Launch) (port.Started, error) {
+	f.starts = append(f.starts, l)
 	if f.start != nil {
 		f.start(l)
 	}
 	if f.trust != "" {
-		return port.Started{Line: "STARTED", Pane: f.trust}, &port.TrustDialog{Pane: f.trust, Hint: "a dialog"}
+		return heldAtTrust(l, f.trust, "STARTED", f.resume && !l.Fresh)
 	}
 	return port.Started{Line: "STARTED"}, nil
 }

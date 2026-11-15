@@ -1,6 +1,7 @@
-// trust.go: a serve-made start held by a "Trust this folder?" dialog (port.TrustDialog) is a started agent: its
+// trust.go: a serve-made fresh start held by a "Trust this folder?" dialog (port.TrustDialog) is a started agent: its
 // caller records the start as a successful one, then the trust needs-you naming the pane, which the trust rule ends
-// once the pane no longer shows the dialog.
+// once the pane no longer shows the dialog. A resumed start at the dialog is a failed start (launch's): its callers
+// take their failed-start path.
 package app
 
 import (
@@ -19,22 +20,33 @@ const ruleTrust = "trust.answered"
 // trustScreen is how many screen lines the trust rule reads: launch's look at a failed start's screen.
 const trustScreen = 60
 
-// trustReason is the trust needs-you's reason: agent's start waits at the dialog in pane.
-func trustReason(agent, pane string) string {
-	return agent + " started and waits at a 'Trust this folder?' dialog in pane " + pane + ": answer it there: Enter = trust"
+// trustHold is a start held by a trust dialog: the pane it runs in (its port.Started's) and the guidance (the
+// port.TrustDialog's Hint, agents.TrustHint), the trust needs-you's reason as the launch said it.
+type trustHold struct {
+	pane, hint string
 }
 
-// trustNeeds records the trust needs-you (task key trust) of agent's start held by td: one per pane, none when one
-// for td's pane is in force. The start is the caller's to record first, as a start that succeeded.
-func (a *App) trustNeeds(p *proj, agent string, td *port.TrustDialog) {
+// trustHeld is a launch's result s, err read for a trust dialog: a start held by one (port.TrustHeld) is a start, its
+// hold and no error; any other result is err as it is, no hold.
+func trustHeld(s port.Started, err error) (*trustHold, error) {
+	if td := port.TrustHeld(err); td != nil {
+		return &trustHold{pane: s.Pane, hint: td.Hint}, nil
+	}
+	return nil, err
+}
+
+// trustNeeds records the trust needs-you (task key trust) of agent's start held as h, its reason h's guidance: one
+// per pane, none when one for h's pane is in force. The start is the caller's to record first, as a start that
+// succeeded.
+func (a *App) trustNeeds(p *proj, agent string, h *trustHold) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if p.trustShown(td.Pane) {
+	if p.trustShown(h.pane) {
 		return
 	}
-	a.logf("%s: %s", p.name, trustReason(agent, td.Pane))
+	a.logf("%s: %s", p.name, h.hint)
 	a.recordLocked(p, event.Record{Task: event.TrustTask, Step: event.StepNeedsYou, Kind: event.KindFact},
-		event.FactData{Machine: Machine, Pane: td.Pane, Agent: agent, Reason: trustReason(agent, td.Pane)})
+		event.FactData{Machine: Machine, Pane: h.pane, Agent: agent, Reason: h.hint})
 }
 
 // trustShown: a trust needs-you for pane is in force (under mu).

@@ -30,8 +30,9 @@ const workerStartSettle = 30 * time.Second
 // labelled pane is at its shell: labelledShell), no stop step or other claim pending for it (busy), and the project's
 // pause not in force (any reason; a model's pause does not hold it). Action: the worker started in that pane as
 // a restart without --fresh starts it — its recorded session resumed where its kind resumes, else a new one — with
-// that job's wake (launch carries the Prompt: typed into a resumed session, a new one's first prompt); a start held by a
-// trust dialog is a start, then the trust needs-you. Keyed by the task's dispatch fact; done when the pane runs an
+// that job's wake (launch carries the Prompt: typed into a resumed session, a new one's first prompt); a fresh start
+// held by a trust dialog is a start, then the trust needs-you, and a resumed one at the dialog is a failed start
+// (launch's: its wake not typed), the rule's failure. Keyed by the task's dispatch fact; done when the pane runs an
 // agent.
 func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
 	if fx == nil || fx.Agents == nil {
@@ -59,8 +60,8 @@ func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time
 		req := port.Launch{Agent: mt.agent, Pane: pane.ID, Prompt: wakeLine(JobID(job)), Effort: mt.disp.Effort, Type: typ}
 		return mt.dispSeq, action{call: func(ctx context.Context) error {
 			s, err := fx.Agents.Launch(ctx, req)
-			trust := port.TrustHeld(err)
-			if err != nil && trust == nil {
+			trust, err := trustHeld(s, err)
+			if err != nil {
 				return fmt.Errorf("%s's worker %s not started in %s: %w", task, req.Agent, req.Pane, err)
 			}
 			a.logf("%s: %s's worker started again for %s: %s", p.name, task, JobID(job), s.Line)
@@ -305,7 +306,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 	replay := pending && rec.Pane == d.Pane
 	moved := pending && rec.Pane != d.Pane // the recorded pane is gone: d.Pane was chosen again
 	in := event.Intent{Key: key, Class: event.ClassStart, Data: d}
-	var trust *port.TrustDialog
+	var trust *trustHold
 	defer func() { // after the start's facts: the trust needs-you of a start held by the dialog
 		if trust != nil {
 			a.trustNeeds(p, d.Agent, trust)
@@ -332,9 +333,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 		typ, _ := config.ParseModelRef(mt.disp.Type) // the dispatch's type, not the lane's configured one
 		s, err := fx.Agents.Launch(ctx, port.Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
 			Prompt: first, Effort: mt.disp.Effort, Type: typ})
-		if trust = port.TrustHeld(err); trust != nil { // started: its first prompt is taken once the dialog is answered
-			err = nil
-		}
+		trust, err = trustHeld(s, err) // held: started, its first prompt taken once the dialog is answered
 		switch {
 		case err != nil && startRefused(err):
 			return startOut{Refused: err.Error()}, nil

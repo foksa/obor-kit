@@ -34,7 +34,8 @@ type (
 // that took the name after the start's decision (Locate) is a port.Refused, Locate's line. The pane label put back over
 // another label is said. A failed start is a *StartError,
 // herdr's error printed: NoShell when the pane never became its shell, NotReady with a hint when the pane shows a trust
-// dialog (Trust too when the terminal accepted the start: the agent runs and holds its first prompt) or a Codex
+// dialog (Trust too when the terminal accepted a fresh start: the agent runs and holds its first prompt, in its argv;
+// the hint is agents.TrustHint) or a Codex
 // self-update, or herdr says NotReady. A failed env line is its own error; a failed pane label is a
 // Fail (nothing started). A start reports the confirmed start (serve ends the agent's skew entry) and, for a kind whose
 // sessions its transcript names,
@@ -120,8 +121,11 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	// Only a failed start looks at the screen (a started agent's prompt delivery is judged by herdr alone).
 	screen, _ := l.H.Screen(ctx, s.Pane, 60)
-	if agents.TrustDialog(screen) { // Trust only for a start the terminal accepted: a refused one ran no agent
-		return port.Pane{}, &StartError{Err: err, NotReady: true, Trust: t.accepted, Hint: trustHint(s.Pane)}
+	if agents.TrustDialog(screen) {
+		// Trust only for a fresh start the terminal accepted: a refused one ran no agent, and a resumed one carries no
+		// first prompt in its argv (its wake is typed once it is up), so the dialog holds nothing it would deliver.
+		return port.Pane{}, &StartError{Err: err, NotReady: true, Trust: t.accepted && s.Resume == "",
+			Hint: agents.TrustHint(s.Kind, s.Agent, s.Pane)}
 	}
 	if hint, retry := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint, Retry: retry}
@@ -333,11 +337,6 @@ func (l *Launcher) retry(t *target) string {
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.
 func sameSid(live, sid string) bool {
 	return live == sid || sid != "" && strings.TrimSuffix(filepath.Base(live), filepath.Ext(live)) == sid
-}
-
-// trustHint is what a person does at a start held by a trust dialog (agents.TrustDialog) in pane.
-func trustHint(pane string) string {
-	return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)"
 }
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start, a screen with no trust
