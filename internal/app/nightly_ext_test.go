@@ -19,20 +19,26 @@ import (
 	"obor/internal/testkit"
 )
 
-// nightlyFake is a Loop's Nightly: the last full check's verdict and each run's outcome scripted, the runs counted.
+// nightlyFake is a Loop's Nightly: the last full check and each run's outcome scripted, the runs counted.
 type nightlyFake struct {
 	mu   sync.Mutex
-	last string           // Last's verdict ("": none)
+	sha  string           // Last's sha ("" abc1234def)
+	last string           // Last's verdict ("" none)
+	at   time.Time        // Last's time
 	outs []app.NightlyOut // each run's outcome in turn (the last one again); Verdict "": the run fails
 	runs int
 }
 
 func (f *nightlyFake) nightly(at string) *app.Nightly {
 	return &app.Nightly{At: at,
-		Last: func() (string, string, error) {
+		Last: func() (app.FullCheck, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
-			return "abc1234def", f.last, nil
+			sha := f.sha
+			if sha == "" {
+				sha = "abc1234def"
+			}
+			return app.FullCheck{SHA: sha, Verdict: f.last, At: f.at}, nil
 		},
 		Run: func(context.Context) (app.NightlyOut, error) {
 			f.mu.Lock()
@@ -197,8 +203,8 @@ func TestNightlyOffSettlesAResult(t *testing.T) {
 		// record appends to the log, then folds it into the view (loop.go recordSeq): wait for the view, not only the
 		// log — a read of Status can come between the two.
 		r.waitFor("the nightly fact in the view", func() bool { return len(nightlyFacts(r)) == 1 })
-		if fs := nightlyFacts(r); len(fs) != 1 || r.answerOf(fs[0]) != "" {
-			t.Errorf("nightly facts: %+v", fs)
+		if fs := nightlyFacts(r); len(fs) != 1 || r.answerOf(fs[0]) != `obor resume nightly "<why>"` {
+			t.Errorf("nightly facts: %+v (their answers %q)", fs, r.answerOf(fs[0]))
 		}
 		r.passes()
 		if n, runs := r.count(fact), f.count(); n != 1 || runs != 0 {
@@ -248,6 +254,184 @@ func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
 			})
 		})
 	}
+}
+
+// redFact records a RED nightly's needs-you in r's store at r's clock: the fact a RED run leaves.
+func redFact(t *testing.T, r *loopRig, reason string) {
+	t.Helper()
+	if err := app.WriteLog(r.p.Root, r.clock.Now(),
+		nightlyFact(t, event.StepNeedsYou, event.FactData{Machine: app.Machine, Reason: reason})); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A hand full check settles the RED nightly's needs-you by the last full check: RED at another sha replaces it (the
+// needs-you names the last full check), RED at that sha records nothing.
+func TestNightlyHandRedFollowsTheLastCheck(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, sha, want string
+		resumed         int
+	}{
+		{"another sha replaces it", "bdee5eb1234", "full-check RED bdee5eb", 1},
+		{"the same sha changes nothing", "abc1234def", "full-check RED abc1234", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			bubble(t, func(t *testing.T) {
+				f := &nightlyFake{last: "RED", sha: c.sha}
+				r := nightlyRig(t, f, "")
+				redFact(t, r, "full-check RED abc1234")
+				r.start()
+				r.passes()
+				r.passes()
+				if fs := nightlyFacts(r); len(fs) != 1 || fs[0].Fact().Reason != c.want {
+					t.Errorf("nightly facts %+v, want one %q: %q", fs, c.want, r.steps())
+				}
+				if n := r.count("0 fact needs-you{" + c.want + "}"); n != 1 {
+					t.Errorf("needs-you %q recorded %d times, want 1 (the old one ends, the new one is once): %q", c.want, n, r.steps())
+				}
+				if n := r.count("0 fact resumed"); n != c.resumed {
+					t.Errorf("resumed %d, want %d: %q", n, c.resumed, r.steps())
+				}
+			})
+		})
+	}
+}
+
+// redLines is the lead's needs-you lines about a full check RED, in the log's order.
+func redLines(r *loopRig) []string {
+	var out []string
+	for _, rec := range r.needsLineFacts() {
+		var m event.Message
+		if json.Unmarshal(rec.Data, &m) == nil && strings.Contains(m.Line, "full-check RED") {
+			out = append(out, m.Line)
+		}
+	}
+	return out
+}
+
+// obor resume nightly "<why>" ends the RED nightly's needs-you with the why on the fact: status stops listing it, the
+// owner's notification stops repeating, and a full check newer than the acknowledgement raises a fresh one.
+func TestNightlyRedAckedByResume(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		f := &nightlyFake{last: "RED"}
+		r := nightlyRig(t, f, "")
+		const red = "full-check RED abc1234"
+		redFact(t, r, red)
+		r.start()
+		// Precondition: the needs-you is in force, its line posted and delivered, its toast shown.
+		r.waitFor("the needs-you in force", func() bool { return len(nightlyFacts(r)) == 1 })
+		fact := nightlyFacts(r)[0]
+		if ans := r.answerOf(fact); ans != `obor resume nightly "<why>"` {
+			t.Fatalf("obor status answers %q, want obor resume nightly", ans)
+		}
+		r.waitFor("the needs line recorded", func() bool { return len(redLines(r)) == 1 })
+		var line string
+		for _, rec := range r.needsLineFacts() {
+			var m event.Message
+			if json.Unmarshal(rec.Data, &m) == nil && strings.Contains(m.Line, red) {
+				line = m.Line
+			}
+		}
+		if !strings.HasSuffix(line, ` → obor resume nightly "<why>"`) {
+			t.Fatalf("the needs line %q, want the full check RED and obor resume nightly's hint", line)
+		}
+		r.waitFor("the lead's line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+		r.waitFor("the toast", func() bool { return redNotes(r) == 1 })
+
+		const why = "the flake is fixed in bdee5eb"
+		ack := func(callID string) (string, error) {
+			return r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+				CallID: callID}, Task: event.NightlyTask, Text: why})
+		}
+		reply, err := ack("ack1")
+		if want := "RESUMED nightly: " + red + " (" + why + ")"; err != nil || reply != want {
+			t.Fatalf("obor resume nightly: %q, %v; want %q", reply, err, want)
+		}
+		if again, err := ack("ack1"); err != nil || again != reply {
+			t.Errorf("a repeated call id: %q, %v; want the stored reply %q", again, err, reply)
+		}
+		// The status the lead and the web read lists the needs-you no more.
+		if fs := nightlyFacts(r); len(fs) != 0 {
+			t.Errorf("after the resume, obor status lists %+v; want no nightly needs-you", fs)
+		}
+		// The resumed fact carries the needs-you it ended and the why.
+		var acks []event.Record
+		for _, rec := range r.records() {
+			if rec.Task == event.NightlyTask && rec.Kind == event.KindFact && rec.Step == event.StepResumed {
+				acks = append(acks, rec)
+			}
+		}
+		if len(acks) != 1 || acks[0].Fact().Reason != red || acks[0].Fact().Note != why {
+			t.Errorf("resumed facts %+v, want one %q with the why %q", acks, red, why)
+		}
+		// No repeat line, no second toast: the owner is not notified again.
+		r.later(31 * time.Minute)
+		r.later(2 * time.Hour)
+		if n, toasts := len(redLines(r)), redNotes(r); n != 1 || toasts != 1 {
+			t.Errorf("after the ack: %d RED lines, %d toasts; want 1, 1 (no repeat): %q", n, toasts, r.steps())
+		}
+
+		// A full check newer than the acknowledgement is RED again: a fresh needs-you, its own line and toast.
+		f.mu.Lock()
+		f.sha, f.at = "bdee5eb1234", r.clock.Now()
+		f.mu.Unlock()
+		r.passes()
+		r.waitFor("the fresh needs-you", func() bool { return len(nightlyFacts(r)) == 1 })
+		if fs := nightlyFacts(r); fs[0].Fact().Reason != "full-check RED bdee5eb" {
+			t.Errorf("the fresh needs-you %+v, want full-check RED bdee5eb", fs)
+		}
+		r.waitFor("the fresh needs-you's toast", func() bool { return redNotes(r) == 2 })
+		r.waitFor("the fresh needs-you's line", func() bool { return len(redLines(r)) == 2 })
+	})
+}
+
+// obor resume nightly's refusals, nothing recorded: no why, a flag, no nightly needs-you in force (naming the one that
+// is, when another is), and a caller that is no lead or owner.
+func TestResumeNightlyRefusals(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		f := &nightlyFake{last: "RED"}
+		r := nightlyRig(t, f, "")
+		r.start()
+		r.passes()
+		ask := func(callID, role, text, flag string) error {
+			_, err := r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-l-01", Role: role,
+				CallID: callID}, Task: event.NightlyTask, Text: text, Flag: flag})
+			return err
+		}
+		for _, c := range []struct{ name, text, flag, want string }{
+			{"no why", " ", "", "resume nightly: say the why"},
+			{"a flag", "the flake is fixed", wire.ResumeRegate, "resume nightly: no flag"},
+			{"no nightly needs-you in force", "the flake is fixed", "", "resume nightly: no nightly needs-you in force"},
+		} {
+			if err := ask(c.name, "lead", c.text, c.flag); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("%s: %v; want the refusal %q", c.name, err, c.want)
+			}
+		}
+		if n := r.count("0 fact resumed"); n != 0 {
+			t.Errorf("the refusals recorded %d resumed facts: %q", n, r.steps())
+		}
+		// A nightly needs-you of another kind is in force: the refusal names it.
+		r.stop()
+		if err := app.WriteLog(r.p.Root, r.clock.Now(),
+			nightlyFact(t, event.StepNeedsYou, event.FactData{Machine: app.Machine,
+				Reason: "nightly failed: cannot take the lock"})); err != nil {
+			t.Fatal(err)
+		}
+		r.start()
+		r.passes()
+		if err := ask("other", "lead", "the lock is free", ""); err == nil ||
+			!strings.Contains(err.Error(), "the nightly needs-you in force is nightly failed: cannot take the lock") {
+			t.Errorf("another nightly needs-you in force: %v; want the refusal naming it", err)
+		}
+		if err := ask("worker", "worker", "the lock is free", ""); err == nil ||
+			!strings.Contains(err.Error(), "the lead or the owner resumes a task") {
+			t.Errorf("a worker's call: %v; want the refusal naming the role", err)
+		}
+	})
 }
 
 // configWriter is a ConfigFile on the rig's config.json: Commit writes the file and counts the commits.
@@ -348,8 +532,8 @@ func TestNightlyRedNeedsYouUntilGreen(t *testing.T) {
 		const fact = "0 fact needs-you{full-check RED abc1234}"
 		r.waitStep(fact)
 		r.waitFor("the notification", func() bool { return redNotes(r) == 1 })
-		if fs := nightlyFacts(r); len(fs) != 1 || r.answerOf(fs[0]) != "" {
-			t.Errorf("nightly facts: %+v", fs)
+		if fs := nightlyFacts(r); len(fs) != 1 || r.answerOf(fs[0]) != `obor resume nightly "<why>"` {
+			t.Errorf("nightly facts: %+v (their answers %q)", fs, r.answerOf(fs[0]))
 		}
 
 		r.later(24 * time.Hour) // RED again on the same sha: no second fact, no second notification

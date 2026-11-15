@@ -118,11 +118,11 @@ const (
 	ResumeSendback = "sendback"
 )
 
-// ResumeArgs is obor resume's arguments, <T-xx> ["<text>"] [--regate|--sendback], as a resume request's Task, Text and
-// Flag: the flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes"). An
-// argument is a flag only if it is exactly --regate or --sendback: anything else is the text, one
+// ResumeArgs is obor resume's arguments, <T-xx|nightly> ["<text>"] [--regate|--sendback], as a resume request's Task,
+// Text and Flag: the flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes").
+// An argument is a flag only if it is exactly --regate or --sendback: anything else is the text, one
 // starting with - or -- too ("- use A", "--force is safe"), and after -- every argument is (obor resume T-xx --
-// --regate). False: not that form.
+// --regate). False: not that form. nightly is no task id: obor resume nightly's refusals are serve's.
 func ResumeArgs(args []string) (ResumeReq, bool) {
 	if len(args) == 0 || args[0] == "" || strings.HasPrefix(args[0], "-") {
 		return ResumeReq{}, false

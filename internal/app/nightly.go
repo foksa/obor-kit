@@ -19,9 +19,10 @@ import (
 // merge.nightly_commands, each non-gating). The Loop is built each pass from the config as it is,
 // so a switch counts from the next pass; a run in progress is not stopped by off. Its intent/result is the day's key
 // nightly.<YYYY-MM-DD> (G): a restart runs a pending one again, a day with a result runs none. A RED one is the
-// project's needs-you{full-check RED <sha7>} until a GREEN one ends it; a run that ends neither GREEN nor RED is a
-// counted failure (fact failed), tried again nightlyRetry after the last one, the tries-th the day's needs-you{nightly
-// failed: …}. A GREEN full check run by hand (obor nightly: last-full-check) ends a RED one's needs-you too.
+// project's needs-you{full-check RED <sha7>} until a GREEN one ends it, or the lead's or the owner's obor resume
+// nightly "<why>"; a run that ends neither GREEN nor RED is a counted failure (fact failed), tried again nightlyRetry
+// after the last one, the tries-th the day's needs-you{nightly failed: …}. The last full check (last-full-check: a
+// hand obor nightly's too) settles a RED needs-you at the next pass: GREEN ends it, RED at another sha replaces it.
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
 // another process holds, the nightly lock).
@@ -35,9 +36,16 @@ const redPrefix = "full-check RED "
 type Nightly struct {
 	At  string                                        // "HH:MM", local time: it runs every night at or after it; "": off
 	Run func(ctx context.Context) (NightlyOut, error) // obor nightly's run; an error: it ended neither GREEN nor RED
-	// Last is the last full check's sha and verdict (last-full-check: GREEN | RED, "" none), a hand run's too (nil:
-	// not read).
-	Last func() (sha, verdict string, err error)
+	// Last is the last full check (last-full-check), a hand run's too (nil: not read).
+	Last func() (FullCheck, error)
+}
+
+// FullCheck is the last full check as last-full-check holds it: the sha it checked, its verdict (GREEN | RED, "" none)
+// and when it ran.
+type FullCheck struct {
+	SHA     string
+	Verdict string
+	At      time.Time
 }
 
 // NightlyOut is a nightly run's outcome: GREEN or RED on the sha it checked, and its one line.
@@ -49,7 +57,7 @@ type NightlyOut struct {
 
 // nightlyState is the nightly full check's fold: its last intent's step and whether it has a result, the counted
 // failures per step and the time and reason of the last one, the last outcome while no needs-you or resumed fact has
-// followed it, and whether a run is going.
+// followed it, when its last needs-you ended, and whether a run is going.
 type nightlyState struct {
 	step      string
 	done      bool
@@ -57,7 +65,8 @@ type nightlyState struct {
 	failedAt  time.Time
 	failedWhy string // the last failed fact's reason: "nightly.<date>: <err>" (obor status' pending line)
 	unsettled *NightlyOut
-	running   bool // runNightly runs (under mu; only the merge loop's pass starts one)
+	ended     time.Time // the last resumed fact's time: the needs-you then in force ended
+	running   bool      // runNightly runs (under mu; only the merge loop's pass starts one)
 }
 
 // foldNightly folds r, a record of the nightly full check. Only nightly.<date> steps are its runs: an old log's
@@ -83,8 +92,11 @@ func (p *proj) foldNightly(r event.Record) {
 		}
 		n.fails[r.Fact().Step]++
 		n.failedAt, n.failedWhy = event.RecordTime(r), r.Fact().Reason
-	case r.Kind == event.KindFact && (r.Step == event.StepNeedsYou || r.Step == event.StepResumed):
+	case r.Kind == event.KindFact && r.Step == event.StepNeedsYou:
 		n.unsettled = nil
+	case r.Kind == event.KindFact && r.Step == event.StepResumed:
+		n.unsettled = nil
+		n.ended = event.RecordTime(r)
 	}
 }
 
@@ -106,7 +118,7 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 	if n == nil { // a Loop without one (tests)
 		return
 	}
-	a.handGreen(p, n)
+	a.handCheck(p, n)
 	if busy || n.At == "" {
 		return
 	}
@@ -141,28 +153,35 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 	}()
 }
 
-// handGreen ends a RED nightly's needs-you in force when the last full check, a hand run's too, is GREEN (resumed):
-// serve's own nightly would end it only at its next time, or never while it is off.
-func (a *App) handGreen(p *proj, n *Nightly) {
+// handCheck settles a nightly RED needs-you from the last full check, a hand run's too: serve's own nightly would
+// settle it only at its next time, or never while it is off. GREEN ends it; RED at another sha replaces it with its
+// own reason (RED at the same sha: nothing); with none in force, a RED check newer than the last one ended raises a
+// fresh one, so an acknowledged RED stays ended until a later run is RED again.
+func (a *App) handCheck(p *proj, n *Nightly) {
 	if n.Last == nil {
 		return
 	}
-	a.mu.Lock()
-	red := false
-	for _, f := range p.folded.active[event.NightlyTask] {
-		red = red || f.Step == event.StepNeedsYou && strings.HasPrefix(f.Fact().Reason, redPrefix)
-	}
-	a.mu.Unlock()
-	if !red {
-		return
-	}
-	_, verdict, err := n.Last()
+	c, err := n.Last()
 	if err != nil {
 		a.logf("nightly of %s: %v", p.name, err)
 		return
 	}
-	if verdict == "GREEN" {
-		a.settleNeeds(p, event.NightlyTask, "")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	held := ""
+	for _, f := range p.folded.active[event.NightlyTask] {
+		if f.Step == event.StepNeedsYou {
+			held = f.Fact().Reason
+		}
+	}
+	red := strings.HasPrefix(held, redPrefix)
+	switch {
+	case c.Verdict == "GREEN":
+		if red {
+			a.settleNeedsLocked(p, event.NightlyTask, "")
+		}
+	case c.Verdict == "RED" && (red || held == "" && c.At.After(p.night.ended)):
+		a.settleNeedsLocked(p, event.NightlyTask, redPrefix+sha7(c.SHA))
 	}
 }
 
@@ -210,11 +229,14 @@ func (a *App) nightlyFailed(p *proj, step string, err error) {
 // GREEN ends the one in force.
 func (a *App) nightlyVerdict(p *proj, out NightlyOut) {
 	if out.Verdict == "RED" {
-		a.nightlyNeedsYou(p, redPrefix+out.SHA[:min(7, len(out.SHA))])
+		a.nightlyNeedsYou(p, redPrefix+sha7(out.SHA))
 		return
 	}
 	a.nightlySettled(p, "")
 }
+
+// sha7 is sha as a needs-you names the check: its first seven characters.
+func sha7(sha string) string { return sha[:min(7, len(sha))] }
 
 // nightlyNeedsYou records the nightly's needs-you reason, ending another in force; the same one in force: nothing.
 func (a *App) nightlyNeedsYou(p *proj, reason string) {

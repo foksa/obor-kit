@@ -244,14 +244,17 @@ func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
 // mt of r's task (zero: the loop holds none), by the rules the verbs themselves check: the one obor resume form
 // resumeFits takes (its text where its action needs one; with no default, the owner's choice of --regate or
 // --sendback; a worker's question also --regate), then obor drop when the task's state takes one (mtask.may); a
-// watchdog fact its pane first; a loop error none ("": fix what it names). p (nil: none) is r's project, under mu.
+// watchdog fact its pane first; a loop error none ("": fix what it names). A nightly full-check RED is the one
+// project fact with a command: obor resume nightly. p (nil: none) is r's project, under mu.
 func answerPath(p *proj, r event.Record, mt mtask) string {
 	d := r.Fact()
 	var cmds []string
 	switch {
 	case r.Task == event.ReviewTask: // a failed review start's: a new request ends it
 		return "obor review start [--after T-a,T-b]"
-	case projectKey(r.Task): // a GREEN nightly ends a nightly's; a line typed, a line's
+	case r.Task == event.NightlyTask && strings.HasPrefix(d.Reason, redPrefix): // the lead's or the owner's why ends it
+		return `obor resume nightly "<why>"`
+	case projectKey(r.Task): // a line typed, a line's; the nightly's other needs-you
 		return ""
 	case strings.HasPrefix(d.Reason, reasonAsks):
 		return resumeCmds(p, r.Task, mt)

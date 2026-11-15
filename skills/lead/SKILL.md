@@ -94,6 +94,8 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
     integrator's next job ("Lead's decision on your hold: …"); a failed step → retried; a gate or publish failure →
     gated again; red past K, sendbacks past K, a resolve rejected → you choose `--regate` or `--sendback "<why>"`.
   A flag where it does not fit is refused, naming what `obor resume` would do.
+- `obor resume nightly "<why>"` — end the nightly's `full-check RED <sha7>` needs-you once its cause is fixed; the why
+  is recorded on the fact. The next RED full check, scheduled or by hand, raises a fresh one.
 - `obor drop <T-xx> "<why>" [--discard] [--force]` — abandon a task: serve stops its worker and frees its lane
   (`--discard` for a dirty lane or unmerged commits, `--force` only for a worker that ignores Escape); a task with no
   lane yet (a waiting dispatch) is just cancelled. Every task command takes the task id, never a lane.

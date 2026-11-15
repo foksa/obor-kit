@@ -9,10 +9,11 @@ import (
 	"obor/internal/testkit"
 )
 
-// obor resume <T-xx> ["<text>"] [--regate|--sendback]: one request to obor serve carrying the task, the text
-// and the flag as the caller (caller: the lead from the main checkout, the owner with no role, a worker from its lane's
-// cwd whatever OBOR_ROLE says), serve's reply printed; a usage error or a bad task id sends nothing; serve's refusal is
-// FAIL, exit 1. obor answer and obor sendback are no subcommands. --reprompt is a text: with another, two texts.
+// obor resume <T-xx> ["<text>"] [--regate|--sendback], and obor resume nightly "<why>": one request to obor serve
+// carrying the task (nightly is no task id: serve decides), the text and the flag as the caller (caller: the lead from
+// the main checkout, the owner with no role, a worker from its lane's cwd whatever OBOR_ROLE says), serve's reply
+// printed; a usage error or a bad task id sends nothing; serve's refusal is FAIL, exit 1. obor answer and obor sendback
+// are no subcommands. --reprompt is a text: with another, two texts.
 func TestResumeRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -46,18 +47,20 @@ func TestResumeRequest(t *testing.T) {
 	}
 	run(t, p.Root, env(""), "resume", "T-01", "--sendback", "as the owner")
 	run(t, o1, env("lead"), "resume", "T-01", "--regate")
+	run(t, p.Root, env("lead"), "resume", "nightly", "the flake is fixed in bdee5eb") // no task id: serve's form
 	calls, _ := serve.requests()
-	if len(calls) != 3 {
-		t.Fatalf("%d requests, want 3", len(calls))
+	if len(calls) != 4 {
+		t.Fatalf("%d requests, want 4", len(calls))
 	}
 	// The agent is derived from the role: the owner (no role) is no agent, a stale OBOR_AGENT is never read.
-	for i, want := range []struct{ role, agent, note, to string }{{"lead", "pj-lead", "yes, edit x.go", ""},
-		{"", "", "as the owner", wire.ResumeSendback}, {"worker", "pj-l-01", "", wire.ResumeRegate}} {
+	for i, want := range []struct{ role, agent, task, note, to string }{{"lead", "pj-lead", "T-01", "yes, edit x.go", ""},
+		{"", "", "T-01", "as the owner", wire.ResumeSendback}, {"worker", "pj-l-01", "T-01", "", wire.ResumeRegate},
+		{"lead", "pj-lead", "nightly", "the flake is fixed in bdee5eb", ""}} {
 		c := calls[i]
-		if c.Task != "T-01" || c.Note != want.note || c.To != want.to || c.Role != want.role || c.Agent != want.agent ||
+		if c.Task != want.task || c.Note != want.note || c.To != want.to || c.Role != want.role || c.Agent != want.agent ||
 			c.Root != p.Root || c.CallID == "" {
-			t.Errorf("request %d: %+v; want task T-01, note %q, to %q, role %q, agent %q, root, a call id", i+1, c,
-				want.note, want.to, want.role, want.agent)
+			t.Errorf("request %d: %+v; want task %s, note %q, to %q, role %q, agent %q, root, a call id", i+1, c,
+				want.task, want.note, want.to, want.role, want.agent)
 		}
 	}
 	if calls[0].CallID == calls[1].CallID {
@@ -95,6 +98,9 @@ func TestResumeServeDownAndNoVerdictVerbs(t *testing.T) {
 		{[]string{"resume", "T-01", "yes", "more"}, "FAIL usage: obor resume"},
 		{[]string{"resume", "T-01", "--reprompt", "yes"}, "FAIL usage: obor resume"}, // no keyword: a text
 		{[]string{"resume", "T-01", "the owner says yes"}, "FAIL obor serve is not running"},
+		{[]string{"resume", "nightly", "the flake is fixed"}, "FAIL obor serve is not running"}, // nightly is no task id
+		{[]string{"resume", "nightly", "--regate", "why"}, "FAIL obor serve is not running"},    // the flag: serve's refusal
+		{[]string{"resume", "nightly", " "}, "FAIL usage: obor resume"},
 	} {
 		rc, stdout, _ := run(t, p.Root, env, c.args...)
 		if got := strings.TrimSpace(stdout); rc != 1 || !strings.HasPrefix(got, c.want) {

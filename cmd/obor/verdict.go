@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
@@ -12,19 +13,24 @@ import (
 )
 
 // resumeCmd is `obor resume <T-xx> ["<text>"] [--regate|--sendback]`, the lead's or the owner's one word to a
-// task, sent to obor serve (its app socket) as the caller (caller: the session's derived name and role): serve picks the
-// action from the task's state (a question's answer, a stalled or stopped worker's line, a drive's line, a sendback, a
-// needs-you's decision; the flags only where two fit). It prints the app's reply, or FAIL with its refusal. The
-// integrator's verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only.
+// task, and `obor resume nightly "<why>"`, ending the nightly's full-check RED needs-you; either is sent to obor
+// serve (its app socket) as the caller (caller: the session's derived name and role): serve picks the action from the
+// task's state (a question's answer, a stalled or stopped worker's line, a drive's line, a sendback, a needs-you's
+// decision; the flags only where two fit). It prints the app's reply, or FAIL with its refusal. The integrator's
+// verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only.
 func resumeCmd(args []string) int {
 	c, ok := wire.ResumeArgs(args)
 	if !ok {
 		fmt.Fprintln(out, "FAIL "+help.Usage("resume"))
 		return 1
 	}
+	nightly := c.Task == event.NightlyTask
 	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		c.Envelope = id
-		return &c, taskIDs(cfg, args[0])
+		if nightly {
+			return &c, nil
+		}
+		return &c, taskIDs(cfg, c.Task)
 	})
 }
 

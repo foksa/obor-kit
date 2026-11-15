@@ -98,6 +98,10 @@ func (p *proj) foldJob(r event.Record) {
 		if d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = d.Reply
 		}
+	case r.Kind == event.KindFact && r.Step == event.StepResumed && r.Task == event.NightlyTask:
+		if d := r.Fact(); d.Call != "" { // obor resume nightly's stored reply
+			p.folded.calls[verdictStep(wire.MethodResume, d.Call)] = nightlyResumeReply(d.Reason, d.Note)
+		}
 	case r.Kind == event.KindFact && (r.Step == event.StepNeedsYou || r.Step == event.StepUnblocked):
 		if d := r.Fact(); d.Call != "" && r.Step == event.StepNeedsYou {
 			p.folded.calls[verdictStep(wire.MethodHold, d.Call)] = holdReply(r.Task, d.Job)

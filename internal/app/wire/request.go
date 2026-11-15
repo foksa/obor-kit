@@ -69,8 +69,9 @@ type DropReq struct {
 func (DropReq) Method() string { return MethodDrop }
 
 // ResumeReq is the lead's or the owner's word to the task Task (obor resume T-xx ["<text>"] [--regate|--sendback],
-// ResumeArgs): serve picks the action from the task's state (a question's answer, a stalled or stopped worker's line, a
-// drive's line, a sendback, a needs-you's decision), Text the word, Flag ResumeRegate or ResumeSendback where two fit
+// ResumeArgs), or to the nightly (Task "nightly", obor resume nightly "<why>"): serve picks the action from the
+// task's state (a question's answer, a stalled or stopped worker's line, a drive's line, a sendback, a needs-you's
+// decision; the nightly: end its full-check RED), Text the word, Flag ResumeRegate or ResumeSendback where two fit
 // ("": the action the task's state takes).
 type ResumeReq struct {
 	Envelope

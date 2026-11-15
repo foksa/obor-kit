@@ -25,9 +25,11 @@ import (
 //     failed step → retry, a gate or publish failure → regate, an undelivered or stalled job → reprompt; a red gate or
 //     sendbacks past K, or a resolve rejected → the owner's choice, --regate or --sendback.
 //
+// obor resume nightly "<why>" ends the nightly's full-check RED needs-you (its why the resumed fact's note).
+//
 // A flag only where two actions fit; one that does not fit is refused naming what would happen. The text is required
-// for an answer, a line, a sendback and a hold's decision; elsewhere it is the decision the integrator's next job
-// carries. One fact per action; a repeated call id gets the stored reply.
+// for an answer, a line, a sendback, a hold's decision and obor resume nightly; elsewhere it is the decision the
+// integrator's next job carries. One fact per action; a repeated call id gets the stored reply.
 
 // The actions of obor resume besides the unblocked fact's (wire.ResumeRegate, ResumeReprompt, ResumeRetry).
 const (
@@ -75,6 +77,10 @@ func (a *App) resume(c wire.ResumeReq) (string, error) {
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
+	if c.Task == event.NightlyTask {
+		a.mu.Unlock()
+		return a.resumeNightly(p, c)
+	}
 	act, mt, reply, err := a.resumeDecide(p, c)
 	if err == nil && reply == "" && act == actSendback {
 		p.held[c.Task] = actSendback // no step of the old attempt starts until the sendback has folded
@@ -98,6 +104,53 @@ func (a *App) resume(c wire.ResumeReq) (string, error) {
 	}
 	a.wake()
 	return resumeReply(c.Task, act, d.Cause), nil
+}
+
+// resumeNightly answers obor resume nightly "<why>": the why ends the nightly's full-check RED needs-you in force (fact
+// resumed, its reason the needs-you's, the why its note). A why is required and no flag fits; refused when no
+// full-check RED needs-you is in force, naming the nightly needs-you that is. A repeated call id gets the stored reply.
+func (a *App) resumeNightly(p *proj, c wire.ResumeReq) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if p == nil {
+		return "", fmt.Errorf("resume: no served project at %s", c.Root)
+	}
+	if reply, stored := p.folded.calls[verdictStep(wire.MethodResume, c.CallID)]; stored {
+		return reply, nil
+	}
+	switch {
+	case !p.merging:
+		return "", mergeOff(p)
+	case c.Role != "" && c.Role != "lead":
+		return "", fmt.Errorf("resume: the lead or the owner resumes a task, not %s (role %s)", Dash(c.Agent), c.Role)
+	case c.Flag != "":
+		return "", errors.New(`resume nightly: no flag: say the why, obor resume nightly "<why>"`)
+	case strings.TrimSpace(c.Text) == "":
+		return "", errors.New(`resume nightly: say the why: obor resume nightly "<why>"`)
+	}
+	held := ""
+	for _, f := range p.folded.active[event.NightlyTask] {
+		if f.Step == event.StepNeedsYou {
+			held = f.Fact().Reason
+		}
+	}
+	switch {
+	case held == "":
+		return "", errors.New("resume nightly: no nightly needs-you in force: nothing for it to end")
+	case !strings.HasPrefix(held, redPrefix):
+		return "", fmt.Errorf("resume nightly: the nightly needs-you in force is %s, not a full-check RED one", held)
+	}
+	d := event.FactData{Machine: Machine, Agent: c.Agent, Reason: held, Note: strings.TrimSpace(c.Text), Call: c.CallID}
+	if !a.recordLocked(p, event.Record{Task: event.NightlyTask, Step: event.StepResumed, Kind: event.KindFact}, d) {
+		return "", fmt.Errorf("resume: the event log of %s refused it", p.name)
+	}
+	a.wake()
+	return nightlyResumeReply(held, d.Note), nil
+}
+
+// nightlyResumeReply is obor resume nightly's reply: the full-check RED needs-you it ended and the why.
+func nightlyResumeReply(reason, why string) string {
+	return fmt.Sprintf("RESUMED %s: %s (%s)", event.NightlyTask, reason, why)
 }
 
 // resumeDecide is resume's decision (under mu): the action and the task as it is now, or the stored reply of the call

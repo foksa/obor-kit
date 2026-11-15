@@ -18,7 +18,8 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   after_merge, scratch busy) ends with `obor resume <T-xx> ["<text>"] [--regate|--sendback]` once its cause is dealt with (serve picks the action
   from the state; a held review: the decision text is required and reaches the integrator's next job; red past
   K: say `--regate` or `--sendback`). A report's open questions go to the integrator's review job: it
-  decides the in-goal ones and holds the rest for you.
+  decides the in-goal ones and holds the rest for you. The nightly's `full-check RED <sha7>` ends with
+  `obor resume nightly "<why>"` once its cause is fixed; a later RED full check raises a fresh one.
 - axis-alies (`~/Gamedev/axis-alies`) is source material only, read-only for obor-kit; its lead is the Claude session
   `axis-alies-30` or its successor; changes go to it as a change list.
 
