@@ -591,10 +591,11 @@ const resultLine = "The file's first line is `Result: approved | changes request
 // lives in its docs/agents/reviewer.md: every project's reviewer read it here.
 const redundantLine = "What did this make redundant? Name it or confirm it is gone."
 
-// gateLine is in every review and verify brief: the merge gate ran the project's check on each task the review or
-// verify covers, so the reviewer runs its probes and the tests a finding names, not the check or the suite.
-const gateLine = "Serve's merge gate ran the project's check on every merge in scope: don't run the check or the suite;" +
-	" run probes and the tests a finding names."
+// gateLine is in every review and verify brief: each merge in scope passed serve's merge gate, whose checks are the
+// ones the project configures for it, so the reviewer runs its probes and the tests a finding names, not the check or
+// the suite.
+const gateLine = "Each merge in scope passed serve's merge gate (the checks the project configures for it): don't run" +
+	" the check or the suite; run probes and the tests a finding names."
 
 // acceptedFile: root's main checkout has the accepted findings file. A project that accepted no finding has none, and
 // the review brief names its lines only when it exists.

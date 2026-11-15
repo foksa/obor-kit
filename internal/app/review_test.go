@@ -48,8 +48,9 @@ func TestReviewRequest(t *testing.T) {
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				// No docs/accepted.md in the rig's main checkout: the previous-review clause ends at the close commit.
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9)"+
-					" — don't repeat them. Serve's merge gate ran the project's check on every merge in scope: don't run the check"+
-					" or the suite; run probes and the tests a finding names. ") || strings.Contains(l.Prompt, ".md, or the file") {
+					" — don't repeat them. Each merge in scope passed serve's merge gate (the checks the project configures"+
+					" for it): don't run the check or the suite; run probes and the tests a finding names. ") ||
+				strings.Contains(l.Prompt, ".md, or the file") {
 				t.Errorf("launch %+v", l)
 			}
 			// The reviewer's role worktree is moved to the head before its start.
@@ -700,18 +701,18 @@ func TestReviewBriefAcceptedFile(t *testing.T) {
 	}
 }
 
-// TestBriefsSayTheMergeGateRanTheCheck: the review and the verify brief each tell the reviewer that the merge gate ran
-// the project's check, and to run its probes and the tests a finding names instead.
-func TestBriefsSayTheMergeGateRanTheCheck(t *testing.T) {
+// TestBriefsSayTheMergeGatePassed: the review and the verify brief each tell the reviewer that each merge in scope
+// passed serve's merge gate, and to run its probes and the tests a finding names instead of the check or the suite.
+func TestBriefsSayTheMergeGatePassed(t *testing.T) {
 	t.Parallel()
 	s := ReviewSetup{Reviews: "reviews", Root: t.TempDir(), Branch: "main"}
 	for _, tc := range []struct{ name, text string }{
 		{"review", reviewBrief("RV-5", s, "abcdef0", "", "", "", nil, nil, "")},
 		{"verify", verifyBriefText("RV-5", s, "abcdef0", []string{"T-a (aaaaaaa)"}, nil)},
 	} {
-		if !strings.Contains(tc.text, "Serve's merge gate ran the project's check on every merge in scope: don't run the"+
-			" check or the suite; run probes and the tests a finding names.") {
-			t.Errorf("the %s brief does not say the gate ran the check and not to run it:\n%s", tc.name, tc.text)
+		if !strings.Contains(tc.text, "Each merge in scope passed serve's merge gate (the checks the project configures"+
+			" for it): don't run the check or the suite; run probes and the tests a finding names.") {
+			t.Errorf("the %s brief does not say the gate passed and not to run the check:\n%s", tc.name, tc.text)
 		}
 	}
 }
