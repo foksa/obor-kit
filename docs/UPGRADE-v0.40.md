@@ -1,5 +1,28 @@
 # Upgrading an obor project from v0.39 to v0.40
 
+## v0.40.4 (serve opens a missing lane pane; trust dialogs; `obor idle` on a fresh project; config reload rule)
+
+**Lane panes.** A worker start in a lane with no pane (`obor setup lane` makes only the worktree) no longer stops at
+needs-you "no pane in lane": serve opens the lane's pane in a lane tab, the way `obor setup pane` does, and the worker
+starts there. The needs-you is left for a pane serve could not open, with the error and the `obor setup pane` command.
+
+**Trust dialogs.** A fresh start (a review, a worker's dispatch, a role brief) that meets the agent's "Trust this
+folder?" dialog is recorded as started: the agent has its prompt and runs it once the dialog is answered. A needs-you
+names the pane and clears by itself once the dialog is gone. For Claude, select "Yes, I trust this folder" (the
+default is "No, exit"). A resumed start held by the dialog still fails as before.
+
+**Lead commands.** `obor idle "<why>"` works on a project that has not merged anything yet. `obor spec set` lists the
+models dispatch would try, in order. `obor config validate` says when a change counts: at serve's next pass, except
+the keys it names (project name, agent prefix, terminal, the integrator and lead roles, the lead model's kind), which
+need `obor serve` restarted. Its "merge.compile is empty" warning is now given by `obor init` only.
+
+**Releases (obor-kit).** The upgrade check and the release catalog take the previous release from origin's main, so
+a tagged version that was never shipped no longer counts as released.
+
+```sh
+# nothing to do
+```
+
 ## v0.40.3 (lead start fix; `obor restart --handoff`; nightly needs-you follows the last check; web nav shows agents at work)
 
 v0.40.2 was tagged but never published; v0.40.3 carries its changes.
