@@ -9,9 +9,10 @@
 #   bump          done: VERSION and the plugin version = <version> at HEAD, set by an "obor v<version>: …" commit on
 #                 the branch's first-parent line                      fail: both paths' index and tree back to HEAD
 #   check         the full `make check`, run only when the bump is not committed   fail: undo the bump
-#   upgrade check `make upgrade-check`, run only while the tag is not made: the previous release (the catalog's
-#                 newest below <version>) upgraded to this build; SKIP_UPGRADE_CHECK="<why>" skips it (the owner's call,
-#                 like UNREVIEWED; it goes into the tag message)   fail: refuse, nothing tagged (the bump stays committed)
+#   upgrade check `make upgrade-check`, run only while the tag is not made: the previous release (the shipped
+#                 catalog's newest below <version>) upgraded to this build; SKIP_UPGRADE_CHECK="<why>" skips it
+#                 (the owner's call, like UNREVIEWED; it goes into the tag message)
+#                 fail: refuse, nothing tagged (the bump stays committed)
 #   release check `make check-release`, run only while the tag is not made: tests/release (the Makefile,
 #                 scripts/ and install.sh against fixture repos), not part of `make check` (behind //go:build release)
 #                 fail: refuse, nothing tagged (the bump stays committed)
@@ -19,7 +20,7 @@
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
 #                 `make release` (the eight binaries: obor and the OpenCode kind per platform; and
-#                 bin/checksums.txt), commit, tag     fail: remove the scratch
+#                 bin/checksums.txt, the shipped catalog's lines plus theirs), commit, tag     fail: remove the scratch
 #                 worktree; an existing tag is never touched
 #   copy-back     done: the branch's bin/checksums.txt has the tag's lines for the release and this checkout's dist
 #                 files match them

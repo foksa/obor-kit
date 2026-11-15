@@ -51,6 +51,29 @@ func (f *releaseFixture) scratch(v string) string {
 	return filepath.Join(f.Root, ".git", "obor-release-"+v)
 }
 
+// shipped pushes the fixture's main to a bare origin, as `make ship` does at the end of a release: origin/main holds
+// the catalog users have, and the origin/main remote-tracking ref makes it readable as `git show origin/main:…`.
+func (f *releaseFixture) shipped(t *testing.T) {
+	t.Helper()
+	origin := filepath.Join(f.Base, "origin.git")
+	f.Git(f.Base, "init", "-q", "--bare", origin)
+	f.Git(f.Root, "remote", "add", "origin", origin)
+	f.Git(f.Root, "push", "-q", "origin", "main")
+	if got, want := f.Git(f.Root, "rev-parse", "refs/remotes/origin/main"), f.Git(f.Root, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("precondition: origin/main is %s, want the pushed HEAD %s", got, want)
+	}
+}
+
+// abandonedLines is a version's catalog lines as a tag made locally and never shipped leaves them: its four files,
+// with a checksum no release built.
+func abandonedLines(v string) string {
+	var out string
+	for _, pl := range publishPlatforms {
+		out += strings.Repeat("b", 64) + "  dist/obor-" + v + "-" + pl + "\n"
+	}
+	return out
+}
+
 func newReleaseFixture(t *testing.T) *releaseFixture {
 	t.Helper()
 	p := testkit.New(t)
@@ -471,6 +494,72 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	}
 	if log := readFile(t, f.log); !strings.Contains(log, "build ") || !strings.Contains(log, "test ") {
 		t.Errorf("the release did not run the full make check (go got: %s)", log)
+	}
+}
+
+// A normal release's catalog is the shipped one (origin/main's, the catalog users have) plus this version's eight
+// lines: every shipped line stays.
+func TestMakeReleaseKeepsTheShippedCatalog(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.shipped(t)
+	if out, failed := f.release(t, "V=1.2.4"); failed {
+		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
+	}
+	catalog := f.Git(f.Root, "show", "v1.2.4:bin/checksums.txt")
+	if lines := strings.Split(strings.TrimSpace(catalog), "\n"); len(lines) != 4+8 {
+		t.Errorf("the tag's catalog has %d lines, want the shipped 4 and the new 8:\n%s", len(lines), catalog)
+	}
+	for _, a := range releaseAssets("1.2.4") {
+		if !strings.Contains(catalog, "  dist/"+a+"\n") && !strings.HasSuffix(catalog, "  dist/"+a) {
+			t.Errorf("the tag's catalog has no line for %s:\n%s", a, catalog)
+		}
+	}
+	for _, pl := range publishPlatforms {
+		if !strings.Contains(catalog, "dist/obor-1.2.2-"+pl) {
+			t.Errorf("the tag's catalog drops the shipped 1.2.2 %s line:\n%s", pl, catalog)
+		}
+	}
+	if got := strings.TrimSpace(f.Read("bin/checksums.txt")); got != catalog {
+		t.Errorf("main's bin/checksums.txt is not the tag's catalog:\n%s", got)
+	}
+}
+
+// A version tagged locally and never shipped is no release: its lines drop out of the next release's catalog, which is
+// the shipped catalog plus this version's. The tag's own lines came from HEAD's catalog, where the abandoned one sits.
+func TestMakeReleaseDropsAnUnshippedVersionsLines(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.shipped(t)
+	shipped := f.Read("bin/checksums.txt")
+	writeFile(t, filepath.Join(f.Root, "bin", "checksums.txt"), shipped+abandonedLines("1.2.3"))
+	f.Git(f.Root, "add", "-A")
+	f.Git(f.Root, "commit", "-q", "-m", "obor v1.2.3: marketplace name, checksums")
+	f.Git(f.Root, "tag", "v1.2.3")
+	// Precondition: HEAD's catalog has the abandoned version's lines and the shipped one has not, else this test
+	// cannot tell the two sources apart.
+	if head, ship := f.Read("bin/checksums.txt"), f.Git(f.Root, "show", "origin/main:bin/checksums.txt"); !strings.Contains(head, "-1.2.3-") || strings.Contains(ship, "-1.2.3-") {
+		t.Fatalf("precondition: HEAD's catalog has 1.2.3 and origin/main's has not (HEAD:\n%s\nshipped:\n%s)", head, ship)
+	}
+	if out, failed := f.release(t, "V=1.2.4"); failed {
+		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
+	}
+	catalog := f.Git(f.Root, "show", "v1.2.4:bin/checksums.txt")
+	if strings.Contains(catalog, "-1.2.3-") {
+		t.Errorf("the tag's catalog keeps the unshipped 1.2.3's lines:\n%s", catalog)
+	}
+	if lines := strings.Split(strings.TrimSpace(catalog), "\n"); len(lines) != 4+8 {
+		t.Errorf("the tag's catalog has %d lines, want the shipped 4 and the new 8:\n%s", len(lines), catalog)
+	}
+	for _, pl := range publishPlatforms {
+		if !strings.Contains(catalog, "dist/obor-1.2.2-"+pl) {
+			t.Errorf("the tag's catalog drops the shipped 1.2.2 %s line:\n%s", pl, catalog)
+		}
+	}
+	for _, a := range releaseAssets("1.2.4") {
+		if !strings.Contains(catalog, "  dist/"+a+"\n") && !strings.HasSuffix(catalog, "  dist/"+a) {
+			t.Errorf("the tag's catalog has no line for %s:\n%s", a, catalog)
+		}
 	}
 }
 

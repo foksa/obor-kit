@@ -645,7 +645,7 @@ func less(a, b [3]int) bool {
 	return false
 }
 
-// previous is the newest x.y.z of the catalog (bin/checksums.txt) below next.
+// previous is the newest x.y.z of the catalog below next.
 func previous(catalog, next string) (string, bool) {
 	n, ok := parseVersion(next)
 	if !ok {
@@ -672,6 +672,21 @@ func previous(catalog, next string) (string, bool) {
 		}
 	}
 	return fmt.Sprintf("%d.%d.%d", best[0], best[1], best[2]), found
+}
+
+// shippedCatalog is the catalog of the releases users have: bin/checksums.txt at origin/main, which `make ship` pushes.
+// A version tagged locally and never shipped is not in it. Without an origin/main (a fork, or a fixture repo without the
+// remote) it is HEAD's catalog, this checkout's bin/checksums.txt.
+func shippedCatalog(t testing.TB, kit string) string {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", kit, "show", "origin/main:bin/checksums.txt").Output(); err == nil {
+		return string(out)
+	}
+	b, err := os.ReadFile(filepath.Join(kit, "bin", "checksums.txt"))
+	if err != nil {
+		t.Fatalf("no origin/main and no bin/checksums.txt: %v", err)
+	}
+	return string(b)
 }
 
 // release is a released binary for this platform, as the kit's shim gets it: the cache under the state home

@@ -33,12 +33,13 @@ of `main`, no separate worktree):
    (`obor flakes`); if any fails again it is refused, naming the tests. A failure outside `go test` (build, vet, gofmt,
    deadcode) refuses at once, with no rerun. Then `make upgrade-check` (runnable alone; `PREV=x.y.z` another
    previous release, `0.23.0` or later: an older `PREV` is refused before anything runs, as the check's fixture names
-   its spec's `Model:`): the catalog's newest release below the new version (its binary from `~/.obor/bin`, fetched and
-   checked against `bin/checksums.txt` when missing; its kit the tag's tree) runs `obor init` for two projects in a
-   temp `HOME` and `OBOR_STATE_HOME` (herdr, claude and launchctl stubbed: no agents, no launchd) and serve for both as
-   child processes, with a line to each lead held (no session yet) and a dispatch waiting (`--after`, its spec's
-   `Model:`); then the guide's `sh` blocks of the versions above it run in each project with the new `obor`, and both
-   serves start again on the new build (`dist/obor`); then both must answer, `obor projects` list both, `obor status`
+   its spec's `Model:`): the shipped catalog's newest release below the new version (origin/main's `bin/checksums.txt`,
+   the catalog users have; HEAD's `bin/checksums.txt` when there is no `origin/main`; its binary from `~/.obor/bin`,
+   fetched and checked against `bin/checksums.txt` when missing; its kit the tag's tree) runs `obor init` for two
+   projects in a temp `HOME` and `OBOR_STATE_HOME` (herdr, claude and launchctl stubbed: no agents, no launchd) and serve
+   for both as child processes, with a line to each lead held (no session yet) and a dispatch waiting (`--after`, its
+   spec's `Model:`); then the guide's `sh` blocks of the versions above it run in each project with the new `obor`, and
+   both serves start again on the new build (`dist/obor`); then both must answer, `obor projects` list both, `obor status`
    and `obor setup show` load, each lead (its SessionStart hook under its current name) get its held line, the dispatch
    still wait with its model first, and `obor send` work both ways. A failure prints the step and its output and tags
    nothing (the version commit stays: the re-run starts at the upgrade check). `SKIP_UPGRADE_CHECK="<why>"` skips it,
@@ -49,7 +50,8 @@ of `main`, no separate worktree):
    the re-run starts here. In a scratch
    worktree at that commit (under this repo's git dir) it sets the marketplace `name` to `obor-kit`, builds the eight
    binaries (`obor-<v>-<os>-<arch>` and, beside each, the OpenCode kind `obor-kind-opencode-<v>-<os>-<arch>`, T-1046)
-   and `bin/checksums.txt`, commits and tags `v<x.y.z>`. It copies the eight files into this checkout's `dist/`
+   and `bin/checksums.txt` (the shipped catalog's lines plus these eight), commits and tags `v<x.y.z>`. It copies the
+   eight files into this checkout's `dist/`
    (where `make ship` reads them), commits the catalog on the branch, fast-forwards `refs/heads/main` to that commit by
    `git update-ref` (the checkout keeps its branch and working tree, so `main` is never
    checked out), and removes the worktree. Each step has its done evidence and its undo (`scripts/release`'s header
