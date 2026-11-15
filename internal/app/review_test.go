@@ -46,8 +46,10 @@ func TestReviewRequest(t *testing.T) {
 				// docs/design.md "Change rules" rule 6; only the generic half stays in serve's brief.
 				!strings.Contains(l.Prompt, " "+redundantLine+" ") ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
-				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
-					" findings are the lines of docs/accepted.md that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
+				// No docs/accepted.md in the rig's main checkout: the previous-review clause ends at the close commit.
+				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9)"+
+					" — don't repeat them. Serve's merge gate ran the project's check on every merge in scope: don't run the check"+
+					" or the suite; run probes and the tests a finding names. ") || strings.Contains(l.Prompt, ".md, or the file") {
 				t.Errorf("launch %+v", l)
 			}
 			// The reviewer's role worktree is moved to the head before its start.
@@ -657,5 +659,59 @@ func TestStatusListsTheFixRoundOnce(t *testing.T) {
 	}
 	if p.ReviewOpen == nil || len(p.ReviewOpen.Fixes) != 2 || p.ReviewOpen.Fixes[0].Task != "T-a" {
 		t.Errorf("the review card %+v, want the fix round", p.ReviewOpen)
+	}
+}
+
+// TestReviewBriefAcceptedFile: the previous review's accepted findings are named only when the main checkout has
+// docs/accepted.md; without it the previous-review clause ends at the close commit.
+func TestReviewBriefAcceptedFile(t *testing.T) {
+	t.Parallel()
+	const last = "RV-4 closed · 1111111 · approved · T-9"
+	for _, tc := range []struct {
+		name string
+		file bool
+		want string
+	}{
+		{"docs/accepted.md present", true, " Previous review: RV-4 (its close commit: " + last +
+			"; its accepted findings are the lines of " + AcceptedFile + " that name RV-4) — don't repeat them. "},
+		{"absent", false, " Previous review: RV-4 (its close commit: " + last + ") — don't repeat them. "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			if tc.file {
+				if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, AcceptedFile), []byte("# Accepted findings\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := ReviewSetup{Reviews: "reviews", Root: root, Branch: "main"}
+			brief := reviewBrief("RV-5", s, "abcdef0", "1111111", "RV-4", last, []string{"T-a (aaaaaaa)"},
+				[]string{"x.go"}, "")
+			if !strings.Contains(brief, tc.want) {
+				t.Errorf("the brief lacks %q:\n%s", tc.want, brief)
+			}
+			if named := strings.Contains(brief, AcceptedFile); named != tc.file {
+				t.Errorf("the brief names %s: %v, want %v", AcceptedFile, named, tc.file)
+			}
+		})
+	}
+}
+
+// TestBriefsSayTheMergeGateRanTheCheck: the review and the verify brief each tell the reviewer that the merge gate ran
+// the project's check, and to run its probes and the tests a finding names instead.
+func TestBriefsSayTheMergeGateRanTheCheck(t *testing.T) {
+	t.Parallel()
+	s := ReviewSetup{Reviews: "reviews", Root: t.TempDir(), Branch: "main"}
+	for _, tc := range []struct{ name, text string }{
+		{"review", reviewBrief("RV-5", s, "abcdef0", "", "", "", nil, nil, "")},
+		{"verify", verifyBriefText("RV-5", s, "abcdef0", []string{"T-a (aaaaaaa)"}, nil)},
+	} {
+		if !strings.Contains(tc.text, "Serve's merge gate ran the project's check on every merge in scope: don't run the"+
+			" check or the suite; run probes and the tests a finding names.") {
+			t.Errorf("the %s brief does not say the gate ran the check and not to run it:\n%s", tc.name, tc.text)
+		}
 	}
 }
