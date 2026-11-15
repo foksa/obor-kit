@@ -19,7 +19,9 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +34,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -116,11 +119,34 @@ func (s *Server) Handler() http.Handler {
 // writeRoutes are the routes that take a POST (and only a POST).
 var writeRoutes = map[string]bool{"/api/config": true, "/api/pause": true}
 
+// BuildHeader names the embedded page's build on every /api/ response: the page keeps the build it loaded with and
+// reloads itself when a later response names another one, so a UI change reaches a tab that was open before it.
+const BuildHeader = "X-Obor-Build"
+
+// buildID is the build id of the page in fsys: the sha256 of its index.html (which names the hashed bundle), first 12
+// hex digits. A `make web` changes it, a rebuild of the binary alone does not.
+func buildID(fsys fs.FS) string {
+	index, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(index)
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+// pageBuild is the embedded page's build id, read once.
+var pageBuild = sync.OnceValue(func() string { return buildID(distFS) })
+
 // methods is the request check in front of every route: the Host must be one of obor web's names (answersTo; 403); then
 // GET and HEAD everywhere but the write routes, POST only on those and only from the page itself (sameOrigin; 403), and
-// anything else 405.
+// anything else 405. Every /api/ response, refusal or not, names the page's build.
 func (s *Server) methods(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if id := pageBuild(); id != "" {
+				w.Header().Set(BuildHeader, id)
+			}
+		}
 		if !s.answersTo(r.Host) {
 			fail(w, http.StatusForbidden, "Host "+strconv.Quote(r.Host)+" is not a loopback name obor web answers to "+
 				"(localhost, 127.0.0.1, [::1])")

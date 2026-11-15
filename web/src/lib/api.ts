@@ -5,8 +5,26 @@ import type {
 
 const enc = encodeURIComponent;
 
+// buildHeader is the header every /api/ response carries: the id of the page obor web serves (a hash of its index.html).
+const buildHeader = "X-Obor-Build";
+
+// loadedBuild is the build this tab loaded with: the first response's header. A later response naming another build
+// comes from a newer obor web, whose page this tab does not run, so the tab reloads itself (the hash route survives
+// the reload) instead of drawing with stale scripts. Nothing names a build, the tab keeps its own.
+let loadedBuild: string | null = null;
+
+// followBuild is every response's check: the first one tells the tab which build it loaded, and one from another build
+// reloads the page once. A response without the header is an obor web from before it: no reload.
+function followBuild(r: Response): void {
+  const id = r.headers.get(buildHeader);
+  if (id === null) return;
+  if (loadedBuild === null) loadedBuild = id;
+  else if (id !== loadedBuild) location.reload();
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(path, { cache: "no-store", signal });
+  followBuild(r);
   let body: unknown = null;
   try { body = await r.json(); } catch { body = null; }
   if (!r.ok) throw new Error((body as { error?: string } | null)?.error || `${r.status} ${r.statusText}`);
@@ -18,6 +36,7 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(path, {
     method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
+  followBuild(r);
   let b: unknown = null;
   try { b = await r.json(); } catch { b = null; }
   if (!r.ok) throw new Error((b as { error?: string } | null)?.error || `${r.status} ${r.statusText}`);
