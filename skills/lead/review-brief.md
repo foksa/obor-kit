@@ -42,16 +42,21 @@ Merges go on while the reviewer works (no merge hold): its worktree stays at the
 verify moves it, whatever lands on the integration branch meanwhile. The brief serve sends:
 ```
 Review <RV-xx>. <branch> is at <sha>. In scope: <T-a (<merge sha>), T-b (…)>; files: <list>.
-Previous review: <RV-prev> (its close commit: <subject>; its accepted findings are the lines of docs/accepted.md that
-name <RV-prev>) — don't repeat them. Report only findings a real config or workflow hits; for each give severity,
-likelihood (the real config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in
-added code, and an Extent line: every other entry point / branch that shares the root cause, each marked checked
-or unchecked. A finding only a constructed case hits goes in a short "Not reported (constructed)" list instead:
-one line each, no fix proposal. What did this make redundant? Name it or confirm it is gone. Your worktree is at <sha> (check out any
-commit there); write only <reviews>/<RV-xx>.md in the main checkout <root>. The file's first line is
+Previous review: <RV-prev> (its close commit: <subject>[; its accepted findings are the lines of docs/accepted.md that
+name <RV-prev>]) — don't repeat them. Serve's merge gate ran the project's check on every merge in scope: don't run the
+check or the suite; run probes and the tests a finding names. Report only findings a real config or workflow hits; for
+each give severity, likelihood (the real config or workflow that hits it), file:line, probe/evidence, suggested fix and
+its cost in added code, and an Extent line: every other entry point / branch that shares the root cause, each marked
+checked or unchecked. A finding only a constructed case hits goes in a short "Not reported (constructed)" list instead:
+one line each, no fix proposal. What did this make redundant? Name it or confirm it is gone. Your worktree is at <sha>
+(check out any commit there); write only <reviews>/<RV-xx>.md in the main checkout <root>. The file's first line is
 `Result: approved | changes requested · <sha reviewed> · <scope>`. Do not commit.
 Lead's note: <your --note>
 ```
+
+The accepted-findings part of the previous-review line is there only when `docs/accepted.md` exists in the main
+checkout: a project that accepted no finding has no file.
+
 Serve posts `[obor] <reviewer agent> finished (briefed <age> ago)` to your session once the reviewer has worked and is
 idle again: nothing to watch.
 
@@ -93,8 +98,9 @@ pass)`; fix the cause. A usage limit keeps the brief open, as for any brief. Aft
 twice, or one pass late. The brief (each task's `Fixes:` free text as one line of the lead's note):
 ```
 The <RV-xx> findings were fixed in <T-x (<sha>), …>; <branch> is at <sha> (your worktree too). Re-run your probes for
-every finding and report fixed / incomplete / regressed per finding. What did this make redundant? Name it or confirm
-it is gone. Write
+every finding and report fixed / incomplete / regressed per finding. Serve's merge gate ran the project's check on every
+merge in scope: don't run the check or the suite; run probes and the tests a finding names. What did this make
+redundant? Name it or confirm it is gone. Write
 <reviews>/<RV-xx>-verify.md in the main checkout <root>. The file's first line is
 `Result: approved | changes requested · <sha reviewed> · <scope>`. Do not commit.
 Lead's note: <T-x>: <its Fixes: text>

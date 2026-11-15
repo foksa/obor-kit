@@ -91,6 +91,14 @@ counts at its next start; the lead's needs that restart too, because serve's out
 and kind. Nothing to do unless it changes your plan. The commit is on main: pull before you edit the config by hand. A
 pause set or cleared there is the same as `obor pause`.
 
+## obor serve restart
+`obor serve restart` restarts the project's serve through launchd and waits for the new one's answer (`RESTARTED <label>`,
+then `serve ready`). State is in the store, so running tasks carry on; serve also follows a new obor binary by itself.
+
+## A merged task's report
+The merge commit's body carries the task's spec (its rev and text) and, after it, the worker's `task_done` report (its
+Summary section): `git log -1 --format=%B <merge sha>`.
+
 ## obor nightly on|off
 `nightly.at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
 on, serve runs `obor nightly` (check, check_milestone, the store backup, then the config's

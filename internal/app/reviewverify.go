@@ -304,13 +304,13 @@ func (a *App) verifyText(ctx context.Context, p *proj, g port.Review, s ReviewSe
 	return verifyBriefText(c.ID, s, short(head), fixed, notes), head, nil
 }
 
-// verifyBriefText is review-brief.md §4's text: the fixes, the head, every finding to re-run, the verify file, the
-// redundancy question (docs/design.md "Change rules" rule 6), then the lead's note: one line per task whose Fixes:
-// line has free text.
+// verifyBriefText is review-brief.md §4's text: the fixes, the head, every finding to re-run, the no-check rule
+// (gateLine), the verify file, the redundancy question (docs/design.md "Change rules" rule 6), then the lead's note: one
+// line per task whose Fixes: line has free text.
 func verifyBriefText(id string, s ReviewSetup, short string, fixed, notes []string) string {
 	text := fmt.Sprintf("The %s findings were fixed in %s; %s is at %s (your worktree too). Re-run your probes for every"+
-		" finding and report fixed / incomplete / regressed per finding. %s Write %s/%s-verify.md in the main checkout %s."+
-		" %s Do not commit.", id, strings.Join(fixed, ", "), s.Branch, short, redundantLine, s.Reviews, id, s.Root, resultLine)
+		" finding and report fixed / incomplete / regressed per finding. %s %s Write %s/%s-verify.md in the main checkout %s."+
+		" %s Do not commit.", id, strings.Join(fixed, ", "), s.Branch, short, gateLine, redundantLine, s.Reviews, id, s.Root, resultLine)
 	for _, n := range notes {
 		text += "\nLead's note: " + n
 	}

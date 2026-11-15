@@ -286,7 +286,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 		r.pass()
 		if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
 			!strings.Contains(l[1].Prompt, "In scope: no merges;") ||
-			!strings.Contains(l[1].Prompt, "Previous review: RV-5 (its close commit: "+r.git.closes[0].Subject+";") {
+			!strings.Contains(l[1].Prompt, "Previous review: RV-5 (its close commit: "+r.git.closes[0].Subject+")") {
 			t.Errorf("launches %+v; want RV-6, RV-5's covered tasks out of scope", l)
 		}
 	}

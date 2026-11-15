@@ -591,11 +591,23 @@ const resultLine = "The file's first line is `Result: approved | changes request
 // lives in its docs/agents/reviewer.md: every project's reviewer read it here.
 const redundantLine = "What did this make redundant? Name it or confirm it is gone."
 
+// gateLine is in every review and verify brief: the merge gate ran the project's check on each task the review or
+// verify covers, so the reviewer runs its probes and the tests a finding names, not the check or the suite.
+const gateLine = "Serve's merge gate ran the project's check on every merge in scope: don't run the check or the suite;" +
+	" run probes and the tests a finding names."
+
+// acceptedFile: root's main checkout has the accepted findings file. A project that accepted no finding has none, and
+// the review brief names its lines only when it exists.
+func acceptedFile(root string) bool {
+	_, err := os.Stat(filepath.Join(root, AcceptedFile))
+	return err == nil
+}
+
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in, the
-// redundancy question (redundantLine) and the lead's note appended (its out of scope and contracts). prev is the
-// previous review's id ("": none) and last its close commit's subject: its file is deleted at close, so the
-// brief names what is kept, the close commit and BACKLOG. from is where the brief's range starts ("": the first
-// commit).
+// no-check rule (gateLine), the redundancy question (redundantLine) and the lead's note appended (its out of scope and
+// contracts). prev is the previous review's id ("": none) and last its close commit's subject: its file is deleted at
+// close, so the brief names what is kept, the close commit and BACKLOG, and the accepted findings file only when the
+// main checkout has it. from is where the brief's range starts ("": the first commit).
 func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope, files []string, note string) string {
 	inScope := strings.Join(scope, ", ")
 	if inScope == "" {
@@ -619,10 +631,13 @@ func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review %s. %s is at %s. In scope: %s; files: %s.", id, s.Branch, short, inScope, fileList)
 	if prev != "" {
-		fmt.Fprintf(&b, " Previous review: %s (its close commit: %s; its accepted findings are the lines of %s that name %s)"+
-			" — don't repeat them.", prev, last, AcceptedFile, prev)
+		fmt.Fprintf(&b, " Previous review: %s (its close commit: %s", prev, last)
+		if acceptedFile(s.Root) {
+			fmt.Fprintf(&b, "; its accepted findings are the lines of %s that name %s", AcceptedFile, prev)
+		}
+		b.WriteString(") — don't repeat them. " + gateLine)
 	} else {
-		b.WriteString(" Previous review: none.")
+		b.WriteString(" Previous review: none. " + gateLine)
 	}
 	fmt.Fprintf(&b, " Report only findings a real config or workflow hits; for each give severity, likelihood (the real"+
 		" config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in added code, and an"+
