@@ -100,5 +100,6 @@ name.
   serve restart that needs the change until that lead confirms it.
 - Before each tag: a Codex smoke with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --model luna
   --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; its
-  spec is a one-file trivial task that ends with `task_done`; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
+  spec is a trivial task that ends with `task_done` and adds one line to `docs/smoke.md` (`v<x.y.z> <date> <model>
+  T-xx`): a docs-only merge, so `make release` does not count it as unreviewed and it needs no review of its own; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
   socket binds denied, 2026-10-27).
