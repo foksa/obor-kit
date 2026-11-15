@@ -83,7 +83,9 @@ the owner commits them together: serve writes them as one commit on main itself 
 A save made on a config that changed since the owner's page read it (your hand edit, say) is refused, nothing written:
 the owner reviews it against yours.
 
-It counts from the next dispatch (a role's type at its next start); nothing to do unless it changes your plan. The
+It counts from serve's next pass, no restart — except `project.name`, `project.agent_prefix`, `project.terminal` and
+`agents.roles.integrator`, which serve reads at its start (restart serve for those); a role's type counts at its next
+start. Nothing to do unless it changes your plan. The
 commit is on main: pull before you edit the config by hand. A pause set or cleared there is the same as `obor pause`.
 
 ## obor nightly on|off

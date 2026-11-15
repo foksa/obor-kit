@@ -5,11 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/config"
 	"obor/internal/testkit"
 )
 
-// bash config.test.sh case_validate_* through the binary: OK exit 0; WARN lines then OK; FAIL lines exit 1; a removed key
-// past its two versions is an unknown key, a FAIL line (cache.warn_tokens).
+// bash config.test.sh case_validate_* through the binary: OK exit 0 with the reload line; WARN lines then it; FAIL lines
+// exit 1; a removed key past its two versions is an unknown key, a FAIL line (cache.warn_tokens).
 func TestConfigValidateBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -19,7 +20,9 @@ func TestConfigValidateBinary(t *testing.T) {
 		rc    int
 		out   string
 	}{
-		{nil, 0, "OK\n"},
+		{nil, 0, config.ReloadLine() + "\n"},
+		// no merge.compile: no line (obor init warns where the choice is made), just the OK line
+		{[]func(map[string]any){testkit.Set("merge.compile", nil)}, 0, config.ReloadLine() + "\n"},
 		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1,
 			"FAIL .cache: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		// merge.receipt_max_age has no meaning for the test receipts; past its two minors it is an unknown key,
@@ -34,6 +37,27 @@ func TestConfigValidateBinary(t *testing.T) {
 		p.Config(append([]func(map[string]any){testkit.Set("agents.roles.integrator", "")}, c.edits...)...)
 		if rc, stdout, stderr := run(t, p.Root, nil, "config", "validate"); rc != c.rc || stdout != c.out {
 			t.Errorf("validate: exit %d, %q (%s); want %d, %q", rc, stdout, stderr, c.rc, c.out)
+		}
+	}
+}
+
+// The OK line says when serve reads a changed config (its next pass, no restart), and names every key serve reads at
+// its start: a change to one needs obor serve restarted.
+func TestConfigValidateReloadLine(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "")
+	p.Config(testkit.Set("agents.roles.integrator", ""), testkit.Set("merge.compile", nil))
+	rc, stdout, stderr := run(t, p.Root, nil, "config", "validate")
+	if rc != 0 || stdout != config.ReloadLine()+"\n" {
+		t.Fatalf("validate: exit %d, %q (%s); want 0, %q", rc, stdout, stderr, config.ReloadLine()+"\n")
+	}
+	if !strings.Contains(stdout, config.ReloadRule) || !strings.Contains(stdout, "restart obor serve") {
+		t.Errorf("the OK line does not say when the config counts: %q", stdout)
+	}
+	for _, k := range config.StartKeys {
+		if !strings.Contains(stdout, k) {
+			t.Errorf("the OK line does not name %s, a key serve reads at its start: %q", k, stdout)
 		}
 	}
 }

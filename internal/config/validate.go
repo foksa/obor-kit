@@ -578,20 +578,31 @@ func (v *validator) trunk() {
 	if exec.Command("git", "-C", v.c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+name).Run() != nil {
 		v.fail(".merge.target_branch", "refs/heads/"+name+" does not exist: set merge.target_branch: your trunk is not "+
 			name)
-		return
 	}
-	if w := v.c.NoCompileWarning(); w != "" {
-		v.warns = append(v.warns, "WARN "+w)
-	}
+}
+
+// ReloadRule is when serve reads a changed config: its merge loop loads the config at each pass, so a change counts at
+// serve's next pass, no restart.
+const ReloadRule = "serve reads it at its next pass (no restart)"
+
+// StartKeys are the config keys serve loads once, at its start, so a change to one counts at `obor serve`'s next start:
+// project.terminal (the terminal adapter it builds then), project.name (its logs and the machine's project list it
+// registers then), project.agent_prefix and agents.roles.integrator (the integrator and lead names it routes to, and
+// whether it merges at all).
+var StartKeys = []string{"project.name", "project.agent_prefix", "project.terminal", "agents.roles.integrator"}
+
+// ReloadLine is `obor config validate`'s OK line: ReloadRule, then the keys a restart is for (StartKeys).
+func ReloadLine() string {
+	return "OK: " + ReloadRule + ". It reads these once, at its start (restart obor serve for those): " +
+		strings.Join(StartKeys, ", ")
 }
 
 // NoCompile is the end of the warning that a project has no merge.compile: what a moved gate runs then.
 const NoCompile = "a moved candidate re-runs the full check (no compile)"
 
-// NoCompileWarning is the warning obor config validate and obor init give when merge.compile is empty and
-// merge.target_branch is the repository's default branch (origin's HEAD, else the main checkout's branch): a
-// candidate whose target moved re-runs merge.check before it lands on the branch people ship. "" otherwise, and
-// outside a repository.
+// NoCompileWarning is the warning `obor init` gives when merge.compile is empty and merge.target_branch is the
+// repository's default branch (origin's HEAD, else the main checkout's branch): a candidate whose target moved re-runs
+// merge.check before it lands on the branch people ship. "" otherwise, and outside a repository.
 func (c *Config) NoCompileWarning() string {
 	name := c.Data.Merge.TargetBranch
 	if c.Data.Merge.Compile.Cmd != "" || name == "" || c.Root == "" {

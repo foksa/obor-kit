@@ -12,7 +12,8 @@ import (
 
 // configCmd is `obor config [get <path> | validate]`: the effective config (config.json * local.json * defaults), one
 // value (a string raw, anything else as JSON, null → nothing; FAIL on stderr and exit 1 when there is no such key), or
-// the checks: WARN lines, then a FAIL line per problem (exit 1) or OK. Exit 3 without .obor/config.json. validate is
+// the checks: WARN lines, then a FAIL line per problem (exit 1) or the OK line, which says when serve reads a change
+// (config.ReloadLine). Exit 3 without .obor/config.json. validate is
 // the one strict reader: a key this obor does not know is a FAIL line naming it (config.LoadForValidate),
 // where every other command ignores it with a warning.
 func configCmd(args []string) int {
@@ -56,7 +57,7 @@ func configCmd(args []string) int {
 		if len(fails) > 0 {
 			return 1
 		}
-		fmt.Fprintln(out, "OK")
+		fmt.Fprintln(out, config.ReloadLine())
 	default:
 		return bad()
 	}
