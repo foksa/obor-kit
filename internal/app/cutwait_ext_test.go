@@ -126,7 +126,7 @@ func TestCutReceiptKeepsTheRetryWait(t *testing.T) {
 			return strings.Contains(r.out.String(), "not recorded: tried again in 5s")
 		})
 		passes := app.StreamPasses(r.app)
-		if reply := r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n"); reply != "SET T-1 rev 1" {
+		if reply := r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n"); specSetLine(reply) != "SET T-1 rev 1" {
 			t.Fatalf("the spec set: %q, want SET T-1 rev 1", reply)
 		}
 		if n := r.taskStep("T-1", "fact spec.set"); n != 1 {

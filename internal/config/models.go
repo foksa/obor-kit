@@ -211,6 +211,24 @@ func (c *Config) ModelNames() []string {
 	return out
 }
 
+// ModelDetail is ref as a table shows it after its name: " (<kind> <model id>, effort <effort>)", the model id left
+// out when the kind picks its own and the effort when the ref names none; " (no such model)" for an unknown one.
+func (c *Config) ModelDetail(ref string) string {
+	name, effort := ParseModelRef(ref)
+	m, ok := c.Model(name)
+	if !ok {
+		return " (no such model)"
+	}
+	detail := m.Kind
+	if m.ID != "" {
+		detail += " " + m.ID
+	}
+	if effort != "" {
+		detail += ", effort " + effort
+	}
+	return " (" + detail + ")"
+}
+
 // CheckModelRef is why ref names no model of this config, or an effort its kind does not take (agents.CheckEffort:
 // a plugin kind's cached manifest); nil when it is fine.
 func (c *Config) CheckModelRef(ref string) error { return c.checkModelRef(ref, nil) }

@@ -66,10 +66,11 @@ review request that follows the last merge is work, not idle), it posts one line
   the minute and the age count from it. A dispatch or a review request ends it; a long verify or brief after a merge is
   its own state, so the merge's acknowledgement does not cover it. `last:` still names the last merge or drop.
 - `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why for that end record
-  and stops the ping; `obor status` then shows `idle: <why>`. Made inside the minute, no line goes at all.
-- `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; `NOT IDLE: <what is in
-  flight>` — the task, review or agent that keeps it busy, e.g. `NOT IDLE: T-12 open (L-02)`, `NOT IDLE: RV-4 verify
-  pending`, `NOT IDLE: ob-deep-dive holds a brief`.
+  and stops the ping; `obor status` then shows `idle: <why>`. Made inside the minute, no line goes at all. Before the
+  first merge or drop there is no end to key it on: the ack is accepted the same, and no line goes out for it.
+- `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; before the first merge
+  or drop `IDLE (last: no merge yet)`; `NOT IDLE: <what is in flight>` — the task, review or agent that keeps it busy,
+  e.g. `NOT IDLE: T-12 open (L-02)`, `NOT IDLE: RV-4 verify pending`, `NOT IDLE: ob-deep-dive holds a brief`.
 - Unacknowledged 30 minutes after the line: one more line to you and a herdr notification to the owner; after that
   only `obor status` and obor web show `idle, not acknowledged since <time>` (never a third line). After a serve
   crash a line may come twice; a restart during the minute starts it again.
@@ -170,7 +171,9 @@ The raw payloads are in `.obor/state/stop-failure.log`.
 
 ## obor spec set
 `obor spec set <T-xx> <file> [--note "<what changed>"]` stores the file's text as the task's spec; another text is the
-next rev. Replies `SET T-xx rev N` or `UNCHANGED T-xx rev N` (the same text); nothing is sent to a working worker. A
+next rev. Replies `SET T-xx rev N` or `UNCHANGED T-xx rev N` (the same text), then a line `models: …` naming the models
+a dispatch would try, in order — the `Model:` line's, then the level's — each as `obor setup show` prints it, e.g.
+`models: opus:high (claude opus, effort high), sonnet (claude sonnet)`; nothing is sent to a working worker. A
 worker's `task_done` on a job it fetched at an older rev is refused once, with the rev and the note, and submits
 nothing; after it reads the new rev, the next `task_done` submits. A Blocked: report is never refused. So: `--note` is
 for a small change the worker can fold in after its work, at the `task_done` refusal; anything that changes what it is

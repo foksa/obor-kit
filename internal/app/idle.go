@@ -50,11 +50,12 @@ type idleEnd struct {
 	at  time.Time
 }
 
-// idle is idleNow's answer: the last merge or drop as the line names it ("T-xx merged <sha7>", "T-xx dropped: <why>"),
-// the newest end record's seq (the idle key) and time, and whether nothing is in flight — the pipeline is empty, no
-// needs-you is in force, no review request is pending, no verify waits for its brief and no role worktree agent (the
-// reviewer, the deep dive) holds one. why is the first condition that said no, as the refusal names it ("T-12 open
-// (L-02)", "RV-4 verify pending"; "" while idle).
+// idle is idleNow's answer: the last merge or drop as the line names it ("T-xx merged <sha7>", "T-xx dropped: <why>",
+// "no merge yet" before the first one), the newest end record's seq (the idle key) and time, and whether nothing is in
+// flight — the pipeline is empty, no needs-you is in force, no review request is pending, no verify waits for its brief
+// and no role worktree agent (the reviewer, the deep dive) holds one. why is the first condition that said no, as the
+// refusal names it ("T-12 open (L-02)", "RV-4 verify pending"; "" while idle). A project that never merged or dropped is
+// idle too: its end is 0 (no record ended work yet), so nothing keys it and no line goes out for it.
 type idle struct {
 	last string
 	end  int64
@@ -83,8 +84,9 @@ func (p *proj) foldIdle(r event.Record) {
 // and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
 // one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on:
 // a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a
-// review request's end (every end: a failed --after end, a --rm or a firing). Not idle: why names the first condition
-// that said no.
+// review request's end (every end: a failed --after end, a --rm or a firing). A project that never merged or dropped
+// is idle as well, its last "no merge yet" and its end 0: the lead's rule and obor idle agree before the first end.
+// Not idle: why names the first condition that said no.
 func (p *proj) idleNow() idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
@@ -121,8 +123,8 @@ func (p *proj) idleNow() idle {
 		}
 		return idle{why: "verify pending"}
 	}
-	if merge.seq == 0 {
-		return idle{why: "no merge or drop yet"}
+	if last == "" {
+		last = "no merge yet" // a fresh project is idle too: nothing merged or dropped, and nothing else is open
 	}
 	// A rule's needs-you (rules.go) is serve's failure, not work: it would end the idle state its rule acts on.
 	for _, r := range p.needsYou() {
@@ -196,7 +198,8 @@ func (p *proj) idleEnd() (idleEnd, string) {
 }
 
 // idleOpen is the idle state the lead has not acknowledged (under mu): idleNow's answer, ok when nothing is in flight,
-// the project has a lead and no acknowledgement names its key.
+// the project has a lead and no acknowledgement names its key. A state with no end yet (key 0, a project that never
+// merged) counts as acknowledged: no line goes out before the first end.
 func (p *proj) idleOpen() (idle, bool) {
 	n := p.idleNow()
 	return n, n.ok && p.out.Lead() != "" && p.folded.idleAck.Key != n.end
@@ -282,12 +285,14 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 	return d.Reply, nil
 }
 
-// idleText is the idle state n as obor idle shows it (under mu): NOT IDLE and why, the acknowledgement's why, or the
-// unacknowledged state with when it began.
+// idleText is the idle state n as obor idle shows it (under mu): NOT IDLE and why, the acknowledgement's why, the state
+// and when it began, or before the first end the state with what it followed.
 func (p *proj) idleText(n idle) string {
 	switch {
 	case !n.ok:
 		return "NOT IDLE: " + n.why
+	case n.end == 0: // no record ended work yet: no key to acknowledge, no age
+		return "IDLE (last: " + n.last + ")"
 	case p.folded.idleAck.Key == n.end:
 		return "IDLE: " + p.folded.idleAck.Why
 	}

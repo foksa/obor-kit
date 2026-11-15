@@ -25,7 +25,7 @@ func TestDropOfASpecOnlyTaskThenDispatchUntilANewRev(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		r.start()
-		if got := r.setSpec("s1", "# T-1 — Stored\n\nDifficulty: medium\n"); got != "SET T-1 rev 1" {
+		if got := r.setSpec("s1", "# T-1 — Stored\n\nDifficulty: medium\n"); specSetLine(got) != "SET T-1 rev 1" {
 			t.Fatalf("spec set: %q, want SET T-1 rev 1", got)
 		}
 		if st := r.taskStatus("T-1"); st.Task != "" {
@@ -57,14 +57,14 @@ func TestDropOfASpecOnlyTaskThenDispatchUntilANewRev(t *testing.T) {
 			}
 		}
 		// The same text again is no new rev: still dropped.
-		if got := r.setSpec("s2", "# T-1 — Stored\n\nDifficulty: medium\n"); got != "UNCHANGED T-1 rev 1" {
+		if got := r.setSpec("s2", "# T-1 — Stored\n\nDifficulty: medium\n"); specSetLine(got) != "UNCHANGED T-1 rev 1" {
 			t.Fatalf("spec set: %q, want UNCHANGED T-1 rev 1", got)
 		}
 		if st := r.taskStatus("T-1"); st.State != "dropped" {
 			t.Errorf("after an unchanged set: T-1 %+v, want still dropped", st)
 		}
 		// A new rev revives it, also on a replay: not listed, and the same request dispatches.
-		if got := r.setSpec("s3", "# T-1 — Stored, widened\n\nDifficulty: medium\n"); got != "SET T-1 rev 2" {
+		if got := r.setSpec("s3", "# T-1 — Stored, widened\n\nDifficulty: medium\n"); specSetLine(got) != "SET T-1 rev 2" {
 			t.Fatalf("spec set: %q, want SET T-1 rev 2", got)
 		}
 		if st := r.taskStatus("T-1"); st.Task != "" {
@@ -124,7 +124,7 @@ func TestSpecOnlyDropEndsWatches(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		r.start()
 		r.setSpec("s1", "# T-1 — Stored\n\nDifficulty: medium\n")
-		if reply, err := r.setSpecTask("s2", "T-2", "# T-2 — Other\n\nDifficulty: medium\n", ""); err != nil || reply != "SET T-2 rev 1" {
+		if reply, err := r.setSpecTask("s2", "T-2", "# T-2 — Other\n\nDifficulty: medium\n", ""); err != nil || specSetLine(reply) != "SET T-2 rev 1" {
 			t.Fatalf("spec set T-2: %q, %v", reply, err)
 		}
 		for _, set := range []string{"T-1", "T-1,T-2"} {

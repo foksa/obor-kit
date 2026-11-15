@@ -154,7 +154,7 @@ type StartedReq struct {
 func (StartedReq) Method() string { return MethodStarted }
 
 // SpecSetReq is the lead's or the owner's spec (obor spec set; specs.go): Spec stored as Task's spec, Changed what
-// changed. Reply: SET <task> rev <n>, or UNCHANGED <task> rev <n>.
+// changed. Reply: SET <task> rev <n>, or UNCHANGED <task> rev <n>, then a line naming the models a dispatch would try.
 type SpecSetReq struct {
 	Envelope
 	Task    string `json:"task"`
