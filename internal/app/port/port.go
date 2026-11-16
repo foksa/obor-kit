@@ -139,10 +139,10 @@ type Lane struct {
 func (l Lane) Dirty() bool { return len(l.Paths) > 0 }
 
 // The lane states Lane.State holds (FreeState's rule; checks.LaneTable.LaneState's doc): a lane is free once
-// no task holds it (its row's task landed at the lane's HEAD, or it has none) and nothing is uncommitted,
-// dirty-free when no task holds it but it has uncommitted changes, working while its row's task has not landed or the
-// lane's HEAD is not what landed, missing when its dir is no worktree,
-// unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is the two free
+// no task holds it (its row's task landed at the lane's HEAD, or at a HEAD the target branch holds, or it has none) and
+// nothing is uncommitted, dirty-free when no task holds it but it has uncommitted changes, working while its row's task
+// has not landed or the lane's HEAD is neither the recorded head nor in the target's history, missing when its dir is no
+// worktree, unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is the two free
 // ones, and internal/web's TestTSStringSetsMatchGo keeps it so.
 const (
 	LaneFree      = "free"

@@ -152,8 +152,8 @@ func ltCommit(t *testing.T, dir string) {
 }
 
 // TestLaneStates: the lane table's states are the one free rule over the lane's row, its HEAD
-// and its own dirty status, whatever the main checkout's history says (a landed task frees its lane only at the head
-// its submission pinned; with no recorded head, only at a HEAD on main), and each lane's type (a working lane's type
+// and its own dirty status, whatever the main checkout's history says (a landed task frees its lane at the head
+// its submission recorded, else at a HEAD on main), and each lane's type (a working lane's type
 // is the model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a lane with no row has none, nor has
 // a free lane whatever its row says: a lane's model is its task's only while it holds it). Its git reads run in the
 // lane dirs only.
@@ -178,7 +178,8 @@ func TestLaneStates(t *testing.T) {
 	ltSubmit(t, p.Root, "L-07", "T-07", false, false, 0)
 	ltCommit(t, dir("L-08"))
 	ltSubmit(t, p.Root, "L-08", "T-08", true, true, 0)
-	// L-09's task landed, then a further clean commit (a driver after obor land): its HEAD is not what landed.
+	// L-09's task landed, then a further clean commit (a driver after obor land): its HEAD is neither the recorded head
+	// nor on main.
 	ltCommit(t, dir("L-09"))
 	ltSubmit(t, p.Root, "L-09", "T-09", true, true, 0)
 	ltGit(t, dir("L-09"), "commit", "-q", "--allow-empty", "-m", "after the submit")
@@ -226,9 +227,9 @@ func TestLaneStates(t *testing.T) {
 			t.Errorf("%s: %+v, want %+v", l, got[l], w)
 		}
 	}
-	if len(dirs) != 2*len(want)+2 {
+	if len(dirs) != 2*len(want)+3 {
 		t.Errorf("the table ran %d git reads, want 2 per lane (rev-parse, status) and an ancestry read for each of "+
-			"L-10, L-11 (landed, no recorded head): %v", len(dirs), dirs)
+			"L-09, L-10, L-11 (landed, HEAD not the recorded head): %v", len(dirs), dirs)
 	}
 	for _, d := range dirs {
 		if d == p.Root || d == project.Physical(p.Root) {
@@ -252,6 +253,38 @@ func TestLaneStates(t *testing.T) {
 	// a log git cannot read is an error from MergeEvidenceBy, not "no evidence".
 	if ok, err := p.MergeEvidenceBy("T-50", func(...string) (string, error) { return "", errors.New("git I/O") }); ok || err == nil {
 		t.Errorf("MergeEvidenceBy with git failing = %v, %v; want false and the error", ok, err)
+	}
+}
+
+// TestLaneStatesRewrittenHead: a rewritten history leaves a landed row's recorded head naming a commit the lane no
+// longer has (a git filter-repo after the land): the lane's HEAD differs, and the target holding that HEAD frees the
+// lane.
+func TestLaneStatesRewrittenHead(t *testing.T) {
+	p := ltFixture(t, `,"dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+	dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "L-01")
+	ltCommit(t, dir)
+	ltGit(t, p.Root, "merge", "-q", "--no-ff", "-m", "Merge T-01: work", "task/T-01")
+	const gone = "0123456789abcdef0123456789abcdef01234567" // the submitted sha the rewrite dropped
+	if _, err := project.Git(p.Root, "cat-file", "-e", gone); err == nil {
+		t.Fatalf("precondition: %s is an object in the repo", gone)
+	}
+	ltRow(t, p.Root, "L-01", "T-01", gone, true, true, 0)
+	rows, err := store.ReadLanesAt(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := rows["L-01"]; r.Head != gone || !r.Landed {
+		t.Fatalf("precondition: L-01's row %+v, want head %s landed", r, gone)
+	}
+	if head := ltHead(t, dir); head == gone {
+		t.Fatalf("precondition: the lane's HEAD %q is the recorded head", head)
+	}
+	if _, err := project.Git(dir, "merge-base", "--is-ancestor", "HEAD", "main"); err != nil {
+		t.Fatalf("precondition: the lane's HEAD is in main's history: %v", err)
+	}
+	states := p.States()
+	if len(states) != 1 || states[0].State != port.LaneFree || states[0].Task != "T-01" {
+		t.Errorf("states %+v, want the one lane free holding T-01", states)
 	}
 }
 

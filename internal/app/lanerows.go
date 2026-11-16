@@ -79,8 +79,8 @@ func (p *proj) foldLanes(r event.Record) {
 }
 
 // foldSubmitHead sets the head of the row holding r's task to the lane commit r's submit pinned (the commit the
-// gate merges; a resubmission moves it): port.FreeState frees a landed lane only while its HEAD is that commit. A
-// refused submit pins none and changes nothing; a new prepare clears it.
+// gate merges; a resubmission moves it): port.FreeState frees a landed lane at that commit, or at a lane HEAD the
+// target's history holds. A refused submit pins none and changes nothing; a new prepare clears it.
 func (p *proj) foldSubmitHead(r event.Record) {
 	var d submitOut
 	if json.Unmarshal(r.Data, &d) != nil || d.SHA == "" {

@@ -102,8 +102,8 @@ type Lane struct {
 	Op          string `json:"op,omitempty"`
 	AgentStatus string `json:"agent_status,omitempty"`
 	// Free: no task holds the lane: its state column is the one free rule's free or dirty-free (port.FreeState: its
-	// row's task landed at the lane's HEAD, or it has none) and so serve has no phase of a task on it (a free lane keeps its last
-	// branch's task).
+	// row's task landed at the lane's HEAD or a lane HEAD the target holds, or it has none) and so serve has no phase of a
+	// task on it (a free lane keeps its last branch's task).
 	Free bool `json:"free"`
 	// Column is the state column of obor status: serve's phase of the task (computed once, by serve),
 	// else the lane's State (no task serve has: free, dirty-free, working, missing).
