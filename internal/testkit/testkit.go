@@ -615,8 +615,7 @@ func (p *Project) State(lane string, v any) {
 
 // Landed sets lane's row landed at the lane's HEAD: its task merged and the lane's HEAD the head its submission
 // pinned, as obor serve projects the submit result and the merged fact; the one free rule (port.FreeState)
-// then reads the lane free (dirty-free with uncommitted changes) while its HEAD stays there, whatever the main
-// checkout's history.
+// then reads the lane free (dirty-free with uncommitted changes), whatever the main checkout's history.
 func (p *Project) Landed(lane string) {
 	p.t.Helper()
 	row, ok := p.rows()[lane]

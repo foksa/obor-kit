@@ -12,7 +12,8 @@ import (
 
 // LaneRow is one lane's row: the task its last prepared dispatch put there (lane.prepare's branch, base: the target
 // sha; the lane's agent is derived from the lane, roles.Role.AgentName, never stored) and when it was dispatched (unix seconds). Head is the lane commit the task's last submit pinned (
-// what the gate merges; "": no submission since the prepare): port.FreeState frees a landed lane only at that HEAD. Finished is when the attempt's
+// what the gate merges; "": no submission since the prepare): port.FreeState frees a landed lane at that HEAD, or at
+// a lane HEAD the target's history holds. Finished is when the attempt's
 // task_done was recorded (unix seconds; 0: the task awaits it). Type is the model ref its dispatch chose,
 // `<model>[:<effort>]` ("": a dispatch whose record has no type). Blocked is serve's answer whether the task's
 // worker has a question in force (its Blocked: report; serve's own fold, not a hook's reading of the log).

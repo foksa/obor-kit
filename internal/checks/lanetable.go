@@ -67,9 +67,9 @@ func (p *LaneTable) States() []port.Lane {
 // (port.FreeState: free, dirty-free, working, unknown) over the store's row of the lane (its task, whether that task
 // landed: serve's projection; the head its submission pinned), the lane's HEAD and its own uncommitted
 // changes (Paths: project.LaneDirt's, which leaves obor's own links out). Its git reads run in the lane dir (rev-parse,
-// status; headMerged's only for a landed row with no recorded head); the one read of the main checkout is the link
-// set's, only when an untracked entry is a link; what serve does for its task is the task's phase. Unknown: git or the
-// store could not tell (Reason says why), never free.
+// status; headMerged's only for a landed row whose HEAD is not its recorded head); the one read of the main checkout is
+// the link set's, only when an untracked entry is a link; what serve does for its task is the task's phase. Unknown: git
+// or the store could not tell (Reason says why), never free.
 func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 	// The agent is derived from the lane (no row stores it); a keep lane says its mode (a fresh one none).
 	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing, Agent: p.Cfg.AgentName("worker", l.Name)}
@@ -116,7 +116,8 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 }
 
 // headMerged: the lane's HEAD is in the target branch's history (merge.target_branch), read in the lane dir (the
-// merge evidence of a landed row with no recorded head, a hand merge with no submission); git failing proves nothing.
+// merge evidence of a landed row whose HEAD is not the head its submission recorded: a rewritten history, a hand merge
+// with no submission); git failing proves nothing.
 func (p *LaneTable) headMerged(dir string) bool {
 	_, err := p.git(dir, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+p.Cfg.MainBranch())
 	return err == nil

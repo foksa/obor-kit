@@ -7,15 +7,16 @@ import "obor/internal/store"
 // the lane has none; nil: the table could not be read), head the lane's HEAD (full sha), dirty whether the lane has
 // uncommitted changes. The row's Landed is serve's projection of its task's merged or dropped state (a task merged by
 // hand included once serve's merge-evidence read recorded it); its Head the head serve recorded for the task's last
-// submission (the lane commit the gate merged). A landed task frees its lane only while the lane's HEAD is
-// that head: a commit after the submit pinned it (a driver after obor land) is work no merge holds. A row with no
-// recorded head (no submission: a hand merge, or a table that names none) is free only when merged (nil: none)
-// proves the lane's HEAD merged, read only then.
+// submission (the lane commit the gate merged). A landed task frees its lane when the lane's HEAD is that head, else
+// when merged proves the lane's HEAD is in the target branch's history: a commit after the submit (a driver after obor
+// land) is in neither, so it still holds the lane. A row with no recorded head (no submission: a hand merge, or a
+// table that names none) takes the same rule: its HEAD differs from none, so merged (nil: none) decides.
 //
 //	unknown     the table could not be read: never free
-//	working     the row holds a task that has not landed, or whose lane HEAD is not what landed
-//	dirty-free  no task holds the lane (no row, or its task landed at the lane's HEAD), with uncommitted changes: never
-//	            free
+//	working     the row holds a task that has not landed, or whose lane HEAD is neither what landed nor in the target's
+//	            history
+//	dirty-free  no task holds the lane (no row, or its task landed and its HEAD passes the rule above), with
+//	            uncommitted changes: never free
 //	free        no task holds the lane and nothing is uncommitted
 func FreeState(row *store.LaneRow, head string, dirty bool, merged func() bool) string {
 	switch {
@@ -23,9 +24,7 @@ func FreeState(row *store.LaneRow, head string, dirty bool, merged func() bool) 
 		return LaneUnknown
 	case row.Task != "" && !row.Landed:
 		return LaneWorking
-	case row.Task != "" && row.Head == "" && (merged == nil || !merged()):
-		return LaneWorking
-	case row.Task != "" && row.Head != "" && head != row.Head:
+	case row.Task != "" && head != row.Head && (merged == nil || !merged()):
 		return LaneWorking
 	case dirty:
 		return LaneDirtyFree
