@@ -1,5 +1,16 @@
 # Upgrading an obor project from v0.39 to v0.40
 
+## v0.40.6 (a merged task's lane is free once its commit is in the target branch)
+
+**Lanes.** A lane whose task has merged is free when the lane's HEAD is the commit serve recorded at submit, or when
+that HEAD is in the target branch's history. Lanes no longer stay `working` after a history rewrite (`git
+filter-repo`, a rebase of merged branches) changed the recorded commit ids. A commit made on the lane after its
+submit is not in the target, so it still holds the lane.
+
+```sh
+# nothing to do (lanes stuck working after a history rewrite read free once serve runs v0.40.6)
+```
+
 ## v0.40.5 (the monitor shows a new version; review briefs say the gate passed)
 
 **Web monitor.** When `obor web` starts serving a new page (it follows a new obor binary by itself), an open tab
