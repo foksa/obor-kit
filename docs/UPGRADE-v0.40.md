@@ -1,5 +1,21 @@
 # Upgrading an obor project from v0.39 to v0.40
 
+## v0.40.7 (a terminal restart restores only agents with work; no stale lane locks)
+
+**Restore after a terminal restart.** When the terminal comes back, serve restarts an agent only where work is open:
+the lead, a worker whose lane is busy, and a role agent with an open brief, the integrator's open job or the
+reviewer's open review or verify. A role agent that was stopped on purpose stays stopped, and its next brief starts
+a fresh session. A pane serve skips is logged in `~/.obor/restore.log` as "no open work".
+
+**Lane locks.** obor's git calls run with `GIT_OPTIONAL_LOCKS=0`, so a read such as `git status` takes no
+`index.lock` and a killed read can no longer leave one behind. A dispatch's lane checkout that meets a stale lock
+(older than a minute, no git running) removes it once, logs it and goes on, as the merge gate already did; a live
+lock is waited on.
+
+```sh
+# nothing to do
+```
+
 ## v0.40.6 (a merged task's lane is free once its commit is in the target branch)
 
 **Lanes.** A lane whose task has merged is free when the lane's HEAD is the commit serve recorded at submit, or when
