@@ -137,7 +137,8 @@ func (o *Options) gitOut(dir string, args ...string) (string, string, error) {
 }
 
 // gitEnv is gitOut with env added to the environment. git runs in its own process group (hooks, filters and signing
-// helpers with it), killed when o.gitCtx ends.
+// helpers with it), killed when o.gitCtx ends; its environment carries OBOR_MERGE=1 and GIT_OPTIONAL_LOCKS=0
+// (project.GitEnv: a read takes no index.lock).
 func (o *Options) gitEnv(env []string, dir string, args ...string) (string, string, error) {
 	bin := o.Git
 	if bin == "" {
@@ -148,7 +149,7 @@ func (o *Options) gitEnv(env []string, dir string, args ...string) (string, stri
 		ctx = context.Background()
 	}
 	cmd := exec.CommandContext(ctx, bin, append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(append(append([]string(nil), o.Environ...), "OBOR_MERGE=1"), env...)
+	cmd.Env = project.GitEnv(append(append(append([]string(nil), o.Environ...), "OBOR_MERGE=1"), env...))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cleanup := project.Group(cmd)

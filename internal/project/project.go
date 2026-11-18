@@ -124,6 +124,25 @@ func Physical(p string) string {
 	return abs
 }
 
+// GitOptionalLocksOff is what every git command obor runs carries (GitEnv): git skips the opportunistic index refresh
+// a read would do, so the read takes no index.lock; a write's locks are as always.
+const GitOptionalLocksOff = "GIT_OPTIONAL_LOCKS=0"
+
+// GitEnv is env with GitOptionalLocksOff set (nil: this process's environment), the environment of every git command
+// obor runs. An entry env already has for it is replaced, so a caller's environment never overrides the rule.
+func GitEnv(env []string) []string {
+	if env == nil {
+		env = os.Environ()
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "GIT_OPTIONAL_LOCKS=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, GitOptionalLocksOff)
+}
+
 // Git runs git -C dir args… with no ctx (GitCtx): its stdout (also on failure, as $(…) would capture it); a failure's
 // error carries git's stderr, the reason a read failed.
 func Git(dir string, args ...string) (string, error) {
@@ -145,7 +164,7 @@ func GitCtxEnv(ctx context.Context, dir string, env []string, args ...string) (s
 func gitRun(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = env
+	cmd.Env = GitEnv(env)
 	cmd.Stderr = &stderr
 	cleanup := Group(cmd)
 	defer cleanup()

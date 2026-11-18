@@ -29,8 +29,8 @@ var _ port.LaneSetup = Lane{}
 // Prepare puts in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is) and runs lane_ready (then
 // lane_setup and lane_ready again when it was red). It returns the target sha the branch is based on: serve's lane row
 // (its head is the submitted head). Repeating it converges on the same state.
-// A final refusal: no lane dir, lane_setup red, lane_ready still red; git failures are plain errors (retry), a git
-// that failed on an index.lock naming the stale lock (nothing is removed).
+// A final refusal: no lane dir, lane_setup red, lane_ready still red; git failures are plain errors (retry); a lock
+// the rule could not clear (gitLocked) names it, and nothing more is removed.
 func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	if !project.IsDir(in.Dir) {
 		return port.Prepared{}, port.Refused{Line: "no lane dir " + in.Dir}
@@ -38,7 +38,7 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 	if !in.Redo {
 		if _, err := l.git(ctx, in.Dir, "checkout", "-q", "-B", in.Branch, in.Target); err != nil {
 			return port.Prepared{}, fmt.Errorf("checkout -B %s %s in %s: %w%s", in.Branch, in.Target, in.Dir, err,
-				staleIndexLock(in.Dir, err))
+				lockHint(in.Dir, err))
 		}
 	}
 	if err := LaneSetup(ctx, l.Cfg, in.Lane, in.Dir, l.Out); err != nil {
@@ -47,19 +47,19 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 	return port.Prepared{Base: in.Target}, nil
 }
 
-// staleIndexLock is a failed lane git call's hint for a lock left behind: git's exit 128 whose stderr names
-// index.lock gets the lock's path as git names it (the lane worktree's git dir), else the lane's own, and asks whether
-// a git still runs in the lane; nothing is removed. "" for any other failure.
-func staleIndexLock(dir string, err error) string {
+// lockHint is a failed lane git call's hint for a lock that outlived the wait (gitLocked): git's exit 128 whose error
+// names index.lock gets the lock's path as git names it (the lane worktree's git dir), else the lane's own. "" for any
+// other failure.
+func lockHint(dir string, err error) string {
 	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 128 || !bytes.Contains(exit.Stderr, []byte("index.lock")) {
+	if !errors.As(err, &exit) || exit.ExitCode() != 128 || !bytes.Contains([]byte(err.Error()), []byte("index.lock")) {
 		return ""
 	}
 	path := filepath.Join(dir, "index.lock")
-	if m := lockRe.FindStringSubmatch(string(exit.Stderr)); m != nil {
+	if m := lockRe.FindStringSubmatch(err.Error()); m != nil {
 		path = m[1]
 	}
-	return " — stale " + path + " (no git running in the lane? remove it)"
+	return " — still locked after the wait: " + path
 }
 
 // Free gives a dropped task's lane back (obor drop). Refused, nothing changed: no lane dir; uncommitted
@@ -139,17 +139,32 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 	return strings.TrimSpace(out), err
 }
 
-// gitRaw is git with its stdout as git wrote it (status --porcelain's leading space is part of a line).
+// gitRaw is git with its stdout as git wrote it (status --porcelain's leading space is part of a line), carrying obor's
+// git environment (project.GitEnv) and the lock rule (gitLocked: a stale lock removed once, logged to l.Out); an error
+// carries git's last stderr line.
 func (l Lane) gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	bin := l.Git
 	if bin == "" {
 		bin = "git"
 	}
-	cmd := exec.CommandContext(ctx, bin, append([]string{"-C", dir}, args...)...)
-	cleanup := project.Group(cmd)
-	defer cleanup()
-	out, err := cmd.Output()
-	return string(out), err
+	git := func(env []string, dir string, args ...string) (string, string, error) {
+		cmd := exec.CommandContext(ctx, bin, append([]string{"-C", dir}, args...)...)
+		cmd.Env = project.GitEnv(env)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		cleanup := project.Group(cmd)
+		defer cleanup()
+		err := cmd.Run()
+		return stdout.String(), stderr.String(), err
+	}
+	out, errOut, err := gitLocked(ctx, l.Out, nil, git, nil, dir, args...)
+	if err != nil {
+		if ls := lines(errOut); len(ls) > 0 {
+			return out, fmt.Errorf("%w: %s", err, ls[len(ls)-1])
+		}
+		return out, err
+	}
+	return out, nil
 }
 
 // LaneSetup: a lane that fails lanes.ready gets lanes.setup, and must pass lane_ready after. A role worktree serve

@@ -114,15 +114,14 @@ below).
   `Candidate.SHA` → already; the target moved → moved, row 32). A repeat from any cut converges; after_merge must be
   idempotent. Its git runs under the step's ctx, in its own process group: serve's stop kills
   a blocked git and returns (the attempt is not counted).
-  **Git lock contention** (every `Scratch` git call, `gitLocked` in `internal/checks/gitlock.go`): a call that
-  cannot take a lock (`index.lock`, a ref's `.lock`: "Unable to create '….lock': File exists") is transient, not a
-  counted failure: it waits for the lock to go and runs again. obor's own lane reads (`git status`, each tick) take
-  the lane's `index.lock` for a moment, so submit's `git add` meets it now and then. A lock older than 60 s with no
-  git process running in the repository's worktrees (`ps` and each git's cwd; an unreadable one counts as running)
-  is stale, a killed git's (a git orphaned by a `kill -9` of serve still runs: its lock is waited for): it is removed
-  once per call and logged, then the
-  call runs again. Past 60 s of waiting in one call (a hung holder, a stale lock that is back) the call's error is the
-  step's, counted.
+  **Git lock contention** (the scratch's git calls and `lane.prepare`'s, `gitLocked` in `internal/checks/gitlock.go`): a
+  call that cannot take a lock (`index.lock`, a ref's `.lock`: "Unable to create '….lock': File exists") is
+  transient, not a counted failure: it waits for the lock to go and runs again. Every git command obor runs carries
+  `GIT_OPTIONAL_LOCKS=0` (`project.GitEnv`): a read takes no `index.lock` for an opportunistic index refresh, a write
+  locks as always. A lock older than 60 s with no git process running in the repository's worktrees (`ps` and each
+  git's cwd; an unreadable one counts as running) is stale, a killed git's (a git orphaned by a `kill -9` of serve
+  still runs: its lock is waited for): it is removed once per call and logged, then the call runs again. Past 60 s of
+  waiting in one call (a hung holder, a stale lock that is back) the call's error is the step's, counted.
 
 A crash can come **before an effect** (its intent written, the effect never ran) or **after it** (the effect done,
 its result lost); replay cannot tell the two apart, so every effect is safe to run again at either point. A pending

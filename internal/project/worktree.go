@@ -28,6 +28,7 @@ func AddWorktree(ctx context.Context, root, dir, ref string) (added bool, err er
 		return false, err
 	}
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "worktree", "add", "-f", "-q", "--detach", dir, ref)
+	cmd.Env = GitEnv(nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
