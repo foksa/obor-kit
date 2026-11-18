@@ -141,7 +141,7 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 
 // gitRaw is git with its stdout as git wrote it (status --porcelain's leading space is part of a line), carrying obor's
 // git environment (project.GitEnv) and the lock rule (gitLocked: a stale lock removed once, logged to l.Out); an error
-// carries git's last stderr line.
+// carries git's lock line (the one naming the lock it could not take) or, for another failure, its last stderr line.
 func (l Lane) gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	bin := l.Git
 	if bin == "" {
@@ -160,11 +160,22 @@ func (l Lane) gitRaw(ctx context.Context, dir string, args ...string) (string, e
 	out, errOut, err := gitLocked(ctx, l.Out, nil, git, nil, dir, args...)
 	if err != nil {
 		if ls := lines(errOut); len(ls) > 0 {
-			return out, fmt.Errorf("%w: %s", err, ls[len(ls)-1])
+			return out, fmt.Errorf("%w: %s", err, stderrLine(ls))
 		}
 		return out, err
 	}
 	return out, nil
+}
+
+// stderrLine is the failed git call's line to report: the lock line (lockRe: git's "Unable to create '…': File exists"
+// above its hint, which a lockHint needs the path from), else the last line.
+func stderrLine(ls []string) string {
+	for _, l := range ls {
+		if lockRe.MatchString(l) {
+			return l
+		}
+	}
+	return ls[len(ls)-1]
 }
 
 // LaneSetup: a lane that fails lanes.ready gets lanes.setup, and must pass lane_ready after. A role worktree serve

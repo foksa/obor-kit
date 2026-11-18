@@ -428,6 +428,39 @@ func TestLanePrepareLock(t *testing.T) {
 	}
 }
 
+// lane.prepare's error for a lock that outlives the wait keeps the lock's path: git's stderr is the lock's line, a
+// blank line, then its hint, and the error names the lock's absolute path (in the main repository's
+// .git/worktrees/<lane>/) and the hint.
+func TestLanePrepareLockOutlastsTheWait(t *testing.T) {
+	t.Parallel()
+	p, lane, target := laneFx(t)
+	lock := p.Git(lane, "rev-parse", "--path-format=absolute", "--git-path", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	l := laneAdapter(t, p, "")
+	l.Out = &out
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := l.Prepare(ctx, laneInput(lane, target))
+	if err == nil {
+		t.Fatal("prepare with the lock held past the wait: no error")
+	}
+	var refused port.Refused
+	if errors.As(err, &refused) {
+		t.Errorf("a lock past the wait is a refusal %q, want a plain error to retry", refused.Line)
+	}
+	for _, want := range []string{"Unable to create '" + lock + "': File exists", " — still locked after the wait: " + lock} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("prepare's error %q lacks %q", err.Error(), want)
+		}
+	}
+	if n := strings.Count(out.String(), "removed stale git lock "); n != 0 {
+		t.Errorf("a fresh lock was removed %d times, want none:\n%s", n, out.String())
+	}
+}
+
 // lockShim is an executable git for the fresh-lock case: it runs git, logs its exit code and stderr to calls, and after
 // a failed call removes the lane's lock (its holder, a live git, finishing).
 func lockShim(t *testing.T, calls, lock, dir string) string {
