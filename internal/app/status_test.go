@@ -781,7 +781,7 @@ func TestTerminalNoteFollowsTheConnectedServer(t *testing.T) {
 		t.Fatalf("before any connect: note %q, connected %v; want none", n, a.Status().Connected)
 	}
 	// Serve started with the terminal down; it comes up newer than obor's protocol.
-	a.connect(ctx, snap("0.9.4", note("0.9.4", 23)))
+	a.connect(ctx, snap("0.9.4", note("0.9.4", 23)), false)
 	want := note("0.9.4", 23)
 	if n := a.Status().TerminalNote; n != want {
 		t.Errorf("note after the terminal came up = %q, want %q", n, want)
@@ -795,18 +795,18 @@ func TestTerminalNoteFollowsTheConnectedServer(t *testing.T) {
 	if n := a.Status().TerminalNote; n != "" {
 		t.Errorf("note while disconnected = %q, want none", n)
 	}
-	a.connect(ctx, snap("0.9.4", want))
+	a.connect(ctx, snap("0.9.4", want), false)
 	once("terminal: 0.9.4", "a reconnect")
 	once("terminal: "+want, "a reconnect")
 	// A different (newer) version: the note changes and each line is logged once.
-	a.connect(ctx, snap("0.9.5", note("0.9.5", 24)))
+	a.connect(ctx, snap("0.9.5", note("0.9.5", 24)), false)
 	if n, w := a.Status().TerminalNote, note("0.9.5", 24); n != w {
 		t.Errorf("note after the upgrade = %q, want %q", n, w)
 	}
 	once("terminal: 0.9.5", "the upgrade")
 	once("terminal: "+note("0.9.5", 24), "the upgrade")
 	// Back to obor's own protocol: no note, and the version change is logged.
-	a.connect(ctx, snap("0.8.0", ""))
+	a.connect(ctx, snap("0.8.0", ""), false)
 	if n := a.Status().TerminalNote; n != "" {
 		t.Errorf("note on obor's own protocol = %q, want none", n)
 	}

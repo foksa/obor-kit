@@ -133,8 +133,9 @@ func (a *App) Serve(ctx context.Context) error {
 			a.logf("terminal stream ended: %v; subscribed again", ended)
 		}
 		wait, down, ended = a.opt.Retry, false, nil
-		a.connect(ctx, st.Snapshot)
-		a.connectRestore(ctx, &wg, st.Snapshot, first, lost)
+		why := a.restoreWhy(st.Snapshot, first, lost)
+		a.connect(ctx, st.Snapshot, why != "")
+		a.connectRestore(ctx, &wg, st.Snapshot, why)
 		first, lost = false, false
 		a.run(ctx, st, tick.C)
 		st.Close()

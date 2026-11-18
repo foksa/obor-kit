@@ -82,7 +82,7 @@ func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
 		{ID: "w1:lead", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"},
 		{ID: "w1:int", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-int", Status: "idle"},
 	}}
-	h.a.connect(context.Background(), h.snap)
+	h.a.connect(context.Background(), h.snap, false)
 	p := h.proj()
 	h.a.mu.Lock()
 	w := h.a.whereIs(p, p.integrator)
@@ -131,7 +131,7 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 	secondPane := func(t *testing.T, h *harness, _ *reviewStopSpy) {
 		h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:int2", Group: "pj", Cwd: h.root,
 			Agent: "claude", Label: "pj-int", Status: "idle"})
-		h.a.connect(context.Background(), h.snap)
+		h.a.connect(context.Background(), h.snap, false)
 		h.a.mu.Lock()
 		w := h.a.whereIs(h.proj(), "pj-int")
 		h.a.mu.Unlock()
@@ -231,7 +231,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
 				{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 				{ID: "w:adv", Group: "proj", Cwd: root, Agent: c.agent, Label: "pj-advisor", Status: "idle"},
-			}})
+			}}, false)
 			if w := a.whereIs(p, "pj-advisor"); (w.State == Identified) == c.started {
 				t.Fatalf("precondition: pj-advisor %+v", w)
 			}
@@ -287,7 +287,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
 		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:ux", Group: "proj", Cwd: root, Label: "pj-ux-buddy", Status: "idle"},
-	}})
+	}}, false)
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b-ux", Role: "lead",
 		Agent: "pj-lead"}, To: "pj-ux-buddy", Text: "review the flows"})
 	if err != nil {
@@ -432,7 +432,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
 		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:o1", Group: "proj", Cwd: root, Agent: "", Label: "pj-l-01"},
-	}})
+	}}, false)
 	a.mu.Lock()
 	w := a.whereIs(p, "pj-l-01")
 	a.mu.Unlock()
@@ -494,7 +494,7 @@ func stoppedApp(t *testing.T, root string, panes ...port.Pane) (*App, *proj) {
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
 	all := append([]port.Pane{{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"}},
 		panes...)
-	a.connect(context.Background(), port.Snapshot{Panes: all})
+	a.connect(context.Background(), port.Snapshot{Panes: all}, false)
 	return a, p
 }
 
