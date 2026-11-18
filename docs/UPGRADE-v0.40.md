@@ -5,7 +5,8 @@
 **Restore after a terminal restart.** When the terminal comes back, serve restarts an agent only where work is open:
 the lead, a worker whose lane is busy, and a role agent with an open brief, the integrator's open job or the
 reviewer's open review or verify. A role agent that was stopped on purpose stays stopped, and its next brief starts
-a fresh session. A pane serve skips is logged in `~/.obor/restore.log` as "no open work".
+a fresh session. A role agent at work when the terminal went down keeps its brief until the restore has restarted
+it, so its work is not reported finished. A pane serve skips is logged in `~/.obor/restore.log` as "no open work".
 
 **Lane locks.** obor's git calls run with `GIT_OPTIONAL_LOCKS=0`, so a read such as `git status` takes no
 `index.lock` and a killed read can no longer leave one behind. A dispatch's lane checkout that meets a stale lock
