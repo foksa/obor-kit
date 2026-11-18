@@ -40,6 +40,7 @@ func (g realGit) Commit(root, msg string, files []string) error {
 	}
 	args := append([]string{"-C", root, "commit", "-q", "-m", msg, "--"}, files...)
 	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd.Env = project.GitEnv(nil)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cleanup := project.Group(cmd)

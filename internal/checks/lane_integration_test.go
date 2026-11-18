@@ -3,6 +3,7 @@
 package checks
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -354,36 +355,101 @@ func TestLaneFreeBranchDeleteFailsAfterTheLaneIsFreed(t *testing.T) {
 	}
 }
 
-// an empty index.lock left in the lane's git dir makes lane.prepare fail 128 on its checkout; the error names
-// the stale lock and what to do with it, and removes nothing.
-func TestLanePrepareStaleIndexLock(t *testing.T) {
+// lane.prepare's git writes carry the stale-lock rule (gitLocked): a stale empty index.lock in the lane's git dir (an
+// mtime older than staleLock, no git running) is removed once, logged, and the checkout goes on; a fresh lock (the one
+// a live git holds) is waited for, not removed, and the checkout runs once it is gone.
+func TestLanePrepareLock(t *testing.T) {
 	t.Parallel()
-	p, lane, target := laneFx(t)
-	gitDir := p.Git(lane, "rev-parse", "--git-dir")
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(lane, gitDir)
+	for _, c := range []struct {
+		name  string
+		stale bool
+	}{
+		{"a stale lock: removed once, logged, the checkout goes on", true},
+		{"a fresh lock: waited for, not removed", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p, lane, target := laneFx(t)
+			gitDir := p.Git(lane, "rev-parse", "--git-dir")
+			if !filepath.IsAbs(gitDir) {
+				gitDir = filepath.Join(lane, gitDir)
+			}
+			lock := filepath.Join(gitDir, "index.lock")
+			if err := os.WriteFile(lock, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			l := laneAdapter(t, p, "")
+			l.Out = &out
+			calls := filepath.Join(p.Base, "git-calls")
+			if c.stale {
+				old := time.Now().Add(-2 * staleLock)
+				if err := os.Chtimes(lock, old, old); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				l.Git = lockShim(t, calls, lock, p.Base)
+			}
+			got, err := l.Prepare(context.Background(), laneInput(lane, target))
+			if err != nil {
+				t.Fatalf("prepare with the lock: %v", err)
+			}
+			if want := (port.Prepared{Base: target}); got != want {
+				t.Errorf("prepared %+v, want %+v", got, want)
+			}
+			if b := p.Git(lane, "branch", "--show-current"); b != "task/T-01" {
+				t.Errorf("lane on %q, want task/T-01", b)
+			}
+			if h := p.Git(lane, "rev-parse", "HEAD"); h != target {
+				t.Errorf("lane HEAD %s, want the target %s", h, target)
+			}
+			n := strings.Count(out.String(), "removed stale git lock "+lock+" (")
+			if c.stale && n != 1 {
+				t.Errorf("stale lock removals logged %d times, want 1:\n%s", n, out.String())
+			}
+			if !c.stale && n != 0 {
+				t.Errorf("a fresh lock was removed:\n%s", out.String())
+			}
+			if c.stale {
+				return
+			}
+			if _, err := os.Stat(lock); !os.IsNotExist(err) {
+				t.Errorf("the lock's holder did not remove it: %v", err)
+			}
+			// The checkout met the lock, then ran again once it was gone.
+			emitted := p.Read(calls)
+			if n := strings.Count(emitted, "rc="); n != 2 {
+				t.Errorf("lane git calls %d, want the lock's failure and one retry:\n%s", n, emitted)
+			}
+			if !strings.Contains(emitted, "rc=128") || !strings.Contains(emitted, "index.lock") {
+				t.Errorf("the first lane git call did not fail on the lock:\n%s", emitted)
+			}
+		})
 	}
-	lock := filepath.Join(gitDir, "index.lock")
-	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+}
+
+// lockShim is an executable git for the fresh-lock case: it runs git, logs its exit code and stderr to calls, and after
+// a failed call removes the lane's lock (its holder, a live git, finishing).
+func lockShim(t *testing.T, calls, lock, dir string) string {
+	t.Helper()
+	script := fmt.Sprintf(`#!/bin/sh
+log='%[1]s'
+git "$@" 2>"$log.err"
+rc=$?
+cat "$log.err" >&2
+echo "rc=$rc" >> "$log"
+cat "$log.err" >> "$log"
+if [ $rc -ne 0 ]; then rm -f '%[2]s'; fi
+exit $rc
+`, calls, lock)
+	shim := filepath.Join(dir, "bin", "git-lock")
+	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := laneAdapter(t, p, "").Prepare(context.Background(), laneInput(lane, target))
-	want := "stale " + lock + " (no git running in the lane? remove it)"
-	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("prepare with a stale lock: %v; want %q", err, want)
-	}
-	if _, statErr := os.Stat(lock); statErr != nil {
-		t.Errorf("prepare removed the stale lock: %v", statErr)
-	}
-	if b := p.Git(lane, "branch", "--show-current"); b != "task/T-01" {
-		t.Errorf("the failed prepare left the lane on %q, want task/T-01", b)
-	}
-	if err := os.Remove(lock); err != nil {
+	if err := os.WriteFile(shim, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := laneAdapter(t, p, "").Prepare(context.Background(), laneInput(lane, target)); err != nil {
-		t.Errorf("prepare once the lock is gone: %v", err)
-	}
+	return shim
 }
 
 // gitShim writes an executable git that fails its failAt-th call and is real git otherwise.

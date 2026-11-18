@@ -572,13 +572,26 @@ func (v *validator) bareLaneName(lane string, roleAgents []string) {
 // trunk: refs/heads/<merge.target_branch> resolves in the main checkout; serve pauses the project when it does not.
 func (v *validator) trunk() {
 	name := v.d.Merge.TargetBranch
-	if name == "" || exec.Command("git", "-C", v.c.Root, "rev-parse", "--git-dir").Run() != nil {
+	if name == "" || gitCmd("-C", v.c.Root, "rev-parse", "--git-dir").Run() != nil {
 		return // no repository to look in (a bare config directory)
 	}
-	if exec.Command("git", "-C", v.c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+name).Run() != nil {
+	if gitCmd("-C", v.c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+name).Run() != nil {
 		v.fail(".merge.target_branch", "refs/heads/"+name+" does not exist: set merge.target_branch: your trunk is not "+
 			name)
 	}
+}
+
+// gitCmd is a read-only git command: it carries obor's git environment, GIT_OPTIONAL_LOCKS=0 (project.GitEnv's rule: a
+// read takes no index.lock). project imports this package, so the rule is kept here, not called.
+func gitCmd(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_OPTIONAL_LOCKS=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0")
+	return cmd
 }
 
 // ReloadRule is when serve reads a changed config: its merge loop loads the config at each pass, so a change counts at
@@ -615,7 +628,7 @@ func (c *Config) NoCompileWarning() string {
 	for _, args := range [][]string{
 		{"symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"}, {"symbolic-ref", "-q", "--short", "HEAD"},
 	} {
-		out, err := exec.Command("git", append([]string{"-C", c.Root}, args...)...).Output()
+		out, err := gitCmd(append([]string{"-C", c.Root}, args...)...).Output()
 		if def = strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"); err == nil && def != "" {
 			break
 		}
