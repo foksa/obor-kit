@@ -9,8 +9,9 @@ package launch
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time (a project's under its
 // restore lock, so a reconnect during a run restarts a pane at most once), each bounded by
-// OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
-// (or dirty-free) lane (obor dispatch starts it). A pane with no recorded
+// OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, the worker of a free
+// (or dirty-free) lane (obor dispatch starts it), and a role agent that is neither the lead nor a worker while its
+// OpenWork read says serve's state has no work open for it (its next brief or job starts it). A pane with no recorded
 // session (serve's store) or a kind that resumes nothing starts --fresh (a role pane started
 // fresh with no prompt wrote no transcript either, so no restart could resume it). Log: ~/.obor/restore.log
 // (last 200).
@@ -49,6 +50,10 @@ type Restorer struct {
 	Restart func(ctx context.Context, cfg *config.Config, req Request, out io.Writer) (string, error)
 	// LaneState is the lane's state as the lane table says (free, dirty-free, working, …).
 	LaneState func(cfg *config.Config, l config.Lane) string
+	// OpenWork is whether a role agent (any but the lead and a worker) has work open in serve's state: a brief not
+	// finished, the integrator's open job, the reviewer's open review or verify. An error restores the pane (a real
+	// job is never left stopped). Nil: every role pane is restored.
+	OpenWork func(agent, role string) (bool, error)
 }
 
 func (p *Restorer) stamp() string {
@@ -82,7 +87,9 @@ func RestoreLog(env project.Env) string {
 }
 
 // RestoreProject restarts the labelled panes of the obor project at root that herdr's pane list shows without an
-// agent (serve's run after its terminal connection came back). Another project's panes are its serve's.
+// agent and that have work to come back to (serve's run after its terminal connection came back): the lead always,
+// a worker unless its lane is free, every other role while its OpenWork read says work is open. Another project's
+// panes are its serve's.
 func (p *Restorer) RestoreProject(ctx context.Context, root string) {
 	root = filepath.Clean(root)
 	panes, ok := p.panes(ctx)
@@ -183,6 +190,10 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		fmt.Fprintf(w, "%s skip %s (pane %s): lane %s is free (dispatch starts its worker)\n", now, agent, pane.ID, lane)
 		return
 	}
+	if !alwaysRestored(info.Role) && !p.openWork(info.Role, agent) {
+		fmt.Fprintf(w, "%s skip %s (pane %s): no open work (its next brief or job starts it)\n", now, agent, pane.ID)
+		return
+	}
 	// A pane with no session it can resume starts fresh: none in serve's store, or a kind
 	// that resumes nothing (OpenCode). Every dispatch starts a fresh worker anyway; a role pane started fresh
 	// with no prompt has no transcript either (Claude writes none before its first message), so no restart could
@@ -212,6 +223,21 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		return
 	}
 	fmt.Fprintln(w, line)
+}
+
+// alwaysRestored: a pane's role is restored whatever serve's state says: the lead's always, a worker's by its lane.
+func alwaysRestored(role string) bool {
+	return role == "lead" || role == "worker"
+}
+
+// openWork is the OpenWork read for role: true when work is open or the read fails (a real job is never left
+// stopped); without the callback, true.
+func (p *Restorer) openWork(role, agent string) bool {
+	if p.OpenWork == nil {
+		return true
+	}
+	open, err := p.OpenWork(agent, role)
+	return err != nil || open
 }
 
 // freeLane is the lane of a worker whose lane is free or dirty-free (no task in flight), "" otherwise. Role panes

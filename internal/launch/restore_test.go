@@ -2,6 +2,7 @@ package launch_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -302,28 +303,77 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 	}
 }
 
-// The free lane's worker is skipped (obor dispatch
-// would start it, so the restore skips it by default).
-func TestRestoreRolePanesNotSkipped(t *testing.T) {
+// A role pane comes back only while serve's state has work open for it (OpenWork): the lead always, a worker by its
+// lane, the integrator while its job is open, the reviewer while its review is, and any other role while its brief
+// is. The read is not asked for the lead.
+func TestRestoreRolePanesNeedOpenWork(t *testing.T) {
+	for _, c := range []struct {
+		name, agent, role string
+		open, restored    bool
+	}{
+		{"lead with no work", "pj-lead", "lead", false, true},
+		{"integrator with an open job", "pj-int", "integrator", true, true},
+		{"integrator with no open job", "pj-int", "integrator", false, false},
+		{"reviewer with an open review", "pj-rev", "reviewer", true, true},
+		{"reviewer with no open review", "pj-rev", "reviewer", false, false},
+		{"deep dive with an open brief", "pj-deep-dive", "deep_dive", true, true},
+		{"deep dive with no open work", "pj-deep-dive", "deep_dive", false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newRfx(t)
+			f.p.Config(testkit.Set("agents.roles", `{"integrator": "", "reviewer": "opus", "deep_dive": "opus"}`))
+			f.shell("w1:p1", f.p.Root, c.agent)
+			var asked []string
+			f.pl.OpenWork = func(agent, role string) (bool, error) {
+				asked = append(asked, role+":"+agent)
+				return c.open, nil
+			}
+			f.pl.RestoreProject(context.Background(), f.p.Root)
+			if c.restored {
+				f.wantCalls(f.p.Root + " restart " + c.agent + " --pane w1:p1 --fresh")
+				lacks(t, f.restoreLog(), "no open work", "a restored pane's skip line")
+			} else {
+				f.wantCalls()
+				has(t, f.restoreLog(), " skip "+c.agent+" (pane w1:p1): no open work (its next brief or job starts it)\n",
+					"the pane with no work is skipped and logged")
+			}
+			if c.role == "lead" {
+				if len(asked) != 0 {
+					t.Errorf("the lead's pane asked for open work: %q", asked)
+				}
+			} else if want := []string{c.role + ":" + c.agent}; len(asked) != 1 || asked[0] != want[0] {
+				t.Errorf("open work asked for %q, want %q", asked, want)
+			}
+		})
+	}
+}
+
+// A failed read of the role's open work restores its pane: a real job is never left stopped.
+func TestRestoreRolePanesWhenTheOpenWorkReadFails(t *testing.T) {
+	f := newRfx(t)
+	f.p.Config(testkit.Set("agents.roles", `{"deep_dive": "opus"}`))
+	f.shell("w1:p1", f.p.Root, "pj-deep-dive")
+	f.pl.OpenWork = func(string, string) (bool, error) {
+		return false, errors.New("serve's state unreadable")
+	}
+	f.pl.RestoreProject(context.Background(), f.p.Root)
+	f.wantCalls(f.p.Root + " restart pj-deep-dive --pane w1:p1 --fresh")
+	lacks(t, f.restoreLog(), "no open work", "a failed read's skip line")
+}
+
+// A free lane's worker is skipped: obor dispatch starts its worker.
+func TestRestoreFreeLaneSkipped(t *testing.T) {
 	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
 	o1 := f.p.Lane("L-01", "task/T-01")
-	roles := testkit.Set("agents.roles", `{"reviewer": "opus", "deep_dive": "opus"}`)
-	f.p.Config(roles)
-	rev, dd := f.p.Lane("review", "review"), f.p.Lane("deep-dive", "deep-dive")
+	f.p.Config()
 	f.shell("w1:p1", o1, "pj-l-01")
-	f.shell("w1:p7", rev, "pj-rev")
-	f.shell("w1:p8", dd, "pj-deep-dive")
-	f.pl.RestoreProject(context.Background(), f.p.Root)
-	f.wantCalls(f.p.Root+" restart pj-rev --pane w1:p7 --fresh", f.p.Root+" restart pj-deep-dive --pane w1:p8 --fresh")
-	log := f.restoreLog()
-	has(t, log, " skip pj-l-01 (pane w1:p1): lane L-01 is free", "the free lane skipped")
-	has(t, log, " restore pj-rev (pane w1:p7) in "+f.p.Root+" (reviewer, no recorded session: --fresh)",
-		"a role pane with no recorded session starts fresh (T-627)")
-	has(t, log, " restore pj-deep-dive (pane w1:p8) in "+f.p.Root+" (deep_dive, no recorded session: --fresh)",
-		"and so does the other role (§T-627)")
-	if strings.Contains(log, "skip pj-rev") || strings.Contains(log, "skip pj-deep-dive") {
-		t.Errorf("a role pane skipped:\n%s", log)
+	f.pl.OpenWork = func(string, string) (bool, error) {
+		t.Error("the free lane's worker asked for open work")
+		return true, nil
 	}
+	f.pl.RestoreProject(context.Background(), f.p.Root)
+	f.wantCalls()
+	has(t, f.restoreLog(), " skip pj-l-01 (pane w1:p1): lane L-01 is free", "the free lane skipped")
 }
 
 // a config naming keys this obor does not know (the promotion's) still loads for the

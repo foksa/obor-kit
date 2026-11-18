@@ -245,7 +245,9 @@ After a herdr restart (herdr `resume_agents_on_restore = false`), serve restarts
 (`launch.Restorer`): when its terminal connection comes back during its lifetime, and at its first connect
 when the terminal restarted while serve was down — told by the adapter's instance (herdr: its socket file's mtime;
 herdr exposes no instance id) against the instance serve last restored for (`.obor/state/terminal-instance`). A serve restart or re-exec with
-the same herdr restores nothing, so a role agent stopped on purpose stays stopped. obor ships no herdr plugin. The
+the same herdr restores nothing. A role agent comes back only while serve's state has work open for it — a brief not
+finished, the integrator's open job, the reviewer's open review or verify; the lead always, a worker by its lane. So a
+role agent stopped on purpose stays stopped, and its next brief starts a fresh session. obor ships no herdr plugin. The
 store's `session` facts record each agent's sessions
 (`docs/state-model.md` row 51), for resuming after a kill.
 
