@@ -148,7 +148,7 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
 		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:role", Group: "proj", Cwd: root, Agent: kind, Label: agent, Status: status},
-	}})
+	}}, false)
 	// An idle deep dive's brief moves its role worktree first.
 	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(&reviewGitFake{head: "base1"})}, nil }
 	return a, p
@@ -1206,7 +1206,7 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 	snapshot := func(a *App, p *proj) {
 		lead, rev := a.obs["w:lead"].pane, a.obs["w:rev"].pane
 		rev.Status = "working"
-		a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{lead, rev}})
+		a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{lead, rev}}, false)
 	}
 	for _, c := range []struct {
 		name string

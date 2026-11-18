@@ -15,10 +15,14 @@ import (
 // its owned panes show noted for their briefs (the first snapshot after a replay too), then a check. One that shares no pane id with the panes known is a new herdr session (herdr
 // restarted): nothing of the old one is evidence for it, so no pane of it "exited" and no lane "lost" its agent; the
 // lanes find their panes again by group (the project's name) and cwd. Otherwise a known pane gone from it exited, and a pane
-// whose status and agent are unchanged keeps its timer.
-func (a *App) connect(ctx context.Context, snap port.Snapshot) {
+// whose status and agent are unchanged keeps its timer. restoring: a restore follows this snapshot (restoreWhy): it is
+// pending from the lock that applies the snapshot on, so no pass sees the panes at their shells before (restore.go).
+func (a *App) connect(ctx context.Context, snap port.Snapshot, restoring bool) {
 	now := a.opt.Now()
 	a.mu.Lock()
+	if restoring {
+		a.rst.pending = true
+	}
 	if len(a.obs) > 0 && !shares(a.obs, snap.Panes) {
 		a.obs = map[string]*seen{}
 		if a.p != nil {

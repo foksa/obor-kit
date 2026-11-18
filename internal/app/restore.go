@@ -37,9 +37,17 @@ import (
 // meanwhile. Runs never overlap: a reconnect while one runs asks for one more run after it (several coalesce), which
 // reads the panes afresh. The restore is idempotent (a pane whose agent runs is left alone, and a project's runs are
 // one at a time under its restore lock), so a reconnect's run and the one it queued each restart a pane at most once.
+//
+// While a restore is pending or running, a briefed agent that is gone ends no brief (deliver): its pane may be one
+// the restore restarts, and the restore keeps its pane only while its brief is open (OpenWork). Pending starts under
+// the lock that applies the snapshot the restore follows (connect), so no pass sees its panes at their shells before
+// it, and holds until the run starts; the hold ends when the last run ends (its one more run included). After it a
+// restored agent finishes as any agent does, and a pane whose restart failed, still at its shell, ends its brief as
+// gone at the next pass.
 
 // restoreState is the restore's single flight (under App.mu).
 type restoreState struct {
+	pending bool // a snapshot a restore follows is applied (connect) and that restore has not started or queued yet
 	running bool // a run is in progress
 	again   bool // a reconnect came while it ran: one more run after it
 	// woke: obor stop's pause was in force when serve loaded the project (loadProject; before serve's socket takes
@@ -86,34 +94,45 @@ func (a *App) noteWoke(p *proj) {
 	a.rst.woke = ps != nil && ps.Why == wire.StopPause
 }
 
-// connectRestore restores after a stream's snapshot is applied, when lost (the connection was lost since the last
-// stream) or at serve's first connect when the terminal restarted since (the rule above), and records the terminal's
-// instance: under the new name when it changed, and when it was read from the legacy file, whose name the sweep retires
-// (so an upgraded project keeps its record after that pass).
-func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.Snapshot, first, lost bool) {
+// restoreWhy is why a stream's snapshot is followed by a restore ("": it is not), read before it is applied: lost (the
+// connection was lost since the last stream), or serve's first connect when the terminal restarted since (the rule
+// above).
+func (a *App) restoreWhy(snap port.Snapshot, first, lost bool) string {
 	if a.opt.Restore == nil || a.opt.Root == "" {
-		return
-	}
-	cur := snap.Instance
-	was, legacy, err := recordedInstance(a.opt.Root)
-	if err != nil {
-		a.logf("terminal: %v: read as no instance recorded", err)
+		return ""
 	}
 	switch {
 	case lost:
-		a.restore(ctx, wg, "reconnected")
+		return "reconnected"
 	case !first:
-	case cur == "":
+		return ""
+	case snap.Instance == "":
 		a.logf("terminal: its start is not known (the adapter names no instance): no restore at serve's first connect")
-	default:
-		a.mu.Lock()
-		woke := a.rst.woke
-		last := a.lastActivity()
-		a.mu.Unlock()
-		if why := firstRestore(was, cur, last, woke); why != "" {
-			a.restore(ctx, wg, why)
-		}
+		return ""
 	}
+	was, _, err := recordedInstance(a.opt.Root)
+	if err != nil {
+		a.logf("terminal: %v: read as no instance recorded", err)
+	}
+	a.mu.Lock()
+	woke := a.rst.woke
+	last := a.lastActivity()
+	a.mu.Unlock()
+	return firstRestore(was, snap.Instance, last, woke)
+}
+
+// connectRestore starts the restore why names ("": none; restoreWhy) once the stream's snapshot is applied, and
+// records the terminal's instance: under the new name when it changed, and when it was read from the legacy file,
+// whose name the sweep retires (so an upgraded project keeps its record after that pass).
+func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.Snapshot, why string) {
+	if a.opt.Restore == nil || a.opt.Root == "" {
+		return
+	}
+	if why != "" {
+		a.restore(ctx, wg, why)
+	}
+	cur := snap.Instance
+	was, legacy, _ := recordedInstance(a.opt.Root) // an error reads as no instance recorded
 	if cur == "" || cur == was && !legacy {
 		return
 	}
@@ -159,6 +178,7 @@ func (a *App) SetRestore(r port.Restorer) { a.opt.Restore = r }
 // asks the run in progress for one more; wg is Serve's: its end waits for the run, canceled with ctx.
 func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, why string) {
 	a.mu.Lock()
+	a.rst.pending = false // the run in progress or the one starting now holds the briefs from here
 	if a.rst.running {
 		a.rst.again = true
 		a.mu.Unlock()
@@ -187,3 +207,6 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, why string) {
 		}
 	}()
 }
+
+// restoring: a restore is pending or running (under mu): a gone agent ends no brief meanwhile (the rule above).
+func (a *App) restoring() bool { return a.rst.pending || a.rst.running }

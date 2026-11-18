@@ -503,7 +503,7 @@ func newConcRig(t *testing.T) *concRig {
 			{ID: "w2:p9", Group: "pq", Cwd: r.roots["pq"], Agent: "claude", Label: "pq-int", Status: "idle"},
 			{ID: "w3:p9", Group: "pr", Cwd: r.roots["pr"], Agent: "claude", Label: "pr-int", Status: "idle"},
 			{ID: "w1:p2", Group: "pj", Cwd: lane, Agent: "claude", Label: "pj-l-02", Status: "idle", Session: "s"},
-		}})
+		}}, false)
 	}
 
 	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
@@ -2287,7 +2287,7 @@ func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
 		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:rev", Group: "proj", Cwd: root, Agent: "codex", Label: "pj-rev", Status: "idle"},
-	}})
+	}}, false)
 	return a, p
 }
 
@@ -4050,7 +4050,7 @@ func (h *harness) connect() {
 	h.applySids()
 	snap := h.snap
 	snap.Panes = append([]port.Pane(nil), h.snap.Panes...)
-	h.a.connect(context.Background(), snap)
+	h.a.connect(context.Background(), snap, false)
 }
 
 // tick moves the clock by d and runs one watchdog tick.

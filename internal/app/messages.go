@@ -174,8 +174,8 @@ func (a *App) logWorked(p *proj) {
 
 // deliver is one pass over p's lines: the seen work of briefs not in the log yet recorded (logWorked's retry), the
 // briefed Codex agents' stops read from their transcripts (roleTurns), the finished briefs' lines recorded (idle, or
-// their agent gone; none while a stop is in force), the lead's lines posted as one per target when its inbox is
-// recorded, each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
+// their agent gone, not while a restore is pending or running; none while a stop is in force), the lead's lines
+// posted as one per target when its inbox is recorded, each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
 // alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
 func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.closeSettled(ctx, p)
@@ -189,10 +189,11 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	var done []event.Message
 	var reviewed map[string]string // the finished agents' review files (finishedReview): by agent, the review id + "[-verify]"
+	restoring := a.restoring()     // a gone agent's pane may be one the restore restarts: no brief ends as gone meanwhile
 	for agent, b := range p.out.Briefs() {
 		w := a.whereIs(p, agent)
 		gone := a.gone(p, agent, b, w, now) // noted on every pass: where its agent was last seen
-		if b.Worked() && b.Stop() == nil && (w.State == Identified && Ready(w.Pane.Status) || gone) {
+		if b.Worked() && b.Stop() == nil && (w.State == Identified && Ready(w.Pane.Status) || gone && !restoring) {
 			done = append(done, event.Message{To: p.out.Lead(), From: "obor", Ends: agent,
 				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.At())))})
 			if file := p.folded.rv.BriefFile(agent, b.Seq()); file != "" {

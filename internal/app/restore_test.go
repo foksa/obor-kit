@@ -42,6 +42,12 @@ func TestFirstRestore(t *testing.T) {
 	}
 }
 
+// firstRestoreConnect is serve's restore decision and start at its first connect to snap (no connection lost), its
+// snapshot's panes aside.
+func firstRestoreConnect(h *harness, wg *sync.WaitGroup, snap port.Snapshot) {
+	h.a.connectRestore(context.Background(), wg, snap, h.a.restoreWhy(snap, true, false))
+}
+
 // countRestorer counts the restores serve asks for.
 type countRestorer struct{ calls int }
 
@@ -70,7 +76,7 @@ func TestFirstConnectWritesTheLegacyInstanceUnderTheNewName(t *testing.T) {
 	h.a.opt.Restore = fr
 	h.a.loadProject()
 	var wg sync.WaitGroup
-	h.a.connectRestore(context.Background(), &wg, port.Snapshot{Instance: inst}, true, false)
+	firstRestoreConnect(h, &wg, port.Snapshot{Instance: inst})
 	wg.Wait()
 	if fr.calls != 0 {
 		t.Errorf("restores = %d, want none: the old file records the same instance", fr.calls)
@@ -83,7 +89,7 @@ func TestFirstConnectWritesTheLegacyInstanceUnderTheNewName(t *testing.T) {
 		t.Fatal(err)
 	}
 	var again sync.WaitGroup
-	h.a.connectRestore(context.Background(), &again, port.Snapshot{Instance: inst}, true, false)
+	firstRestoreConnect(h, &again, port.Snapshot{Instance: inst})
 	again.Wait()
 	if fr.calls != 0 {
 		t.Errorf("restores = %d, want none: the new name records the same instance", fr.calls)
@@ -101,7 +107,7 @@ func firstConnect(t *testing.T, h *harness, started time.Time) (int, string) {
 	h.a.opt.Restore = fr
 	h.a.loadProject()
 	var wg sync.WaitGroup
-	h.a.connectRestore(context.Background(), &wg, port.Snapshot{Instance: started.UTC().Format(time.RFC3339Nano)}, true, false)
+	firstRestoreConnect(h, &wg, port.Snapshot{Instance: started.UTC().Format(time.RFC3339Nano)})
 	wg.Wait()
 	b, err := os.ReadFile(InstanceFile(h.root))
 	if err != nil {
