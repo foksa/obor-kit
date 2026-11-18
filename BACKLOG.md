@@ -23,7 +23,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After C1: decide A1 steps 3-4 from
   the check-then-act findings. (3) Parked until the owner decides a second terminal: D3 and terminal plan steps 6-9
   (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
-  (5) If an empty lane `index.lock` recurs, find the step that leaves it (BACKLOG Open, 11-06 and 11-11).
 ## Owner decisions pending
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
@@ -67,7 +66,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (RV-143 verify design) `specSetRev` parses the rev from the spec-set reply's text (T-1026), coupling replay to reply wording: keep the format, or a structured rev when the record is next revised.
 - (lead 11-08) `TestScratchCutTable` costs 31 s of work at 2 cores even after T-1000 (TestNightly 6.7 s, lane tests 2-4 s): they stay in -short with caps (T-1004 rev 5); a speed-up task for them lets the caps drop.
 - (lead 11-07) opencode (deepseek) workers ignored Escape twice (T-958, T-992), both needed `obor drop --force`.
-- (lead 11-06) Empty `index.lock` files appeared in all four lane worktrees (`.git/worktrees/L-0x/index.lock`) at 12:31, with no git running; every dispatch then failed `lane.prepare … checkout -B … exit status 128`. Serve had not restarted (up since 12:15); the deep dive (12:22) and the RV-127 verify (Codex sandbox) were the only other agents. Removed by hand. If it recurs: find who runs git in the lanes and dies; `lane.prepare` could name the lock in its FAIL. **Recurred 11-11 19:19** (L-03 only, empty, no holder; T-1272's prepare failed, lock removed by hand): inside `make release` V=0.38.0's window, between its version commit 19:18:43 and its tag commit 19:20:10 (the upgrade check and check-release ran then): suspect a release step or test running git in the real lane worktrees.
 - (lead 11-05) An empty untracked `.obor/obor.db` (0 bytes, 21:54) appeared in the main checkout and blocked `obor review close` (dirty); moved to the lead's scratchpad. Not `obor serve dump`. Something opened the store at `.obor/` instead of `.obor/state/` (an empty derived dir?): find the caller if it recurs (AGENTS.md: empty derived value fails closed).
 - (10-30, rename) **serve keeps a pane's old label**: after `herdr pane rename` + `obor setup role --pane`, serve
   identified the new agents by their old labels (hk-int at w5:pZ, label proof) until serve restarted. Label changes
