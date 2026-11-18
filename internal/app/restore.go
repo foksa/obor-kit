@@ -151,6 +151,10 @@ func (a *App) lastActivity() time.Time {
 	return a.p.lastBefore
 }
 
+// SetRestore wires the restore serve runs when its terminal connection came back: serve's, after New, since the
+// restore asks this app's state (launch.Restorer.OpenWork).
+func (a *App) SetRestore(r port.Restorer) { a.opt.Restore = r }
+
 // restore starts the restore of the served project (why: after a reconnect, or why the first connect restores), or
 // asks the run in progress for one more; wg is Serve's: its end waits for the run, canceled with ctx.
 func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, why string) {

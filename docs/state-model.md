@@ -448,7 +448,9 @@ only reset a live entry the record ends (`waitLine`, the stall timer, `retry`). 
 - **herdr**: status, pane ids, who holds which pane — `session.snapshot` on connect and after each `events_lost`.
   The one terminal fact serve keeps across its restarts is the instance it last connected to (herdr: its start, the
   socket file's time): `.obor/state/terminal-instance`, a state file, not the log; serve's first connect restores the
-  project's panes when the terminal is another instance (`restore.go`).
+  project's panes when the terminal is another instance (`restore.go`): the lead always, a worker unless its lane is
+  free, every other role agent only while serve's fold has work open for it (a brief not finished, the integrator's
+  open job, the reviewer's open review or verify).
 - **git**: lane heads, the scratch, target HEAD, whether a candidate is in the target.
 - **Watchdog timers**, **check output** (files on disk), **activity** (read live before any prompt).
 - **A `job_next` reply** after the first fetch: in memory only, so a repeated call id after a restart is answered
