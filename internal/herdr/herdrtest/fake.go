@@ -88,7 +88,8 @@ type Pane struct {
 	Placeholder string
 }
 
-// Fake is the fake herdr. Its fields may be changed between calls (under the test's own ordering).
+// Fake is the fake herdr. While a server answers from it, its fields and its panes' fields change only through Set,
+// Locked or the setters Agent and Shell take: a plain write races the server's goroutine.
 type Fake struct {
 	mu         sync.Mutex
 	Panes      []*Pane
@@ -105,22 +106,38 @@ func New() *Fake {
 }
 
 // Agent adds a pane with an agent and returns it. A pane's workspace is its id's part before the colon ("w1:p1" is in
-// w1), as the fake's own new panes are.
-func (f *Fake) Agent(pane, name, status, cwd string) *Pane {
-	p := &Pane{Wire: herdr.Wire{ID: pane, Workspace: spaceOf(pane), Kind: "claude", Name: name, Status: status, Cwd: cwd,
-		Seq: 1}}
+// w1), as the fake's own new panes are. The id's pane, when there already is one, becomes this agent's in place (as
+// herdr starts an agent in an existing shell): one pane object per id. The setters run under the fake's lock, so the
+// server never reads a half-changed pane and a new one is complete in its first answer.
+func (f *Fake) Agent(pane, name, status, cwd string, set ...func(*Pane)) *Pane {
 	f.mu.Lock()
-	f.Panes = append(f.Panes, p)
-	f.mu.Unlock()
+	defer f.mu.Unlock()
+	p := f.pane(pane)
+	if p == nil {
+		p = &Pane{Wire: herdr.Wire{ID: pane, Workspace: spaceOf(pane)}}
+		f.Panes = append(f.Panes, p)
+	}
+	p.Kind, p.Name, p.Status, p.Cwd, p.Seq = "claude", name, status, cwd, 1
+	for _, fn := range set {
+		fn(p)
+	}
 	return p
 }
 
-// Shell adds a pane with no agent and returns it.
-func (f *Fake) Shell(pane, label, cwd string) *Pane {
-	p := &Pane{Wire: herdr.Wire{ID: pane, Workspace: spaceOf(pane), Label: label, Cwd: cwd}}
+// Shell adds a pane with no agent and returns it. A pane already at that id becomes this shell in place; the setters run
+// as Agent's do.
+func (f *Fake) Shell(pane, label, cwd string, set ...func(*Pane)) *Pane {
 	f.mu.Lock()
-	f.Panes = append(f.Panes, p)
-	f.mu.Unlock()
+	defer f.mu.Unlock()
+	p := f.pane(pane)
+	if p == nil {
+		p = &Pane{Wire: herdr.Wire{ID: pane, Workspace: spaceOf(pane)}}
+		f.Panes = append(f.Panes, p)
+	}
+	p.Kind, p.Name, p.Status, p.Label, p.Cwd = "", "", "", label, cwd
+	for _, fn := range set {
+		fn(p)
+	}
 	return p
 }
 
