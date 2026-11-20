@@ -127,8 +127,9 @@ func (s *Setup) laneWorktree(lane string) (config.Lane, error) {
 
 // PlaceLane places a pane for lane's worker in the lane's worktree, labelled with the lane's agent and with no agent in
 // it: obor setup pane <LANE>'s placement (a lanes tab of the project, the pane in the lane, its label the worker's
-// name). serve calls it at a worker's start when its lane has no pane; the start that wanted the pane runs there next,
-// typing the lane's env line and cd (launch). The lane must be configured and its worktree there; a terminal that
+// name). serve calls it at a worker's start when its lane has no pane; the pane is in the lane's cwd as it returns
+// (the terminal readies it: Placement.Starts is unset), and the start that wanted it runs there next, typing the
+// worker's env line (launch). The lane must be configured and its worktree there; a terminal that
 // refuses the placement is its error.
 func (s *Setup) PlaceLane(ctx context.Context, lane string) (string, error) {
 	if err := s.load(); err != nil {
@@ -144,7 +145,6 @@ func (s *Setup) PlaceLane(ctx context.Context, lane string) (string, error) {
 	}
 	a := agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, lane: lane}
 	p := s.placement(a, where{}, nil)
-	p.Starts = true // the start that wanted the pane types the env line and cd
 	pane, err := s.T.Place(ctx, p)
 	if err != nil {
 		return "", err

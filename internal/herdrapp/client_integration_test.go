@@ -51,14 +51,6 @@ esac
 	if len(spaces) != 1 || spaces[0].ID != "spa1" || spaces[0].Name != "obor-kit" || len(spaces[0].Tabs) != 1 {
 		t.Fatalf("Spaces = %+v, want the stub's one space", spaces)
 	}
-	tab, err := c.EnsureTab(context.Background(), "spa1", "lead", "/p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tab.ID != "tb1" {
-		t.Errorf("EnsureTab = %+v, want the stub's tb1", tab)
-	}
-
 	closed := script(t, dir, "closed", `#!/bin/sh
 echo "herdr-app: no Herdr window at $HOME/herdr-app.sock: No such file or directory (os error 2)" >&2
 exit 2

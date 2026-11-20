@@ -5,9 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"obor/internal/app/port"
@@ -260,9 +258,9 @@ func (cl *Client) take(ctx context.Context, at spot, labels map[string]string, p
 }
 
 // ready gives the app's terminal addr, started in folder, p's cwd and env: once its shell holds the foreground, the
-// env line (project.EnvLine) typed with a mark it echoes on success and another on failure, and the screen read for
-// either. Nothing is typed with p.Starts (the start types the env line) or when there is nothing to set (no env, the
-// terminal started in p.Cwd). A shell that does not come up, or a line that fails or shows no mark, is the error.
+// env line (project.EnvLine) typed and awaited as launch's is (project.RunEnvLine). Nothing is typed with p.Starts
+// (the start types the env line) or when there is nothing to set (no env, the terminal started in p.Cwd). A shell that
+// does not come up, or a line that fails or shows no mark, is the error.
 func (cl *Client) ready(ctx context.Context, addr, folder string, p port.Placement) error {
 	if p.Starts || len(p.Env) == 0 && (p.Cwd == "" || p.Cwd == folder) {
 		return nil
@@ -274,22 +272,13 @@ func (cl *Client) ready(ctx context.Context, addr, folder string, p port.Placeme
 	if ok, err := until(ctx, atShell); err != nil || !ok {
 		return cmp.Or(err, error(&Error{Op: "terminal.get", Msg: fmt.Sprintf("the shell of %s did not come up in %s", addr, readyBound)}))
 	}
-	good, bad := envMark(), envMark()
-	if err := cl.Write(ctx, addr, project.EnvLine(p.Cwd, p.Env)+" && echo "+good.typed+" || echo "+bad.typed, true); err != nil {
-		return err
-	}
-	var screen string
-	shows := func() (bool, error) {
-		var err error
-		screen, err = cl.read(ctx, addr, 0)
-		return err == nil && (strings.Contains(screen, good.echoed) || strings.Contains(screen, bad.echoed)), err
-	}
-	switch ok, err := until(ctx, shows); {
+	line := project.EnvLine(p.Cwd, p.Env)
+	switch res, err := project.RunEnvLine(ctx, cl, addr, line, readyPoll, readyBound); {
 	case err != nil:
 		return err
-	case !ok:
+	case res == project.EnvLineNoMark:
 		return &Error{Op: "terminal.read", Msg: fmt.Sprintf("the env line in %s showed no result in %s", addr, readyBound)}
-	case strings.Contains(screen, bad.echoed):
+	case res == project.EnvLineFailed:
 		return &Error{Op: "terminal.send", Msg: fmt.Sprintf("the env line in %s failed (cd %s and its env)", addr, p.Cwd)}
 	}
 	return nil
@@ -312,17 +301,6 @@ func until(ctx context.Context, cond func() (bool, error)) (bool, error) {
 		case <-time.After(readyPoll):
 		}
 	}
-}
-
-// mark is a word the env line echoes: typed with a quote in its middle, so the typed line on the screen never reads
-// as the echoed word.
-type mark struct{ typed, echoed string }
-
-var markSeq atomic.Int64
-
-func envMark() mark {
-	n := strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(markSeq.Add(1), 36)
-	return mark{typed: `obor-ready-"` + n + `"`, echoed: "obor-ready-" + n}
 }
 
 // terminals is every live terminal, labels never nil.

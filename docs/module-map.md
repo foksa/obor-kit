@@ -21,7 +21,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 ## Packages
 
 **base** — shared leaves, no obor state of their own.
-- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; `ShellQuote` (`shell.go`: one word of a shell command line, for launch and the hc adapter); the file lock (`lock.go`: `Lock`),
+- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; `ShellQuote`, `EnvLine` and `RunEnvLine` (`shell.go`: one word of a shell command line, the env line, and the one handshake that types it at a pane's shell and awaits its mark, for launch and the hc adapter); the file lock (`lock.go`: `Lock`),
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`), the background Bash calls the PreToolUse hook records
   (`background.go`), the caller's own pane (`pane.go`: `Pane`, the one resolver: `OBOR_PANE`, else the
   terminal's `HERDR_PANE_ID` for a pane obor did not start, else `ErrNoPane`; here, not in `herdr`, because adapters
@@ -228,7 +228,7 @@ process (`plugin.Local`).
 - `herdrapp`: the herdr-app window's CLI client (`herdr-app ls`, `do <command> '<json>'`, `commands`, `--version`), the
   surface that shows hc's terminals: `Spaces` (each space's id, name, folder, named flag and machine, its tabs) and the
   local layout it needs — `EnsureSpace` (a project's space by name and folder: `space.new`, or an unnamed space at that
-  folder renamed), `EnsureTab` (`tab.new`, or a space's one unnamed tab renamed) and `Labels` (`herdr.space`/`herdr.tab`
+  folder renamed), `NewTab` (`tab.new`), `RenameTab` and `Labels` (`herdr.space`/`herdr.tab`
   for a terminal to show in a tab); a typed no-window error (`port.NotRunning`: place by labels later, never start the
   app), the version rule (≥ 0.1.16) and `contract.go` (the commands and arguments obor sends, checked against a
   committed copy of `herdr-app commands`; `tests/conformance` compares the copy with the installed app). Only
