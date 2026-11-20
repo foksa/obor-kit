@@ -176,34 +176,47 @@ func TestPruneDryRunListsAndDeletesNothing(t *testing.T) {
 	}
 }
 
-// A structured dry run answers the branches serve takes (merged) and the task branches it keeps (unmerged), each with
-// its full tip sha, as JSON and not lines: nothing is deleted; a branch checked out and one outside task/ are in neither.
-func TestPruneStructuredReplyListsMergedAndUnmerged(t *testing.T) {
+// A structured dry run answers every task branch with its task's state and its end time, whether it is checked out or
+// not, and apart from it whether prune deletes it, with the full tip sha, as JSON and not lines: nothing is deleted. A
+// merged branch checked out is merged and not deletable; one outside task/ is not in the reply.
+func TestPruneStructuredReplyGivesTheStateApartFromDeletable(t *testing.T) {
 	t.Parallel()
-	f := &fakePruner{checked: map[string]bool{"task/T-3": true}}
-	for _, b := range []string{"task/T-1", "task/T-2", "task/T-3", "task/T-5", "keep/T-1"} {
+	f := &fakePruner{checked: map[string]bool{"task/T-3": true, "task/T-6": true}}
+	for _, b := range []string{"task/T-1", "task/T-2", "task/T-3", "task/T-4", "task/T-5", "task/T-6", "keep/T-1"} {
 		f.branch(b)
 	}
 	h := pruneRig(t, f)
 	h.ended("T-1", event.StepMerged, 1*day)
-	h.setLane("T-2", true)                  // open
-	h.ended("T-3", event.StepMerged, 1*day) // merged, but checked out: in neither list
+	h.setLane("T-2", true)                   // open
+	h.ended("T-3", event.StepMerged, 2*day)  // merged, checked out
+	h.ended("T-4", event.StepDropped, 3*day) // ended unmerged, not asked for with --unmerged
+	// T-5: serve's fold does not know it
+	h.setLane("T-6", true) // open and checked out
 	reply := h.prune(wire.PruneReq{DryRun: true, Structured: true})
 	got, err := wire.ParsePruneReply(reply)
 	if err != nil {
 		t.Fatalf("reply %q: %v", reply, err)
 	}
-	full := func(name string) wire.PruneRef {
-		i := slices.IndexFunc(f.branches, func(b port.PruneBranch) bool { return b.Name == name })
-		if i < 0 || len(f.branches[i].SHA) != 40 {
-			t.Fatalf("precondition: no branch %s with a full sha in %v", name, f.branches)
-		}
-		return wire.PruneRef{Name: name, SHA: f.branches[i].SHA}
+	ended := func(age time.Duration) string { return h.now.Add(-age).UTC().Format(time.RFC3339) }
+	want := []struct {
+		name, state, ended string
+		deletable          bool
+	}{
+		{"task/T-1", wire.PruneMerged, ended(1 * day), true},
+		{"task/T-2", wire.PruneOpen, "", false},
+		{"task/T-3", wire.PruneMerged, ended(2 * day), false},
+		{"task/T-4", wire.PruneEnded, ended(3 * day), false},
+		{"task/T-5", wire.PruneUnknown, "", false},
+		{"task/T-6", wire.PruneOpen, "", false},
 	}
-	want := wire.PruneReply{Merged: []wire.PruneRef{full("task/T-1")},
-		Unmerged: []wire.PruneRef{full("task/T-2"), full("task/T-5")}}
-	if !slices.Equal(got.Merged, want.Merged) || !slices.Equal(got.Unmerged, want.Unmerged) {
-		t.Errorf("reply %+v, want %+v", got, want)
+	if len(got.Branches) != len(want) {
+		t.Fatalf("reply %+v, want %d task branches", got.Branches, len(want))
+	}
+	for i, w := range want {
+		b := got.Branches[i]
+		if b.Name != w.name || b.State != w.state || b.Ended != w.ended || b.Deletable != w.deletable || len(b.SHA) != 40 {
+			t.Errorf("branch %d is %+v, want %s %s ended %q deletable %v with a full sha", i, b, w.name, w.state, w.ended, w.deletable)
+		}
 	}
 	if strings.Contains(reply, "PRUNE") || len(f.deleted) != 0 {
 		t.Errorf("reply %q is not data only, or deleted %v", reply, f.deleted)
