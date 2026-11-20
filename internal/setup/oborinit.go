@@ -9,9 +9,11 @@ package setup
 //	           passes the one it detected, else herdr) and a new config's project.terminal.
 //	herdr      herdr unreachable → FAIL, before any write (nothing later works without it); no claude on PATH →
 //	           FAIL (the lead runs it).
-//	git        no commit yet: only a directory holding nothing but .git (or init's own untouched files, a rerun)
-//	           gets git init (when in no repository) and, after the project step, the "obor init" commit of init's
-//	           files; anything else there → FAIL before any write. A repository with a commit: untouched.
+//	git        no commit yet: a directory holding files only at init's own paths (.obor/config.json, .gitignore, the
+//	           docs, .claude/settings.json; whatever their bytes) gets git init (when in no repository) and, after
+//	           the config edits and the plugin install, the one "obor init" commit holding them, before the
+//	           worktrees: the tree is clean after init. Any other file there → FAIL before any write. A repository
+//	           with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
 //	setup      setup.confirmed: false when the config has no key: the models, effort and lanes obor init left
@@ -36,7 +38,7 @@ package setup
 //	           set up again, and lane_ready must pass after that, else the lane's step FAILs.
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
-//	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
+//	           commit and the panes: an agent started without the plugin runs without obor's hooks and MCP tools.
 //	herdr      serve restarts its own panes after a herdr restart, so herdr must not resume agents: when its
 //	           config.toml does not set `[session] resume_agents_on_restore = false`, the summary says the line to
 //	           add (user-global: it affects every herdr pane; obor never edits that config).
@@ -106,8 +108,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	// git: a directory in no repository gets one; a repository without a commit gets its first below, from
 	// init's own files (the lanes branch from it).
-	// Decided before any write: init commits only in a directory that held nothing but.git (or init's own
-	// untouched files, a rerun); a repository with no commit and anything else in it is a FAIL.
+	// Decided before any write: init commits only in a directory whose files are all at init's own paths; a
+	// repository with no commit and any other file in it is a FAIL.
 	root, repo := s.Dir, true
 	switch r, err := s.git().Find(s.Dir); {
 	case errors.Is(err, project.ErrNotGit):
@@ -171,20 +173,6 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("projects", doneOr(changed), "%s in %s", s.cfg.Name(), project.ProjectsFile(s.Env))
 
-	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
-	// from it).
-	committed, err := s.initCommit(auto)
-	if err != nil {
-		return err
-	}
-
-	// githooks
-	hooksChanged, err := s.githooksStep(nil)
-	if err != nil {
-		return err
-	}
-	add("githooks", doneOr(hooksChanged), "%s", s.hooksLine(s.root))
-
 	// commands
 	set, warns, suggest, err := s.initCommands()
 	if err != nil {
@@ -217,7 +205,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		add("kinds", "done", "%s: manifest cached", strings.Join(kinds, ", "))
 	}
 
-	// lanes and role types
+	// roles, difficulty and the lane count: config edits, all before the commit
 	types, err := s.initRoleTypes()
 	if err != nil {
 		return err
@@ -225,6 +213,32 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err := s.initDifficulty(); err != nil {
 		return err
 	}
+	if err := s.initLaneCount(); err != nil {
+		return err
+	}
+
+	// plugin: before the commit, so .claude/settings.json is in it and every worktree gets it from git
+	state, what, err := s.initPlugin(ctx, claude)
+	if err != nil {
+		return err
+	}
+	add("plugin", state, "%s", what)
+
+	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
+	// from it); the tree is clean after init.
+	committed, err := s.initCommit(auto)
+	if err != nil {
+		return err
+	}
+
+	// githooks
+	hooksChanged, err := s.githooksStep(nil)
+	if err != nil {
+		return err
+	}
+	add("githooks", doneOr(hooksChanged), "%s", s.hooksLine(s.root))
+
+	// lanes: the worktrees
 	var made, had []string
 	for _, l := range initLaneNames(s.cfg) {
 		if s.cfg.HasLane(l) {
@@ -255,12 +269,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	lanes := strings.Join(append(made, had...), ", ") + "; " + types
 	add("lanes", doneOr(len(made) > 0 || strings.Contains(types, "→")), "%s", lanes)
 
-	// plugin
-	state, what, err := s.initPlugin(ctx, claude)
-	if err != nil {
-		return err
-	}
-	add("plugin", state, "%s", what)
+	// plugin links: an untracked settings file (a repository with a commit) reaches the lanes by link
 	state, what, err = s.initPluginLinks()
 	if err != nil {
 		return err
@@ -350,6 +359,19 @@ func initLaneNames(cfg *config.Config) []string {
 		names = append(names, config.LaneName(i))
 	}
 	return names
+}
+
+// initLaneCount raises lanes.count to the lanes init sets up (initLaneNames) when the config counts its lanes: the
+// worktrees come after the commit, the count is in it. A lanes.list names its own.
+func (s *Setup) initLaneCount() error {
+	n := len(initLaneNames(s.cfg))
+	if s.cfg.LanesListed() || s.cfg.LaneCount() >= n {
+		return nil
+	}
+	if err := s.addLane(n); err != nil {
+		return err
+	}
+	return s.load()
 }
 
 // commitLine names the files init committed, its agents dir as one entry.

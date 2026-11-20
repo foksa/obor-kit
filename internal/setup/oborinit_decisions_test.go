@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -303,11 +304,12 @@ func (x *initFx) unborn(t *testing.T, name string) string {
 	return dir
 }
 
-// a user's own untracked file in an unborn repository, even one named as init's (BACKLOG.md,
-// .gitignore, which init would append to), is a FAIL before any write: the file unchanged, nothing created.
-func TestOborInitRefusesAnUnbornRepositoryWithAUsersFile(t *testing.T) {
+// In a repository with no commit, a file at one of init's own paths is init's input: it goes into the commit with
+// the bytes it has (BACKLOG.md, .gitignore with its lines added, a hand-written config, an agents doc). Init adds
+// to .gitignore, and keeps the rest as it is.
+func TestOborInitCommitsAUnbornRepositoryFilesAtItsPaths(t *testing.T) {
 	t.Parallel()
-	for _, f := range []string{"BACKLOG.md", ".gitignore", "docs/agents/worker.md"} {
+	for _, f := range []string{"BACKLOG.md", "docs/agents/worker.md", ".gitignore"} {
 		t.Run(f, func(t *testing.T) {
 			x := newFakeGitInitFx(t, true)
 			dir := x.unborn(t, "unborn")
@@ -319,13 +321,67 @@ func TestOborInitRefusesAnUnbornRepositoryWithAUsersFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			out, rc := x.runIn(t, dir, "obor-init")
-			wantFail(t, x, out, rc, dir)
-			if got := x.Read(path); got != "the user's text\n" {
-				t.Errorf("%s now %q", f, got)
+			if rc != 0 {
+				t.Fatalf("exit %d\n%s", rc, out)
 			}
-			onlyEntries(t, dir, strings.SplitN(f, "/", 2)[0])
+			got := x.Read(path)
+			if !strings.HasPrefix(got, "the user's text\n") {
+				t.Errorf("%s is now %q, want the user's text kept", f, got)
+			}
+			if f != ".gitignore" && got != "the user's text\n" {
+				t.Errorf("%s is now %q, want the user's bytes", f, got)
+			}
+			if !slices.Contains(committedFiles(x, dir), f) {
+				t.Errorf("the commit lacks %s", f)
+			}
 		})
 	}
+}
+
+// committedFiles are the paths of dir's last commit.
+func committedFiles(x *initFx, dir string) []string {
+	return strings.Fields(x.Git(dir, "show", "--name-only", "--format=", "HEAD"))
+}
+
+// A hand-written .obor/config.json in an unborn repository goes into the commit with init's edits, and any other file
+// there FAILs before any write: nothing created, the file unchanged.
+func TestOborInitUnbornRepositoryConfigGoesInAndOtherFilesRefuse(t *testing.T) {
+	t.Parallel()
+	const mine = `{"project": {"name": "mine", "agent_prefix": "mine"}}` + "\n"
+	t.Run("config", func(t *testing.T) {
+		x := newFakeGitInitFx(t, true)
+		dir := x.unborn(t, "unborn")
+		x.Write(filepath.Join(dir, ".obor", "config.json"), mine)
+		out, rc := x.runIn(t, dir, "obor-init")
+		if rc != 0 {
+			t.Fatalf("exit %d\n%s", rc, out)
+		}
+		if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
+			t.Errorf("commits %q, want the one obor init", got)
+		}
+		if files := committedFiles(x, dir); !slices.Contains(files, ".obor/config.json") {
+			t.Errorf("the commit lacks the config: %v", files)
+		}
+		cfg, err := config.Load(dir)
+		if err != nil || cfg.Name() != "mine" {
+			t.Errorf("the config is not the hand-written one: %v", err)
+		}
+	})
+	t.Run("another file", func(t *testing.T) {
+		x := newFakeGitInitFx(t, true)
+		dir := x.unborn(t, "unborn")
+		x.Write(filepath.Join(dir, ".obor", "config.json"), mine)
+		x.Write(filepath.Join(dir, "README.md"), "mine\n")
+		out, rc := x.runIn(t, dir, "obor-init")
+		wantFail(t, x, out, rc, dir)
+		if x.Read(filepath.Join(dir, ".obor", "config.json")) != mine || x.Read(filepath.Join(dir, "README.md")) != "mine\n" {
+			t.Error("init touched a file before its FAIL")
+		}
+		onlyEntries(t, dir, ".obor", "README.md")
+		if x.Exists(filepath.Join(dir, "BACKLOG.md")) || x.claudeCalls() != "" {
+			t.Error("init wrote or called claude before its FAIL")
+		}
+	})
 }
 
 // interrupted is the project step alone in dir (an init that stopped before its commit): init's untouched files.
@@ -763,9 +819,16 @@ func TestOborInitPluginFailureIsRepairedByARerun(t *testing.T) {
 	if len(x.agents(t)) != 0 {
 		t.Errorf("agents started without the plugin: %v", x.agents(t))
 	}
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x.Exists(filepath.Join(cfg.LanesDir(), "L-01")) {
+		t.Error("a worktree was made before the plugin was installed")
+	}
 	os.Remove(filepath.Join(x.bin, "fail"))
 	out = x.init(t)
-	if stateOf(out, "plugin") != "done" || stateOf(out, "lanes") != "already" {
+	if stateOf(out, "plugin") != "done" || stateOf(out, "lanes") != "done" {
 		t.Errorf("rerun: plugin %q, lanes %q", summary(out, "plugin"), summary(out, "lanes"))
 	}
 }

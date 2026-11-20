@@ -75,7 +75,7 @@ func (s *Setup) initProject(name, prefix string) error {
 	if err := s.gitignore(); err != nil {
 		return err
 	}
-	for _, t := range s.initTemplates() {
+	for _, t := range s.initTemplates(s.cfg.AgentsDir()) {
 		if err := s.copyTemplate(t.src, t.rel, t.stub); err != nil {
 			return err
 		}
@@ -91,8 +91,7 @@ type initTemplate struct {
 
 // initTemplates are the docs init copies: BACKLOG.md, docs/decisions.md and the agents dir's (README.md is the kit's
 // overview, read in place).
-func (s *Setup) initTemplates() []initTemplate {
-	agents := s.cfg.AgentsDir()
+func (s *Setup) initTemplates(agents string) []initTemplate {
 	tpl := filepath.Join(s.Kit, "templates")
 	var out []initTemplate
 	for _, c := range [][2]string{{"BACKLOG.md", "BACKLOG.md"}, {"decisions.md", "docs/decisions.md"},
@@ -225,22 +224,17 @@ func (s *Setup) gitInit() error {
 	return nil
 }
 
-// autoCommit reports whether this init makes the "obor init" commit: root's branch has no commit and root
-// holds nothing but .git, or only files init writes, each byte-equal to init's text (a rerun after an interrupted
-// init). No commit and anything else in root: FAIL, before init writes anything (init never commits or touches the
-// user's files). A repository with a commit: false. repo: root is a git repository (else a plain directory).
+// autoCommit reports whether this init makes the "obor init" commit: root's branch has no commit and every file in
+// root is at one of init's own paths (initPaths; the bytes do not matter: they are init's input). No commit and any
+// other file in root: FAIL, before init writes anything (init never commits or touches the user's other files). A
+// repository with a commit: false. repo: root is a git repository (else a plain directory).
 func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 	if repo {
 		if _, err := s.git().Git(root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
 			return false, nil
 		}
 	}
-	s.root = root
-	want, err := s.initFiles()
-	if err != nil {
-		return false, err
-	}
-	if !onlyFiles(root, want) {
+	if !onlyPaths(root, s.initPaths(root)) {
 		branch := s.initBranch()
 		if repo {
 			if b, err := s.git().Git(root, "symbolic-ref", "--short", "HEAD"); err == nil && strings.TrimSpace(b) != "" {
@@ -253,34 +247,22 @@ func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 	return true, nil
 }
 
-// initFiles is what init writes into an empty root, by path relative to it, for the config there (.obor/config.json,
-// .gitignore, the docs); empty when root has no config yet (init writes it first). It loads that config into s.cfg.
-// It must follow configJSON's inputs (today name, prefix, terminal, the root's base name): a config needing more changes it.
-func (s *Setup) initFiles() (map[string][]byte, error) {
-	want := map[string][]byte{}
-	if !s.configExists() {
-		return want, nil
+// initPaths are init's own paths in root, relative to it: the config, .gitignore, the docs initTemplates copies and the
+// plugin's .claude/settings.json. The agents dir is the config's there, else the default.
+func (s *Setup) initPaths(root string) []string {
+	agents := (&config.Config{}).AgentsDir()
+	if cfg, err := config.Load(root); err == nil {
+		agents = cfg.AgentsDir()
 	}
-	cfg, err := config.Load(s.root)
-	if err != nil {
-		return want, nil // not init's config: a user's file
+	paths := []string{".obor/config.json", ".gitignore", project.PluginSettings}
+	for _, t := range s.initTemplates(agents) {
+		paths = append(paths, t.rel)
 	}
-	s.cfg = cfg
-	if want[".obor/config.json"], err = s.configJSON(cfg.Name(), cfg.Prefix(), cfg.TerminalKind()); err != nil {
-		return nil, err
-	}
-	want[".gitignore"] = []byte(strings.Join(s.gitignoreLines(), "\n") + "\n")
-	for _, t := range s.initTemplates() {
-		if want[t.rel], err = s.renderTemplate(t.src, t.stub); err != nil {
-			return nil, err
-		}
-	}
-	return want, nil
+	return paths
 }
 
-// onlyFiles reports whether root holds nothing but .git, the directories of want's paths and want's files with
-// exactly want's bytes (each optional).
-func onlyFiles(root string, want map[string][]byte) bool {
+// onlyPaths reports whether root holds nothing but .git, the directories of paths and the regular files at paths.
+func onlyPaths(root string, paths []string) bool {
 	errStray := errors.New("stray")
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -297,18 +279,14 @@ func onlyFiles(root string, want map[string][]byte) bool {
 			}
 			return nil
 		case d.IsDir():
-			for w := range want {
+			for _, w := range paths {
 				if strings.HasPrefix(w, rel+"/") {
 					return nil
 				}
 			}
 			return errStray
 		}
-		b, ok := want[rel]
-		if !ok || !d.Type().IsRegular() {
-			return errStray
-		}
-		if got, err := os.ReadFile(p); err != nil || !bytes.Equal(got, b) {
+		if !d.Type().IsRegular() || !slices.Contains(paths, rel) {
 			return errStray
 		}
 		return nil
@@ -316,17 +294,13 @@ func onlyFiles(root string, want map[string][]byte) bool {
 	return err == nil
 }
 
-// initCommit makes the "obor init" commit when auto (autoCommit): init's own files, the commit the lanes branch from
-// committed is what it committed, nil when it made no commit.
+// initCommit makes the "obor init" commit when auto (autoCommit): init's own paths that exist, the commit the lanes
+// branch from. committed is what it committed, nil when it made no commit.
 func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 	if !auto {
 		return nil, nil
 	}
-	want, err := s.initFiles()
-	if err != nil {
-		return nil, err
-	}
-	for rel := range want {
+	for _, rel := range s.initPaths(s.root) {
 		if _, err := os.Stat(filepath.Join(s.root, rel)); err == nil {
 			committed = append(committed, rel)
 		}

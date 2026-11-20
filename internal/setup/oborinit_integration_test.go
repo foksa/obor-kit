@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,9 +19,9 @@ import (
 	"obor/internal/project"
 )
 
-// obor init in a plain directory (no repository) makes one on branch main, commits its own files as "obor init"
-// and branches the lanes from that commit; a directory the user already made a repository of, with no commit, gets the
-// same first commit; a user's untracked file is a FAIL, never committed; a repository with a commit is left as it is.
+// obor init in a plain directory (no repository) makes one on branch main, commits its own files (the config and
+// .claude/settings.json with the edits init made to them) as the one "obor init" commit and branches the lanes from it:
+// the tree is clean after init.
 func TestOborInitInAnEmptyDirectory(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
@@ -47,6 +48,20 @@ func TestOborInitInAnEmptyDirectory(t *testing.T) {
 			t.Errorf("no worktree for %s: %v", lane, err)
 		}
 	}
+	files := strings.Fields(x.Git(dir, "show", "--name-only", "--format=", "HEAD"))
+	for _, f := range []string{".obor/config.json", ".claude/settings.json", ".gitignore", "BACKLOG.md", "docs/decisions.md",
+		"docs/agents/worker.md"} {
+		if !slices.Contains(files, f) {
+			t.Errorf("the commit lacks %s: %v", f, files)
+		}
+	}
+	if got := x.Git(dir, "status", "--porcelain"); got != "" {
+		t.Errorf("git status after init:\n%s", got)
+	}
+	if got := x.Git(dir, "show", "HEAD:.obor/config.json"); got != strings.TrimSpace(x.Read(filepath.Join(dir, ".obor", "config.json"))) ||
+		!strings.Contains(got, `"count": 2`) {
+		t.Errorf("the committed config is not the final one (lanes.count 2):\n%s", got)
+	}
 	has(t, out, "git init -b main in "+dir, "the git init line")
 	has(t, out, "committed obor init: ", "the commit line")
 	has(t, out, ".obor/config.json", "the commit's config")
@@ -55,8 +70,8 @@ func TestOborInitInAnEmptyDirectory(t *testing.T) {
 	hasNot(t, out, "nothing committed", "no uncommitted note after init committed")
 }
 
-// a rerun after an interrupted init (init's own files, no commit) commits them when each is init's text; one
-// the user edited is a FAIL, left as it is.
+// a rerun after an interrupted init (init's own files, no commit) commits them; a file at init's path the user
+// edited goes in as it is.
 func TestOborInitRerunAfterAnInterruptedInit(t *testing.T) {
 	t.Parallel()
 	t.Run("untouched", func(t *testing.T) {
@@ -87,10 +102,11 @@ func TestOborInitRerunAfterAnInterruptedInit(t *testing.T) {
 		path := filepath.Join(dir, "BACKLOG.md")
 		edited := x.Read(path) + "- my own item\n"
 		x.Write(path, edited)
-		out, rc := x.runIn(t, dir, "obor-init")
-		wantFail(t, x, out, rc, dir)
-		if x.Read(path) != edited {
-			t.Error("the edited BACKLOG.md was touched")
+		if out, rc := x.runIn(t, dir, "obor-init"); rc != 0 {
+			t.Fatalf("rerun: exit %d\n%s", rc, out)
+		}
+		if got := x.Git(dir, "show", "HEAD:BACKLOG.md"); got+"\n" != edited {
+			t.Errorf("the committed BACKLOG.md is %q, want the edited file", got)
 		}
 	})
 }
