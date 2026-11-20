@@ -76,7 +76,7 @@ func TestGoFixture(t *testing.T) {
 		{"leaf/leaf.go", "", "changed leaf/leaf.go", []string{"leaf/*.go"}},
 		{"go.mod", "", "changed go.mod", nil},
 	} {
-		res, err := Go(root, strings.Fields(c.files), c.globs)
+		res, err := Go(root, strings.Fields(c.files), c.globs, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", c.files, err)
 		}
@@ -86,10 +86,70 @@ func TestGoFixture(t *testing.T) {
 	}
 }
 
+// -reads: a changed non-Go file selects the packages that read it, themselves only (not their importers), once beside
+// the packages a changed Go file selects; no match leaves the list as it was.
+func TestGoReads(t *testing.T) {
+	t.Parallel()
+	root := fixture(t)
+	reads := []Read{
+		{Glob: "skills/**", Dirs: []string{"cmd/app", "top"}},
+		{Glob: "README.md", Dirs: []string{"cmd/app"}},
+		{Glob: "data/*.json", Dirs: []string{"leaf"}},
+	}
+	for _, c := range []struct {
+		files, want, full string
+	}{
+		{"skills/lead/SKILL.md", "fx/cmd/app fx/top", ""},
+		{"skills/lead/SKILL.md skills/setup/SKILL.md", "fx/cmd/app fx/top", ""},                 // two matching files: each reader once
+		{"leaf/leaf.go skills/lead/SKILL.md", "fx/cmd/app fx/leaf fx/mid fx/tester fx/top", ""}, // beside the Go change's importers; top once
+		{"README.md", "fx/cmd/app", ""},                                                         // README.md: cmd/app
+		{"README.md skills/lead/SKILL.md", "fx/cmd/app fx/top", ""},                             // two globs naming cmd/app: once
+		{"data/x.json", "fx/leaf", ""},                                                          // the reader only: mid, top, tester import it and stay out
+		{"docs/a.md", "", ""},                                                                   // no match: nothing, as without -reads
+		{"top/top.go docs/a.md", "fx/top", ""},                                                  // no match beside Go: the Go list alone
+		{"skills/lead/SKILL.md go.mod", "", "changed go.mod"},                                   // a full change still wins
+		{"gone/gone.go skills/lead/SKILL.md", "", "no package for gone/gone.go"},                // so does a removed package
+	} {
+		res, err := Go(root, strings.Fields(c.files), fixtureFull, reads)
+		if err != nil {
+			t.Fatalf("%s: %v", c.files, err)
+		}
+		if got := strings.Join(res.Pkgs, " "); got != c.want || res.Full != c.full {
+			t.Errorf("%s: pkgs %q full %q, want %q full %q", c.files, got, res.Full, c.want, c.full)
+		}
+	}
+	// A dir that holds no package is an error (the Makefile then runs the full suite), never a silent skip.
+	if _, err := Go(root, []string{"skills/a.md"}, nil, []Read{{Glob: "skills/**", Dirs: []string{"nopkg"}}}); err == nil {
+		t.Error("a -reads dir with no package: want an error")
+	}
+	// An entry no changed file matches is not asked: its missing dir is no error.
+	if _, err := Go(root, []string{"docs/a.md"}, nil, []Read{{Glob: "skills/**", Dirs: []string{"nopkg"}}}); err != nil {
+		t.Errorf("an unmatched -reads entry names a missing dir: %v (want none: it is not asked)", err)
+	}
+}
+
+func TestReadFlag(t *testing.T) {
+	t.Parallel()
+	var r readFlag
+	for _, ok := range []string{"skills/**=cmd/obor", "githooks/**=internal/setup,cmd/obor"} {
+		if err := r.Set(ok); err != nil {
+			t.Errorf("Set(%q): %v", ok, err)
+		}
+	}
+	if got := r.String(); got != "skills/**=cmd/obor githooks/**=internal/setup,cmd/obor" {
+		t.Errorf("parsed %q", got)
+	}
+	for _, bad := range []string{"skills/**", "=cmd/obor", "skills/**=", "skills/**=a,,b"} {
+		if err := r.Set(bad); err == nil {
+			t.Errorf("Set(%q): want an error", bad)
+		}
+	}
+}
+
 func TestGoBrokenModule(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	if _, err := Go(root, []string{"a/a.go"}, nil); err == nil {
+	if _, err := Go(root, []string{"a/a.go"}, nil, nil); err == nil {
 		t.Error("no go.mod: want an error (the Makefile then runs the full suite)")
 	}
 }

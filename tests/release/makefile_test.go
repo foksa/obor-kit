@@ -340,7 +340,7 @@ func makeCheckTier(t *testing.T, target string, env ...string) (string, []string
 // check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet
 // and deadcode — with no go test (nor the affected list it would test). The lane's class checks run go test and nothing
 // else of the compile tier: check-affected asks tools/affected for the list and runs go test (no build, gofmt, vet or
-// deadcode), and check-readers and check-web skip the build too — the slot compiled the same commit.
+// deadcode), and check-web skips the build too — the slot compiled the same commit.
 func TestMakeCheckTiers(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -353,7 +353,6 @@ func TestMakeCheckTiers(t *testing.T) {
 	}{
 		{"check-compile", true, true, true, false, false},
 		{"check-affected", false, false, false, true, true},
-		{"check-readers", false, false, false, true, false},
 		{"check-web", false, false, false, true, false},
 	} {
 		t.Run(c.target, func(t *testing.T) {
@@ -388,6 +387,15 @@ func TestMakeCheckTiers(t *testing.T) {
 				}
 				if slices.Contains(strings.Fields(test), "-short") {
 					t.Errorf("check-affected's go test %q passes -short; want the whole suite", test)
+				}
+			}
+			if c.target == "check-affected" {
+				// the reader globs ride on the one Go run: the non-Go files a package reads select that package
+				for _, want := range []string{"-reads skills/**=cmd/obor", "-reads README.md=cmd/obor", "-reads bin/obor=cmd/obor",
+					"-reads githooks/**=cmd/obor,internal/checks,internal/setup", "-reads opencode/**=cmd/obor"} {
+					if !strings.Contains(affected, want) {
+						t.Errorf("check-affected asks the affected list %q: no %q", affected, want)
+					}
 				}
 			}
 			if got := affected != ""; got != c.affected {
@@ -439,7 +447,6 @@ func TestMakeChecksPassIntegrationTag(t *testing.T) {
 		{target: "check", test: true, vet: true, dead: true},
 		{target: "check-affected", test: true},
 		{target: "check-retest", env: []string{"TESTS=^(TestX)$", "OBOR_FAILED_PKGS=example.com/pkg"}, test: true},
-		{target: "check-readers", test: true},
 		{target: "check-web", test: true},
 		{target: "check-release", test: true, vet: true},
 		{target: "check-compile", vet: true, dead: true},

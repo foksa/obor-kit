@@ -140,10 +140,14 @@
             "templates/**",
             "hooks/**",
             "bin/go-commands",
-            ".claude-plugin/**"
+            ".claude-plugin/**",
+            "README.md",
+            "bin/obor",
+            "githooks/**",
+            "opencode/**"
           ],
           "run": [
-            "check_readers"
+            "check_affected"
           ]
         }
       ]
@@ -183,11 +187,6 @@
     "check_affected": {
       "cmd": "make -s check-affected",
       "timeout": 900,
-      "heavy": true
-    },
-    "check_readers": {
-      "cmd": "make -s check-readers",
-      "timeout": 1200,
       "heavy": true
     },
     "check_web": {
