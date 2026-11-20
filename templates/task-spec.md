@@ -27,8 +27,10 @@ that reads the field it appears in, and what each does with it (a test per consu
 - <concrete change 2>
 
 ## Tests
-- <tests to add, each with its level: a unit test with the package's fake (decisions, refusals, messages), or one
-  integration test only for git/exec behaviour no existing test covers; never a nightly- or init-level row for a decision>
+- <tests to add, each with its level (rule, adapter, flow, CLI, integration; AGENTS.md "One level per behaviour"): a
+  unit test with the package's fake (decisions, refusals, messages), or one integration test only for git/exec
+  behaviour no existing test covers; never a nightly- or init-level row for a decision>
+- Counts: <tests added, deleted> (the integrator compares them with the diff at accept)
 - Goes: <the tests this change makes redundant, deleted in this task; or none>
 - Fix tasks: one test per entry point / branch in the finding's Extent; the first action after setup is the named
   entry, no conditional steps.

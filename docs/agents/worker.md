@@ -13,8 +13,9 @@ path).
   an adapter's git or I/O code (a file with an `_integration_test.go` beside it): also run that package's integration
   tests once, `go test -tags integration -run '<the tests of your change>' ./<pkg>/`. A new test that needs real git
   goes in an `_integration_test.go` file.
-- Before `task_done` (owner 2026-11-05): one `go test` of the packages you changed (the line above), nothing
-  more. Never `obor run check_affected` or `obor run check` in a lane: the gate runs the class check once (a break in
+- Before `task_done` (owner 2026-11-05): one `go test -tags integration` of the packages you changed, nothing
+  more (the tag: tests behind it are half of the gate's reds a plain run misses). A change to a Go type the web page
+  reads: `make web` too. Never `obor run check_affected` or `obor run check` in a lane: the gate runs the class check once (a break in
   an importer comes back as a sendback in the same attempt).
 - Your tests run on the lane's CPU budget (`lanes.cpus`, exported as `OBOR_LANE_CPUS` and, through this
   project's `lanes.env`, as `GOMAXPROCS` and `GOFLAGS=-p=<n>`): no `-p` or `GOMAXPROCS` overrides.

@@ -78,6 +78,15 @@ no per-file list is enforced: the integrator checks placement against `docs/modu
     call path already covered.
   - A spec names its expected test change (added, changed, deleted; `templates/task-spec.md`): a task that adds
     tests without a line for them is a review finding.
+  - One level per behaviour: rule (a pure function's table), adapter (the adapter on its fake), flow (the rig), CLI
+    (one row per verb, proving the wiring), integration (real I/O). A decision is tested at the level whose code makes
+    it; the level above gets one row that it is wired, never the rule's rows again.
+  - A rig constructor or a new fake type needs its reason in the spec (why no option of `newLoopRig` or an existing
+    rig fits). No new wall-clock wait in `internal/app`: a test that waits on time runs in a bubble.
+  - A sentence is pinned once: the full text of a reply, refusal or needs-you line is asserted by the test of the code
+    that writes it; other tests use the rig's helper or assert the step, state or outcome.
+  - A task with no intended behaviour change adds tests only for a pure function it extracts, and deletes the rows
+    that table replaces at the old level in the same diff.
 - No load runs: one plain `go test <pkgs>` at a time — `-count` > 1, `-race` and two test commands at once
   (`&`, `xargs -P`, `parallel`) are denied by the guard for every role; the gate and nightly run the rest (the nightly
   runs the suite under `-race` as a non-gating line, `make check-race`).

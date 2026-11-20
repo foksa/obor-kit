@@ -7,3 +7,6 @@ Role text: `templates/agents/integrator.md` in the obor kit (the session start n
   `.obor/config.json` (the gate picks them).
 - A job that does not arrive: `obor setup mcp` shows whether the server is registered per agent kind.
 - The layout doc is `docs/module-map.md`.
+- Tests at accept: the spec's `Counts:` line against the diff (`git diff <base>.. | grep -c '^+func Test'`, and `^-func
+  Test` for deleted); a task with no intended behaviour change that adds tests beyond a pure function it extracts, or
+  a test that repeats a rule's rows at a higher level (AGENTS.md "One level per behaviour"), is a sendback.
