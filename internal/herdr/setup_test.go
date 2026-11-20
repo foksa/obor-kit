@@ -273,6 +273,174 @@ func TestPlaceAsksWithHerdrsFacts(t *testing.T) {
 	})
 }
 
+// The workspace the decision is asked about is the project's: the one whose panes work in the project (most of them,
+// when several do); with none, a workspace of its own made once a run, never one of another project's. An unknown cwd
+// may be another project's pane, so it counts for no workspace and against none; a pane outside the project makes its
+// workspace not the project's.
+func TestPlaceChoosesTheProjectsWorkspace(t *testing.T) {
+	t.Parallel()
+	count := func(k *placeKit, method string) int {
+		n := 0
+		for _, m := range k.methods() {
+			if m == method {
+				n++
+			}
+		}
+		return n
+	}
+	t.Run("no pane of the project anywhere: one workspace made, both lanes in it, none in another project's", func(t *testing.T) {
+		t.Parallel()
+		f := herdrtest.New()
+		f.Tab("w5:x1", 80, 24, "w5:p1")
+		f.Shell("w5:p1", "", "/elsewhere/other")
+		k := newPlaceKit(t, f)
+		var said []string
+		say := func(l string) { said = append(said, l) }
+		var ws []string
+		for _, cwd := range []string{"/proj-wt/L-01", "/proj-wt/L-02"} {
+			pane, err := k.h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: cwd, Project: k.pr, Say: say})
+			p := f.Pane(pane)
+			if err != nil || p == nil || p.Workspace == "w5" || p.Workspace == "w1" {
+				t.Fatalf("Place %s = %q (%+v), %v; want a pane in a workspace made for the project", cwd, pane, p, err)
+			}
+			ws = append(ws, p.Workspace)
+		}
+		if ws[0] != ws[1] {
+			t.Errorf("the lanes are in %q, want one workspace", ws)
+		}
+		if n := count(k, "workspace.create"); n != 1 {
+			t.Errorf("%d workspace.create calls, want 1 (the second lane finds the first's workspace)", n)
+		}
+		if len(said) == 0 || !strings.Contains(said[0], "workspace "+ws[0]+" created for proj") {
+			t.Errorf("progress lines %q, want the workspace line first", said)
+		}
+		if slices.Contains(k.methods(), "pane.split") && f.Pane("w5:p1").Tab != "w5:x1" {
+			t.Errorf("another project's pane moved: %+v", f.Pane("w5:p1"))
+		}
+	})
+	t.Run("a workspace with a pane outside the project is not the project's, though it holds one of its panes", func(t *testing.T) {
+		t.Parallel()
+		f := herdrtest.New()
+		f.Tab("w1:x1", 80, 24, "w1:p1")
+		f.Shell("w1:p1", "pj-l-01", "/proj-wt/L-01")
+		f.Tab("w1:x9", 80, 24, "w1:p9")
+		f.Shell("w1:p9", "", "/elsewhere/other")
+		k := newPlaceKit(t, f)
+		pane, err := k.h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-02", Project: k.pr})
+		if p := f.Pane(pane); err != nil || p == nil || p.Workspace == "w1" {
+			t.Fatalf("Place = %q (%+v), %v; want a pane in a workspace of its own", pane, p, err)
+		}
+		if n := count(k, "workspace.create"); n != 1 || slices.Contains(k.methods(), "pane.split") {
+			t.Errorf("requests %q, want a workspace.create and no pane.split", k.methods())
+		}
+	})
+	t.Run("only panes of the project and unknown-cwd ones: that workspace, none made", func(t *testing.T) {
+		t.Parallel()
+		f := herdrtest.New()
+		f.Tab("w1:x1", 80, 24, "w1:p1")
+		f.Shell("w1:p1", "", "/proj")
+		f.Tab("w1:x2", 80, 24, "w1:q1")
+		f.Shell("w1:q1", "", "")
+		f.Tab("w5:x9", 80, 24, "w5:p9")
+		f.Shell("w5:p9", "", "/elsewhere/other")
+		k := newPlaceKit(t, f)
+		pane, err := k.h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-01", In: "", Project: k.pr})
+		if p := f.Pane(pane); err != nil || p == nil || p.Workspace != "w1" {
+			t.Fatalf("Place = %q (%+v), %v; want a pane in w1", pane, p, err)
+		}
+		if n := count(k, "workspace.create"); n != 0 {
+			t.Errorf("%d workspace.create calls, want none", n)
+		}
+	})
+	t.Run("several workspaces hold project panes: the one with most", func(t *testing.T) {
+		t.Parallel()
+		f := herdrtest.New()
+		f.Tab("w1:x1", 80, 24, "w1:p1")
+		f.Shell("w1:p1", "", "/proj-wt/L-01")
+		f.Tab("wB:x2", 80, 24, "wB:p1", "wB:p2")
+		f.Shell("wB:p1", "", "/proj-wt/L-01")
+		f.Shell("wB:p2", "", "/proj")
+		k := newPlaceKit(t, f)
+		pane, err := k.h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-02", Project: k.pr})
+		if p := f.Pane(pane); err != nil || p == nil || p.Workspace != "wB" {
+			t.Errorf("Place = %q (%+v), %v; want a pane in wB (two project panes, w1 one)", pane, p, err)
+		}
+		if n := count(k, "workspace.create"); n != 0 {
+			t.Errorf("%d workspace.create calls, want none", n)
+		}
+	})
+}
+
+// A pane's kind is herdr's live agent name, whatever its label says: the lead relabelled "notes" still keeps its tab
+// alone (--tab refused, no default placement picks it); a lead whose pane is labelled with a lane agent's name does not
+// make its tab a lanes tab; a pane labelled for the lead keeps its tab the lead's, whatever agent runs there.
+func TestPlaceReadsTheLiveAgentNotTheLabel(t *testing.T) {
+	t.Parallel()
+	live := func(label, name string) func(*herdrtest.Pane) {
+		return func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = label, name, "claude", "idle" }
+	}
+	// kit: a tab w1:x1 of the lead's pane (live agent name, label) and a lane pane beside it when beside; w1:x0 a shell.
+	kit := func(t *testing.T, label, name string, beside bool) (*herdrtest.Fake, *placeKit) {
+		t.Helper()
+		f := herdrtest.New()
+		f.Tab("w1:x0", 80, 24, "w1:q0")
+		f.Shell("w1:q0", "", "/proj")
+		f.Tab("w1:x1", 80, 24, "w1:p1")
+		f.Shell("w1:p1", label, "/proj", live(label, name))
+		if beside {
+			f.Tab("w1:x1", 80, 24, "w1:p2")
+			f.Shell("w1:p2", "pj-l-01", "/proj-wt/L-01")
+		}
+		if p := f.Pane("w1:p1"); p.Label != label || p.Name != name || p.Tab != "w1:x1" {
+			t.Fatalf("precondition: the pane = %+v, want label %q, agent %q in w1:x1", p, label, name)
+		}
+		return f, newPlaceKit(t, f)
+	}
+	refused := func(t *testing.T, k *placeKit, tab string) {
+		t.Helper()
+		before := len(k.methods())
+		_, err := k.h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-03", In: tab, Project: k.pr})
+		if err == nil || !strings.Contains(err.Error(), tab) {
+			t.Errorf("Place into %s = %v, want a refusal naming it", tab, err)
+		}
+		if ms := k.methods()[before:]; slices.Contains(ms, "pane.split") || slices.Contains(ms, "tab.create") {
+			t.Errorf("the refusal sent %q", ms)
+		}
+	}
+	newTab := func(t *testing.T, f *herdrtest.Fake, k *placeKit, kind port.PaneKind, avoid string) {
+		t.Helper()
+		pane, err := k.h.Place(ctx, port.Placement{Kind: kind, Cwd: "/proj-wt/L-03", Project: k.pr})
+		if p := f.Pane(pane); err != nil || p == nil || p.Tab == avoid {
+			t.Fatalf("Place = %q (%+v), %v; want a pane outside %s", pane, p, err, avoid)
+		}
+		if slices.Contains(k.methods(), "pane.split") {
+			t.Errorf("requests %q, want no pane.split", k.methods())
+		}
+	}
+	t.Run("lead labelled notes: --tab into its tab refused", func(t *testing.T) {
+		t.Parallel()
+		_, k := kit(t, "notes", "pj-lead", false)
+		refused(t, k, "w1:x1")
+	})
+	t.Run("lead labelled notes, a lane pane beside it: the default placement does not pick its tab", func(t *testing.T) {
+		t.Parallel()
+		f, k := kit(t, "notes", "pj-lead", true)
+		newTab(t, f, k, port.KindLane, "w1:x1")
+	})
+	t.Run("lead in a pane labelled pj-l-01: its tab is not a lanes tab", func(t *testing.T) {
+		t.Parallel()
+		f, k := kit(t, "pj-l-01", "pj-lead", true)
+		newTab(t, f, k, port.KindLane, "w1:x1")
+		refused(t, k, "w1:x1")
+	})
+	t.Run("a pane labelled pj-lead running a lane agent: its tab is still the lead's", func(t *testing.T) {
+		t.Parallel()
+		f, k := kit(t, "pj-lead", "pj-l-01", true)
+		newTab(t, f, k, port.KindLane, "w1:x1")
+		refused(t, k, "w1:x1")
+	})
+}
+
 // A lead placed by default never splits into a tab that is there: a tab labelled lead holding a person's shell gets a
 // new tab beside it, the shell untouched.
 func TestPlaceLeadByDefaultTakesANewTab(t *testing.T) {

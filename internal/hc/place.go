@@ -15,7 +15,7 @@ import (
 	"obor/internal/project"
 )
 
-// place.go: the part of port.TerminalSetup's Place over hc and herdr-app. The layout is herdr's (internal/herdr/setup.go): a space
+// place.go: the part of port.TerminalSetup's Place over hc and herdr-app. The layout is app/layout's (the adapter asks it with hc's facts): a space
 // named after the project in the project root's folder, in it a `lead` tab for the lead alone, `lanes` tabs for lanes
 // and `roles` tabs for roles, MaxPanes terminals to a tab. herdr-app shows a terminal in the tab whose ids it carries
 // as labels (docs/research/hc-probes.md P7); a tab's terminals are the live hc terminals labelled with its id, the

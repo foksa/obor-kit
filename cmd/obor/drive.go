@@ -100,8 +100,8 @@ func branchOf(cfg *config.Config, task string) string {
 	return cfg.TaskBranch(task)
 }
 
-// startDrive starts d's agent: the lane prepared (serve's lane.prepare puts it on the branch; waited for up to
-// driveWait), then the drive agent started in a pane placed as a lane's. A drive agent already running there is left as it is.
+// startDrive starts d's agent: the lane prepared (serve's lane.prepare puts it on the branch; serve waits for it and
+// says in d.Prepared whether it finished), then the drive agent started in a pane placed as a lane's. A drive agent already running there is left as it is.
 func startDrive(ctx context.Context, cfg *config.Config, d wire.DriveReply, env project.Env) error {
 	var dir string
 	for _, l := range cfg.Lanes() {

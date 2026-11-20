@@ -8,15 +8,8 @@
 //	        its first dispatch (PlaceLane; obor setup pane <LANE> places one before).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
 //	        with its env typed but no agent in it unless --start (dispatch starts a fresh worker anyway) (agent
-//	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place): split the largest pane of --tab
-//	        (refused for the lead's tab: the lead's pane keeps its tab alone; a full one: a new tab as below), or a
-//	        new tab labelled --new-tab in the project's workspace (the one with most panes in the project), or an
-//	        existing shell pane; with none of them, by the pane's kind: a lane's pane (a drive agent's too) splits the
-//	        project's first tab whose panes are all lane panes with room, else a new tab "lanes"; a role's pane the
-//	        same with role panes and "roles" (a tab is the project's only when every pane in it has a known cwd in the
-//	        project; a tab with a pane that is no agent of the project, a shell, is no kind's); without a pane of the
-//	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
-//	        herdr's active one), and another project's pane is never split; cwd the lane, env
+//	        <prefix>-<lane lower>; where it goes is app/layout's rule, asked by the terminal adapter's Place, with
+//	        --tab, --new-tab or --pane as the person's say; its refusals print after FAIL); cwd the lane, env
 //	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars; no
 //	        OBOR_AGENT: a name is derived); then the pane label (= the agent) and herdr agent start with the
 //	        model's kind and args (+ Claude --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split

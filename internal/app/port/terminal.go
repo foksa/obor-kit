@@ -168,16 +168,16 @@ type Adopter interface {
 }
 
 // TerminalSetup is what obor setup and obor init ask of the terminal, in terminal-neutral terms: the pane
-// operations launch needs, the panes that run an agent now, a new pane for an agent placed by the adapter's own
-// layout, the terminal's own setting for a restart, and a project rename's share. The herdr adapter (herdr.Setup)
-// implements it; setup decides whose pane and near what, never a tab, a workspace or a split.
+// operations launch needs, the panes that run an agent now, a new pane for an agent placed where app/layout
+// decides, the terminal's own setting for a restart, and a project rename's share. The herdr adapter (herdr.Setup)
+// implements it; setup decides whose pane and near what, never a tab, a workspace or a split (app/layout decides those).
 type TerminalSetup interface {
 	PaneControl
 	// Agents is every pane that runs an agent now, with its label (obor's name of the agent; "": an agent obor did
 	// not start, or a pane nobody labelled) and the agent's cwd.
 	Agents(ctx context.Context) ([]Pane, error)
-	// Place makes a new pane for an agent where p says and returns its id; the layout is the adapter's. Its refusals
-	// and failures are the lines setup prints after FAIL.
+	// Place makes a new pane for an agent where p says and returns its id; app/layout decides where, the adapter
+	// carries it out. Its refusals and failures are the lines setup prints after FAIL.
 	Place(ctx context.Context, p Placement) (string, error)
 	// ResumeHint is the optional line that saves a double start when the terminal resumes its own agents after a
 	// restart, which obor's restore then replaces ("" when the user's terminal config says it does not); obor never
@@ -228,8 +228,8 @@ type CloseProject struct {
 // Placement is a new agent pane setup asks the terminal for (obor setup pane / role, obor drive, obor init): whose
 // pane it is, its kind, its cwd and env, and where. At most one of Group, In; none: by Kind, in a group of the
 // project whose panes are all of that kind and which has room, else in a new one. A group holding the lead's pane is
-// the lead's alone: nothing else goes there, not even by In. The terminal adapter decides the layout (which group, a
-// split or a new one, its label).
+// the lead's alone: nothing else goes there, not even by In. app/layout decides where (which group, a split or a new
+// one, its label); the adapter asks it with its terminal's facts and carries the answer out.
 type Placement struct {
 	Kind    PaneKind // what the pane is to placement
 	Cwd     string   // the new pane's cwd
