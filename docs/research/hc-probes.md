@@ -275,6 +275,16 @@ Steps for the owner (about 5 minutes; they make one terminal in the default sess
 
 The answers decide HD8: if each terminal must be added by hand, the plan stops at Stop A.
 
+**Result (owner and lead, 2026-11-20 ~11:45, hc 0.1.21, herdr-app open on space `~`, tab `zsh`).** `hc run --bg
+--name p7probe -- zsh` (typed in herdr-app's own terminal t1, so `parent: t1`, `die_with_parent: true`, and t1's
+`where` label copied) made t3: nothing appeared in herdr-app; size 200×120. herdr-app's terminal t1 carries
+`herdr.space=spa…` and `herdr.tab=tb…` (ids from its `docs.json` layout doc); t3 had neither. After
+`hc label t3 herdr.space=<t1's> herdr.tab=<t1's>`, herdr-app showed t3 at once as a new pane in that tab, and t3's
+size became the tile's (58×37, t1 57×37). So: a socket-made terminal shows in herdr-app when it carries an existing
+space's and tab's ids as labels; with none it stays hidden. HD8 holds: obor can place its terminals into a herdr-app
+tab by labels (ids read from herdr-app's layout doc or from a terminal already in that tab); making new spaces or
+tabs would mean writing herdr-app's doc and is not planned. t3 removed afterwards.
+
 ## P10: core CPU with three idle agents
 
 What ran: Claude (`done`), Codex `--no-daemon` and OpenCode `--standalone` (both `idle`) in one core, nobody
