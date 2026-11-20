@@ -2132,7 +2132,7 @@ func (s *kindSpy) Post(_ context.Context, kind, agent, line string) (bool, error
 }
 
 // stopWith runs the after-merge stop of pj-l-01 (stopWorker) through ag while lane L-01 holds T-1.
-func (h *harness) stopWith(ag port.Agents) (string, error) {
+func (h *harness) stopWith(ag port.Launcher) (string, error) {
 	p := h.proj()
 	h.a.mu.Lock()
 	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}

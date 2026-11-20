@@ -14,14 +14,40 @@ import (
 	"obor/internal/store"
 )
 
-// Start, StartError and AgentEnv are the core's types (port.Starter), so setup starts agents without importing launch.
-type (
-	Start      = port.Start
-	StartError = port.StartError
-)
+// StartError is the core's type (port.StartError): serve reads a failed start's NotReady and Trust.
+type StartError = port.StartError
 
-// Start is the one start of an agent in its pane, for obor setup (port.Starter), a restart and serve's starts
-// (Launch), and restore's restart: the pane's shell waited for (s.Await, within s.Shell), the env line
+// Start is one agent start in its pane (Launch's): the agent's env and cwd are the pane shell's
+// already (or Env types them), its argv the one its Build built.
+type Start struct {
+	Agent, Kind, Pane string
+	Label             string   // the pane's label now: renamed to Agent when it differs
+	Args              []string // the argv after the binary (Built.Args): started as it is
+	Resume            string   // the session id to resume; "" for a new one
+	// Session is the session id obor chose for a fresh start (Built.Session; Args name it): recorded for the agent
+	// before it runs; "" for none.
+	Session string
+	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
+	// Again is the command that starts this agent again as it was started (port.Launch.Again: a drive's
+	// `obor drive <T-xx>`, which keeps its prompt); "": `obor restart <Agent>`. A hint that names the start again uses it.
+	Again string
+	Lane  string // the agent's lane: a session a fresh start reports is recorded with it
+	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal refused as PaneBusy:
+	// one bound for both, from the start's beginning; 0: neither, a pane the caller knows is its shell.
+	Shell time.Duration
+	// Await: the start waits for the pane's shell before its env line and start (a pane a new tab or split just made,
+	// a pane whose agent was just stopped); past Shell, a StartError with NoShell and nothing typed. false: a pane not at
+	// its shell is the env line's to refuse (a person's program in a pane that ran no agent).
+	Await bool
+	// Env types the agent's env line at the pane's shell once it is up, before the start (nil: the caller set it).
+	Env func(ctx context.Context) error
+	// Whose is whose env and cwd that line sets (the AgentEnv the caller types it from): the terminal's AgentStart
+	// carries them as its Env and Cwd. Zero: none given (a caller that set the env itself).
+	Whose AgentEnv
+}
+
+// Start is the one start of an agent in its pane, Launch's (a restart, serve's starts, a restore, obor setup's
+// --start) and the live conformance's probe of it: the pane's shell waited for (s.Await, within s.Shell), the env line
 // (s.Env), the pane labelled, the launch line printed (a wrong model or permission mode is visible before the
 // agent starts; s.Args as its Build built them: no kind is asked again), the session obor chose recorded
 // (s.Session), then the terminal's agent start (port.AgentStarter, asked of the PaneControl): a PaneBusy answer
@@ -72,8 +98,8 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if !ok {
 		return port.Pane{}, project.Failf("%s: the terminal starts no agent in pane %s (no agent start of its own)", s.Agent, s.Pane)
 	}
-	// A start the owner makes at a screen (obor lead, obor setup role): a quarantined install warns, never refuses
-	// — the Gatekeeper dialog can be answered there.
+	// A quarantined install that reaches the start is the lead's or a drive's (Launch refuses every other one): the
+	// owner is at its screen, so it warns — the Gatekeeper dialog can be answered there.
 	if why := agents.StartRefusal(s.Kind, l.installHost()); why != "" {
 		l.say("warning: " + why)
 	}
@@ -207,9 +233,10 @@ func (l *Launcher) hasSession(agent string) bool {
 	return ok
 }
 
-// retry is the command that starts t's agent again: a restart with --fresh when no session is recorded, on its pane.
-func (l *Launcher) retry(t *target) string {
-	return project.RestartCmd("", t.agent, l.hasSession(t.agent), t.pane)
+// retry is the command that starts t's agent again: again when the start has one (a drive's), else a restart with
+// --fresh when no session is recorded, on its pane.
+func (l *Launcher) retry(t *target, again string) string {
+	return project.RestartCmd(again, t.agent, l.hasSession(t.agent), t.pane)
 }
 
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.

@@ -179,7 +179,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 - `app/port` (core, a leaf below `app`): the ports and the types they exchange, with no logic: the terminal's `Pane`
   (terminal-neutral: its `Group`, no tab or workspace), `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`;
   `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`); and the
-  effects (`Agents`, `Prompter`, `PaneControl`, `Starter`,
+  effects (`Launcher`, the one way an agent is started, `Prompter`, `PaneControl`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
   interface: those three and the dispatch's `Target`). Adapters import it instead of `app`.
 - `app/layout` (core, a leaf below `app`): the one placement decision of every terminal adapter, pure: `Place` (an
@@ -281,7 +281,8 @@ on a file missing from this table or a listed file that is gone); the entry is t
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban, the `hc`/`herdr-app` terminal writes outside the lead), Stop (the worker's
   task_done, and every agent's live background run), StopFailure, SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
-  starts agents through an `app.Starter` that `cmd/obor` injects, and asks the terminal for panes through
+  starts agents through the launcher's one start (`port.Launcher.Launch`, given setup's placement and refusing rather
+  than stopping a running agent) that `cmd/obor` injects as a `setup.Launcher`, and asks the terminal for panes through
   `port.TerminalSetup`, whose adapter lays them out; `obor setup check` runs the terminal's own check, `check.go`); `obor init`
   (`oborinit.go`: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`); `obor uninstall` (`uninstall.go`: those steps undone in reverse; serve, the agents and the main

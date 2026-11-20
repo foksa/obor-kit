@@ -114,8 +114,9 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 }
 
 // A drive whose start failed names the command that starts it again once: a start whose message carries it (a pane
-// that never became a shell, a kind's startup hint) keeps its own; one that does not (a prepare timeout, a terminal
-// agent-list failure, an ordinary start error) has it added; a failure with advice of its own (no model) gets none.
+// that never became a shell, a kind's startup hint, a failed start) keeps its own; one that does not (a prepare
+// timeout, a terminal agent-list failure, a failed pane label) has it added; a failure with advice of its own (no
+// model) gets none.
 func TestDriveFailedNamesTheRetryOnce(t *testing.T) {
 	t.Parallel()
 	const ending = "the drive is recorded; obor drop T-07 ends it"
@@ -127,9 +128,11 @@ func TestDriveFailedNamesTheRetryOnce(t *testing.T) {
 	}{
 		{"prepare timeout", errors.New("lane L-01 is not prepared for T-07 after 1m0s (obor status says why)"), 1, true},
 		{"agent list failure", project.Fail("terminal agent list failed (is the terminal running?)"), 1, true},
-		{"generic start error", project.Fail("terminal agent start pj-l-01-drive failed (pane w1:n1)"), 1, true},
+		{"a failed pane label", project.Fail("terminal pane rename w1:n1 pj-l-01-drive failed"), 1, true},
+		{"a failed start, which carries it", project.RetryHint(project.Fail("start failed in w1:n1 (no agent runs there: " +
+			"the pane is at its shell, maybe mid-command: run obor drive T-07 again or start it by hand)")), 1, false},
 		{"not-shell hint, which carries it", project.RetryHint(project.Fail(
-			"pane w1:n1 is not an available shell after 10s: start the agent there with obor drive T-07")), 1, false},
+			"pane w1:n1 is not an available shell after 30s: start the agent there with obor drive T-07")), 1, false},
 		{"no model, its own advice", project.RetryHint(project.Fail(
 			"lane L-01 runs no model: obor drop T-07, then obor drive <name> --model <model>")), 0, false},
 	} {

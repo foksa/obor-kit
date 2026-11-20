@@ -1,8 +1,8 @@
 // Package port holds the ports of obor's core (docs/module-map.md): the interfaces the core drives its adapters
 // through and the plain types they exchange. It is a leaf below package app, so an adapter reaches the core's contract
 // without importing the core: the terminal's events and snapshot (Pane, Snapshot, Event, Stream, Panes) and the one
-// value cmd/obor builds of them (Terminal), the lane table (Lane, Lanes) and the effects (Agents,
-// Prompter, PaneControl, AgentStarter, Starter, Scratch, LaneSetup and their types).
+// value cmd/obor builds of them (Terminal), the lane table (Lane, Lanes) and the effects (Launcher,
+// Prompter, PaneControl, AgentStarter, Scratch, LaneSetup and their types).
 package port
 
 import (

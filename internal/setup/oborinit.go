@@ -765,27 +765,27 @@ func exitText(err error) string {
 // initPanes labels the panes of the configured lanes (the first two), the integrator and the reviewer and starts no
 // agent (each skipped when it runs): one summary line each through add.
 func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) error {
-	place := func(what, agent string, f func(w where) error, w where) error {
-		err := f(w)
+	place := func(what, agent string, f func(w where) (placed, error), w where) error {
+		p, err := f(w)
 		switch {
 		case err != nil:
 			return err
-		case s.running:
-			add(what, "already", "%s running (pane %s)", agent, s.placed)
-		case s.idle:
-			add(what, "already", "pane %s labelled %s, no agent (started on first use)", s.placed, agent)
-		case !s.started:
-			add(what, "done", "pane %s labelled %s, no agent (started on first use)", s.placed, agent)
+		case p.running:
+			add(what, "already", "%s running (pane %s)", agent, p.pane)
+		case p.idle:
+			add(what, "already", "pane %s labelled %s, no agent (started on first use)", p.pane, agent)
+		case !p.started:
+			add(what, "done", "pane %s labelled %s, no agent (started on first use)", p.pane, agent)
 		default:
-			add(what, "done", "%s started in pane %s", agent, s.placed)
+			add(what, "done", "%s started in pane %s", agent, p.pane)
 		}
 		return nil
 	}
-	lane := func(name string) func(where) error {
-		return func(w where) error { return s.lanePane(ctx, name, w, false) }
+	lane := func(name string) func(where) (placed, error) {
+		return func(w where) (placed, error) { return s.lanePane(ctx, name, w, false) }
 	}
-	role := func(name string) func(where) error {
-		return func(w where) error { return s.rolePane(ctx, name, w, false) }
+	role := func(name string) func(where) (placed, error) {
+		return func(w where) (placed, error) { return s.rolePane(ctx, name, w, false) }
 	}
 	// The layout is the terminal's, by each pane's kind: the lanes in a lanes tab, the integrator and the reviewer in
 	// a roles tab. A config of fewer lanes places what it has, and more than two keep the panes they place at dispatch.

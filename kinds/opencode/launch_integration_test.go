@@ -14,7 +14,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/plugin"
-	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/kinds/opencode/kind"
@@ -75,7 +74,7 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 
 	m, _ := cfg.Model("ds")
 	l := &launch.Launcher{Cfg: cfg, Kit: "/kit"}
-	built, err := l.Build(port.Build{Agent: "pj-l-01", Kind: m.Kind, Args: m.Args, Role: "worker", Effort: "high",
+	built, err := l.Build(launch.Build{Agent: "pj-l-01", Kind: m.Kind, Args: m.Args, Role: "worker", Effort: "high",
 		Dir: lane, Prompt: "go"})
 	if err != nil {
 		t.Fatal(err)

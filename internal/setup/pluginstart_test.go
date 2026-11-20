@@ -14,7 +14,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/plugin"
-	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/roles"
@@ -266,7 +265,7 @@ func TestPluginKindStartReadsTheOverrideFilesOfTheManifestItStartsWith(t *testin
 		os.Remove(callLog)
 		os.Remove(reqFile)
 		l := &launch.Launcher{Cfg: cfg, Env: x.Env(), Kit: kit}
-		_, err := l.Build(port.Build{Agent: "w", Kind: "stub", Role: "worker", Args: []string{"--base"}})
+		_, err := l.Build(launch.Build{Agent: "w", Kind: "stub", Role: "worker", Args: []string{"--base"}})
 		calls, _ := os.ReadFile(callLog)
 		var req struct {
 			Overrides map[string]string `json:"overrides"`

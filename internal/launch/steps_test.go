@@ -138,7 +138,9 @@ func TestLaunchFirstPromptStep(t *testing.T) {
 }
 
 // The start outcome step: a start's error as the launch's answer: none; a fresh start held by a trust dialog is
-// started (its confirmed start reported) and returned as the dialog; every other StartError its FAIL line.
+// started (its confirmed start reported) and returned as the dialog; every other StartError its FAIL line, which
+// carries the command that starts the agent again (project.RetryHint: the start's Again, a drive's, else a restart)
+// unless its hint names something else to do.
 func TestLaunchOutcomeStep(t *testing.T) {
 	t.Parallel()
 	busy := termError("start", "busy", "pane w1:p3 is not an available shell")
@@ -148,20 +150,32 @@ func TestLaunchOutcomeStep(t *testing.T) {
 		trust   string // the dialog's hint ("": none)
 		fail    string // the FAIL line ("": none)
 		started bool   // the start was reported confirmed
+		again   string // the start's own command (Start.Again)
+		hinted  bool   // the error carries the command that starts the agent again
 	}{
 		{name: "no error", started: false},
 		{name: "a trust dialog on a fresh start: started", err: &port.StartError{NotReady: true, Trust: true, Hint: "trust it"},
 			trust: "trust it", started: true},
 		{name: "no shell", err: &port.StartError{NoShell: true, Err: errors.New("no shell")},
-			fail: "pane w1:p3 is not a shell after 7s (the old agent has not left): nothing started"},
+			fail: "pane w1:p3 is not an available shell after 7s: start the agent there with obor restart pj-l-01 --fresh " +
+				"--pane w1:p3", hinted: true},
+		{name: "no shell, a drive's start: its own command", err: &port.StartError{NoShell: true, Err: errors.New("no shell")},
+			again: "obor drive T-07", fail: "pane w1:p3 is not an available shell after 7s: start the agent there with " +
+				"obor drive T-07", hinted: true},
 		{name: "not ready", err: &port.StartError{NotReady: true, Hint: "answer the dialog"},
 			fail: "start failed in w1:p3 (answer the dialog)"},
+		{name: "not ready, its hint naming the start again", err: &port.StartError{NotReady: true, Retry: true,
+			Hint: "codex updated itself: start it again with obor drive T-07"}, again: "obor drive T-07",
+			fail: "start failed in w1:p3 (codex updated itself: start it again with obor drive T-07)", hinted: true},
 		{name: "busy", err: &port.StartError{Err: busy},
 			fail: "start failed in w1:p3 (the pane is not an available shell: the old agent has not left it; run " +
-				"obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)"},
+				"obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)", hinted: true},
 		{name: "any other start error", err: &port.StartError{Err: errors.New("boom")},
 			fail: "start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: run " +
-				"obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)"},
+				"obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)", hinted: true},
+		{name: "any other start error, a drive's start", err: &port.StartError{Err: errors.New("boom")},
+			again: "obor drive T-07", fail: "start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe " +
+				"mid-command: run obor drive T-07 again or start it by hand)", hinted: true},
 		{name: "not a start error: as it is", err: project.Failf("label failed"), fail: "label failed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -171,7 +185,8 @@ func TestLaunchOutcomeStep(t *testing.T) {
 			x.shellBound = 7 * time.Second
 			x.shell("w1:p3", "pj-l-01", x.lane)
 			tg := launch.Target{Agent: "pj-l-01", Pane: "w1:p3", Kind: "claude", Role: "worker", Lane: "L-01"}
-			trust, err := x.launcher(&bytes.Buffer{}).Outcome(context.Background(), tg, launch.Start{Kind: "claude"}, c.err)
+			trust, err := x.launcher(&bytes.Buffer{}).Outcome(context.Background(), tg,
+				launch.Start{Kind: "claude", Again: c.again}, c.err)
 			switch {
 			case c.fail != "":
 				if err == nil || err.Error() != c.fail {
@@ -179,6 +194,9 @@ func TestLaunchOutcomeStep(t *testing.T) {
 				}
 			case err != nil:
 				t.Fatalf("err %v, want none", err)
+			}
+			if got := project.RetryHinted(err); got != c.hinted {
+				t.Errorf("the error carries the start's command: %v, want %v", got, c.hinted)
 			}
 			if got := ""; trust != nil {
 				got = trust.Hint

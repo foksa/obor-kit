@@ -18,7 +18,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -65,7 +64,7 @@ type fx struct {
 	// install is Setup.Install (the machine of the doctor's install checks; nil: an empty one, so a test never reads
 	// this machine's CLIs)
 	install func() agents.InstallHost
-	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
+	// shellWait is the launcher's Shell (0: launch.ShellWait), for tests that count on the bound
 	shellWait time.Duration
 	// host is Setup.host, the git seam (nil: the real calls); fake is the fakeGit of bareFakeGit, which host then is
 	host gitHost
@@ -251,10 +250,10 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 		install = func() agents.InstallHost { return agents.InstallHost{} }
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
-	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check, ShellWait: x.shellWait,
-		Starter: func(cfg *config.Config) port.Starter {
+	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check,
+		Launcher: func(cfg *config.Config) Launcher {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open, Poll: x.poll, Up: x.up,
-				Where: x.where}
+				Where: x.where, Shell: x.shellWait}
 		}, Serve: x.serve, Installed: x.installed, Install: install, host: x.host}, &out
 }
 
@@ -707,7 +706,7 @@ func TestDriveStartHintNamesTheDrive(t *testing.T) {
 		x.screen = "Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n"
 		x.srv.Fail("agent.start", "agent_exited", "the agent exited")
 		err := drive(t, x)
-		if want := "agent not ready: codex updated itself and exited in pane w1:n1: start it again with obor drive T-07"; err == nil || err.Error() != want {
+		if want := "start failed in w1:n1 (codex updated itself and exited in pane w1:n1: start it again with obor drive T-07)"; err == nil || err.Error() != want {
 			t.Errorf("StartDrive: %v, want %q", err, want)
 		}
 		if err != nil && !project.RetryHinted(err) {
@@ -721,8 +720,8 @@ func TestDriveStartHintNamesTheDrive(t *testing.T) {
 		x.screen = "Trust this folder?"
 		x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
 		err := drive(t, x)
-		if want := "agent not ready: pj-l-01-drive waits at a 'Trust this folder?' dialog in pane w1:n1: select its trust option " +
-			"there (once per repo)"; err == nil || err.Error() != want {
+		if want := "start failed in w1:n1 (pj-l-01-drive waits at a 'Trust this folder?' dialog in pane w1:n1: select its " +
+			"trust option there (once per repo))"; err == nil || err.Error() != want {
 			t.Errorf("StartDrive: %v, want %q", err, want)
 		}
 		if err != nil && project.RetryHinted(err) {
@@ -758,13 +757,13 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
-	// Locate (the pane list, the terminal's holder of the name), then the lane's agents (no other in its worktree)
-	// before anything is placed; the new pane's id is herdr's answer to the split, so its shell, once up, gets the env
-	// line with OBOR_PANE before the start; after it, the pane's process info for the start record (the restore's
+	// Locate (the pane list, the terminal's holder of the name), then the lane's panes (no other agent in its worktree)
+	// before anything is placed; the new pane's id is herdr's answer to the split (its facts read from the pane list),
+	// so its shell, once up, gets the env line with OBOR_PANE before the start; after it, the pane's process info for the start record (the restore's
 	// proof that obor started the agent there).
-	want := []string{"pane.list", "agent.get target=pj-l-01", "agent.list", "pane.list", "pane.list", "pane.layout pane_id=w1:p1",
+	want := []string{"pane.list", "agent.get target=pj-l-01", "pane.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
-		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
+		"pane.list", "pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
 		"pane.read lines=60 pane_id=w1:n1 source=recent_unwrapped strip_ansi=true",
 		"pane.rename label=pj-l-01 pane_id=w1:n1",
@@ -954,13 +953,14 @@ func TestPaneNotReadyHints(t *testing.T) {
 		want   string
 	}{
 		{"> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n", notReady,
-			"FAIL agent not ready: pj-l-01 waits at a 'Trust this folder?' dialog in pane w1:n1: select its trust option there " +
-				"(once per repo)"},
+			"FAIL start failed in w1:n1 (pj-l-01 waits at a 'Trust this folder?' dialog in pane w1:n1: select its trust option " +
+				"there (once per repo))"},
 		{"Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n", exited,
-			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: start it again with " +
-				"obor restart pj-l-01 --fresh --pane w1:n1"},
-		{"", notReady, "FAIL agent not ready: pj-l-01 waits at a startup dialog in pane w1:n1: answer it there"},
-		{"$ \n", exited, "FAIL terminal agent start pj-l-01 failed (pane w1:n1)"},
+			"FAIL start failed in w1:n1 (codex updated itself and exited in pane w1:n1: start it again with " +
+				"obor restart pj-l-01 --fresh --pane w1:n1)"},
+		{"", notReady, "FAIL start failed in w1:n1 (pj-l-01 waits at a startup dialog in pane w1:n1: answer it there)"},
+		{"$ \n", exited, "FAIL start failed in w1:n1 (no agent runs there: the pane is at its shell, maybe mid-command: run " +
+			"obor restart pj-l-01 --fresh --pane w1:n1 again or start it by hand)"},
 	} {
 		x := newFx(t)
 		x.lane(t, "L-01")

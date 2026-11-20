@@ -98,7 +98,8 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		if ok || strings.Contains(out, "RESTARTED") {
 			t.Fatalf("a pane that never came back to its shell started:\n%s", out)
 		}
-		eq(t, failLine(out), "FAIL pane w1:p3 is not a shell after 60ms (the old agent has not left): nothing started", "result")
+		eq(t, failLine(out), "FAIL pane w1:p3 is not an available shell after 60ms: start the agent there with "+
+			"obor restart pj-l-01 --pane w1:p3", "result")
 		lacks(t, strings.Join(x.calls("Write"), "\n"), "unset OBOR_AGENT", "no env line")
 		eq(t, x.startCall(), "", "no start")
 	})

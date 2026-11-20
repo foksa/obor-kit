@@ -10,17 +10,20 @@
 //	        with its env typed but no agent in it unless --start (dispatch starts a fresh worker anyway) (agent
 //	        <prefix>-<lane lower>; where it goes is app/layout's rule, asked by the terminal adapter's Place, with
 //	        --tab, --new-tab or --pane as the person's say; its refusals print after FAIL); cwd the lane, env
-//	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars; no
-//	        OBOR_AGENT: a name is derived); then the pane label (= the agent) and herdr agent start with the
-//	        model's kind and args (+ Claude --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
-//	        made is used once herdr reports it an available shell (bounded at 10 s, agent_pane_busy retried).
-//	        A tab holds 4 panes (a constant). A failed start with a trust dialog or a Codex self-update in the
-//	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. First of all, before a pane is placed
-//	        or labelled, launch's Locate (port.Starter) decides: the agent running (serve's identity table, its
-//	        label, the terminal's name; a relabelled pane too) or any agent running in the lane's worktree → OK,
-//	        no-op; its home (the pane labelled with its name at its shell) → the start goes there; refused
-//	        (ambiguous, another pane labelled for it than --pane, --pane labelled or run by another agent, serve
-//	        down beside an unaccounted agent of the project for --start) → FAIL with Locate's line, nothing placed.
+//	        OBOR_ROLE / OBOR_LANE (and with --start the kind's vars), every other var of the registry empty
+//	        (agents.StartVars; no OBOR_AGENT: a name is derived); then the pane label (= the agent). --start is the
+//	        launcher's one start (port.Launcher.Launch, shared with obor restart and serve): a fresh session, the
+//	        model's kind and args (+ Claude --settings), refused rather than stopping what runs (NoStop), the new
+//	        pane placed by this command once the start is built (port.Launch.Place); a pane a new tab or a split made
+//	        is used once herdr reports it an available shell (within the launcher's shell bound, agent_pane_busy
+//	        retried); a failed start is the launcher's FAIL line (a trust dialog, a Codex self-update, herdr's
+//	        agent_not_ready: FAIL start failed in <pane> (<hint>)). A tab holds 4 panes (a constant). First of all,
+//	        before a pane is placed or labelled, launch's Locate decides: the agent running (serve's identity table,
+//	        its label, the terminal's name; a relabelled pane too) → OK, no-op; another agent running in the lane's
+//	        worktree → FAIL naming it, nothing placed; its home (the pane labelled with its name at its shell) → the
+//	        start goes there; refused (ambiguous, another pane labelled for it than --pane, --pane labelled or run by
+//	        another agent, serve down beside an unaccounted agent of the project for --start) → FAIL with Locate's
+//	        line, nothing placed.
 //	role <role> [same placement] [--start]  the same (no agent unless --start) for a role of the roles table (not worker): agent and type from
 //	        roles.<role>, env OBOR_ROLE (the role's env value, triage too), cwd the role's (config.RoleDir):
 //	        the reviewer, the deep dive and the integrator their role worktree <lanes.dir>/<role>, added
@@ -54,7 +57,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
@@ -75,9 +77,9 @@ type Setup struct {
 	// McpCheck is `obor mcp --check` (the doctor's handshake against the server itself; internal/mcp is an adapter,
 	// so cmd/obor passes it in).
 	McpCheck func(project.Env) (string, error)
-	// Starter builds the agent starter for the project's config (cmd/obor passes a launch.Launcher: setup is an
+	// Launcher builds the agent launcher for the project's config (cmd/obor passes a launch.Launcher: setup is an
 	// adapter and does not import launch).
-	Starter func(cfg *config.Config) port.Starter
+	Launcher func(cfg *config.Config) Launcher
 	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
@@ -89,8 +91,6 @@ type Setup struct {
 	// Install is the machine for the doctor's install checks (agents.InstallChecker); nil: this one
 	// (installHost).
 	Install func() agents.InstallHost
-	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (0: 10 s).
-	ShellWait time.Duration
 	// Check is the terminal's own check (port.Terminal.Check): its line, or the refusal `obor setup check` fails with;
 	// nil: the terminal has none.
 	Check func(ctx context.Context) (string, error)
@@ -104,11 +104,16 @@ type Setup struct {
 	// terminal is the kind obor init writes into a new config and names in its refusals ("": herdr); cmd/obor
 	// passes it as --terminal, decided before any write.
 	terminal string
-	// start's last placement (obor init): the pane, and whether the agent was running already
-	placed  string
-	running bool
-	started bool // and whether it started one (a pane without --start does not)
-	idle    bool // a pane labelled for the agent was there already, no agent in it (a rerun without --start)
+}
+
+// Launcher is what setup asks of the agent launcher (launch.Launcher): an agent's start is the one start
+// (port.Launcher.Launch, given setup's placement); a pane with no agent (no --start) is setup's own, decided by Locate
+// (where the agent runs, its home, the --pane target; held under the agent's restart lock until its release) and
+// its env line typed by SetEnv.
+type Launcher interface {
+	port.Launcher
+	Locate(ctx context.Context, agent, pane string, adds bool) (port.Located, func(), error)
+	SetEnv(ctx context.Context, pane string, e port.AgentEnv) error
 }
 
 // Usage is the one usage line.

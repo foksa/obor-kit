@@ -306,7 +306,10 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	if last(out) != "OK integrator: pj-int in pane w1:p3" {
 		t.Errorf("last line %q", last(out))
 	}
-	want := []string{"pane.list", "agent.get target=pj-int", "pane.process_info pane_id=w1:p3", "<env line>",
+	// Locate, then the launch's look at the pane (its facts; a suspended child, another program, the env line's own
+	// check), the env line, the label and the start.
+	want := []string{"pane.list", "agent.get target=pj-int", "pane.list", "pane.process_info pane_id=w1:p3",
+		"pane.process_info pane_id=w1:p3", "pane.process_info pane_id=w1:p3", "<env line>",
 		"<env wait>", "pane.rename label=pj-int pane_id=w1:p3",
 		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3",
 		"pane.process_info pane_id=w1:p3"} // the start record (the restore's proof that obor started it there)

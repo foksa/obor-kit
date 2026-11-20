@@ -93,13 +93,16 @@ func TestStartEffort(t *testing.T) {
 }
 
 // an effort the role's kind does not take, or one OpenCode cannot carry (no model anywhere), fails the start
-// before anything is stopped or typed.
+// before anything is stopped or typed; an effort the kind does not take points at obor config validate.
 func TestStartEffortRefused(t *testing.T) {
 	t.Parallel()
 	const models = `{"bare":{"kind":"opencode","id":""}}`
-	for _, c := range []struct{ role, effort, want string }{
-		{"opus", "turbo", `effort "turbo" is not one of claude's`},
-		{"bare", "high", "needs a model"},
+	for _, c := range []struct {
+		role, effort, want string
+		validate           bool // the line ends pointing at obor config validate
+	}{
+		{"opus", "turbo", `effort "turbo" is not one of claude's`, true},
+		{"bare", "high", "needs a model", false},
 	} {
 		// the fixture's HOME is a temp dir: no opencode config or state names a model
 		x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`))
@@ -107,6 +110,9 @@ func TestStartEffortRefused(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Effort: c.effort})
 		if ok || !strings.Contains(out, c.want) {
 			t.Errorf("%s at %s: %v %q; want a FAIL naming %q", c.role, c.effort, ok, out, c.want)
+		}
+		if got := strings.HasSuffix(failLine(out), "(obor config validate)"); got != c.validate {
+			t.Errorf("%s at %s: %q points at obor config validate: %v, want %v", c.role, c.effort, failLine(out), got, c.validate)
 		}
 		if n := len(x.calls("Write")) + len(x.calls("Start")); n != 0 {
 			t.Errorf("%s at %s: %d calls typed or started, want none", c.role, c.effort, n)

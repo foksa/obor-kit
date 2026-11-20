@@ -3033,7 +3033,7 @@ var (
 
 // startWithAgents starts the app as start does, with agents as its loop's Agents: a real launcher, so the start's
 // args reach the fake herdr.
-func (r *loopRig) startWithAgents(agents port.Agents) {
+func (r *loopRig) startWithAgents(agents port.Launcher) {
 	r.t.Helper()
 	c := r.srv.Client()
 	panes := herdr.Panes{S: c}
