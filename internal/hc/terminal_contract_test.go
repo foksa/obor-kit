@@ -6,12 +6,9 @@ import (
 
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
+	"obor/internal/herdrapp/herdrapptest"
 	"obor/internal/testkit"
 )
-
-// placeRows are the contract rows hc does not answer yet: a placement (terminal.run, herdr-app's tabs by label) is
-// the wiring task's, after the herdr-app client (docs/plan/herdr-core.md step 3, Place).
-var placeRows = map[string]bool{"place": true}
 
 // shellCore is a core with t1, a kept shell terminal (pid 41000) at /proj labelled obor.project=proj, and claude as a
 // program that reports idle once up, as Claude 2.1.329 did (docs/research/hc-probes.md P1).
@@ -27,18 +24,16 @@ func shellCore() *hctest.Core {
 // text (Recent is Screen), so it has no stale view to make (Stale nil).
 func contractTerminal() testkit.Terminal {
 	c := shellCore().Client()
-	return testkit.Terminal{Control: c, Panes: hc.Panes{C: c}, Group: "proj", Cwd: "/proj"}
+	c.App = herdrapptest.New().Client()
+	return testkit.Terminal{Control: c, Setup: c, Panes: hc.Panes{C: c}, Group: "proj", Cwd: "/proj"}
 }
 
 // TestTerminalContract runs the terminal contract (testkit.Contract) against hc's adapter over hctest, as
-// internal/herdr runs it over herdrtest; the place row is skipped until the wiring task.
+// internal/herdr runs it over herdrtest, the place row over herdr-app's in-memory window.
 func TestTerminalContract(t *testing.T) {
 	t.Parallel()
 	for _, row := range testkit.Contract {
 		t.Run(row.Name, func(t *testing.T) {
-			if placeRows[row.Name] {
-				t.Skip("hc has no Place yet: the wiring task adds it (docs/plan/herdr-core.md step 3)")
-			}
 			t.Parallel()
 			if err := row.Run(context.Background(), contractTerminal(), "t1"); err != nil {
 				t.Error(err)

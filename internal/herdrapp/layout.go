@@ -159,6 +159,43 @@ func (c *Client) EnsureTab(ctx context.Context, space, name string) (Tab, error)
 	return Tab{}, &Error{Op: "tab", Msg: fmt.Sprintf("space %s is not in the window", space)}
 }
 
+// NewTab is a new tab named name in the space (`tab.new {name, space}`), though the space has one of that name: a
+// second `lanes` tab when the first is full. EnsureTab finds a tab; this makes one.
+func (c *Client) NewTab(ctx context.Context, space, name string) (Tab, error) {
+	if space == "" || name == "" {
+		return Tab{}, &Error{Op: "tab", Msg: "a new tab needs a space and a name"}
+	}
+	if err := c.check(ctx); err != nil {
+		return Tab{}, err
+	}
+	r, err := c.do(ctx, "tab.new", map[string]any{"name": name, "space": space})
+	if err != nil {
+		return Tab{}, err
+	}
+	if r.Tab == "" {
+		return Tab{}, &Error{Op: "tab.new", Msg: "no tab in the answer"}
+	}
+	return Tab{ID: r.Tab, Name: name, Named: true}, nil
+}
+
+// RenameSpace renames this computer's space named old to name (`space.rename`); false when the window has no such
+// space (nothing to rename) or already has one named name and none named old.
+func (c *Client) RenameSpace(ctx context.Context, old, name string) (bool, error) {
+	spaces, err := c.Spaces(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, s := range spaces {
+		if s.Machine == "" && s.Name == old {
+			if _, err := c.do(ctx, "space.rename", map[string]any{"id": s.ID, "name": name}); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ids are what a `do` command printed of what it made.
 type ids struct {
 	Space string `json:"space"`

@@ -146,6 +146,11 @@ func (c *Core) SetScreen(address, text string) {
 	c.screens[address] = text
 }
 
+// Labels is address's labels now (nil: no such terminal).
+func (c *Core) Labels(address string) map[string]string {
+	return maps.Clone(c.record(address).Labels)
+}
+
 // Requests is each method the core was asked, in order.
 func (c *Core) Requests() []string {
 	c.mu.Lock()
@@ -391,6 +396,8 @@ func (c *Core) answer(k *conn, method string, raw json.RawMessage) (any, string,
 		return map[string]any{"channel": nil, "seq": c.seq, "terminals": slices.Clone(c.recs)}, "", ""
 	case "terminal.send", "terminal.keys", "terminal.label":
 		return c.write(method, raw)
+	case "terminal.run":
+		return c.start(raw)
 	default:
 		return nil, "unknown_method", "no method " + method
 	}

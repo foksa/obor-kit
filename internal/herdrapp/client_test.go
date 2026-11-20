@@ -368,3 +368,28 @@ func TestDrift(t *testing.T) {
 		}
 	}
 }
+
+// NewTab makes a tab though the space has one of that name; RenameSpace renames the local space named old and says
+// false for a window with none.
+func TestNewTabAndRenameSpace(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "proj", Folder: "/p", Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "lanes"}}})
+	c, ctx := app.Client(), context.Background()
+	tab, err := c.NewTab(ctx, "spa1", "lanes")
+	if err != nil || tab.ID == "" || tab.ID == "tb1" || tab.Name != "lanes" {
+		t.Fatalf("NewTab = %+v, %v; want a second tab named lanes", tab, err)
+	}
+	if got := one(t, app).Tabs; len(got) != 2 || got[1].Name != "lanes" {
+		t.Errorf("tabs = %+v, want two lanes tabs", got)
+	}
+	if ok, err := c.RenameSpace(ctx, "none", "x"); ok || err != nil {
+		t.Errorf("RenameSpace of a space the window lacks = %v, %v; want false", ok, err)
+	}
+	if ok, err := c.RenameSpace(ctx, "proj", "nw"); !ok || err != nil || one(t, app).Name != "nw" {
+		t.Errorf("RenameSpace = %v, %v; space %q, want renamed to nw", ok, err, one(t, app).Name)
+	}
+	app.Down()
+	if _, err := c.NewTab(ctx, "spa1", "x"); !port.NotRunning(err) {
+		t.Errorf("NewTab with the window closed = %v, want NotRunning", err)
+	}
+}

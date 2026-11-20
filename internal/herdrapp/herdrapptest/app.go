@@ -79,6 +79,13 @@ func (a *App) Down() {
 	a.down = true
 }
 
+// Up opens the window again after Down.
+func (a *App) Up() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.down = false
+}
+
 // Fail makes command answer msg as its {"error": …} reply, exit 1; a call that would change the window changes
 // nothing.
 func (a *App) Fail(command, msg string) {

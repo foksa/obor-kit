@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/herdrapp"
 	"obor/internal/project"
 	"obor/internal/version"
 )
@@ -42,6 +43,9 @@ const (
 	LabelProject = "obor.project"
 	LabelAgent   = "obor.agent"
 	LabelKind    = "obor.kind"
+	// LabelPlace is what the terminal is to placement (port.PaneKind: lead, lane, role), set when Place makes it: the
+	// placement has no agent name yet, and a tab's kind is read from its terminals.
+	LabelPlace = "obor.place"
 )
 
 // Error is every error the client returns.
@@ -101,6 +105,9 @@ func SocketPath(env project.Env) string {
 type Client struct {
 	Path    string
 	Timeout time.Duration // per request, its hello included (0: 10 s)
+	// App is the herdr-app window Place lays terminals out in (its spaces and tabs, by labels); nil: no window, every
+	// terminal is made hidden.
+	App *herdrapp.Client
 	// Conn, when set, opens each connection in place of dialing Path: a core served in memory (hctest.Core), whose
 	// connections a testing/synctest bubble can wait on. Production leaves it nil.
 	Conn func(ctx context.Context) (net.Conn, error)
