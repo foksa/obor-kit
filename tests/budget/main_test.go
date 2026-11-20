@@ -717,3 +717,22 @@ func TestMeasureSize(t *testing.T) {
 		t.Errorf("measureSize = %+v; want %+v", got, want)
 	}
 }
+
+// measureSize counts func TestXxx(t *testing.T) by the Go rule: TestMain(*testing.M) is no test, TestMainRefuses is.
+func TestMeasureSizeTestMainIsNoTest(t *testing.T) {
+	dir := t.TempDir()
+	body := "package a\n\nfunc TestMain(m *testing.M) {}\nfunc TestMainRefuses(t *testing.T) {}\nfunc TestX(t *testing.T) {}\nfunc testHelper(t *testing.T) {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "a_test.go"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := measureSize(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TestLines != 6 {
+		t.Fatalf("TestLines = %d; want 6 (the file was read)", got.TestLines)
+	}
+	if got.Tests != 2 {
+		t.Errorf("Tests = %d; want 2 (TestMainRefuses, TestX)", got.Tests)
+	}
+}

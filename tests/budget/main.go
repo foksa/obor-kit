@@ -49,6 +49,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -113,6 +114,10 @@ func trend(prev, cur Record, pkgs []string) []string {
 	return lines
 }
 
+// testFunc matches a test declaration by the Go rule: Test, then nothing or a non-lowercase letter, and a *testing.T
+// parameter (TestMain(*testing.M) is no test, TestMainRefuses is).
+var testFunc = regexp.MustCompile(`(?m)^func Test(?:[A-Z0-9_]\w*)?\(\w+ \*testing\.T\)`)
+
 // measureSize counts dir's lines and Test functions: _test.go files are tests, the other .go files production.
 func measureSize(dir string) (Size, error) {
 	var s Size
@@ -137,11 +142,7 @@ func measureSize(dir string) (Size, error) {
 			continue
 		}
 		s.TestLines += n
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(line, "func Test") {
-				s.Tests++
-			}
-		}
+		s.Tests += len(testFunc.FindAll(b, -1))
 	}
 	return s, nil
 }
