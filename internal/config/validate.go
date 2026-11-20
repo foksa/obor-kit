@@ -50,7 +50,26 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.terminal()
 	v.projectFiles()
 	v.overrideFiles()
+	for _, w := range TrackedLinkWarnings(c.LaneLinks(), o.Tracked) {
+		v.warns = append(v.warns, "WARN "+w)
+	}
 	return append(c.warnings(o), v.warns...), v.fails
+}
+
+// TrackedLinkWarnings is the note on each lanes.links entry that the main checkout tracks (tracked answers for a
+// path; nil: none): a worktree has a tracked file from git, so its link is not needed. The one text of `obor config
+// validate` and obor init's plugin-links step, which print it after "WARN ".
+func TrackedLinkWarnings(links []string, tracked func(path string) bool) []string {
+	if tracked == nil {
+		return nil
+	}
+	var warns []string
+	for _, link := range links {
+		if link != "" && tracked(link) {
+			warns = append(warns, "lanes.links "+link+" is tracked: the link is no longer needed")
+		}
+	}
+	return warns
 }
 
 // pluginKind: agents.kinds.<k>.plugin names no compiled kind, is executable and its describe answers with k's manifest
@@ -142,6 +161,8 @@ type ValidateOptions struct {
 	// Env is the environment that places the user's own CLI config (HOME, CODEX_HOME, …), which a kind's notes on
 	// the project's override files compare them with; nil: the process's.
 	Env func(string) string
+	// Tracked: git tracks the path in the main checkout (lanes.links entries are noted when it does); nil: skipped.
+	Tracked func(path string) bool
 }
 
 type validator struct {

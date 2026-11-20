@@ -111,3 +111,60 @@ func TestReviewGitDetach(t *testing.T) {
 		t.Errorf("refused, the worktree moved to %s, want it at %s", head, second)
 	}
 }
+
+// reviewGit.Detach moves a role worktree that holds obor's link (a symlink to the main checkout's file) at a path the
+// sha tracks: the link is removed first, the worktree gets the tracked file, a line says so. A regular file at that
+// path stays in the way: the move fails.
+func TestReviewGitDetachRemovesALinkTheShaTracks(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	var out strings.Builder
+	g := reviewGit{root: p.Root, locked: checks.Scratch{Options: checks.Options{Environ: os.Environ()}}.Locked, out: &out}
+	ctx := context.Background()
+	wt := p.LaneDir("reviewer")
+	if err := g.Detach(ctx, wt, p.Git(p.Root, "rev-parse", "HEAD")); err != nil {
+		t.Fatal(err)
+	}
+	p.Write("conf/local.env", "from main\n")
+	link := filepath.Join(wt, "conf", "local.env")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(p.Root, "conf", "local.env"), link); err != nil {
+		t.Fatal(err)
+	}
+	if st := p.Git(wt, "status", "--porcelain", "--untracked-files=all", "--", "conf"); st != "?? conf/local.env" {
+		t.Fatalf("precondition: the link's status %q, want it untracked", st)
+	}
+	p.Git(p.Root, "add", "conf/local.env")
+	p.Git(p.Root, "commit", "-q", "-m", "track conf/local.env")
+	sha := p.Git(p.Root, "rev-parse", "HEAD")
+	if err := g.Detach(ctx, wt, sha); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if fi, err := os.Lstat(link); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("%s: %v, %v; want the tracked file, no link", link, fi, err)
+	}
+	if want := "removed link conf/local.env: " + sha[:7] + " tracks it\n"; out.String() != want {
+		t.Errorf("progress %q, want %q", out.String(), want)
+	}
+	if head := p.Git(wt, "rev-parse", "HEAD"); head != sha {
+		t.Errorf("worktree at %s, want %s", head, sha)
+	}
+
+	// a regular file at the path is the worktree's: the move to a commit that tracks it fails
+	p.Git(wt, "checkout", "-q", "--detach", "HEAD~1")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("the role's own\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := g.Detach(ctx, wt, sha); err == nil || !strings.Contains(err.Error(), "checkout") {
+		t.Errorf("move over a regular file: %v, want the checkout's refusal", err)
+	}
+	if b, _ := os.ReadFile(link); string(b) != "the role's own\n" || out.Len() != 0 {
+		t.Errorf("file %q, progress %q: want the role's file kept and no line", b, out.String())
+	}
+}

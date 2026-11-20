@@ -797,8 +797,9 @@ func (l *Launcher) envOrOS() project.Env {
 // roleWorktree adds the role worktree a role agent's cwd is when it is missing (the reviewer's, the deep
 // dive's, the integrator's <lanes.dir>/<role>), detached at merge.target_branch, so the env line's cd finds it: serve's
 // starts and obor restart of a project whose role worktree is absent. The worktree, added now or there before, gets
-// the links it lacks (project.WorktreeLinks, project.LinkInto): a settings file git does not track reaches it only as
-// a link, listed in lanes.links or not, and with it obor's plugin. Any other cwd: nothing.
+// the links it lacks (project.WorktreeLinks, project.LinkInto): a settings file its checkout lacks (git does not track
+// it, or the worktree sits behind the commit that did) reaches it only as a link, listed in lanes.links or not, and with
+// it obor's plugin. Any other cwd: nothing.
 func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 	r, ok := roles.Lookup(t.info.Role)
 	if !ok || r.Cwd != roles.CwdRoleWorktree || l.Cfg == nil || t.info.Cwd != l.Cfg.RoleWorktree(r.Name) {
@@ -807,7 +808,7 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 	if _, err := project.AddWorktree(ctx, l.Cfg.Root, t.info.Cwd, l.Cfg.MainBranch()); err != nil {
 		return project.Failf("%s: its worktree: %v", t.agent, err)
 	}
-	if _, err := project.LinkInto(l.Cfg.Root, t.info.Cwd, project.WorktreeLinks(l.Cfg)); err != nil {
+	if _, err := project.LinkInto(l.Cfg.Root, t.info.Cwd, project.WorktreeLinks(l.Cfg, t.info.Cwd)); err != nil {
 		return project.Failf("%s: its worktree: %v", t.agent, err)
 	}
 	return nil

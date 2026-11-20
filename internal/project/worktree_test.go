@@ -81,7 +81,7 @@ func TestWorktreeLinksAddsNothingWithoutASettingsFile(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.Root, PluginSettings)); err == nil {
 		t.Fatal("precondition: the main checkout has no settings file")
 	}
-	links := WorktreeLinks(cfg)
+	links := WorktreeLinks(cfg, dir)
 	if want := []string{"local.env"}; !reflect.DeepEqual(links, want) {
 		t.Fatalf("WorktreeLinks = %q, want %q", links, want)
 	}
@@ -94,50 +94,68 @@ func TestWorktreeLinksAddsNothingWithoutASettingsFile(t *testing.T) {
 	}
 }
 
-// The With forms answer from the git query they are given: tracked → no settings link; untracked and present → the
-// settings file linked to the main checkout's copy; listed in lanes.links → once.
-func TestWorktreeLinksWithAsksTheQueryItIsGiven(t *testing.T) {
+// The With forms answer from the git queries they are given: the main checkout's file untracked → the settings file
+// linked to the main checkout's copy; tracked → linked only into a worktree whose HEAD lacks the path (one behind the
+// commit that tracked it); listed in lanes.links → once, nothing asked.
+func TestWorktreeLinksWithAsksTheQueriesItIsGiven(t *testing.T) {
 	t.Parallel()
+	const cfgJSON = `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env"]}}`
+	lacks := "main: ls-files --error-unmatch -- " + PluginSettings
+	at := "dir: ls-tree --name-only HEAD -- " + PluginSettings
 	tests := []struct {
-		name    string
-		cfg     string
-		tracked bool
-		want    []string
-		queries []string
+		name       string
+		cfg        string
+		tracked    bool // the main checkout tracks the settings file
+		dirTracks  bool // the worktree's HEAD has it
+		want       []string
+		queries    []string
+		noSettings bool
 	}{
-		{"tracked: no settings link", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env"]}}`,
-			true, []string{"local.env"}, []string{"ls-files --error-unmatch -- " + PluginSettings}},
-		{"untracked and present: linked", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env"]}}`,
-			false, []string{"local.env", PluginSettings}, []string{"ls-files --error-unmatch -- " + PluginSettings}},
-		{"listed in lanes.links: once", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":[".claude/settings.json"]}}`,
-			false, []string{PluginSettings}, nil},
+		{name: "untracked in main: linked", cfg: cfgJSON, want: []string{"local.env", PluginSettings}, queries: []string{lacks}},
+		{name: "tracked, the worktree's HEAD has it: no settings link", cfg: cfgJSON, tracked: true, dirTracks: true,
+			want: []string{"local.env"}, queries: []string{lacks, at}},
+		{name: "tracked, the worktree is behind the commit that tracked it: linked", cfg: cfgJSON, tracked: true,
+			want: []string{"local.env", PluginSettings}, queries: []string{lacks, at}},
+		{name: "listed in lanes.links: once", cfg: `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":[".claude/settings.json"]}}`,
+			tracked: true, want: []string{PluginSettings}},
+		{name: "no settings file in main: none", cfg: cfgJSON, noSettings: true, tracked: true,
+			want: []string{"local.env"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg, dir := plainProject(t, tt.cfg)
 			put(t, filepath.Join(cfg.Root, "local.env"), "A=1\n")
-			put(t, filepath.Join(cfg.Root, PluginSettings), "{}\n")
-			untracked := errors.New("path not in the index")
+			if !tt.noSettings {
+				put(t, filepath.Join(cfg.Root, PluginSettings), "{}\n")
+			}
 			var asked []string
 			git := func(gotDir string, args ...string) (string, error) {
-				if gotDir != cfg.Root {
-					t.Errorf("query in %s, want the main checkout %s", gotDir, cfg.Root)
+				switch gotDir {
+				case cfg.Root:
+					asked = append(asked, "main: "+strings.Join(args, " "))
+					if tt.tracked {
+						return PluginSettings + "\n", nil
+					}
+					return "", errors.New("path not in the index")
+				case dir:
+					asked = append(asked, "dir: "+strings.Join(args, " "))
+					if tt.dirTracks {
+						return PluginSettings + "\n", nil
+					}
+					return "", nil // ls-tree names nothing for a path HEAD lacks
 				}
-				asked = append(asked, strings.Join(args, " "))
-				if tt.tracked {
-					return PluginSettings + "\n", nil
-				}
-				return "", untracked
+				t.Fatalf("query in %s, want the main checkout %s or the worktree %s", gotDir, cfg.Root, dir)
+				return "", nil
 			}
-			links := WorktreeLinksWith(cfg, git)
+			links := WorktreeLinksWith(cfg, dir, git)
 			if !reflect.DeepEqual(links, tt.want) {
 				t.Fatalf("WorktreeLinksWith = %q, want %q", links, tt.want)
 			}
 			if !reflect.DeepEqual(asked, tt.queries) {
 				t.Errorf("queries = %q, want %q", asked, tt.queries)
 			}
-			if got, want := SettingsUntrackedWith(cfg.Root, git), !tt.tracked; got != want {
+			if got, want := SettingsUntrackedWith(cfg.Root, git), !tt.tracked && !tt.noSettings; got != want {
 				t.Errorf("SettingsUntrackedWith = %v, want %v", got, want)
 			}
 			linked, err := LinkInto(cfg.Root, dir, links)
@@ -211,7 +229,7 @@ func TestLaneDirtCountsTheLanesOwnFiles(t *testing.T) {
 				t.Fatalf("git %s in %s: not a call LaneDirt makes", line, gotDir)
 				return "", nil
 			}
-			if links := WorktreeLinksWith(cfg, git); !slices.Contains(links, PluginSettings) {
+			if links := WorktreeLinksWith(cfg, dir, git); !slices.Contains(links, PluginSettings) {
 				t.Fatalf("precondition: %s is not in the link set %q", PluginSettings, links)
 			}
 			asked = nil
