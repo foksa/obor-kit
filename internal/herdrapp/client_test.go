@@ -201,7 +201,7 @@ func TestEnsureTabRenamesFirst(t *testing.T) {
 	app := herdrapptest.New()
 	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
 		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}}})
-	got, err := app.Client().EnsureTab(context.Background(), "spa1", "lead")
+	got, err := app.Client().EnsureTab(context.Background(), "spa1", "lead", "/p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestEnsureTabCreates(t *testing.T) {
 	app := herdrapptest.New()
 	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
 		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "lead"}}})
-	got, err := app.Client().EnsureTab(context.Background(), "spa1", "L-02")
+	got, err := app.Client().EnsureTab(context.Background(), "spa1", "L-02", "/p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestEnsureTabCreates(t *testing.T) {
 		t.Errorf("the window's space has %d tabs, want 2", n)
 	}
 	// A second call finds the tab it made: no third tab.
-	again, err := app.Client().EnsureTab(context.Background(), "spa1", "L-02")
+	again, err := app.Client().EnsureTab(context.Background(), "spa1", "L-02", "/p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestEnsureTabPresent(t *testing.T) {
 	app := herdrapptest.New()
 	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
 		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}, {ID: "tb2", Name: "lead"}}})
-	got, err := app.Client().EnsureTab(context.Background(), "spa1", "lead")
+	got, err := app.Client().EnsureTab(context.Background(), "spa1", "lead", "/p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestEnsureTabPresent(t *testing.T) {
 
 func TestEnsureTabUnknownSpace(t *testing.T) {
 	app := herdrapptest.New()
-	if _, err := app.Client().EnsureTab(context.Background(), "spa1", "lead"); err == nil ||
+	if _, err := app.Client().EnsureTab(context.Background(), "spa1", "lead", "/p"); err == nil ||
 		!strings.Contains(err.Error(), "spa1") {
 		t.Errorf("EnsureTab of a missing space = %v, want an error naming it", err)
 	}
@@ -369,18 +369,22 @@ func TestDrift(t *testing.T) {
 	}
 }
 
-// NewTab makes a tab though the space has one of that name; RenameSpace renames the local space named old and says
+// NewTab makes a tab though the space has one of that name (Made, its terminal's folder passed); RenameSpace renames the local space named old and says
 // false for a window with none.
 func TestNewTabAndRenameSpace(t *testing.T) {
 	app := herdrapptest.New()
 	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "proj", Folder: "/p", Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "lanes"}}})
 	c, ctx := app.Client(), context.Background()
-	tab, err := c.NewTab(ctx, "spa1", "lanes")
+	tab, err := c.NewTab(ctx, "spa1", "lanes", "/p")
 	if err != nil || tab.ID == "" || tab.ID == "tb1" || tab.Name != "lanes" {
 		t.Fatalf("NewTab = %+v, %v; want a second tab named lanes", tab, err)
 	}
 	if got := one(t, app).Tabs; len(got) != 2 || got[1].Name != "lanes" {
 		t.Errorf("tabs = %+v, want two lanes tabs", got)
+	}
+	calls := app.Calls()
+	if last := calls[len(calls)-1]; !tab.Made || len(last) < 3 || last[1] != "tab.new" || !strings.Contains(last[2], `"folder":"/p"`) {
+		t.Errorf("NewTab = %+v, last call %q; want Made and tab.new with folder /p", tab, last)
 	}
 	if ok, err := c.RenameSpace(ctx, "none", "x"); ok || err != nil {
 		t.Errorf("RenameSpace of a space the window lacks = %v, %v; want false", ok, err)
@@ -389,7 +393,7 @@ func TestNewTabAndRenameSpace(t *testing.T) {
 		t.Errorf("RenameSpace = %v, %v; space %q, want renamed to nw", ok, err, one(t, app).Name)
 	}
 	app.Down()
-	if _, err := c.NewTab(ctx, "spa1", "x"); !port.NotRunning(err) {
+	if _, err := c.NewTab(ctx, "spa1", "x", "/p"); !port.NotRunning(err) {
 		t.Errorf("NewTab with the window closed = %v, want NotRunning", err)
 	}
 }

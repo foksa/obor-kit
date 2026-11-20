@@ -16,6 +16,8 @@ var Sent = map[string][]string{
 	"terminal.keys":    {"terminal", "keys"},
 	"terminal.label":   {"terminal", "labels"},
 	"terminal.run":     {"cwd", "env", "keep", "no_parent", "labels"},
+	"terminal.keep":    {"terminal", "keep"},
+	"terminal.kill":    {"terminal"},
 }
 
 // Read is every result field the client reads, by the schema's component that holds it (its notifications are not
@@ -28,7 +30,7 @@ var Read = map[string][]string{
 	"ListResult":      {"terminals"},
 	"SubscribeResult": {"seq", "terminals"},
 	"ReadResult":      {"text"},
-	"Terminal":        {"address", "state", "reason", "pid", "cwd", "labels", "reported", "status", "foreground"},
+	"Terminal":        {"address", "state", "reason", "pid", "cwd", "keep", "labels", "reported", "status", "foreground"},
 	"Status":          {"state", "kind", "msg", "app"},
 	"Foreground":      {"pid", "name", "argv", "cwd"},
 }

@@ -48,7 +48,8 @@ func (h *Setup) Panes(ctx context.Context) ([]port.Pane, error) {
 // --- placement -----------------------------------------------------------------------------
 
 // Place makes a new pane for p (see port.Placement): Group → a new tab labelled Group in the project's workspace;
-// In → a split of that tab (refused when it holds the lead's pane; a full one: a new tab of p's kind); none → a split
+// In → a split of that tab (refused when it holds the lead's pane, and for a lead when it holds any pane; a full
+// one: a new tab of p's kind); none → a split
 // of the project's first tab of p's kind with room (kindTab), else a new tab of that kind (kindLabel). A new tab goes
 // to the project's workspace (the one whose panes work in the project), a new one named after the project when none
 // has a pane of it; never the caller's or herdr's active workspace.
@@ -67,6 +68,9 @@ func (h *Setup) Place(ctx context.Context, p port.Placement) (string, error) {
 		if leadTab(panes, p.Project.KindOf, p.In) {
 			return "", project.Failf("tab %s holds the lead's pane, which keeps its tab alone: pass --new-tab <label> "+
 				"(or --pane <id>)", p.In)
+		}
+		if n := inTab(panes, p.In); p.Kind == port.KindLead && n > 0 {
+			return "", project.Failf("tab %s holds %d pane(s): the lead keeps its tab alone: pass --new-tab <label>", p.In, n)
 		}
 		if n := inTab(panes, p.In); n >= p.Project.MaxPanes {
 			say(p, "tab %s is full (%d of %d panes)", p.In, n, p.Project.MaxPanes)

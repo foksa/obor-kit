@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/herdr"
+	"obor/internal/herdr/herdrtest"
 )
 
 // ResumeHint: herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) counts
@@ -75,5 +77,44 @@ func TestResumeHintHomePath(t *testing.T) {
 	want := filepath.Join(home, ".config", "herdr", "config.toml")
 	if hint := h.ResumeHint(); !strings.Contains(hint, " in "+want+" ") {
 		t.Errorf("hint %q, want %s", hint, want)
+	}
+}
+
+// A lead placed with --tab (In) into a tab that holds a pane is refused, naming --new-tab, and nothing is made; a lane
+// into the same tab is still a split of it (RV-220 #2).
+func TestPlaceLeadInAnOccupiedTabRefused(t *testing.T) {
+	t.Parallel()
+	f := herdrtest.New()
+	f.Tab("w1:t1", 80, 24, "w1:p1")
+	f.Shell("w1:p1", "pj-l-01", "/proj-wt/L-01")
+	f.Group("w1", "proj")
+	srv := herdrtest.Serve(t, f)
+	h := &herdr.Setup{Socket: srv.Client(), Env: func(string) (string, bool) { return "", false }}
+	pr := port.PlaceProject{Name: "proj", Root: "/proj", MaxPanes: 4,
+		Has: func(cwd string) bool { return strings.HasPrefix(cwd, "/proj") },
+		KindOf: func(l string) port.PaneKind {
+			switch {
+			case l == "pj-lead":
+				return port.KindLead
+			case strings.HasPrefix(l, "pj-l-"):
+				return port.KindLane
+			}
+			return ""
+		}}
+	if n := len(srv.Requests()); n != 0 {
+		t.Fatalf("precondition: %d requests before the placement", n)
+	}
+	_, err := h.Place(ctx, port.Placement{Kind: port.KindLead, Cwd: "/proj", In: "w1:t1", Project: pr})
+	if err == nil || !strings.Contains(err.Error(), "the lead keeps its tab alone") || !strings.Contains(err.Error(), "--new-tab") {
+		t.Fatalf("lead Place into a lane's tab = %v, want the refusal naming --new-tab", err)
+	}
+	for _, r := range srv.Requests() {
+		if r.Method == "pane.split" || r.Method == "tab.create" {
+			t.Errorf("the refusal sent %s", r.Method)
+		}
+	}
+	pane, err := h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-02", In: "w1:t1", Project: pr})
+	if err != nil || f.Pane(pane) == nil || f.Pane(pane).Tab != "w1:t1" {
+		t.Errorf("lane Place into the same tab = %q, %v; want a split of w1:t1", pane, err)
 	}
 }

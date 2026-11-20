@@ -12,7 +12,8 @@ import (
 )
 
 // Space is a space of the window (`herdr-app ls`): its id and name, the folder its new terminals start in, whether
-// someone named it, the machine it lives on ("" is this computer) and its tabs.
+// someone named it, the machine it lives on ("" is this computer) and its tabs. Made: this call made it
+// (`space.new`), so its one tab and the terminal the app started in it are new.
 type Space struct {
 	ID      string
 	Name    string
@@ -20,13 +21,16 @@ type Space struct {
 	Named   bool
 	Machine string
 	Tabs    []Tab
+	Made    bool
 }
 
 // Tab is a tab of a space: its id, its name and whether someone named it (an unnamed tab is called by its number).
+// Made: this call made it (`tab.new`), so the terminal the app started in it is new.
 type Tab struct {
 	ID    string
 	Name  string
 	Named bool
+	Made  bool
 }
 
 // Labels is a terminal's label pair for a tab: the label map that makes a terminal of this machine show in that tab
@@ -119,12 +123,16 @@ func (c *Client) EnsureSpace(ctx context.Context, name, folder string) (Space, e
 	if r.Space == "" {
 		return Space{}, &Error{Op: "space.new", Msg: "no space in the answer"}
 	}
-	return Space{ID: r.Space, Name: name, Folder: folder, Named: true}, nil
+	sp := Space{ID: r.Space, Name: name, Folder: folder, Named: true, Made: true}
+	if r.Tab != "" {
+		sp.Tabs = []Tab{{ID: r.Tab, Name: "1", Made: true}}
+	}
+	return sp, nil
 }
 
-// EnsureTab is the space's tab named name: the tab itself, else the space's one unnamed tab renamed (`tab.rename`),
-// else a new tab (`tab.new {name, space}`). A second call finds the first's tab and runs no command.
-func (c *Client) EnsureTab(ctx context.Context, space, name string) (Tab, error) {
+// EnsureTab is the space's tab named name: the tab itself, else the space's one unnamed tab renamed (RenameTab), else
+// a new tab (NewTab, its terminal in folder). A second call finds the first's tab and runs no command.
+func (c *Client) EnsureTab(ctx context.Context, space, name, folder string) (Tab, error) {
 	if space == "" || name == "" {
 		return Tab{}, &Error{Op: "tab", Msg: "an ensured tab needs a space and a name"}
 	}
@@ -142,40 +150,43 @@ func (c *Client) EnsureTab(ctx context.Context, space, name string) (Tab, error)
 			}
 		}
 		if len(s.Tabs) == 1 && !s.Tabs[0].Named {
-			if _, err := c.do(ctx, "tab.rename", map[string]any{"id": s.Tabs[0].ID, "name": name}); err != nil {
-				return Tab{}, err
-			}
-			return Tab{ID: s.Tabs[0].ID, Name: name, Named: true}, nil
+			return c.RenameTab(ctx, s.Tabs[0].ID, name)
 		}
-		r, err := c.do(ctx, "tab.new", map[string]any{"name": name, "space": space})
-		if err != nil {
-			return Tab{}, err
-		}
-		if r.Tab == "" {
-			return Tab{}, &Error{Op: "tab.new", Msg: "no tab in the answer"}
-		}
-		return Tab{ID: r.Tab, Name: name, Named: true}, nil
+		return c.NewTab(ctx, space, name, folder)
 	}
 	return Tab{}, &Error{Op: "tab", Msg: fmt.Sprintf("space %s is not in the window", space)}
 }
 
-// NewTab is a new tab named name in the space (`tab.new {name, space}`), though the space has one of that name: a
-// second `lanes` tab when the first is full. EnsureTab finds a tab; this makes one.
-func (c *Client) NewTab(ctx context.Context, space, name string) (Tab, error) {
+// NewTab is a new tab named name in the space (`tab.new {name, space, folder}`), though the space has one of that
+// name: a second `lanes` tab when the first is full. herdr-app starts the tab's first terminal in folder ("": the
+// app's default); the answer is Made. EnsureTab finds a tab; this makes one.
+func (c *Client) NewTab(ctx context.Context, space, name, folder string) (Tab, error) {
 	if space == "" || name == "" {
 		return Tab{}, &Error{Op: "tab", Msg: "a new tab needs a space and a name"}
 	}
 	if err := c.check(ctx); err != nil {
 		return Tab{}, err
 	}
-	r, err := c.do(ctx, "tab.new", map[string]any{"name": name, "space": space})
+	args := map[string]any{"name": name, "space": space}
+	if folder != "" {
+		args["folder"] = folder
+	}
+	r, err := c.do(ctx, "tab.new", args)
 	if err != nil {
 		return Tab{}, err
 	}
 	if r.Tab == "" {
 		return Tab{}, &Error{Op: "tab.new", Msg: "no tab in the answer"}
 	}
-	return Tab{ID: r.Tab, Name: name, Named: true}, nil
+	return Tab{ID: r.Tab, Name: name, Named: true, Made: true}, nil
+}
+
+// RenameTab names the tab id name (`tab.rename`).
+func (c *Client) RenameTab(ctx context.Context, id, name string) (Tab, error) {
+	if _, err := c.do(ctx, "tab.rename", map[string]any{"id": id, "name": name}); err != nil {
+		return Tab{}, err
+	}
+	return Tab{ID: id, Name: name, Named: true}, nil
 }
 
 // RenameSpace renames this computer's space named old to name (`space.rename`); false when the window has no such

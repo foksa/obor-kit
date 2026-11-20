@@ -51,7 +51,7 @@ esac
 	if len(spaces) != 1 || spaces[0].ID != "spa1" || spaces[0].Name != "obor-kit" || len(spaces[0].Tabs) != 1 {
 		t.Fatalf("Spaces = %+v, want the stub's one space", spaces)
 	}
-	tab, err := c.EnsureTab(context.Background(), "spa1", "lead")
+	tab, err := c.EnsureTab(context.Background(), "spa1", "lead", "/p")
 	if err != nil {
 		t.Fatal(err)
 	}

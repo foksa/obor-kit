@@ -4,6 +4,7 @@
 package herdrapptest
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,7 @@ type App struct {
 	spaces  []Space
 	calls   [][]string
 	seq     int
+	start   func(space, tab, folder string) string // the terminal core a new tab's terminal starts on
 }
 
 // New is a window of herdr-app MinVersion answering obor's committed `herdr-app commands` copy, with no spaces.
@@ -48,6 +50,15 @@ func New() *App {
 // Client is a client of the window: its Run answers this window in memory.
 func (a *App) Client() *herdrapp.Client {
 	return &herdrapp.Client{Run: a.Run}
+}
+
+// StartTerminals bridges the window to a terminal core (hctest.Core.AppTerminals): space.new and tab.new start their
+// tab's first terminal through start, as herdr-app does on hc, and answer its address. With none they answer t1 and
+// no terminal exists.
+func (a *App) StartTerminals(start func(space, tab, folder string) string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.start = start
 }
 
 // AddSpace adds a space with its tabs, as the app would list it.
@@ -193,7 +204,7 @@ func (a *App) do(command string, rest []string) string {
 		id := a.nextID("sp")
 		tab := Tab{ID: a.nextID("tb"), Name: "1"}
 		a.spaces = append(a.spaces, Space{ID: id, Name: str("name"), Folder: str("folder"), Tabs: []Tab{tab}})
-		return fmt.Sprintf(`{"space":%q,"tab":%q,"terminal":"t1"}`, id, tab.ID)
+		return fmt.Sprintf(`{"space":%q,"tab":%q,"terminal":%q}`, id, tab.ID, a.terminal(id, tab.ID, str("folder")))
 	case "space.rename":
 		s := a.space(str("id"))
 		if s == nil {
@@ -208,7 +219,7 @@ func (a *App) do(command string, rest []string) string {
 		}
 		tab := Tab{ID: a.nextID("tb"), Name: str("name")}
 		s.Tabs = append(s.Tabs, tab)
-		return fmt.Sprintf(`{"tab":%q,"terminal":"t1"}`, tab.ID)
+		return fmt.Sprintf(`{"tab":%q,"terminal":%q}`, tab.ID, a.terminal(s.ID, tab.ID, cmp.Or(str("folder"), s.Folder)))
 	case "tab.rename":
 		for i := range a.spaces {
 			for j := range a.spaces[i].Tabs {
@@ -221,6 +232,14 @@ func (a *App) do(command string, rest []string) string {
 		return errorReply("no tab " + str("id"))
 	}
 	return errorReply("unknown command " + command)
+}
+
+// terminal starts a new tab's first terminal, under the lock: its address ("t1" with no core bridged).
+func (a *App) terminal(space, tab, folder string) string {
+	if a.start == nil {
+		return "t1"
+	}
+	return a.start(space, tab, folder)
 }
 
 // space is the space with id, under the lock (nil when the window has none).
