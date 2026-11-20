@@ -207,7 +207,11 @@ func runsLine(agent, pane, proof, label string) string {
 // ("": none). It takes the agent's restart lock (RestartLock: the lane the config gives it, else the agent's) and
 // returns holding it: release, after the caller's last step; a refusal or an error releases it here. The where request
 // is Where (nil: serve's socket at Cfg.Root, within whereWait); the terminal's holder of the name is H.Named.
+// An empty agent is refused first (config.BadAgentName), before any pane list is read.
 func (l *Launcher) Locate(ctx context.Context, agent, pane string, adds bool) (Located, func(), error) {
+	if agent == "" { // no pane is matched by an empty name (an unlabelled pane has the label "")
+		return Located{}, nil, project.Failf("%s", config.BadAgentName(l.Cfg, agent))
+	}
 	var info config.AgentInfo
 	known := false
 	if l.Cfg != nil {

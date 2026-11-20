@@ -920,3 +920,59 @@ func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
 		t.Errorf("rerun added levels to an existing difficulty: %v", cfg.Data.Agents.Difficulty)
 	}
 }
+
+// A config init finds without project.agent_prefix (the hc trial's `{"version": 2, "project": {"terminal": "hc"}}`)
+// gets one, derived as for a new config, so the lead has a name; --prefix wins; a config with a prefix keeps it.
+func TestOborInitFillsTheMissingPrefixOfAFoundConfig(t *testing.T) {
+	t.Parallel()
+	const found = `{"version": 2, "project": {"terminal": "hc"}}` + "\n"
+	for _, tc := range []struct {
+		name, config string
+		args         []string
+		want         string
+	}{
+		{"derived from the project's name, unique against the running agents", found, nil, ""},
+		{"--prefix wins", found, []string{"--prefix", "abc"}, "abc"},
+		{"a prefix the config has is kept", `{"version": 2, "project": {"name": "mine", "agent_prefix": "keep"}}` + "\n",
+			[]string{"--prefix", "abc"}, "keep"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFakeGitInitFx(t, true)
+			want := tc.want
+			if want == "" {
+				base := filepath.Base(x.Root)
+				x.h.Agent("w9:a1", defaultPrefix(base)+"-lead", "idle", "/elsewhere").Label = defaultPrefix(base) + "-lead"
+				want = defaultPrefix(base) + "2"
+			}
+			x.Write(".obor/config.json", tc.config)
+			out := x.init(t, tc.args...)
+			cfg, err := config.Load(x.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Prefix() != want {
+				t.Errorf("prefix %q, want %q", cfg.Prefix(), want)
+			}
+			if got := cfg.AgentName("lead", ""); got != want+"-lead" {
+				t.Errorf("the lead's name %q, want %s-lead", got, want)
+			}
+			if _, fails := cfg.Validate(config.ValidateOptions{}); len(fails) > 0 {
+				t.Errorf("config validate fails: %v", fails)
+			}
+			if got := summary(out, "project"); !strings.Contains(got, "(prefix "+want+")") {
+				t.Errorf("project step %q does not name the prefix %s", got, want)
+			}
+			wrote := strings.Contains(out, "config project.agent_prefix = "+want)
+			if wrote != (tc.want != "keep") {
+				t.Errorf("the prefix write line present = %v in\n%s", wrote, out)
+			}
+			if tc.want == "keep" && cfg.Name() != "mine" {
+				t.Errorf("project.name %q, want the config's mine", cfg.Name())
+			}
+			if tc.want != "keep" && cfg.Data.Project.Terminal != "hc" {
+				t.Errorf("project.terminal %q, want the owner's hc", cfg.Data.Project.Terminal)
+			}
+		})
+	}
+}

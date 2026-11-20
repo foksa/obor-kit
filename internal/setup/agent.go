@@ -265,7 +265,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		return project.Failf("unknown model %s (models: %s)", a.typ, strings.Join(s.cfg.ModelNames(), ", "))
 	}
 	if !config.AgentNameRE.MatchString(a.name) {
-		return project.Failf("bad agent name %s", a.name)
+		return project.Failf("%s", config.BadAgentName(s.cfg, a.name))
 	}
 	what := a.lane
 	if what == "" {

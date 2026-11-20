@@ -470,7 +470,7 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 // started, its first prompt taken once a person answers the dialog. A resumed one is a failed start (NotReady).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
-		return port.Started{}, project.Failf("bad agent name %q", req.Agent)
+		return port.Started{}, project.Failf("%s", config.BadAgentName(l.Cfg, req.Agent))
 	}
 	waited, err := l.waitScheduled(ctx, req.Agent, req.Pane)
 	if err != nil {

@@ -475,3 +475,25 @@ func TestLeadBrokenConfigNamesItsError(t *testing.T) {
 		t.Errorf("exit %d, init runs %d, out %q; want %q", rc, runs, out, want)
 	}
 }
+
+// A config with no project.agent_prefix derives no lead name: obor lead says what to do and asks the terminal nothing
+// (an unlabelled pane is not the lead).
+func TestLeadWithoutAPrefixTouchesNoPane(t *testing.T) {
+	t.Parallel()
+	x := newLeadFx(t, testkit.Set("project.agent_prefix", ""))
+	x.f.Agent("w1:p1", "", "idle", x.p.Root) // unlabelled: its label "" must not match the lead's empty name
+	cfg, err := config.Load(x.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Prefix() != "" || cfg.AgentName("lead", "") != "" {
+		t.Fatalf("precondition: no prefix and no lead name, got %q / %q", cfg.Prefix(), cfg.AgentName("lead", ""))
+	}
+	out, rc := x.run(t)
+	if rc != 1 || strings.TrimSpace(out) != "FAIL "+config.NoPrefixLine {
+		t.Errorf("exit %d, out %q; want FAIL %s", rc, out, config.NoPrefixLine)
+	}
+	if c := x.calls(); c != "" {
+		t.Errorf("no pane read or touched, herdr was asked:\n%s", c)
+	}
+}

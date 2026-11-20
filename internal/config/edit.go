@@ -419,6 +419,16 @@ func SetLaneLinks(doc []byte, links []string) (Write, error) {
 	return write("lanes.links", doc, p("lanes", "links"), links)
 }
 
+// SetProjectName returns doc with project.name = name.
+func SetProjectName(doc []byte, name string) (Write, error) {
+	return write("project.name", doc, p("project", "name"), name)
+}
+
+// SetProjectPrefix returns doc with project.agent_prefix = prefix.
+func SetProjectPrefix(doc []byte, prefix string) (Write, error) {
+	return write("project.agent_prefix", doc, p("project", "agent_prefix"), prefix)
+}
+
 // SetSetupConfirmed returns doc with agents.confirmed = confirmed.
 func SetSetupConfirmed(doc []byte, confirmed bool) (Write, error) {
 	return write("agents.confirmed", doc, p("agents", "confirmed"), confirmed)

@@ -15,6 +15,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/launch"
 	"obor/internal/project"
+	"obor/internal/testkit"
 )
 
 // identified is serve's where answer that agent runs in pane by src (session, start, label), the pane labelled label.
@@ -279,4 +280,50 @@ func (r raceStart) Start(ctx context.Context, s port.AgentStart) (port.Pane, err
 	r.x.f.Agent("w1:p1", s.Label, "idle", r.x.lane)
 	r.x.f.Set("w1:p1", func(p *mpane) { p.Label = "notes" })
 	return r.control.Start(ctx, s)
+}
+
+// Locate refuses an empty agent before it reads the pane list: an unlabelled pane (label "") is nobody's lead.
+func TestLocateRefusesAnEmptyAgentBeforeListingPanes(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	if p := x.f.Agent("w1:p3", "", "idle", x.lane); p.Label != "" {
+		t.Fatalf("precondition: an unlabelled agent pane, got %+v", p)
+	}
+	_, end, err := x.launcher(io.Discard).Locate(context.Background(), "", "", true)
+	if end != nil {
+		end()
+		t.Error("a refusal returned a release")
+	}
+	var fail project.Fail
+	if !errors.As(err, &fail) || string(fail) != `bad agent name ""` {
+		t.Errorf("Locate(\"\") = %v, want the refusal bad agent name \"\"", err)
+	}
+	if n := len(x.calls("Panes")); n != 0 {
+		t.Errorf("the pane list was read %d times: %q", n, x.f.Calls())
+	}
+}
+
+// A start or a stop of an empty agent name, derived from a config with no project.agent_prefix, fails naming that
+// cause; with a prefix the empty name is only a bad name.
+func TestEmptyAgentNamesItsCause(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, prefix, want string
+	}{
+		{"no prefix", "", "FAIL project.agent_prefix is not set: obor init writes it"},
+		{"a prefix", "pj", `FAIL bad agent name ""`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t, testkit.Set("project.agent_prefix", tc.prefix))
+			out, ok := x.restart(launch.Request{Agent: ""})
+			if ok || failLine(out) != tc.want {
+				t.Errorf("restart: ok %v, %q; want %q", ok, failLine(out), tc.want)
+			}
+			out, ok = x.stop("", "", false)
+			if ok || failLine(out) != tc.want {
+				t.Errorf("stop: ok %v, %q; want %q", ok, failLine(out), tc.want)
+			}
+		})
+	}
 }

@@ -887,6 +887,18 @@ func (c *Config) ProjectName() string {
 	return filepath.Base(c.Root)
 }
 
+// NoPrefixLine is why an agent name derived from a config without project.agent_prefix is empty.
+const NoPrefixLine = "project.agent_prefix is not set: obor init writes it"
+
+// BadAgentName is the refusal line for an agent name that cannot start: an empty one derived from a config with no
+// project.agent_prefix names that cause (cfg nil: no config to ask), any other names the name.
+func BadAgentName(cfg *Config, name string) string {
+	if name == "" && cfg != nil && cfg.Prefix() == "" {
+		return NoPrefixLine
+	}
+	return fmt.Sprintf("bad agent name %q", name)
+}
+
 // Name is the name the config stores ("" when it sets none); ProjectName is the one to show.
 func (c *Config) Name() string { return c.Data.Project.Name }
 
