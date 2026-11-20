@@ -3,6 +3,8 @@ package checks
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"obor/internal/app/port"
@@ -134,8 +136,43 @@ func (g GitPruner) RemoveTree(ctx context.Context, dir string) error {
 	return err
 }
 
-// PruneTrees is git worktree prune.
-func (g GitPruner) PruneTrees(ctx context.Context) error {
-	_, err := g.git(ctx, "worktree", "prune")
-	return err
+// PruneTrees removes the registration of each worktree in dirs, whose dir is gone, one by one: never git worktree
+// prune, which would drop every other missing worktree's registration too (one outside lanes.dir, say). The failures
+// come back by dir. git worktree remove --force does it; failing that, the admin dir under the common git dir whose
+// gitdir names dir is deleted, and only that one.
+func (g GitPruner) PruneTrees(ctx context.Context, dirs []string) map[string]error {
+	failed := map[string]error{}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); err == nil {
+			failed[dir] = fmt.Errorf("its dir is there")
+			continue
+		}
+		if _, err := g.git(ctx, "worktree", "remove", "--force", dir); err == nil {
+			continue
+		} else if err := g.dropRegistration(ctx, dir); err != nil {
+			failed[dir] = err
+		}
+	}
+	return failed
+}
+
+// dropRegistration deletes the .git/worktrees/<name> whose gitdir file points at dir/.git.
+func (g GitPruner) dropRegistration(ctx context.Context, dir string) error {
+	common, err := g.git(ctx, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	admins, _ := filepath.Glob(filepath.Join(strings.TrimSpace(common), "worktrees", "*"))
+	want := filepath.Join(dir, ".git")
+	for _, admin := range admins {
+		b, err := os.ReadFile(filepath.Join(admin, "gitdir"))
+		if err != nil || strings.TrimSpace(string(b)) != want {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(admin, "locked")); err == nil {
+			return fmt.Errorf("it is locked")
+		}
+		return os.RemoveAll(admin)
+	}
+	return fmt.Errorf("no registration names it")
 }

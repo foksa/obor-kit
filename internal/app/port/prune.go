@@ -19,8 +19,9 @@ type Pruner interface {
 	Dirt(ctx context.Context, dir string) (string, error)
 	// RemoveTree removes the clean worktree at dir (never forced).
 	RemoveTree(ctx context.Context, dir string) error
-	// PruneTrees is git worktree prune: the registrations of worktrees whose dir is gone.
-	PruneTrees(ctx context.Context) error
+	// PruneTrees removes the registration of each worktree in dirs, whose dir is gone, and only those (never a
+	// repository-wide git worktree prune); the failures come back by dir.
+	PruneTrees(ctx context.Context, dirs []string) map[string]error
 }
 
 // PruneBranch is a local branch and its tip.
