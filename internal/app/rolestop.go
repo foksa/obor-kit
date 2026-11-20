@@ -190,21 +190,44 @@ func (p *proj) roleAgentOf(agent string) bool {
 // roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's or an agents entry's,
 // not the lead and not a lane's agent (a worker, a drive; under mu): the agents obor status may report stopped.
 func (p *proj) roleAgent(agent string) bool {
-	if agent == "" || agent == p.out.Lead() {
-		return false
-	}
 	cfg, err := config.Load(p.root)
 	if err != nil {
 		return false
 	}
+	_, ok := p.roleOf(cfg, agent)
+	return ok
+}
+
+// roleAgents is p's role agents on no lane with their roles, by name (roleOf): the agents serve's done reminder may
+// name. Under mu; a config that does not load names none.
+func (p *proj) roleAgents() map[string]string {
+	cfg, err := config.Load(p.root)
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, agent := range cfg.Agents() {
+		if role, ok := p.roleOf(cfg, agent); ok {
+			out[agent] = role
+		}
+	}
+	return out
+}
+
+// roleOf is agent's role when agent is a role agent of cfg on no lane of p (roleAgent): not the lead, not a lane's
+// agent, its role no lane's.
+func (p *proj) roleOf(cfg *config.Config, agent string) (string, bool) {
+	if agent == "" || agent == p.out.Lead() {
+		return "", false
+	}
 	info, ok := cfg.AgentLookup(agent, "")
 	if !ok || info.Role == "lead" || roles.LaneBound(info.Role) {
-		return false
+		return "", false
 	}
 	for _, l := range p.lanes {
 		if l.Agent == agent {
-			return false
+			return "", false
 		}
 	}
-	return true
+	return info.Role, true
 }

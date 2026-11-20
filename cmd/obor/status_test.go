@@ -551,6 +551,25 @@ func TestStatusReviewOpen(t *testing.T) {
 	}
 }
 
+// a role agent done with no open work for an hour carries serve's hint at the end of its line: the command that stops
+// it; a worker's line and the lead's have none.
+func TestStatusDoneRoleHint(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
+		Name: "proj", Root: p.Root, Merging: true, Tasks: []wire.TaskStatus{}, Facts: []event.Record{},
+		Agents: []wire.AgentStatus{
+			{Machine: "local", Group: "pj", Pane: "w1:p3", Name: "pj-advisor", Agent: "claude", Status: "done", Age: 3600,
+				Hint: "obor restart pj-advisor --stop"},
+			{Machine: "local", Group: "pj", Pane: "w1:p1", Name: "pj-l-01", Agent: "claude", Status: "done", Age: 3600},
+		}}}
+	_, text := statusOf(t, p, ss, nil, now)
+	matchLine(t, text, `^agent pj-advisor: done 1h → obor restart pj-advisor --stop$`, "the advisor's line and its hint")
+	matchLine(t, text, `^agent pj-l-01: done 1h$`, "the worker's line, no hint")
+}
+
 // a role agent serve stopped once its work was done, with no pane running it, is `stopped`, not missing: the
 // view's role row and the status line `agent <name>: stopped`; one serve did not stop has no pane as before.
 func TestStatusStoppedRole(t *testing.T) {

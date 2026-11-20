@@ -176,7 +176,11 @@ func laneSection(st view.Project, now time.Time) []string {
 	}
 	for _, a := range st.Agents {
 		if a.Lane == "" {
-			fmt.Fprintf(&b, "agent %s: %s %s\n", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
+			line := fmt.Sprintf("agent %s: %s %s", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
+			if a.Hint != "" { // a role agent done with no open work: how the lead stops it
+				line += " → " + a.Hint
+			}
+			fmt.Fprintln(&b, line)
 			writeBackground(&b, st.AgentBackground(a.Name))
 		}
 	}

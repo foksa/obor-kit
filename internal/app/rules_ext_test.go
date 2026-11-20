@@ -78,7 +78,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
-		r := lineRig(t, "idle", "idle")
+		r := lineRig(t, "idle", "working") // the reviewer works: no done reminder among the lines this test counts
 		r.inbox.unrecord("pj-lead")
 		r.start()
 		if _, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {

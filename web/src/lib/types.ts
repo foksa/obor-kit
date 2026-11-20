@@ -160,6 +160,7 @@ export interface AgentStatus {
   session?: string;
   transcript?: string;
   started?: number;
+  hint?: string;
 }
 
 export interface MessageStatus {

@@ -667,6 +667,7 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	if got := deliveryResults(t, p); got[seqB] != 1 || len(got) != 1 {
 		t.Errorf("delivery results %v, want B's alone", got)
 	}
+	lineStatus(a, "w:rev", "working", now) // the idle reviewer is no done reminder among these lines
 	now = now.Add(msgWait + time.Minute)
 	a.deliver(context.Background(), p, linerLoop(l))
 	recs, err := event.ReadLog(p.root)

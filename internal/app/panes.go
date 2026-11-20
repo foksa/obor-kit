@@ -91,13 +91,19 @@ func (a *App) projectPanes() int {
 	return n
 }
 
-// observe stores pane as herdr reports it now; its timer restarts when its status or agent changed.
+// observe stores pane as herdr reports it now; its timer restarts when its status or agent changed, its ready timer
+// when it began or stopped being ready (idle or done: an idle/done flip counts neither).
 func (a *App) observe(pane port.Pane, now time.Time) {
-	since := now
-	if o := a.obs[pane.ID]; o != nil && o.pane.Status == pane.Status && o.pane.Agent == pane.Agent {
-		since = o.since
+	since, ready := now, now
+	if o := a.obs[pane.ID]; o != nil && o.pane.Agent == pane.Agent {
+		if o.pane.Status == pane.Status {
+			since = o.since
+		}
+		if !o.ready.IsZero() && Ready(o.pane.Status) == Ready(pane.Status) {
+			ready = o.ready
+		}
 	}
-	a.obs[pane.ID] = &seen{pane: pane, since: since}
+	a.obs[pane.ID] = &seen{pane: pane, since: since, ready: ready}
 }
 
 // rereadPanes reads herdr's panes again, as a list: a pane's cwd changes with no event (a cd in its shell, obor setup

@@ -34,6 +34,7 @@ func (a *App) Status() wire.Status {
 		}
 		ps.Lanes = a.lanesNote(p, now)
 		names := map[string]bool{} // the agents serve observes in a pane now: skewNote's seen
+		done := a.doneRoles(p, now)
 		for _, l := range p.lanes {
 			if p.laneHolds(l.Name) == "" {
 				ps.Free = append(ps.Free, l.Name)
@@ -45,6 +46,9 @@ func (a *App) Status() wire.Status {
 			}
 			as := wire.AgentStatus{Machine: Machine, Group: o.pane.Group, Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
 				Agent: o.pane.Agent, Status: o.pane.Status, Age: int64(now.Sub(o.since) / time.Second)}
+			if _, ok := done[as.Name]; ok {
+				as.Hint = roleStopHint(as.Name)
+			}
 			names[as.Name] = true
 			if l, ok := p.laneOf(o.pane.Cwd); ok {
 				as.Lane, as.Task = l.Name, l.Task
