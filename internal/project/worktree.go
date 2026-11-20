@@ -41,20 +41,31 @@ func AddWorktree(ctx context.Context, root, dir, ref string) (added bool, err er
 // the files git tracks: one git does not track reaches it only as a link.
 const PluginSettings = ".claude/settings.json"
 
-// WorktreeLinks are the links every worktree of cfg's project gets: lanes.links, plus PluginSettings while the main
-// checkout has it, git does not track it and lanes.links does not list it. The one choice of LinkInto's list: every
-// caller (obor setup's lanes and role worktrees, obor init, the launcher's start of a role agent, the checks'
-// scratch worktrees and lane tests) passes this.
-func WorktreeLinks(cfg *config.Config) []string {
-	return WorktreeLinksWith(cfg, Git)
+// WorktreeLinks are the links the worktree dir of cfg's project gets: lanes.links, plus PluginSettings when it is not
+// listed there, the main checkout has the file and dir's checkout (its HEAD) lacks that path: a file git does not
+// track reaches a worktree only as a link, and so does a tracked one a worktree sits behind (a role worktree made
+// before the commit that tracked it). A worktree at a commit that has the file gets it from git. The one choice of
+// LinkInto's list: every caller (obor setup's lanes and role worktrees, obor init, the launcher's start of a role
+// agent, the checks' scratch worktrees and lane tests) passes this.
+func WorktreeLinks(cfg *config.Config, dir string) []string {
+	return WorktreeLinksWith(cfg, dir, Git)
 }
 
-// WorktreeLinksWith is WorktreeLinks, its git query run by git: a caller with its own git seam (obor setup's fake)
-// passes that seam, so the policy stays here.
-func WorktreeLinksWith(cfg *config.Config, git func(dir string, args ...string) (string, error)) []string {
+// WorktreeLinksWith is WorktreeLinks, its git queries run by git: a caller with its own git seam (obor setup's fake)
+// passes that seam, so the policy stays here. The main checkout is asked first; dir only when the main checkout
+// tracks the file.
+func WorktreeLinksWith(cfg *config.Config, dir string, git func(dir string, args ...string) (string, error)) []string {
 	links := cfg.LaneLinks()
-	if slices.Contains(links, PluginSettings) || !SettingsUntrackedWith(cfg.Root, git) {
+	if slices.Contains(links, PluginSettings) {
 		return links
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Root, PluginSettings)); err != nil {
+		return links
+	}
+	if TrackedIn(cfg.Root, PluginSettings, git) {
+		if out, err := git(dir, "ls-tree", "--name-only", "HEAD", "--", PluginSettings); err == nil && strings.TrimSpace(out) != "" {
+			return links
+		}
 	}
 	return append(slices.Clone(links), PluginSettings)
 }
@@ -167,7 +178,7 @@ func LaneDirt(cfg *config.Config, dir string, git func(dir string, args ...strin
 		path := line[3:]
 		if strings.HasPrefix(line, "?? ") && isLink(cfg.Root, dir, path) {
 			if !read {
-				links, read = linkSet(cfg, git), true
+				links, read = linkSet(cfg, dir, git), true
 			}
 			if slices.Contains(links, path) {
 				continue
@@ -182,7 +193,7 @@ func LaneDirt(cfg *config.Config, dir string, git func(dir string, args ...strin
 // has as obor's link (isLink): what a lane's cleanup (git clean) and a submission (git add) leave alone.
 func LinksIn(cfg *config.Config, dir string, git func(dir string, args ...string) (string, error)) []string {
 	var in []string
-	for _, link := range linkSet(cfg, git) {
+	for _, link := range linkSet(cfg, dir, git) {
 		if isLink(cfg.Root, dir, link) {
 			in = append(in, link)
 		}
@@ -190,11 +201,11 @@ func LinksIn(cfg *config.Config, dir string, git func(dir string, args ...string
 	return in
 }
 
-// linkSet is WorktreeLinksWith's paths as git status names them: slash-separated, no trailing slash (a linked
+// linkSet is the paths of WorktreeLinksWith for dir as git status names them: slash-separated, no trailing slash (a linked
 // directory is a symlink, a file to git).
-func linkSet(cfg *config.Config, git func(dir string, args ...string) (string, error)) []string {
+func linkSet(cfg *config.Config, dir string, git func(dir string, args ...string) (string, error)) []string {
 	var set []string
-	for _, link := range WorktreeLinksWith(cfg, git) {
+	for _, link := range WorktreeLinksWith(cfg, dir, git) {
 		if link = strings.Trim(filepath.ToSlash(link), "/"); link != "" {
 			set = append(set, link)
 		}

@@ -901,6 +901,12 @@ func restartIntegrator(t *testing.T, x *fx) {
 	if !project.SettingsUntrackedWith(x.p.Root, project.Git) {
 		t.Fatal("precondition: the main checkout has an untracked settings file")
 	}
+	restartIntegratorAsIs(t, x)
+}
+
+// restartIntegratorAsIs restarts pj-int, whose cwd is its role worktree.
+func restartIntegratorAsIs(t *testing.T, x *fx) {
+	t.Helper()
 	x.sid("pj-int", "sid-i")
 	x.shell("w1:p5", "pj-int", "")
 	x.f.Set("w1:p5", func(p *mpane) { p.Session = "sid-i" })
@@ -949,6 +955,48 @@ func TestRestartLinksUnlistedUntrackedSettingsIntoTheRoleWorktreeItAdds(t *testi
 		t.Fatalf("the role worktree %s was not added (toplevel %q)", wt, top)
 	}
 	settingsLinked(t, x, wt)
+}
+
+// The main checkout tracks .claude/settings.json (lanes.links does not list it): a role worktree at a commit without
+// the file is linked at the role's start, so its agent has obor's plugin; one at a commit that has it gets nothing
+// linked, the tracked file is its own.
+func TestRestartLinksTrackedSettingsOnlyIntoARoleWorktreeBehindTheCommit(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		behind bool
+	}{
+		{"behind the commit that tracked it: linked", true},
+		{"at a commit that has it: nothing linked", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setupGit(t)
+			root, wt := x.p.Root, x.p.LaneDir("integrator")
+			x.p.Git(root, "worktree", "add", "-q", "--detach", wt, "main") // before the commit below
+			x.p.Write(filepath.Join(root, ".claude", "settings.json"), `{"main":true}`+"\n")
+			x.p.Git(root, "add", "-f", ".claude/settings.json")
+			x.p.Git(root, "commit", "-q", "-m", "track the settings")
+			if !c.behind {
+				x.p.Git(wt, "checkout", "-q", "--detach", "main")
+			}
+			if project.SettingsUntrackedWith(root, project.Git) {
+				t.Fatal("precondition: the main checkout tracks the settings file")
+			}
+			tracked := x.p.Git(wt, "ls-tree", "--name-only", "HEAD", "--", ".claude/settings.json")
+			if (tracked != "") != !c.behind {
+				t.Fatalf("precondition: the role worktree's HEAD lists %q (behind %v)", tracked, c.behind)
+			}
+			restartIntegratorAsIs(t, x)
+			fi, err := os.Lstat(filepath.Join(wt, project.PluginSettings))
+			switch {
+			case c.behind:
+				settingsLinked(t, x, wt)
+			case err != nil || !fi.Mode().IsRegular():
+				t.Errorf("the role worktree's settings file: %v, %v; want git's regular file, no link", fi, err)
+			}
+		})
+	}
 }
 
 // Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and

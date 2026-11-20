@@ -827,7 +827,7 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		if _, err := os.Stat(l.Dir); err != nil {
 			continue
 		}
-		linked, err := project.LinkInto(s.root, l.Dir, project.WorktreeLinksWith(s.cfg, s.git().Git))
+		linked, err := project.LinkInto(s.root, l.Dir, project.WorktreeLinksWith(s.cfg, l.Dir, s.git().Git))
 		if err != nil {
 			return "", "", project.Failf("%v", err)
 		}
