@@ -463,3 +463,7 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
   integrator: skipped, correctly) and never counted t8/t9 as lost although `terminal-runs` took their new pids; the
   trial lead (t9, open work) stayed a bare shell. T-1379. Resumed by hand with `obor lead --resume` (from an obor pane
   while the core runs: no env leak).
+- Step 9: `hc server stop` while T-02's worker worked (no `hc server start`: from an obor pane it would carry that
+  pane's env; serve starts a down core itself). Serve: core back in 2 s from its scrubbed env (setup check: env
+  guard OK), all five panes counted lost, the worker and the lead restored, free lane / integrator / reviewer
+  skipped; restore done 7 s after the stop. Pass. The worker came back idle with its job: watch that it resumes.
