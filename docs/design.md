@@ -311,11 +311,19 @@ stopped role agent but the integrator starts it fresh with the brief as its firs
 row 53.
 
 ## Setup (`obor init`, `obor setup`; Go `internal/setup`)
-`obor init [--name] [--prefix]` sets a project up with no questions: herdr reachable (else FAIL first),
-config with the detected commands, lanes for the CLIs on PATH, the git hooks layer, panes and roles, the plugin (`claude plugin
-marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), `obor serve install`, then a
-summary (panes waiting on a trust dialog, herdr's `resume_agents_on_restore = false` hint while its config lacks it,
-the file to change, next: `obor lead`). Every step is idempotent: a rerun is
+`obor init [--name] [--prefix] [--terminal herdr|hc]` sets a project up with no questions and ends by starting
+the lead. The terminal: an existing config's `project.terminal`; else the one the caller is typed in (`HC_TERMINAL_ID`
+→ hc, `HERDR_PANE_ID` → herdr, both → herdr), else the one that answers (both → herdr, with a line); `--terminal`
+overrides; the choice is written into the new config. On hc the core's env check is the first step (a leaked core:
+FAIL before any write). Then the terminal reachable (else FAIL first), config with the detected commands, lanes for
+the CLIs on PATH, the git hooks layer, the plugin (`claude plugin marketplace add <kit>` + `install obor@<kit
+marketplace> --scope project`); in a directory with no commit, one "obor init" commit holding every file init
+wrote or found at its own paths (any other file there: FAIL, no write), so the tree is clean after; then panes and
+roles, `obor serve install`, a short summary (warnings, herdr's `resume_agents_on_restore = false` hint while its
+config lacks it) and the lead's start: in the calling pane when it is the chosen terminal's, carries no
+`OBOR_ROLE` and is alone in its tab, else a new `lead` tab; a lead already running is left as it is. `obor lead` with
+no config runs `obor init`. The lead's first session asks one question (keep or change the models and lanes,
+`agents.confirmed`). Every step is idempotent: a rerun is
 the repair path. Placement: a workspace or tab is the project's when every pane in it with a
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
 a workspace whose only pane is a shell `cd`'d into the project counts as the project's (accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the

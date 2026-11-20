@@ -11,19 +11,20 @@ placed at serve connect).
 
 ## Before
 
-- obor v0.41.0 installed (`obor version` outside the obor-kit checkout: elsewhere `obor` runs the pinned release,
-  and v0.40.7 has no hc). Owner: herdr-app open; `hc --version` ≥ 0.1.21. Run the trial's commands from **Terminal.app, outside herdr and
-  outside any obor pane** (an `hc` call from an obor pane while no core runs carries that pane's env into the core).
-- `obor setup check` in the trial project (step 2) reads the core's env: if it refuses ("started from an obor
-  pane"), run `hc server restart --fresh` from Terminal.app first.
+- obor v0.42.0 or later installed (`obor version` outside the obor-kit checkout: elsewhere `obor` runs the pinned
+  release). Owner: herdr-app open; `hc --version` ≥ 0.1.21. Run `hc` commands from **Terminal.app, outside herdr and
+  outside any obor pane** (an `hc` call from an obor pane while no core runs carries that pane's env into the core);
+  `obor init` itself runs no `hc` and may be typed in any herdr-app terminal.
+- `obor init` checks the core's env first: if it refuses ("started from an obor pane"), run
+  `hc server restart --fresh` from Terminal.app, then `obor init` again.
 
 ## Steps
 
 | # | Who | Do | Expect |
 |---|---|---|---|
-| 1 | owner | `mkdir ~/Work/hc-trial && cd ~/Work/hc-trial && git init`, write `.obor/config.json` as `{"version": 2, "project": {"terminal": "hc"}}`, commit it (init refuses a repo with no commit that holds files it did not write) | a repo with one commit, that file |
-| 2 | owner | `obor init`, then `obor lead` (`obor lead` runs init only where no config exists) | init's step lines, serve installed; the lead starts in herdr-app: a space `hc-trial` with a `lead` tab holding only the lead |
-| 3 | trial lead + owner | first-session model confirmation as in any new project; keep lanes at 2 | `obor setup show` confirmed |
+| 1 | owner | `mkdir ~/Work/hc-trial && cd ~/Work/hc-trial && obor init` in a herdr-app terminal | init picks hc, one commit, serve installed; the lead starts in that terminal, its tab renamed `lead`, the space `hc-trial` |
+| 2 | — | (merged into 1) | |
+| 3 | trial lead + owner | the lead's one setup question: Keep | `obor setup show` confirmed |
 | 4 | trial lead | `obor status`; `obor setup check` | serve up on hc, env guard passes, lanes and roles placed: `lanes` and `roles` tabs, one terminal per pane, each in its worktree |
 | 5 | trial lead | a tiny spec (add a README line), `obor dispatch` | worker starts on hc, `task_done`, gate, integrator merge |
 | 6 | trial lead | `obor review start`, close | reviewer starts in `roles`, writes, close stops it |
