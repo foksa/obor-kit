@@ -29,7 +29,7 @@ func restorer(term port.Terminal, env project.Env, a *app.App) *launch.Restorer 
 		}}
 }
 
-// paneless is env without the variables project.Pane reads: serve may run in a pane, but its restore restarts other
+// paneless is env without the variables project.PaneVars lists: serve may run in a pane, but its restore restarts other
 // agents' panes, and a restart there would pass for the agent's own (launch: scheduled).
 func paneless(env project.Env) project.Env {
 	return func(key string) (string, bool) {

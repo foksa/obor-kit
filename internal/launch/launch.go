@@ -32,7 +32,7 @@
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
 //	         obor setup): the pane labelled <agent>, the terminal's agent start (port.AgentStarter), a look for a
 //	         startup dialog. The start ends when the terminal says its agent runs in the pane.
-//	Self     the caller's own pane (project.Pane): scheduled, see self.go.
+//	Self     the caller's own pane (project.PaneOf): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
 package launch

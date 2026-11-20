@@ -25,10 +25,6 @@ var PaneVars = []string{agents.PaneVar, terminalPaneVars[config.DefaultTerminal]
 // ErrNoPane: the environment names no pane: the caller runs outside a pane.
 var ErrNoPane = errors.New("no pane")
 
-// Pane is PaneOf with no config: the default terminal kind's pane variable as the fallback. A caller that has the
-// project's config calls PaneOf, so an hc project never reads a herdr pane's variable.
-func Pane(env Env) (string, error) { return PaneOf(nil, env) }
-
 // PaneOf is the caller's own terminal pane, the one resolver of an agent's pane: OBOR_PANE (every start obor makes
 // exports it), else the pane variable of cfg's terminal kind (terminalPaneVars; nil cfg: the default kind's), else
 // ErrNoPane naming what it read. An empty value reads as unset (hc's terminal.run sets a name empty, it never unsets

@@ -118,7 +118,7 @@ var goldenRequests = []requestLine{
 }
 
 // callerRequests is the same oracle for the requests a real caller builds with the fields it sets: the MCP
-// tools' (Pane, from project.Pane, on every tool call, and Lane from OBOR_LANE) and the web's
+// tools' (Pane, from project.PaneOf, on every tool call, and Lane from OBOR_LANE) and the web's
 // (Source "web" on every page's call). These rows are separate from goldenRequests because those lines stay exactly as
 // captured; a caller that sets "pane" or "source" is a different line, not an edit to them.
 //
