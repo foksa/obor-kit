@@ -20,20 +20,49 @@ import (
 	"obor/internal/setup"
 )
 
+// terminalKind is one terminal kind's row, the one table of what differs by kind (terminals): PaneVar the variable its
+// terminal sets in every pane (config.TerminalPaneVars), Env the variables a caller's serve needs to reach it, Group
+// what it calls a pane's group, Build its adapter for env.
+type terminalKind struct {
+	Name    string
+	PaneVar string
+	Env     []string
+	Group   string
+	Build   func(env project.Env) port.Terminal
+}
+
+var terminals = []terminalKind{
+	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Env: herdr.EnvNames,
+		Group: "workspace", Build: func(env project.Env) port.Terminal {
+			s := &herdr.Socket{Path: herdr.SocketPath(env)}
+			return port.Terminal{Panes: herdr.Panes{S: s}, Control: s, Setup: &herdr.Setup{Socket: s, Env: env}}
+		}},
+	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Env: hc.EnvNames, Group: "space",
+		Build: func(env project.Env) port.Terminal {
+			cl := hc.New(env)
+			return port.Terminal{Panes: hc.Panes{C: cl}, Control: cl, Setup: cl, Check: cl.Check}
+		}},
+}
+
+// kindOf is the row of cfg's terminal kind (nil cfg: the default's); ok is false for a kind obor does not know.
+func kindOf(cfg *config.Config) (terminalKind, bool) {
+	for _, k := range terminals {
+		if k.Name == cfg.TerminalKind() {
+			return k, true
+		}
+	}
+	return terminalKind{}, false
+}
+
 // terminal is the project's terminal: one value for its panes and events, launch's pane operations with the wakes
 // serve types, and setup's placements. cfg names the kind (project.terminal; nil: config.DefaultTerminal), env finds its
 // socket. A kind obor does not know is an error naming the ones it does.
 func terminal(cfg *config.Config, env project.Env) (port.Terminal, error) {
-	switch k := cfg.TerminalKind(); k {
-	case config.DefaultTerminal:
-		s := &herdr.Socket{Path: herdr.SocketPath(env)}
-		return port.Terminal{Panes: herdr.Panes{S: s}, Control: s, Setup: &herdr.Setup{Socket: s, Env: env}}, nil
-	case config.TerminalHC:
-		cl := hc.New(env)
-		return port.Terminal{Panes: hc.Panes{C: cl}, Control: cl, Setup: cl, Check: cl.Check}, nil
-	default:
-		return port.Terminal{}, fmt.Errorf("terminal.kind %q: obor knows %s", k, strings.Join(config.TerminalKinds, ", "))
+	k, ok := kindOf(cfg)
+	if !ok {
+		return port.Terminal{}, fmt.Errorf("terminal.kind %q: obor knows %s", cfg.TerminalKind(), strings.Join(config.TerminalKinds, ", "))
 	}
+	return k.Build(env), nil
 }
 
 // serveTerminal is t as serve watches it: on hc, each subscribe first starts a core that is down from serve's own
@@ -50,15 +79,9 @@ func serveTerminal(cfg *config.Config, t port.Terminal) port.Terminal {
 // terminalEnv is the terminal's environment for a serve launchd starts: the adapter's own variables, read from the
 // caller's env (the plist carries the ones set). A kind obor does not know has none.
 func terminalEnv(cfg *config.Config, env project.Env) []service.EnvVar {
-	var names []string
-	switch cfg.TerminalKind() {
-	case config.DefaultTerminal:
-		names = herdr.EnvNames
-	case config.TerminalHC:
-		names = hc.EnvNames
-	}
+	k, _ := kindOf(cfg)
 	var out []service.EnvVar
-	for _, name := range names {
+	for _, name := range k.Env {
 		if v := env.Get(name); v != "" {
 			out = append(out, service.EnvVar{Name: name, Value: v})
 		}
@@ -119,11 +142,11 @@ func detectTerminal(ctx context.Context, env project.Env, flag string, p termina
 	if k := callerTerminal(env); k != "" {
 		return k, "", nil
 	}
-	if env.Get("HC_TERMINAL_ID") != "" { // both set: HC_TERMINAL_ID was inherited by herdr's server unless the core
+	if env.Get(paneVarOf(config.TerminalHC)) != "" { // both set: HC_TERMINAL_ID was inherited by herdr's server unless the core
 		// was started from a herdr pane
 		if _, leaked := p.hc(ctx); len(leaked) > 0 {
-			return "", "", project.Failf("terminal: HC_TERMINAL_ID and HERDR_PANE_ID are both set: %s (its environment holds %s)",
-				hc.LeakLine, strings.Join(leaked, ", "))
+			return "", "", project.Failf("terminal: %s and %s are both set: %s (its environment holds %s)",
+				paneVarOf(config.TerminalHC), paneVarOf(config.DefaultTerminal), hc.LeakLine, strings.Join(leaked, ", "))
 		}
 		return config.DefaultTerminal, "", nil
 	}
@@ -177,12 +200,25 @@ func initTerminalKind(ctx context.Context, env project.Env, root string, cfg *co
 
 // callerTerminal is the terminal the caller's pane belongs to by its environment ("": neither, or both).
 func callerTerminal(env project.Env) string {
-	inHC, inHerdr := env.Get("HC_TERMINAL_ID") != "", env.Get("HERDR_PANE_ID") != ""
-	switch {
-	case inHC && !inHerdr:
-		return config.TerminalHC
-	case inHerdr && !inHC:
-		return config.DefaultTerminal
+	in := ""
+	for _, k := range terminals {
+		if env.Get(k.PaneVar) == "" {
+			continue
+		}
+		if in != "" {
+			return ""
+		}
+		in = k.Name
+	}
+	return in
+}
+
+// paneVarOf is kind's pane variable (the terminals table).
+func paneVarOf(kind string) string {
+	for _, k := range terminals {
+		if k.Name == kind {
+			return k.PaneVar
+		}
 	}
 	return ""
 }

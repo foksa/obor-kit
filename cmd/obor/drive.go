@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
-	"time"
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -20,12 +19,9 @@ import (
 // driveTitle is a drive's spec title before its name (internal/app's "Owner drive: ").
 const driveTitle = "Owner drive: "
 
-// driveWait bounds how long obor drive waits for serve to prepare a new drive's lane before it starts the agent.
-var driveWait = 60 * time.Second
-
 // driveCmd is `obor drive <name> [--model <ref>]` and `obor drive <T-xx>`: the owner iterates by hand on a
 // branch in a plain interactive agent (role driver). Serve records a new drive (a new task on the first free lane) and
-// answers DRIVE <task> → <lane> (<agent>, <model>); this command then waits for the lane to be prepared and starts the
+// answers a wire.DriveReply (waiting for the lane to be prepared); this command then starts the
 // drive agent in a pane placed as a lane's (a lanes tab of the project), labelled like a lane pane, its first prompt one line saying what it
 // is. On a drive already (by task id or name) serve records nothing: its agent not running, this command starts
 // it again on its recorded lane and model (a failed start's retry; --model ignored); running, serve's DRIVING reply
@@ -70,27 +66,24 @@ func driveCmd(args []string) int {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(out, reply)
-	d, ok := parseDrive(reply)
-	if !ok && strings.HasPrefix(reply, drivingPrefix) { // its drive agent runs already: nothing to start
-		fmt.Fprintln(out, "OK "+strings.TrimPrefix(reply, drivingPrefix))
-		return 0
-	}
-	if !ok {
+	var d wire.DriveReply
+	if err := json.Unmarshal([]byte(reply), &d); err != nil || d.Task == "" {
 		fmt.Fprintf(out, "FAIL cannot read serve's reply %q\n", reply)
 		return 1
 	}
+	fmt.Fprintln(out, d.Line())
+	if d.Running { // its drive agent runs already: nothing to start
+		fmt.Fprintf(out, "OK %s → %s: %s runs already (pane %s)\n", d.Task, d.Lane, d.Agent, d.Pane)
+		return 0
+	}
 	if err := startDrive(ctx, cfg, d, project.OSEnv); err != nil {
-		fmt.Fprintln(out, driveFailed(err, d.task))
+		fmt.Fprintln(out, driveFailed(err, d.Task))
 		return 1
 	}
-	fmt.Fprintf(out, "OK %s: %s drives in lane %s on %s; obor land %s when done\n", d.task, d.agent, d.lane,
-		branchOf(cfg, d.task), d.task)
+	fmt.Fprintf(out, "OK %s: %s drives in lane %s on %s; obor land %s when done\n", d.Task, d.Agent, d.Lane,
+		branchOf(cfg, d.Task), d.Task)
 	return 0
 }
-
-// drivingPrefix starts serve's reply to obor drive on a drive whose agent runs already (DRIVING <task> → <lane>: …).
-const drivingPrefix = "DRIVING "
 
 // driveFailed is the FAIL line of a drive whose start failed: the start's own message, the command that starts the
 // drive again when that message does not already name it, and what ends the recorded drive.
@@ -102,20 +95,6 @@ func driveFailed(err error, task string) string {
 		err, project.RestartCmd("obor drive "+task, "", false, ""), task)
 }
 
-// drive is serve's DRIVE reply: the task, its lane, the drive agent and its type reference.
-type drive struct{ task, lane, agent, ref string }
-
-var driveReplyRE = regexp.MustCompile(`^DRIVE (\S+) → (\S+) \((\S+), (\S+)\)`)
-
-// parseDrive reads serve's DRIVE reply to a drive request (its tail, a retry's " again: …", not read).
-func parseDrive(reply string) (drive, bool) {
-	m := driveReplyRE.FindStringSubmatch(strings.TrimSpace(reply))
-	if m == nil {
-		return drive{}, false
-	}
-	return drive{task: m[1], lane: m[2], agent: m[3], ref: m[4]}, true
-}
-
 // branchOf is task's branch (branches.task).
 func branchOf(cfg *config.Config, task string) string {
 	return cfg.TaskBranch(task)
@@ -123,68 +102,45 @@ func branchOf(cfg *config.Config, task string) string {
 
 // startDrive starts d's agent: the lane prepared (serve's lane.prepare puts it on the branch; waited for up to
 // driveWait), then the drive agent started in a pane placed as a lane's. A drive agent already running there is left as it is.
-func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.Env) error {
+func startDrive(ctx context.Context, cfg *config.Config, d wire.DriveReply, env project.Env) error {
 	var dir string
 	for _, l := range cfg.Lanes() {
-		if l.Name == d.lane {
+		if l.Name == d.Lane {
 			dir = l.Dir
 		}
 	}
 	if dir == "" {
-		return fmt.Errorf("unknown lane %s (not in the config's lanes)", d.lane)
+		return fmt.Errorf("unknown lane %s (not in the config's lanes)", d.Lane)
 	}
-	if err := waitPrepared(ctx, cfg, d); err != nil {
-		return err
+	if !d.Prepared { // serve waited for lane.prepare and it did not finish
+		return fmt.Errorf("lane %s is not prepared for %s after serve's wait (obor status says why)", d.Lane, d.Task)
 	}
 	kit := project.KitRoot(env)
 	t, err := terminal(cfg, env)
 	if err != nil {
 		return err
 	}
-	ref := d.ref
-	if ref == "-" {
-		ref = ""
-	}
-	typ, effort := config.ParseModelRef(ref)
+	typ, effort := config.ParseModelRef(d.Type)
 	if typ == "" { // its advice is the whole start: obor drive adds no retry to it
 		return project.RetryHint(fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>",
-			d.lane, d.task))
+			d.Lane, d.Task))
 	}
 	cwd, _ := os.Getwd()
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, T: t.Setup, Out: out, McpCheck: mcp.Check,
 		Starter: launcherFor(env, kit, t.Control, out, nil)}
-	return s.StartDrive(ctx, setup.Drive{Task: d.task, Agent: d.agent, Lane: d.lane, Cwd: dir, Type: typ, Effort: effort,
+	return s.StartDrive(ctx, setup.Drive{Task: d.Task, Agent: d.Agent, Lane: d.Lane, Cwd: dir, Type: typ, Effort: effort,
 		Prompt: drivePrompt(cfg, d)})
 }
 
 // drivePrompt is the drive agent's first prompt: one line saying what it is, that it commits on the branch as it goes,
 // how it lands the branch and how it reaches the lead and the lead's answers arrive (no backticks: typed
 // by herdr).
-func drivePrompt(cfg *config.Config, d drive) string {
+func drivePrompt(cfg *config.Config, d wire.DriveReply) string {
 	return fmt.Sprintf("[obor drive] You are the owner's drive of %s in lane %s, on branch %s: work with the owner here "+
 		"and commit on that branch as you go (no push). When the owner is done, obor land %s sends it through the gate, "+
 		"the integrator and the merge: it commits nothing and refuses uncommitted changes. To reach this project's lead "+
 		"(direction, contracts, protected docs, queued work): obor tell-lead \"<text>\"; the lead's answers arrive here "+
-		"as [obor answer] lines.", d.task, d.lane, branchOf(cfg, d.task), d.task)
-}
-
-// waitPrepared waits until d's lane row holds d.task prepared (its base recorded): serve's lane.prepare ran.
-func waitPrepared(ctx context.Context, cfg *config.Config, d drive) error {
-	deadline := time.Now().Add(driveWait)
-	for {
-		row, ok, err := store.ReadLaneAt(cfg.Root, d.lane)
-		if err == nil && ok && row.Task == d.task && row.Base != "" {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("lane %s is not prepared for %s after %s (obor status says why)", d.lane, d.task, driveWait)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
+		"as [obor answer] lines.", d.Task, d.Lane, branchOf(cfg, d.Task), d.Task)
 }
 
 // landCmd is `obor land <T-xx|name> ["<summary>"]`: the drive's branch submitted on the owner's behalf. It

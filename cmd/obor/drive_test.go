@@ -54,26 +54,46 @@ func TestDriveRequest(t *testing.T) {
 	}
 }
 
-// parseDrive reads serve's DRIVE reply, its tail ignored; a DRIVING reply (a drive whose agent runs already, or an old
-// serve's take-over) is none.
-func TestParseDrive(t *testing.T) {
+// DriveReply.Line is the line the CLI prints for a reply: the three shapes of the text serve answered before.
+func TestDriveReplyLine(t *testing.T) {
 	t.Parallel()
-	for reply, want := range map[string]drive{
-		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)":                                 {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
-		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high) again: its agent is not running": {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
+	for want, r := range map[string]wire.DriveReply{
+		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)":                                 {Task: "T-3", Lane: "L-01", Agent: "pj-l-01-drive", Type: "opus:high", Prepared: true},
+		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high) again: its agent is not running": {Task: "T-3", Lane: "L-01", Agent: "pj-l-01-drive", Type: "opus:high", Again: true},
+		"DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)":                  {Task: "T-07", Lane: "L-01", Agent: "pj-l1-drive", Running: true, Pane: "w1:p5"},
 	} {
-		if got, ok := parseDrive(reply); !ok || got != want {
-			t.Errorf("parseDrive(%q) = %+v, %v; want %+v", reply, got, ok, want)
+		if got := r.Line(); got != want {
+			t.Errorf("Line of %+v = %q; want %q", r, got, want)
 		}
 	}
-	if _, ok := parseDrive("DISPATCHED T-1 → L-01 (queued)"); ok {
-		t.Error("parseDrive read a dispatch's reply")
-	}
-	for _, reply := range []string{"DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)",
-		"DRIVING T-1 → L-02 (pj-l-02-drive, sonnet) taking over (stopping pj-l-02)"} {
-		if _, ok := parseDrive(reply); ok {
-			t.Errorf("parseDrive read %q", reply)
+}
+
+// A reply that is no DriveReply (an old-text reply, empty JSON) is a FAIL, nothing started.
+func TestDriveUnreadableReply(t *testing.T) {
+	t.Parallel()
+	for _, reply := range []string{"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)", "{}"} {
+		p := servedProject(t)
+		home, _ := startFakeServe(t, p.Root, wire.Status{}, reply, "")
+		rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "web")
+		if rc != 1 || !strings.Contains(stdout, "FAIL cannot read serve's reply") {
+			t.Errorf("reply %q: rc %d, %q; want FAIL cannot read", reply, rc, stdout)
 		}
+	}
+}
+
+// A new drive whose lane serve did not get prepared in its wait (Prepared false) is a FAIL naming the retry, with
+// no wait of the CLI's own and nothing started.
+func TestDriveNotPreparedFails(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	home, serve := startFakeServe(t, p.Root, wire.Status{},
+		`{"task":"T-3","lane":"L-01","agent":"pj-l-01-drive","type":"opus"}`, "")
+	rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "web")
+	if calls, _ := serve.requests(); len(calls) != 1 {
+		t.Fatalf("precondition: calls %+v", calls)
+	}
+	if rc != 1 || !strings.Contains(stdout, "lane L-01 is not prepared for T-3") || strings.Contains(stdout, "OK") {
+		t.Errorf("rc %d, %q; want FAIL, lane not prepared", rc, stdout)
 	}
 }
 
@@ -82,7 +102,7 @@ func TestParseDrive(t *testing.T) {
 func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, `{"task":"T-07","lane":"L-01","agent":"pj-l1-drive","running":true,"pane":"w1:p5"}`, "")
 	rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "T-07")
 	if calls, _ := serve.requests(); len(calls) != 1 || calls[0].Task != "T-07" {
 		t.Fatalf("precondition: calls %+v, want T-07's drive", calls)
@@ -177,7 +197,7 @@ func TestDrivePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := drivePrompt(cfg, drive{task: "T-01", lane: "L-01"})
+	got := drivePrompt(cfg, wire.DriveReply{Task: "T-01", Lane: "L-01"})
 	for _, want := range []string{`obor tell-lead "<text>"`, "[obor answer] lines", "obor land T-01",
 		"commit on that branch as you go", "commits nothing and refuses uncommitted changes"} {
 		if !strings.Contains(got, want) {

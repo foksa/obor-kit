@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app"
 	"obor/internal/app/event"
@@ -27,8 +28,15 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 			t.Fatalf("precondition: records before the drive: %q", r.steps())
 		}
 		want := "DRIVE T-1 → L-01 (pj-l-01-drive, " + r.hardType() + ")"
-		if reply, err := r.drive("v1", "web design"); err != nil || reply != want {
-			t.Fatalf("drive: %q, %v; want %q", reply, err, want)
+		// The reply is a structured DriveReply that says the lane is prepared: the task is driving when it arrives (the
+		// CLI polls nothing).
+		dr, err := r.driveJSON(&wire.DriveReq{Envelope: wire.Envelope{Root: r.p.Root, CallID: "v1"}, Name: "web design"})
+		if err != nil || dr != (wire.DriveReply{Task: "T-1", Lane: "L-01", Agent: "pj-l-01-drive", Type: r.hardType(), Prepared: true}) ||
+			dr.Line() != want {
+			t.Fatalf("drive: %+v, %v; want T-1 on L-01 prepared (%q)", dr, err, want)
+		}
+		if st := r.stateOf("T-1"); st != wire.TaskDriving {
+			t.Errorf("T-1 is %s when the reply arrives, want driving", st)
 		}
 		r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 		r.passes()
@@ -114,6 +122,7 @@ func TestDriveModelHonoured(t *testing.T) {
 		r.addLanes(port.Lane{Name: "L-02", Dir: r.p.Lane("L-02", ""), State: "free"},
 			port.Lane{Name: "L-03", Dir: r.p.Lane("L-03", ""), State: "free"})
 		r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
+		r.driveWait = time.Second // the held prepare never finishes: each reply is not Prepared, after a second
 		r.start()
 		if _, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 			Role: "lead", Agent: "lead", CallID: "s2"}, Task: "T-2",

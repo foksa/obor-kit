@@ -247,6 +247,11 @@ const (
 
 var TerminalKinds = []string{DefaultTerminal, TerminalHC}
 
+// TerminalPaneVars is each terminal kind's own pane variable (the terminal sets it in every pane it runs): the one
+// place the names are written. cmd/obor's terminal table reads them for the caller's terminal, project.PaneOf for the
+// pane; they live here because the adapters import project and project cannot import cmd/obor.
+var TerminalPaneVars = map[string]string{DefaultTerminal: "HERDR_PANE_ID", TerminalHC: "HC_TERMINAL_ID"}
+
 // TerminalKind is project.terminal, else DefaultTerminal.
 func (c *Config) TerminalKind() string {
 	if c != nil && c.Data.Project.Terminal != "" {

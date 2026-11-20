@@ -154,10 +154,8 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 // sayWhere is the last line of a lead started in a new tab: its group (herdr: the workspace, hc: the space), its tab
 // and its pane, as the terminal's snapshot names them; nothing when the terminal cannot say.
 func (r leadRun) sayWhere(ctx context.Context, cfg *config.Config, agent string) {
-	group := "workspace"
-	if cfg.TerminalKind() == config.TerminalHC {
-		group = "space"
-	}
+	k, _ := kindOf(cfg)
+	group := k.Group
 	if r.t.Panes == nil {
 		return
 	}

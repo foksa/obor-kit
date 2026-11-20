@@ -995,7 +995,24 @@ func (r *loopRig) drive(callID, name string, types ...string) (string, error) {
 	if strings.HasPrefix(name, "T-") {
 		c.Task, c.Name = name, ""
 	}
-	return r.ask(c)
+	reply, err := r.driveJSON(c)
+	if err != nil {
+		return "", err
+	}
+	return reply.Line(), nil
+}
+
+// driveJSON is the drive request c's structured reply.
+func (r *loopRig) driveJSON(c *wire.DriveReq) (wire.DriveReply, error) {
+	var d wire.DriveReply
+	s, err := r.ask(c)
+	if err != nil {
+		return d, err
+	}
+	if err := json.Unmarshal([]byte(s), &d); err != nil {
+		return d, fmt.Errorf("drive's reply %q is not a DriveReply: %v", s, err)
+	}
+	return d, nil
 }
 
 // landDrive is obor land's request by the owner for task with summary.
@@ -1847,7 +1864,8 @@ type loopRig struct {
 	// stepRetry, stepRetryMax: the wait before an uncounted step's next try and its cap (0: 5 ms, 40 ms); set
 	// before start
 	stepRetry, stepRetryMax time.Duration
-	night                   *app.Nightly // the loop's Nightly (nil: none; off is At ""); set before start
+	driveWait               time.Duration // how long a new drive's reply waits for its lane's prepare (0: serve's minute); set before start
+	night                   *app.Nightly  // the loop's Nightly (nil: none; off is At ""); set before start
 	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is); set
 	// before start
 	nightOf func() *app.Nightly
@@ -2169,7 +2187,7 @@ func (r *loopRig) launch() {
 		retry, retryMax = r.stepRetry, r.stepRetryMax
 	}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
-		StepRetry: retry, StepRetryMax: retryMax,
+		StepRetry: retry, StepRetryMax: retryMax, DriveWait: r.driveWait,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
 		Info: c.ProcessInfo, Screen: c.Screen, Procs: quietProcs,
 		Refresh: func(err error) bool {

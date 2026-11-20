@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"obor/internal/store"
@@ -96,6 +97,41 @@ type WhereReply struct {
 	Panes  []string          `json:"panes,omitempty"`
 	Why    string            `json:"why,omitempty"`
 	Runs   map[string]string `json:"runs,omitempty"`
+}
+
+// DriveReply is drive's answer (DriveReq), the JSON of it as WhereReply is where's: the drive's Task, its Lane, its
+// drive Agent and its model reference Type ("": none). Running: the agent runs already in Pane (the CLI starts
+// nothing). Again: a drive recorded before whose agent is not running (the CLI starts it again, nothing recorded).
+// Prepared: serve's lane.prepare ran, the lane is on the task's branch (serve waits for it before it answers; false:
+// it did not within its wait, the CLI says so and starts nothing).
+type DriveReply struct {
+	Task     string `json:"task"`
+	Lane     string `json:"lane"`
+	Agent    string `json:"agent"`
+	Type     string `json:"type,omitempty"`
+	Running  bool   `json:"running,omitempty"`
+	Pane     string `json:"pane,omitempty"`
+	Again    bool   `json:"again,omitempty"`
+	Prepared bool   `json:"prepared,omitempty"`
+}
+
+// Line is r as the line the CLI prints (the text serve answered before it was structured).
+func (r DriveReply) Line() string {
+	switch {
+	case r.Running:
+		return fmt.Sprintf("DRIVING %s → %s: %s runs already (pane %s)", r.Task, r.Lane, r.Agent, r.Pane)
+	case r.Again:
+		return r.base() + " again: its agent is not running"
+	}
+	return r.base()
+}
+
+func (r DriveReply) base() string {
+	t := r.Type
+	if t == "" {
+		t = "-"
+	}
+	return fmt.Sprintf("DRIVE %s → %s (%s, %s)", r.Task, r.Lane, r.Agent, t)
 }
 
 // SessionRequest is the session request reporting s, began in the project at root: its caller is s's agent.
