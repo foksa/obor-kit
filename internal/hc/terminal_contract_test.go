@@ -28,7 +28,9 @@ func contractTerminal() testkit.Terminal {
 	win.StartTerminals(core.AppTerminals(false))
 	c := core.Client()
 	c.App = win.Client()
-	return testkit.Terminal{Control: c, Setup: c, Panes: hc.Panes{C: c}, Group: "proj", Cwd: "/proj"}
+	// The notify row shows nothing on the machine running the tests: its notifier is a stub.
+	panes := hc.Panes{C: c, Notifier: func(context.Context, string, string) error { return nil }}
+	return testkit.Terminal{Control: c, Setup: c, Panes: panes, Group: "proj", Cwd: "/proj"}
 }
 
 // TestTerminalContract runs the terminal contract (testkit.Contract) against hc's adapter over hctest, as

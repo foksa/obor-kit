@@ -3,7 +3,11 @@ package hc
 import (
 	"cmp"
 	"context"
+	"errors"
+	"os/exec"
+	"runtime"
 	"strconv"
+	"strings"
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
@@ -108,6 +112,10 @@ type Panes struct {
 	// Core, when set, is serve's hold on the core (env.go): each Subscribe first starts a core that is down and refuses
 	// one whose environment holds a HERDR_ or OBOR_ name. nil: a subscribe only dials.
 	Core *Core
+	// Notifier shows a macOS notification (the seam of Notify): nil is osascript. GOOS names the platform Notify acts
+	// for: "" is this one.
+	Notifier func(ctx context.Context, title, body string) error
+	GOOS     string
 }
 
 var _ port.Panes = Panes{}
@@ -152,7 +160,43 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 	return out, err
 }
 
-// Notify: hc shows no notifications (HD6), so every toast is not shown.
+// Notify: hc has no notifications of its own (HD6), so on darwin the toast is a macOS notification with the same title
+// and body, bounded by ctx; on another platform, or when the notification fails, it is a port.NotShown with the reason.
 func (p Panes) Notify(ctx context.Context, title, body string) error {
-	return &port.NotShown{Reason: "hc has no notifications"}
+	if cmp.Or(p.GOOS, runtime.GOOS) != "darwin" {
+		return &port.NotShown{Reason: "hc has no notifications outside macOS"}
+	}
+	notify := p.Notifier
+	if notify == nil {
+		notify = osascript
+	}
+	if err := notify(ctx, title, body); err != nil {
+		return &port.NotShown{Reason: "osascript: " + err.Error()}
+	}
+	return nil
+}
+
+// notifyScript is the script osascript runs: its title and body are its arguments, never part of its source.
+var notifyScript = []string{
+	"on run argv",
+	"display notification (item 2 of argv) with title (item 1 of argv)",
+	"end run",
+}
+
+// osascript posts the notification: the title and body follow the script as its arguments (after `--`, so a title
+// that starts with a dash is no option). A failure carries osascript's own message.
+func osascript(ctx context.Context, title, body string) error {
+	args := make([]string, 0, 2*len(notifyScript)+3)
+	for _, l := range notifyScript {
+		args = append(args, "-e", l)
+	}
+	args = append(args, "--", title, body)
+	out, err := exec.CommandContext(ctx, "osascript", args...).CombinedOutput()
+	if err != nil {
+		if m := strings.TrimSpace(string(out)); m != "" {
+			return errors.New(m)
+		}
+		return err
+	}
+	return nil
 }
