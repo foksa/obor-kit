@@ -400,3 +400,78 @@ func TestLeadWakesAStoppedProjectFirst(t *testing.T) {
 		}
 	})
 }
+
+// runInit is obor lead in a project with no .obor/config.json: initRun stands for obor init (it writes the config
+// as a real init would when initRC is 0) and counts its runs.
+func (x *leadFx) runInit(t *testing.T, initRC int, runs *int) (string, int) {
+	t.Helper()
+	var out bytes.Buffer
+	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(), t: fakeTerminal(x.srv.Client(), x.p.Env()), out: &out, tune: x.launcher,
+		initRun: func(ctx context.Context) int {
+			*runs++
+			out.WriteString("OK init step\n")
+			if initRC == 0 {
+				x.p.Config(testkit.Set("agents.roles.lead", "opus"))
+			}
+			return initRC
+		}}
+	rc := r.run(context.Background(), nil)
+	return out.String(), rc
+}
+
+// No config: the one line, init's steps, then the lead starts as usual.
+func TestLeadWithoutAConfigRunsInitFirst(t *testing.T) {
+	t.Parallel()
+	x := &leadFx{p: testkit.NewPlain(t), f: herdrtest.New()}
+	x.srv = herdrtest.Serve(t, x.f)
+	if _, err := os.Stat(x.p.Path(".obor/config.json")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: the config exists (%v)", err)
+	}
+	runs := 0
+	out, rc := x.runInit(t, 0, &runs)
+	lines := strings.Split(out, "\n")
+	if rc != 0 || runs != 1 || lines[0] != "no obor config here: running obor init" || lines[1] != "OK init step" {
+		t.Fatalf("exit %d, init runs %d\n%s", rc, runs, out)
+	}
+	if !strings.Contains(x.calls(), "tab.create") || !strings.HasPrefix(lastLine(out), "OK lead: ") {
+		t.Errorf("the lead did not start after init:\n%s\n%s", out, x.calls())
+	}
+}
+
+// Init failing: its rc, and no lead start.
+func TestLeadInitFailureStartsNoLead(t *testing.T) {
+	t.Parallel()
+	x := &leadFx{p: testkit.NewPlain(t), f: herdrtest.New()}
+	x.srv = herdrtest.Serve(t, x.f)
+	runs := 0
+	out, rc := x.runInit(t, 1, &runs)
+	if rc != 1 || runs != 1 || !strings.HasPrefix(out, "no obor config here: running obor init\n") {
+		t.Fatalf("exit %d, init runs %d\n%s", rc, runs, out)
+	}
+	if c := x.calls(); strings.Contains(c, "tab.create") || strings.Contains(c, "workspace.create") || len(x.spawn) != 0 {
+		t.Errorf("a lead started after init failed:\n%s", c)
+	}
+}
+
+// A config that exists but does not load: the load error in the text, init not run.
+func TestLeadBrokenConfigNamesItsError(t *testing.T) {
+	t.Parallel()
+	x := &leadFx{p: testkit.NewPlain(t), f: herdrtest.New()}
+	x.srv = herdrtest.Serve(t, x.f)
+	if err := os.MkdirAll(x.p.Path(".obor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(x.p.Path(".obor/config.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, loadErr := config.Load(x.p.Root)
+	if loadErr == nil {
+		t.Fatal("precondition: the broken config loads")
+	}
+	runs := 0
+	out, rc := x.runInit(t, 0, &runs)
+	want := "FAIL the config does not load: " + loadErr.Error() + " (obor config validate)"
+	if rc != 1 || runs != 0 || strings.TrimSpace(out) != want {
+		t.Errorf("exit %d, init runs %d, out %q; want %q", rc, runs, out, want)
+	}
+}

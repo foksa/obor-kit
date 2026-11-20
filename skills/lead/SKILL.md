@@ -14,7 +14,8 @@ Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
 
 ## Start of a session
 To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a
-fresh session, `--resume` continues the last one.
+fresh session, `--resume` continues the last one. In a project never set up (no `.obor/config.json`) `obor lead`
+runs `obor init` first, then starts the lead.
 
 How you were started:
 - With `handoff` (`/obor:lead handoff`: the fresh session `obor restart <you> --handoff` starts after a Handoff): run the

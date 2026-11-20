@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"time"
 
 	"obor/internal/app/wire"
@@ -48,12 +50,19 @@ func restart(args []string) int {
 		return 1
 	}
 
-	_, cfg, rc := load()
-	switch rc {
-	case 3: // no .obor/config.json: load named it, and there is no config to look the agent up in
+	cwd, _ := os.Getwd()
+	repo, ferr := project.Find(cwd)
+	if ferr != nil {
+		errf("obor: not in a git repository (no .obor/config.json)")
 		return 3
-	case 1:
-		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
+	}
+	cfg, lerr := config.Load(repo.Root)
+	switch {
+	case errors.Is(lerr, config.ErrNoConfig): // no .obor/config.json: there is no config to look the agent up in
+		errf("%s", strings.TrimSuffix(lerr.Error(), ": "+config.ErrNoConfig.Error()))
+		return 3
+	case lerr != nil:
+		fmt.Fprintf(out, "FAIL the config does not load: %v (obor config validate)\n", lerr)
 		return 1
 	}
 	// --handoff is the lead's alone: only the lead's role has the handoff form of its first prompt. A role agent's

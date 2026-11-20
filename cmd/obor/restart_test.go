@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
@@ -118,6 +119,27 @@ func TestRestartWithoutAConfig(t *testing.T) {
 		if rc != 3 || stdout != "" || len(lines) != 1 || !strings.Contains(lines[0], "no "+p.Root+"/.obor/config.json") {
 			t.Errorf("obor %v: exit %d, stdout %q, stderr %q; want one line naming the missing config", args, rc, stdout, stderr)
 		}
+	}
+}
+
+// A config that exists but does not load: restart's FAIL carries the load error.
+func TestRestartBrokenConfigNamesItsError(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	if err := os.MkdirAll(p.Path(".obor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.Path(".obor/config.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, loadErr := config.Load(p.Root)
+	if loadErr == nil {
+		t.Fatal("precondition: the broken config loads")
+	}
+	rc, stdout, _ := run(t, p.Root, nil, "restart", "pj-lead", "--fresh")
+	want := "FAIL the config does not load: " + loadErr.Error() + " (obor config validate)"
+	if rc != 1 || strings.TrimSpace(stdout) != want {
+		t.Errorf("exit %d, stdout %q; want %q", rc, stdout, want)
 	}
 }
 

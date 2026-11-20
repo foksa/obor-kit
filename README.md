@@ -92,7 +92,7 @@ put formatting and secret scans in `merge.check` (the merge check) instead.
 After that:
 
 ```sh
-obor lead       # starts the lead in its own tab; it inspects the project and presents the options
+obor lead       # (runs obor init first in a project never set up) starts the lead in its own tab; it inspects the project and presents the options
 ```
 
 ## Customizing agents
