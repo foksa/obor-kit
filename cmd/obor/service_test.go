@@ -346,9 +346,10 @@ func webLaunchd(t *testing.T) (calls string, loaded map[string]bool) {
 	return calls, loaded
 }
 
-// webAtServeStart installs the web agent when serve is launchd's own run (the label holds its pid) and obor.web is
-// not loaded-and-current: missing, stale, or present but unloaded (an install that failed to bootstrap), it is
-// installed again, and said; a loaded current agent is left alone; a serve not under launchd installs nothing.
+// webAtServeStart installs the web agent when serve is launchd's own run (the label holds its pid) and launchd does
+// not have obor.web loaded: missing, or present but unloaded (an install that failed to bootstrap), it is installed
+// again, and said. A loaded agent is left alone whatever its plist holds — a page another project's environment
+// started keeps running — and a serve not under launchd installs nothing.
 func TestServeStartInstallsWeb(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
@@ -399,17 +400,22 @@ func TestServeStartInstallsWeb(t *testing.T) {
 		t.Errorf("a loaded current agent was reported: %q", said.String())
 	}
 
-	// Loaded but stale (another PATH than its plist's): not current, installed again.
+	// Loaded but written from another environment (another PATH than this start's): left alone, no bootout or
+	// bootstrap, its plist unchanged — the page keeps running where it runs.
 	stale := w
 	stale.Path = "/opt/bin:/usr/bin"
 	before, _ = os.ReadFile(calls)
 	said.Reset()
 	webAtServeStart(ctx, s, stale, 4242, &said)
-	if b, _ := os.ReadFile(w.PlistPath()); string(b) != string(stale.Plist()) {
-		t.Errorf("the stale web plist was not rewritten:\n%s", b)
+	after, _ = os.ReadFile(calls)
+	if added := string(after[len(before):]); strings.Contains(added, "bootstrap") || strings.Contains(added, "bootout") {
+		t.Errorf("a loaded web agent was loaded or unloaded again: %q", added)
 	}
-	if c, _ := os.ReadFile(calls); !strings.Contains(string(c[len(before):]), "bootstrap gui/501 "+w.PlistPath()) {
-		t.Errorf("the stale web agent was not bootstrapped: %q", c)
+	if b, _ := os.ReadFile(w.PlistPath()); string(b) != string(w.Plist()) {
+		t.Errorf("the loaded web agent's plist was rewritten:\n%s", b)
+	}
+	if said.Len() != 0 {
+		t.Errorf("a loaded web agent was reported: %q", said.String())
 	}
 
 	// Present but unloaded (an install an earlier start left loaded nothing): installed again, as missing.
@@ -429,7 +435,8 @@ func TestServeStartInstallsWeb(t *testing.T) {
 }
 
 // installWeb reports a current web agent as nothing (no launchctl call: serve install leaves it alone) and installs
-// a stale one, with its line.
+// a stale one, with its line: an explicit `obor serve install` is the path that refreshes a plist a serve start
+// leaves alone.
 func TestInstallWeb(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
@@ -463,5 +470,11 @@ func TestInstallWeb(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(w.PlistPath()); string(b) != string(stale.Plist()) {
 		t.Errorf("the stale plist was not rewritten:\n%s", b)
+	}
+	// The stale agent was loaded: the refresh replaces its page, so it is taken out and loaded afresh.
+	c, _ := os.ReadFile(calls)
+	if added := string(c[len(after):]); !strings.Contains(added, "bootout gui/") ||
+		!strings.Contains(added, "bootstrap gui/") {
+		t.Errorf("a loaded stale agent was not reloaded: %q", added)
 	}
 }

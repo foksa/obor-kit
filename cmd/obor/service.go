@@ -43,10 +43,10 @@ func launched(ctx context.Context, a launchdAgent, pid int) bool {
 	return loaded && lpid == pid
 }
 
-// webAtServeStart installs the machine's obor web agent when serve runs under launchd (its label holds pid) and the
-// agent is not installed as loaded-and-current: a plist launchd does not have loaded counts as missing, so an install
-// an earlier start left unloaded is tried again. A loaded current agent is left alone: serve never restarts its page.
-// One line says what happened; a failure never ends serve.
+// webAtServeStart installs the machine's obor web agent when serve runs under launchd (its label holds pid) and
+// launchd does not have obor.web loaded: no plist, or one an earlier start left unloaded, is installed. A loaded web
+// agent is left alone whatever its plist holds: serve never replaces the page, so another project's serve start cannot
+// swap a page that runs on this project's PATH and variables. One line says what happened; a failure never ends serve.
 func webAtServeStart(ctx context.Context, s service.Service, w service.Web, pid int, log io.Writer) {
 	if !s.Supported() || !w.Supported() {
 		return
@@ -54,7 +54,7 @@ func webAtServeStart(ctx context.Context, s service.Service, w service.Web, pid 
 	if !launched(ctx, s, pid) {
 		return
 	}
-	if w.Current(ctx) {
+	if _, loaded := w.PID(ctx); loaded {
 		return
 	}
 	line, err := w.Install(ctx)
@@ -65,8 +65,10 @@ func webAtServeStart(ctx context.Context, s service.Service, w service.Web, pid 
 	fmt.Fprintf(log, "obor serve: %s\n", line)
 }
 
-// installWeb installs or refreshes the machine's web agent when it is missing or stale, with its line when it did;
-// "" when it is current or the host has no launchd.
+// installWeb is the explicit install's web line — `obor serve install` and `obor init`: the machine's web agent is
+// installed or refreshed when it is missing or stale, with its line when it did; "" when it is current or the host has
+// no launchd. A serve start leaves a loaded agent alone whatever its plist holds (webAtServeStart); only an explicit
+// install refreshes one.
 func installWeb(ctx context.Context, w service.Web) (string, error) {
 	if !w.Supported() || w.Current(ctx) {
 		return "", nil
