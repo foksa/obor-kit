@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// The lane's occupancy is one decision (launch.Launcher.LaneFree), whether setup places a pane with no start or starts
-// the agent in it: another agent in the lane's worktree is refused with one text, naming the occupant by its label
-// when the config names that agent, else its pane, and nothing is placed, labelled or started either way.
+// The lane's occupancy is one decision (launch.Launcher's laneFree), whether setup places a pane with no start (a
+// NoAgent launch) or starts the agent in it: another agent in the lane's worktree is refused with one text, naming the
+// occupant by its label when the config names that agent, else its pane, and nothing is placed, labelled or started
+// either way.
 func TestPaneLaneOccupiedRefusesTheSameWithAndWithoutStart(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, label, want string }{

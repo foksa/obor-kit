@@ -16,7 +16,7 @@ type Launcher interface {
 	// Launch starts req.Agent (a lane's agent or a role) in its pane (req.Place: one it places when it has none), its
 	// kind and args from its lane type or role, after stopping what runs there (req.NoStop: refused instead). Returns
 	// the one-line result and the agent it started; a fresh start held by a trust dialog returns them too, with a
-	// *TrustDialog error (TrustHeld).
+	// *TrustDialog error (TrustHeld). req.NoAgent: the pane only (see Launch.NoAgent).
 	Launch(ctx context.Context, req Launch) (Started, error)
 	// Stop quits agent in pane ("": the pane labelled agent) and leaves the pane at its shell; force also stops a
 	// working one (up to StopIdle to go idle after Escape). Returns the STOPPED line.
@@ -28,6 +28,9 @@ type Launcher interface {
 // the caller's own pane).
 type Started struct {
 	Line, Pane, Terminal, Kind, Session string
+	// Idle (a NoAgent launch only): the agent's pane was there already, labelled, at its shell with no agent in it:
+	// nothing was done (a rerun). Line, Terminal, Kind and Session are empty for such a launch.
+	Idle bool
 }
 
 // Launch is one agent (re)start: Agent in Pane ("": the pane labelled Agent), resuming the recorded session or Fresh;
@@ -54,6 +57,14 @@ type Launch struct {
 	// NoStop refuses a start rather than stop a running agent, nothing stopped: Agent itself running (a *Running), another
 	// agent in Agent's lane worktree, or another program in the start's pane.
 	NoStop bool
+	// NoAgent labels the agent's pane and types its env (the role's and the lane's, nothing of a kind's own) and starts no
+	// agent: the pane is the one the agent runs in, else its home (the pane labelled Agent at its shell), else Pane (the
+	// target: its shell gets the env line), else a new one Place places (the terminal types the env it is given). It
+	// refuses as NoStop does (the agent running → a *Running; another agent in its lane; another program in the pane),
+	// and, as nothing is started, no model, session, quarantine or first prompt applies and serve down refuses no label.
+	// A home pane with Pane unset is left as it is: Started.Idle. The pane gets the label of Agent. Fresh, Prompt,
+	// Type, Effort, Handoff, Force and Again are not read.
+	NoAgent bool
 	// Again is the command that starts this agent again as it was started (a drive's `obor drive <T-xx>`, which keeps
 	// its prompt), named by a failed start's hint; "": `obor restart <Agent>`.
 	Again string

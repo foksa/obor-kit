@@ -8,6 +8,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/testkit"
 )
 
@@ -78,4 +79,21 @@ func (l *Launcher) FirstPrompt(ctx context.Context, x Target, req Request, sid s
 func (l *Launcher) Outcome(ctx context.Context, x Target, s Start, err error) (*port.TrustDialog, error) {
 	s.Agent, s.Pane = x.Agent, x.Pane
 	return l.outcome(ctx, x.target(), s, err)
+}
+
+// Build and Built are an agent's start as the launch builds it, for the external tests of what a kind's start gets
+// and gives (a plugin kind's one start call, its override files, its generated config).
+type (
+	Build = startSpec
+	Built = startBuilt
+)
+
+// Build is buildStart.
+func (l *Launcher) Build(b Build) (Built, error) { return l.buildStart(b) }
+
+// SetEnv types the env line of e at pane's shell, as a restart does (setEnv, the start's own Env step; setup's pane with
+// no agent in an existing pane takes it through a NoAgent launch).
+func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
+	return l.setEnv(ctx, &target{agent: e.Agent, known: true, pane: pane,
+		info: config.AgentInfo{Role: e.Role, Lane: e.Lane, Cwd: e.Cwd}, env: e.Vars})
 }

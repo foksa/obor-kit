@@ -509,10 +509,13 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 // started, its first prompt taken once a person answers the dialog. A resumed one is a failed start (NotReady).
 // req.Place places the pane of an agent that has none (called once, the start goes there). req.NoStop refuses rather
 // than stop: its agent already running (a *port.Running), another agent in its lane (LaneFree), another program in
-// its pane (otherProgram).
+// its pane (otherProgram). req.NoAgent labels the pane and types its env and starts no agent (panesOnly).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
 		return port.Started{}, project.Failf("%s", config.BadAgentName(l.Cfg, req.Agent))
+	}
+	if req.NoAgent {
+		return l.panesOnly(ctx, req)
 	}
 	waited, err := l.waitScheduled(ctx, req.Agent, req.Pane)
 	if err != nil {
@@ -554,7 +557,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		}
 	}
 	if req.NoStop {
-		if err := l.LaneFree(ctx, t.agent, t.info.Lane, t.info.Cwd); err != nil {
+		if err := l.laneFree(ctx, t.agent, t.info.Lane, t.info.Cwd); err != nil {
 			return port.Started{}, err
 		}
 	}
@@ -647,6 +650,59 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return started, trust
 	}
 	return started, nil
+}
+
+// panesOnly is a NoAgent launch (obor setup's pane without --start): the agent's pane labelled and its env typed, no
+// agent started. Where, as every launch decides it: Locate (adds no agent: serve down does not refuse a label), under
+// the agent's restart lock held to the last step. The agent running → a *port.Running, nothing done; another agent in
+// its lane → refused (laneFree, the decision of a NoStop start too); its labelled pane there already with no agent,
+// no --pane named (a rerun) → Started.Idle, nothing done; else the --pane target (an existing pane, its shell may hold
+// the env of the agent that ran there: its env line typed) or a pane req.Place places with the env of the agent's
+// role and lane (no start is built, so none of a kind's own; every registry var it does not set goes empty, so the
+// pane inherits none of its placer's). The pane is labelled Agent last.
+func (l *Launcher) panesOnly(ctx context.Context, req Request) (port.Started, error) {
+	loc, end, err := l.Locate(ctx, req.Agent, req.Pane, false)
+	if err != nil {
+		return port.Started{}, err
+	}
+	defer end()
+	if loc.Runs {
+		return port.Started{}, &port.Running{Agent: req.Agent, Pane: loc.Pane}
+	}
+	t := &target{agent: req.Agent}
+	if l.Cfg != nil {
+		t.info, t.known = l.Cfg.AgentLookup(req.Agent, "")
+	}
+	if err := l.laneFree(ctx, t.agent, t.info.Lane, t.info.Cwd); err != nil {
+		return port.Started{}, err
+	}
+	if req.Pane == "" && loc.Pane != "" {
+		return port.Started{Pane: loc.Pane, Idle: true}, nil
+	}
+	if t.info.Lane != "" { // a lane's env: the generic facts and the project's lanes.env
+		t.env = config.WithLaneEnv(nil, l.Cfg)
+	}
+	switch {
+	case loc.Pane != "": // the --pane target
+		t.pane = loc.Pane
+		l.say("pane %s (existing)", t.pane)
+		if err := l.setEnv(ctx, t); err != nil {
+			return port.Started{}, err
+		}
+	case req.Place != nil:
+		if err := l.place(ctx, t, req.Place); err != nil {
+			return port.Started{}, err
+		}
+	default:
+		return port.Started{}, project.Failf("no pane labelled %s (pass --pane)", req.Agent)
+	}
+	if loc.Label != req.Agent {
+		if err := l.H.RenamePane(ctx, t.pane, req.Agent); err != nil {
+			return port.Started{}, project.Failf("terminal pane rename %s %s failed", t.pane, req.Agent)
+		}
+		l.say("labelled pane %s %s", t.pane, req.Agent)
+	}
+	return port.Started{Pane: t.pane, Terminal: t.entry.Terminal}, nil
 }
 
 // carries: req's first prompt goes with a request that may resume (serve's: a lane worker started again with its
@@ -836,12 +892,12 @@ func paneEnv(kinds agents.Kinds, t *target) []string {
 	return env
 }
 
-// LaneFree refuses a start of agent in its lane (cwd the lane's worktree) while another agent runs there (one agent in
-// a lane): the one decision of Launch's NoStop start and of obor setup's pane with no start, over one read of the
+// laneFree refuses a start of agent in its lane (cwd the lane's worktree) while another agent runs there (one agent in
+// a lane): the one decision of Launch's NoStop start and of a NoAgent launch, over one read of the
 // terminal's panes. Called once Locate found agent not running, so every agent there is another. The refusal names the
 // occupant to stop by its label when the config names that agent, else (a person's label, a pane nobody labelled) the
 // pane to quit it in. A start with no lane or no cwd has nothing to refuse. Nothing is touched.
-func (l *Launcher) LaneFree(ctx context.Context, agent, lane, cwd string) error {
+func (l *Launcher) laneFree(ctx context.Context, agent, lane, cwd string) error {
 	if lane == "" || cwd == "" {
 		return nil
 	}
@@ -940,13 +996,6 @@ func transcriptElsewhere(wild string) (bool, error) {
 
 // AgentEnv is port.AgentEnv.
 type AgentEnv = port.AgentEnv
-
-// SetEnv types the env line of e at pane's shell, as a restart does (obor setup's pane with no agent, in a pane that
-// already exists: its shell may hold the env of the agent that ran there before).
-func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
-	return l.setEnv(ctx, &target{agent: e.Agent, known: true, pane: pane,
-		info: config.AgentInfo{Role: e.Role, Lane: e.Lane, Cwd: e.Cwd}, env: e.Vars})
-}
 
 // setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
 func (l *Launcher) setEnv(ctx context.Context, t *target) error {
@@ -1048,7 +1097,7 @@ func roleEnv(role string) string {
 // neither type nor role starts with no launch args: the kind's start over none, still with its env (OpenCode: its
 // generated config). An effort the start cannot carry is a Fail (nothing stopped yet).
 func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, error) {
-	b := Build{Agent: t.agent, Kind: t.kind, Role: t.info.Role, Effort: effort, Dir: t.info.Cwd, Resume: resume,
+	b := startSpec{Agent: t.agent, Kind: t.kind, Role: t.info.Role, Effort: effort, Dir: t.info.Cwd, Resume: resume,
 		Prompt: prompt, Bare: t.info.Type == "" && t.info.Role == ""}
 	if t.info.Type != "" {
 		lt, _ := l.Cfg.Model(t.info.Type)
@@ -1061,7 +1110,7 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 		rc, _ := l.Cfg.Role(t.info.Role)
 		b.WriteDirs = l.Cfg.RoleWriteDirs(rc.Role)
 	}
-	built, err := l.Build(b)
+	built, err := l.buildStart(b)
 	if err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
@@ -1069,10 +1118,10 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 	return built.Args, nil
 }
 
-// Build is an agent's start to build: its type (the model's kind and args), its role ("": none), effort ("": the
+// startSpec is an agent's start to build: its type (the model's kind and args), its role ("": none), effort ("": the
 // type's), cwd, the dirs outside it the agent writes, and the session to resume or the first prompt. Bare: the kind's
 // start over no launch args (an agent with neither type nor role: no settings, not strict).
-type Build struct {
+type startSpec struct {
 	Agent, Kind       string
 	Args              []string // the model's args (config.Model.Args)
 	Role, Effort, Dir string
@@ -1081,15 +1130,15 @@ type Build struct {
 	Bare              bool
 }
 
-// Built is a start as its kind built it from the complete start, in one call of a plugin kind: the argv after the
+// startBuilt is a start as its kind built it from the complete start, in one call of a plugin kind: the argv after the
 // binary, the start's own env (Vars; "" unsets one) and the session id obor chose for it ("": none, or a resume).
-type Built struct {
+type startBuilt struct {
 	Args    []string
 	Vars    map[string]string
 	Session string
 }
 
-// Build is the agent's one start, built once at the launch boundary: the complete agents.Start
+// buildStart is the agent's one start, built once at the launch boundary: the complete agents.Start
 // (the kit, the model's args with the role's settings and strictness, the project's override files of the kind, the
 // effort, the cwd, the dirs the agent writes,
 // which it makes, the resume or the first prompt as one line, the session obor names for a kind that takes one, the
@@ -1098,18 +1147,18 @@ type Built struct {
 // command changed is described again here, once), so the override files read and the start call are of one manifest.
 // The model's start (config.Model.Launch), or b.Bare the kind's start over no launch args. An unknown kind: the
 // args as given (start refuses it).
-func (l *Launcher) Build(b Build) (Built, error) {
+func (l *Launcher) buildStart(b startSpec) (startBuilt, error) {
 	k, ok := l.Cfg.Kind(b.Kind)
 	if !ok {
-		return Built{Args: append([]string(nil), b.Args...)}, nil
+		return startBuilt{Args: append([]string(nil), b.Args...)}, nil
 	}
 	k, err := agents.AsNow(k)
 	if err != nil {
-		return Built{}, err
+		return startBuilt{}, err
 	}
 	for _, d := range b.WriteDirs { // a dir a start lets the agent write (Codex's --add-dir) must be there
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return Built{}, err
+			return startBuilt{}, err
 		}
 	}
 	kit := l.Kit
@@ -1135,9 +1184,9 @@ func (l *Launcher) Build(b Build) (Built, error) {
 		}
 	}
 	if err != nil {
-		return Built{}, err
+		return startBuilt{}, err
 	}
-	return Built{Args: r.Args, Vars: r.Env, Session: session}, nil
+	return startBuilt{Args: r.Args, Vars: r.Env, Session: session}, nil
 }
 
 func (l *Launcher) kill(pgid int, sig syscall.Signal) error {
