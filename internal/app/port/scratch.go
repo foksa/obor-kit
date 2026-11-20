@@ -1,0 +1,153 @@
+package port
+
+import (
+	"context"
+)
+
+// Candidate is a compiled merge waiting to be tested and published, pinned at refs/obor/candidate/<task> until it is
+// published or rejected: the commit the slot made and the target it merged onto. Patch, Stat and Diff are of
+// the task's own diff Base..S (S: the submitted sha, the merge's second parent), so a move keeps them (row 20).
+type Candidate struct {
+	Task, Lane string
+	SHA        string // the merge commit (its first parent is Target, its second the submitted sha)
+	Target     string // the target sha the merge went onto
+	Base       string // merge-base(S, Target): the task's own diff is Base..S ("" on a candidate whose base is not recorded)
+	Patch      string // sha256 of git diff Base S: an accept is bound to it (docs/state-model.md row 20)
+	Checks     string // the slot's compile summary ("" when no compile ran)
+	Stat       string // git diff --stat Base S
+	Diff       string // git diff Base S when at most InlineDiff bytes, else "" (the review job carries it)
+}
+
+// InlineDiff is the largest candidate diff the review job carries whole: larger, the job says to read it.
+const InlineDiff = 15 << 10
+
+// Scratch is the merge loop's git side: serve's own worktree, the target branch, the pins under refs/obor/.
+// An outcome is final for its step; an error is "not decided": the step runs again (App.do's failure rule).
+type Scratch interface {
+	// Submit commits the lane's uncommitted work (a leftover done file never) and pins its HEAD at
+	// refs/obor/submitted/<task>/<id>: that sha, the gate's input. id is the submit step's identity (submitID): a pin
+	// it already has is returned as it is. A final refusal (no lane dir, not on a branch, already in the target) is a
+	// Refused error.
+	Submit(ctx context.Context, task, id, lane, summary string) (sha string, err error)
+	// Gate resets serve's worktree, merges or takes in.Input there, compiles it (commands.compile), commits and pins
+	// the candidate (the gate runs no test there).
+	Gate(ctx context.Context, in GateInput) (GateOutcome, error)
+	// Test runs the class's checks for the candidate in.SHA in the task's lane worktree (row 18b): checked out
+	// detached there, the lane's branch restored after. A lane with uncommitted changes is an error (tried again: the
+	// lane is never touched); an outcome is green, red or fail.
+	Test(ctx context.Context, in TestInput) (TestOutcome, error)
+	// Resolved pins the merge the integrator resolved and committed in serve's worktree at refs/obor/resolved/<task>:
+	// its sha (the verdict's pin). It must be the merge of input (the conflicting gate's) onto the target; anything
+	// else (an open merge, HEAD in the target, another merge) is a Refused error.
+	// A non-nil m (the last gate's Mismatch) is refused while the committed merge still lacks the checked resolution's
+	// edits in m.Files and is unchanged from the replay.
+	Resolved(ctx context.Context, task, input string, m *Mismatch) (sha string, err error)
+	// Publish fast-forwards the target to c.SHA when it is still c.Target, then deletes the task's pins.
+	Publish(ctx context.Context, c Candidate) (PublishOutcome, error)
+	// AfterMerge runs merge.after for the published c: ran | skipped | WARN …. Its intent (G) is the once:
+	// a cut before its result runs it again (after_merge is idempotent).
+	AfterMerge(ctx context.Context, c Candidate) (string, error)
+	// Landed: the target holds merge evidence of task (merged outside the app); an error: git cannot tell.
+	Landed(ctx context.Context, task string) (bool, error)
+	// Unpin deletes a rejected task's pins (an absent pin is not an error).
+	Unpin(ctx context.Context, task string) error
+}
+
+// GateInput is one gate: Input is the sha gated, per Kind: InputLane submit's sha (merged onto the target),
+// InputResolved the verdict's pin (checked as committed), InputMoved submit's sha again (merged onto the moved target,
+// never the old candidate: one merge commit per task). The merge's subject is "Merge <task>: <Title>" (no title
+// stored: the Summary's first line), the same for a moved and a resolved gate; the report's whole Summary
+// section (Body) stays in the body. Spec is the task's spec and SpecRev its rev, the store's current one: the
+// gate puts both into the merge commit's message (a resolved gate amends the integrator's message), and the
+// review job names that rev; "" (none stored) adds nothing.
+type GateInput struct {
+	Task, Lane, Kind, Input string
+	Summary, Title          string // the worker's summary line (the no-title subject); the spec's title ("": none stored)
+	Body                    string // the worker report's whole Summary section, the merge's body ("": Summary)
+	Spec                    string
+	SpecRev                 int
+	// Resolved, on an InputMoved gate, is the attempt's last checked resolution (the resolved gate's input; "":
+	// none). A merge that needed a rerere replay is clean only when its patch equals that resolution's: else, or with
+	// none, a conflict naming the files whose patch differs (rerere replays hunks, not the resolution's other edits).
+	Resolved string
+	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, compile), for
+	// obor status' running line.
+	Command func(name string)
+}
+
+// TestInput is one lane test (row 18b): the task's candidate SHA, compiled onto Target, tested in Lane's
+// worktree; Branch is the lane's branch as the dispatch recorded it, restored when the lane is found detached already
+// (a test cut before its restore). Command is told each command it starts, as GateInput's.
+type TestInput struct {
+	Task, Lane, Branch string
+	SHA, Target        string
+	Command            func(name string)
+}
+
+// TestOutcome is a lane test's final outcome: Kind OutcomeGreen, OutcomeRed or OutcomeFail with Line; Checks the
+// checks' summary.
+type TestOutcome struct {
+	Kind, Line string
+	Checks     string
+}
+
+// Gate input kinds.
+const (
+	InputLane     = "lane"
+	InputResolved = "resolved"
+	InputMoved    = "moved"
+)
+
+// GateOutcome is a gate's final outcome: Kind OutcomeGreen with the pinned Candidate; OutcomeRed or OutcomeFail with
+// Line; OutcomeConflict with the conflicting Files, left open in Dir.
+type GateOutcome struct {
+	Kind      string
+	Candidate Candidate
+	Line      string
+	Files     []string
+	Dir       string
+	// Mismatch: a conflict that is no unmerged path but a replayed resolution lost edits of the checked one.
+	Mismatch *Mismatch
+}
+
+// Mismatch is a replayed resolution that differs from the checked one: the checked resolution's sha,
+// the files whose patch differs, the tree of the replayed merge in Dir (what "unchanged from the replay" is compared
+// with).
+type Mismatch struct {
+	Checked string   `json:"checked"`
+	Tree    string   `json:"tree"`
+	Files   []string `json:"files"`
+	Dir     string   `json:"dir"`
+}
+
+// Gate outcome kinds.
+const (
+	OutcomeGreen    = "green"
+	OutcomeRed      = "red"      // a check failed
+	OutcomeConflict = "conflict" // the merge conflicts; it stays open in Dir to be resolved
+	OutcomeFail     = "fail"     // the checks cannot pass: lane_setup, a missing command
+)
+
+// PublishOutcome is a publish's final outcome: PublishMerged, PublishAlready (the target holds the candidate),
+// PublishMoved (the target is at Head, not the candidate's), PublishHold (uncommitted Files in the main checkout are
+// among the merged ones: nothing merged), PublishPending (the merge was asked for and is not done yet: the task waits
+// published until Landed says the target holds it; no implementation returns it yet).
+type PublishOutcome struct {
+	Kind  string
+	Head  string
+	Files []string
+}
+
+// Publish outcome kinds.
+const (
+	PublishMerged  = "merged"
+	PublishAlready = "already"
+	PublishMoved   = "moved"
+	PublishHold    = "hold"
+	PublishPending = "pending"
+)
+
+// Refused is a final refusal returned as an error (Submit, Resolved): the step is not run again.
+type Refused struct{ Line string }
+
+func (r Refused) Error() string { return r.Line }
