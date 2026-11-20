@@ -467,3 +467,7 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
   pane's env; serve starts a down core itself). Serve: core back in 2 s from its scrubbed env (setup check: env
   guard OK), all five panes counted lost, the worker and the lead restored, free lane / integrator / reviewer
   skipped; restore done 7 s after the stop. Pass. The worker came back idle with its job: watch that it resumes.
+- Step 10: herdr-app quit; T-03 dispatched: worker in its existing terminal t5, `task_done`, gate GREEN, integrator
+  ACCEPT, `MERGED T-03 682416b`, 31 s dispatch to merge, no needs-you. Every pane already existed, so no hidden
+  terminal was made and T-1368's placement at reconnect was not exercised (it needs a new pane while the app is
+  closed: a lane added, or a role's first start). Pass for "obor runs with the window closed".
