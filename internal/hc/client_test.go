@@ -168,13 +168,58 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
-// hc has no notifications: every toast is NotShown, which the caller logs and goes on from.
+// On darwin a toast is a macOS notification with the title and body as they are (quotes and backslashes included);
+// when it fails, or off darwin, it is a NotShown with the reason, which the caller logs and goes on from.
 func TestNotify(t *testing.T) {
-	err := hc.Panes{C: hctest.New().Client()}.Notify(context.Background(), "t", "b")
-	var ns *port.NotShown
-	if !errors.As(err, &ns) || ns.Reason == "" {
-		t.Errorf("Notify = %v, want a NotShown with its reason", err)
+	ctx := context.Background()
+	core := hctest.New().Client()
+	type call struct{ title, body string }
+	var calls []call
+	seam := func(err error) func(context.Context, string, string) error {
+		return func(_ context.Context, title, body string) error {
+			calls = append(calls, call{title, body})
+			return err
+		}
 	}
+	notShown := func(err error) *port.NotShown {
+		t.Helper()
+		var ns *port.NotShown
+		if !errors.As(err, &ns) {
+			t.Fatalf("Notify = %v, want a NotShown", err)
+		}
+		return ns
+	}
+
+	t.Run("darwin shows it with title and body as given", func(t *testing.T) {
+		calls = nil
+		want := call{`obor: "hc" needs you \ now`, `it said 'hi' \n "quoted" \"`}
+		if err := (hc.Panes{C: core, GOOS: "darwin", Notifier: seam(nil)}).Notify(ctx, want.title, want.body); err != nil {
+			t.Fatalf("Notify = %v, want shown", err)
+		}
+		if len(calls) != 1 || calls[0] != want {
+			t.Errorf("notifier calls = %q, want one with %q", calls, want)
+		}
+	})
+	t.Run("a failure is NotShown with osascript's error", func(t *testing.T) {
+		calls = nil
+		err := (hc.Panes{C: core, GOOS: "darwin", Notifier: seam(errors.New("execution error: not allowed"))}).Notify(ctx, "t", "b")
+		if len(calls) != 1 {
+			t.Fatalf("notifier calls = %q, want one", calls)
+		}
+		if ns := notShown(err); !strings.Contains(ns.Reason, "execution error: not allowed") {
+			t.Errorf("reason = %q, want osascript's error in it", ns.Reason)
+		}
+	})
+	t.Run("another platform is NotShown and shows nothing", func(t *testing.T) {
+		calls = nil
+		err := (hc.Panes{C: core, GOOS: "linux", Notifier: seam(nil)}).Notify(ctx, "t", "b")
+		if ns := notShown(err); ns.Reason == "" {
+			t.Errorf("Notify = %v, want a reason", err)
+		}
+		if len(calls) != 0 {
+			t.Errorf("notifier calls = %q, want none off darwin", calls)
+		}
+	})
 }
 
 // SocketPath finds the core's socket as hc does: HC_SOCKET, else the runtime dir's, else the session's state dir.
