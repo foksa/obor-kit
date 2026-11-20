@@ -248,7 +248,7 @@ func (c *client) stop() error {
 	}
 }
 
-// TestToolsListPerRole: tools/list is the role's table — the worker's two, the integrator's six (by name, the SDK's
+// TestToolsListPerRole: tools/list is the role's table — the worker's three, the integrator's six (by name, the SDK's
 // order), nothing at all for the lead, an unknown role or no role — each with its description and argument schema
 // (open, as before the SDK: no additionalProperties, and properties even when there are none).
 func TestToolsListPerRole(t *testing.T) {
@@ -258,7 +258,7 @@ func TestToolsListPerRole(t *testing.T) {
 		env   []string
 		names string
 	}{
-		{[]string{"OBOR_ROLE=worker"}, `["job_next","task_done"]`},
+		{[]string{"OBOR_ROLE=worker"}, `["job_next","merge_preview","task_done"]`},
 		{[]string{"OBOR_ROLE=integrator"}, `["accept","hold","job_next","reject","resolved","sendback"]`},
 		{[]string{"OBOR_ROLE=lead"}, `[]`},
 		{[]string{"OBOR_ROLE=deep_dive"}, `[]`},
@@ -289,7 +289,7 @@ func TestToolsListPerRole(t *testing.T) {
 			}
 			want := map[string]string{"job_next": `{"job":""}`, "task_done": `{"report":"report"}`,
 				"accept": `{"note":"","patch":"patch"}`, "sendback": `{"why":"why"}`, "reject": `{"why":"why"}`,
-				"hold": `{"why":"why"}`, "resolved": `{}`}[tool.Name]
+				"hold": `{"why":"why"}`, "resolved": `{}`, "merge_preview": `{}`}[tool.Name]
 			got := map[string]string{} // each property: required ones by name, optional ones ""
 			for name, p := range sc.Properties {
 				if p["type"] != "string" || p["description"] == "" {
@@ -310,7 +310,8 @@ func TestToolsListPerRole(t *testing.T) {
 	}
 }
 
-// TestWorkerTools: job_next renders the JobReply readably and task_done sends the lane's task and its report; each call carries the
+// TestWorkerTools: job_next renders the JobReply readably, task_done sends the lane's task and its report and
+// merge_preview the lane, its reply the text; each call carries the
 // agent's identity (root, its derived agent name whatever a stale OBOR_AGENT says, role, lane, pane) and its own call id.
 func TestWorkerTools(t *testing.T) {
 	t.Parallel()
@@ -319,6 +320,8 @@ func TestWorkerTools(t *testing.T) {
 		switch method {
 		case wire.MethodJobNext:
 			return `{"state":"job","job":"T-01/1/work","task":"T-01","attempt":1,"step":"work","text":"do the work"}`, ""
+		case wire.MethodMergePreview:
+			return "clean: your work merges onto main 0123456", ""
 		default:
 			return "submitted", ""
 		}
@@ -342,9 +345,17 @@ func TestWorkerTools(t *testing.T) {
 	if got.IsError || got.Text != "submitted" {
 		t.Errorf("task_done (an argument it does not know ignored): %+v; want submitted", got)
 	}
+	got = c.tool("merge_preview", nil)
+	if got.IsError || got.Text != "clean: your work merges onto main 0123456" {
+		t.Errorf("merge_preview: %+v; want the app's reply as the text", got)
+	}
 	reqs := a.requests()
-	if len(reqs) != 2 {
-		t.Fatalf("the app got %d requests; want 2: %+v", len(reqs), reqs)
+	if len(reqs) != 3 {
+		t.Fatalf("the app got %d requests; want 3: %+v", len(reqs), reqs)
+	}
+	if p := reqs[2]; p.Method != wire.MethodMergePreview || p.Call.Lane != "L-01" || p.Call.Role != "worker" ||
+		p.Call.Agent != "pj-l-01" || p.Call.Task != "" {
+		t.Errorf("merge_preview's request %s %+v; want the worker's lane L-01 and no task", p.Method, p.Call)
 	}
 	// job_next names the caller's pane; task_done does not (serve reads the pane from its lane's watch).
 	for i, call := range []toolCall{reqs[0].Call, reqs[1].Call} {
@@ -534,6 +545,9 @@ func TestToolPreconditions(t *testing.T) {
 	if got := n.tool("task_done", map[string]any{"report": "x"}); !got.IsError || !strings.Contains(got.Text, "OBOR_LANE is not set") {
 		t.Errorf("task_done without a lane: %+v; want a tool error naming OBOR_LANE", got)
 	}
+	if got := n.tool("merge_preview", nil); !got.IsError || !strings.Contains(got.Text, "OBOR_LANE is not set") {
+		t.Errorf("merge_preview without a lane: %+v; want a tool error naming OBOR_LANE", got)
+	}
 }
 
 // TestCheck: the doctor line is the handshake's own output, per role.
@@ -544,7 +558,7 @@ func TestCheck(t *testing.T) {
 		env  project.Env
 		want string
 	}{
-		{f.worker(), "MCP OK (worker: job_next, task_done)"},
+		{f.worker(), "MCP OK (worker: job_next, merge_preview, task_done)"},
 		{f.env("OBOR_ROLE=integrator"), "MCP OK (integrator: accept, hold, job_next, reject, resolved, sendback)"},
 		{f.env("OBOR_ROLE=lead"), "MCP OK (lead: no tools)"},
 		{f.env(), "MCP OK (-: no tools)"},

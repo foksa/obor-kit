@@ -33,10 +33,11 @@ type (
 	holdIn struct {
 		Why string `json:"why" jsonschema:"the decision the owner must make"`
 	}
-	resolvedIn struct{}
+	resolvedIn     struct{}
+	mergePreviewIn struct{}
 )
 
-// register adds the role's tools to srv: the worker fetches its job and submits, the integrator fetches and gives
+// register adds the role's tools to srv: the worker fetches its job, previews its merge and submits, the integrator fetches and gives
 // verdicts, every other role gets nothing. Each tool's request copies its arguments into the method's request type (an
 // empty required one is the tool's refusal); the verdicts key on the job job_next fetched last.
 func (s *server) register(srv *sdk.Server) {
@@ -54,6 +55,11 @@ func (s *server) register(srv *sdk.Server) {
 			"it). A refusal names what is missing.", func(in taskDoneIn) (wire.Req, error) {
 			// Serve resolves the lane to its task.
 			return &wire.TaskDoneReq{Lane: s.env.Get("OBOR_LANE"), Report: in.Report}, required("report", in.Report)
+		})
+		add(srv, s, wire.MethodMergePreview, "Whether your lane's work (its commits and uncommitted changes) merges "+
+			"cleanly onto the integration branch's head now, or its conflicted paths. A preview: nothing is written, the "+
+			"gate still decides.", func(_ mergePreviewIn) (wire.Req, error) {
+			return &wire.MergePreviewReq{Lane: s.env.Get("OBOR_LANE")}, nil
 		})
 	case "integrator":
 		add(srv, s, wire.MethodJobNext, jobNextDesc, jobNext)

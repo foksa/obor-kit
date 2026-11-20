@@ -126,6 +126,9 @@ func (s *server) call(method string, request func() (wire.Req, error)) (string, 
 	if d, ok := r.(*wire.TaskDoneReq); ok && d.Lane == "" {
 		return "", errors.New(method + ": OBOR_LANE is not set: task_done is the worker's tool")
 	}
+	if d, ok := r.(*wire.MergePreviewReq); ok && d.Lane == "" {
+		return "", errors.New(method + ": OBOR_LANE is not set: merge_preview is the worker's tool")
+	}
 	*r.Env() = wire.Envelope{Root: root.Root, Agent: agent, Role: s.role(), CallID: wire.NewCallID()}
 	reply, err := wire.Verdict(s.ctx, wire.SocketPath(root.Root), r)
 	if err != nil {

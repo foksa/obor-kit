@@ -16,6 +16,22 @@ type Workflow interface {
 	Review
 	// Target is the target branch's sha now, and whether task's branch has commits the target lacks.
 	Target(ctx context.Context, task string) (sha string, ahead bool, err error)
+	// MergePreview is lane's work (its HEAD and its uncommitted changes) merged onto the target's head now, the
+	// worker's merge_preview: read-only for the lane and every ref. A lane with no dir is a Refused error.
+	MergePreview(ctx context.Context, lane string) (Preview, error)
+}
+
+// Preview is a merge preview: the target branch and its head's sha, and each conflicted path with git's messages
+// naming it (none: the work merges cleanly).
+type Preview struct {
+	Target, TargetSHA string
+	Conflicts         []PreviewConflict
+}
+
+// PreviewConflict is one conflicted path of a Preview and git's message lines for it.
+type PreviewConflict struct {
+	Path     string
+	Messages []string
 }
 
 // Review is the git a review's start and close do on the project (scratch-ff: the main checkout, cmd/obor's
