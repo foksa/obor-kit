@@ -419,8 +419,8 @@ func (x *leadFx) runInit(t *testing.T, initRC int, runs *int) (string, int) {
 	return out.String(), rc
 }
 
-// No config: the one line, init's steps, then the lead starts as usual.
-func TestLeadWithoutAConfigRunsInitFirst(t *testing.T) {
+// No config: the one line, then init's steps and its rc: obor lead starts no lead itself (init does, as its last step).
+func TestLeadWithoutAConfigRunsInitAndReturnsItsRC(t *testing.T) {
 	t.Parallel()
 	x := &leadFx{p: testkit.NewPlain(t), f: herdrtest.New()}
 	x.srv = herdrtest.Serve(t, x.f)
@@ -433,8 +433,23 @@ func TestLeadWithoutAConfigRunsInitFirst(t *testing.T) {
 	if rc != 0 || runs != 1 || lines[0] != "no obor config here: running obor init" || lines[1] != "OK init step" {
 		t.Fatalf("exit %d, init runs %d\n%s", rc, runs, out)
 	}
-	if !strings.Contains(x.calls(), "tab.create") || !strings.HasPrefix(lastLine(out), "OK lead: ") {
-		t.Errorf("the lead did not start after init:\n%s\n%s", out, x.calls())
+	if c := x.calls(); strings.Contains(c, "tab.create") || len(x.spawn) != 0 {
+		t.Errorf("obor lead started a lead after init (init does that):\n%s\n%s", out, c)
+	}
+}
+
+// Outside a repository: init runs too (it makes the repository), and its rc is the result.
+func TestLeadOutsideARepositoryRunsInit(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := project.Find(dir); err == nil {
+		t.Skip("the temp dir is inside a repository")
+	}
+	var out bytes.Buffer
+	runs := 0
+	r := leadRun{dir: dir, env: project.OSEnv, out: &out, initRun: func(context.Context) int { runs++; return 7 }}
+	if rc := r.run(context.Background(), nil); rc != 7 || runs != 1 || out.String() != "no obor config here: running obor init\n" {
+		t.Fatalf("exit %d, init runs %d\n%s", rc, runs, out.String())
 	}
 }
 
