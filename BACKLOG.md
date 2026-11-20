@@ -27,6 +27,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
 ## Later candidates
+- (lead, 11-20) When DD-architecture-2026-11-20 is done and verified: set `agents.roles.deep_dive` back to `opus:high` (fable was for that one run, owner 11-20), commit.
 - (herdr restore, RV-225 design note) A live probe in a throwaway named herdr session with resume on and several staggered panes, covering serve's replacement end to end (the recorded probe covers one bare resume): makes the 60 s settle boundary testable against herdr upgrades.
 - (hc, owner 11-20: not worth a fix) `obor uninstall` on hc leaves the project's kept terminals as idle shells (~1 MB each) and herdr-app's space: the close's `terminal.kill` is undone by keep (T-1382 dropped; fix: `terminal.keep {keep:false}` before the kill, and hctest models keep). Revisit if a re-init after uninstall trips over terminals still labelled with its agents.
 - (druckometer field report 11-15, #7) `herdr pane list` dumps every workspace as one JSON blob; finding a project's lane tab means scanning all of them. Owner action, upstream: ask herdr for a workspace/cwd filter. The other six items: T-1326..T-1329.
