@@ -71,12 +71,16 @@ func TestDriveReplyLine(t *testing.T) {
 // A reply that is no DriveReply (an old-text reply, empty JSON) is a FAIL, nothing started.
 func TestDriveUnreadableReply(t *testing.T) {
 	t.Parallel()
-	for _, reply := range []string{"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)", "{}"} {
-		p := servedProject(t)
-		home, _ := startFakeServe(t, p.Root, wire.Status{}, reply, "")
-		rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "web")
-		if rc != 1 || !strings.Contains(stdout, "FAIL serve answered in another obor's format") {
-			t.Errorf("reply %q: rc %d, %q; want the format FAIL", reply, rc, stdout)
+	for _, tc := range []struct{ name, quoted string }{{"web", "web"}, {"web design", "'web design'"}, {"a'b", `'a'\''b'`}} {
+		for _, reply := range []string{"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)", "{}"} {
+			p := servedProject(t)
+			home, _ := startFakeServe(t, p.Root, wire.Status{}, reply, "")
+			rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", tc.name)
+			want := "FAIL serve answered in another obor's format (it is restarting onto the new binary): the drive may be recorded; obor drive " +
+				tc.quoted + " again in a minute\n"
+			if rc != 1 || stdout != want {
+				t.Errorf("name %q reply %q: rc %d, %q; want %q", tc.name, reply, rc, stdout, want)
+			}
 		}
 	}
 }
