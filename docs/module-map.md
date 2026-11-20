@@ -196,6 +196,12 @@ process (`plugin.Local`).
   workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids, the name herdr runs an agent under) stays
   here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
   helper).
+- `hc`: the herdr-core (`hc`) socket client, the second terminal adapter (`docs/plan/herdr-core.md`; no project selects
+  it yet): `hello` and the version rule (`client.go`), a terminal record as a pane (labels `obor.project`/`obor.agent`
+  as its group and label, the kind from its status's app) and `port.Panes` (`panes.go`), one unfiltered
+  `events.subscribe` and its endings (`stream.go`), the reads of `port.PaneControl` (`Pane`, `Panes`, `Screen`,
+  `Recent`, `ProcessInfo`), and `contract.go` (what obor sends and reads, checked against a committed copy of hc's
+  schema); `hc/hctest` is its fake (test helper).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,
@@ -257,14 +263,16 @@ project state goes through `view`**:
 appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
 
 **test helpers** — `testkit` (fixture projects, the store helpers tests use, the workflow and terminal contract tables) and
-`herdr/herdrtest` (the fake herdr socket: scripted panes and plugins, and every request a test's client sent).
+`herdr/herdrtest` (the fake herdr socket: scripted panes and plugins, and every request a test's client sent) and
+`hc/hctest` (an in-memory hc core: terminal records, the methods the hc client calls, events with seq, heartbeat and
+missed).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters and the review git (`reviewGit`, `port.Review`) live here; `workflowOf`
 picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git); `terminal.go`
 builds the project's terminal (`port.Terminal`, herdr its one kind), and no other production file imports
-`internal/herdr` (`TestOneTerminalBuilder`). The lead's chat commands are the same CLI (`status`, `dispatch`,
+`internal/herdr` or `internal/hc` (`TestOneTerminalBuilder`). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).

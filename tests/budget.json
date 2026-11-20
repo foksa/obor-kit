@@ -64,6 +64,10 @@
       "full_s": 1.9,
       "git_procs": 47
     },
+    "obor/internal/hc": {
+      "full_s": 0.6,
+      "git_procs": 0
+    },
     "obor/internal/herdr": {
       "full_s": 1.1,
       "git_procs": 0

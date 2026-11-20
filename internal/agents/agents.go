@@ -461,6 +461,9 @@ type Caps struct {
 	ModelArg      bool // its own default model may not work: a model should name its id
 	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
 	VersionVar string
+	// App is the name its agents give themselves in a terminal's status report (hc's OSC 7501 status.app); "": the
+	// kind's name.
+	App string
 }
 
 // Status is a kind's source of its agents' status (idle, working, done) and turns (Caps.Status).

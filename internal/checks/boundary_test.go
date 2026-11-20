@@ -49,14 +49,14 @@ var layerOf = map[string]string{
 
 	"internal/app": core,
 
-	"internal/herdr": adapter, "internal/checks": adapter, "internal/launch": adapter, "internal/mcp": adapter,
-	"internal/guard": adapter, "internal/setup": adapter, "internal/service": adapter,
+	"internal/herdr": adapter, "internal/hc": adapter, "internal/checks": adapter, "internal/launch": adapter,
+	"internal/mcp": adapter, "internal/guard": adapter, "internal/setup": adapter, "internal/service": adapter,
 
 	"internal/view": view,
 
 	"cmd/obor": entry, "internal/web": entry,
 
-	"internal/testkit": testhelp, "internal/herdr/herdrtest": testhelp,
+	"internal/testkit": testhelp, "internal/herdr/herdrtest": testhelp, "internal/hc/hctest": testhelp,
 }
 
 // layerPrefixes give whole trees a layer: the app may grow subpackages; probes, spikes and the kit's tools are
@@ -134,6 +134,13 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/checks", "internal/launch", false},
 		{"internal/launch", "internal/herdr", false},
 		{"internal/herdr", "internal/herdr/herdrtest", true},
+		{"internal/hc", "internal/app/port", true},
+		{"internal/hc", "internal/agents", true},
+		{"internal/hc", "internal/hc/hctest", true},
+		{"internal/hc", "internal/herdr", false},
+		{"internal/app", "internal/hc", false},
+		{"internal/launch", "internal/hc", false},
+		{"internal/hc/hctest", "internal/hc", true},
 		{"internal/guard", "internal/launch", false},
 		{"internal/setup", "internal/herdr", false},
 		{"internal/setup", "internal/launch", false},
@@ -203,9 +210,9 @@ func layerName(pkg string) string {
 	return "an unmapped package"
 }
 
-// TestOneTerminalBuilder: only cmd/obor/terminal.go (non-test) builds the terminal adapter by importing
-// internal/herdr; the conformance suite and the adapter itself (with its fake) may import it too. Every other package
-// reaches the terminal through port.Terminal.
+// TestOneTerminalBuilder: only cmd/obor/terminal.go (non-test) builds a terminal adapter by importing internal/herdr
+// or internal/hc; the conformance suite and each adapter itself (with its fake) may import it too. Every other
+// package reaches the terminal through port.Terminal.
 func TestOneTerminalBuilder(t *testing.T) {
 	root := filepath.Join("..", "..")
 	scanned := 0
@@ -224,8 +231,7 @@ func TestOneTerminalBuilder(t *testing.T) {
 		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
 			return nil
 		}
-		if rel == "cmd/obor/terminal.go" || strings.HasPrefix(rel, "tests/conformance/") ||
-			strings.HasPrefix(rel, "internal/herdr/") {
+		if rel == "cmd/obor/terminal.go" || strings.HasPrefix(rel, "tests/conformance/") {
 			return nil
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, rel), nil, parser.ImportsOnly)
@@ -234,8 +240,9 @@ func TestOneTerminalBuilder(t *testing.T) {
 		}
 		scanned++
 		for _, imp := range f.Imports {
-			if strings.Trim(imp.Path.Value, `"`) == "obor/internal/herdr" {
-				t.Errorf("%s imports internal/herdr: only cmd/obor/terminal.go builds the terminal (port.Terminal)", rel)
+			p := strings.TrimPrefix(strings.Trim(imp.Path.Value, `"`), "obor/")
+			if (p == "internal/herdr" || p == "internal/hc") && !strings.HasPrefix(rel, p+"/") {
+				t.Errorf("%s imports %s: only cmd/obor/terminal.go builds the terminal (port.Terminal)", rel, p)
 			}
 		}
 		return nil
