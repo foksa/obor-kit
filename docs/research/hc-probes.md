@@ -451,3 +451,10 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
   Both in T-1376. After the repair: worker start, `task_done`, gate GREEN, integrator ACCEPT, `MERGED T-01 be1793b`,
   worker and integrator stopped. The "runs session X, not Y (the id obor chose)" line also shows on herdr: not hc.
   Small: lane.prepare's failed fact recorded three times for one attempt; the publish result's candidate fields empty.
+- Step 6: `obor review start` refused `no reviews dir (reviews.dir)` (init creates `docs/reviews/` but the review
+  start reads the key without its default): T-1377. With the key set: reviewer (codex terra:xhigh) started in
+  `hc-trial / roles`, its worktree moved to the head; Codex's first-run trust dialog raised `needs-you trust` and
+  serve saw it answered 14 s later; the transcript search (10 s) expired meanwhile (accepted, RV-210 #3). Review
+  approved, close stopped the reviewer. No needs-you notification reached the owner: hc has none (T-1378). Unclear:
+  codex was at its shell by the time obor stopped it (exited after its turn, or the stop's quit): watch at the next
+  hc verify, which must resume that session.
