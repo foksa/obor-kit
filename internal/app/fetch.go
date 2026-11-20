@@ -184,6 +184,12 @@ func (a *App) callerJob(p *proj, c wire.JobNextReq) (mtask, event.Key, bool, err
 	return mtask{}, event.Key{}, false, fmt.Errorf("job_next: no jobs for the role %s", Dash(c.Role))
 }
 
+// RestartJob is the job agent's (role's; a lane's worker on lane, the integrator's lane is "") restart carries as its
+// wake in the served project at root, as restart_job answers it ("": none); serve's own restore asks it in process.
+func (a *App) RestartJob(root, agent, role, lane string) (string, error) {
+	return a.restartJob(wire.RestartJobReq{Envelope: wire.Envelope{Root: root, Agent: agent, Role: role}, Lane: lane})
+}
+
 // restartJob answers restart_job: the job obor restart of c's agent carries as its wake, by callerJob's own
 // predicate and order ("" none). A client parsing the status JSON's step strings could only guess: a task's job is
 // its worker's or its integrator's, and a held one is no job a restart may wake its agent on.

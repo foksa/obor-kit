@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,7 +31,9 @@ type rfx struct {
 	pl    *launch.Restorer
 	mu    sync.Mutex
 	calls []string
-	fail  map[string]bool
+	// prompts is the first prompt the restore's restart carried, by agent ("": none).
+	prompts map[string]string
+	fail    map[string]bool
 }
 
 func newRfx(t *testing.T) *rfx {
@@ -50,7 +53,7 @@ func newRfxAt(t *testing.T, git bool) *rfx {
 	if git {
 		p = testkit.New(t)
 	}
-	f := &rfx{t: t, p: p, fail: map[string]bool{}}
+	f := &rfx{t: t, p: p, fail: map[string]bool{}, prompts: map[string]string{}}
 	f.h = newTerm()
 	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.h, Now: func() time.Time { return time.Unix(0, 0) },
 		LaneState: func(cfg *config.Config, l config.Lane) string {
@@ -65,6 +68,9 @@ func newRfxAt(t *testing.T, git bool) *rfx {
 			c += " --fresh"
 		}
 		f.record(c)
+		f.mu.Lock()
+		f.prompts[req.Agent] = req.Prompt
+		f.mu.Unlock()
 		fmt.Fprintln(w, "stub restart ran: "+req.Agent)
 		if f.fail[req.Agent] {
 			return "", project.Fail("no session")
@@ -393,6 +399,85 @@ func TestRestoreFreeLaneSkipped(t *testing.T) {
 	f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
 	f.wantCalls()
 	has(t, f.restoreLog(), " skip pj-l-01 (pane w1:p1): lane L-01 is free", "the free lane skipped")
+}
+
+// A restored lane worker and the integrator start with the wake of the job serve holds open for them (Restorer.Job)
+// as their first prompt; an agent with no open job, and a role that has no job (lead, reviewer), start with none. A
+// free lane's worker stays skipped, its job never asked for.
+func TestRestoreCarriesTheOpenJobsWake(t *testing.T) {
+	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
+	o1, o2 := f.p.Lane("L-01", "task/T-01"), f.p.Lane("L-03", "task/T-03")
+	f.p.Config(testkit.Set("agents.roles", `{"integrator": "", "reviewer": "opus"}`))
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
+	f.shell("w1:p1", o1, "pj-l-01")
+	f.shell("w1:p2", f.p.Root, "pj-int")
+	f.shell("w1:p3", f.p.Root, "pj-lead")
+	f.shell("w1:p4", f.p.Root, "pj-rev")
+	f.shell("w1:p5", o2, "pj-l-03")
+	f.pl.OpenWork = func(string, string) (bool, error) { return true, nil }
+	jobs := map[string]string{"pj-l-01": "T-01/1/work", "pj-int": "T-09/2/review"}
+	var asked []string
+	f.pl.Job = func(root, agent, role, lane string) (string, error) {
+		if root != f.p.Root {
+			t.Errorf("job asked for root %q, want %q", root, f.p.Root)
+		}
+		asked = append(asked, role+":"+agent+":"+lane)
+		return jobs[agent], nil
+	}
+	f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+	for agent, want := range map[string]string{
+		"pj-l-01": wire.WakeLine("T-01/1/work"), // the working lane's worker: job N's wake
+		"pj-int":  wire.WakeLine("T-09/2/review"),
+		"pj-lead": "", // no job for a role that has none
+		"pj-rev":  "",
+	} {
+		got, ran := f.prompts[agent]
+		if !ran {
+			t.Errorf("%s was not restarted: calls %q", agent, f.calls)
+		} else if got != want {
+			t.Errorf("%s restarted with the prompt %q, want %q", agent, got, want)
+		}
+	}
+	if _, ran := f.prompts["pj-l-03"]; ran {
+		t.Errorf("the free lane's worker was restarted: %q", f.calls)
+	}
+	slices.Sort(asked)
+	if want := []string{"integrator:pj-int:", "worker:pj-l-01:L-01"}; !slices.Equal(asked, want) {
+		t.Errorf("the job was asked for %q, want %q (only a lane's worker and the integrator)", asked, want)
+	}
+	has(t, f.restoreLog(), " skip pj-l-03 (pane w1:p5): lane L-03 is free", "the free lane skipped")
+	has(t, f.restoreLog(), "(wake: "+wire.WakeLine("T-01/1/work")+")", "the wake is logged")
+}
+
+// A worker with no open job restarts with no prompt; a job that cannot be read restores the pane with no wake, and the
+// log says why.
+func TestRestoreWithNoJobOrAnUnreadableOne(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		job  func(root, agent, role, lane string) (string, error)
+		log  string
+	}{
+		{"no open job", func(string, string, string, string) (string, error) { return "", nil }, ""},
+		{"job unknown", func(string, string, string, string) (string, error) { return "", errors.New("no served project") },
+			"its open job is not known (no served project): restored with no wake"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newRfx(t)
+			o1 := f.p.PlainLane("L-01", "task/T-01")
+			f.p.Config()
+			f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
+			f.shell("w1:p1", o1, "pj-l-01")
+			f.pl.Job = c.job
+			f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+			f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
+			if p := f.prompts["pj-l-01"]; p != "" {
+				t.Errorf("restarted with the prompt %q, want none", p)
+			}
+			if c.log != "" {
+				has(t, f.restoreLog(), c.log, "the log's reason")
+			}
+		})
+	}
 }
 
 // a config naming keys this obor does not know (the promotion's) still loads for the
