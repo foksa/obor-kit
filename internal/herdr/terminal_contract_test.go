@@ -1,6 +1,7 @@
 package herdr_test
 
 import (
+	"fmt"
 	"testing"
 
 	"obor/internal/herdr"
@@ -9,7 +10,8 @@ import (
 )
 
 // contractTerminal is herdr's adapter over a fake herdr holding one shell pane, w1:p1 in /proj, its workspace w1
-// labelled proj: the pane every contract row runs against.
+// labelled proj: the pane every contract row runs against. Its Stale hook freezes a pane's visible screen
+// (herdrtest's Pane.Stale).
 func contractTerminal(t *testing.T) testkit.Terminal {
 	t.Helper()
 	f := herdrtest.New()
@@ -18,11 +20,17 @@ func contractTerminal(t *testing.T) testkit.Terminal {
 	srv := herdrtest.Serve(t, f)
 	c := srv.Client()
 	return testkit.Terminal{Control: c, Panes: herdr.Panes{S: c},
-		Setup: &herdr.Setup{Socket: c, Env: func(string) (string, bool) { return "", false }}, Group: "proj", Cwd: "/proj"}
+		Setup: &herdr.Setup{Socket: c, Env: func(string) (string, bool) { return "", false }}, Group: "proj", Cwd: "/proj",
+		Stale: func(pane string) error {
+			if !f.Set(pane, func(p *herdrtest.Pane) { p.Stale = true }) {
+				return fmt.Errorf("no pane %s", pane)
+			}
+			return nil
+		}}
 }
 
 // TestTerminalContract runs the terminal contract (testkit.Contract: start, status, instance, place, type, type with
-// guard, keys, screen, pane busy, named, rename, process info, notify, reconnect) against herdr's adapter over
+// guard, keys, screen, recent output, pane busy, named, rename, process info, notify, reconnect) against herdr's adapter over
 // herdrtest; the live herdr tier runs the same rows (tests/conformance, H-C).
 func TestTerminalContract(t *testing.T) {
 	t.Parallel()
@@ -31,7 +39,7 @@ func TestTerminalContract(t *testing.T) {
 		names = append(names, row.Name)
 	}
 	want := []string{"start", "status", "instance", "place", "type", "type with guard", "keys", "screen",
-		"pane busy", "named", "rename", "process info", "notify", "reconnect"}
+		"recent output", "pane busy", "named", "rename", "process info", "notify", "reconnect"}
 	if len(names) != len(want) {
 		t.Fatalf("contract rows %q, want %q", names, want)
 	}

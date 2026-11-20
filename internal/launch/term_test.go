@@ -46,7 +46,11 @@ type mpane struct {
 	// Ready is when the pane's shell becomes an available shell (zero: at once): until then ProcessInfo shows no shell
 	// in the foreground and a start is refused PaneBusy.
 	Ready  time.Time
-	Screen string // what Screen shows
+	Screen string // what Screen shows; Recent shows it too, Later after it
+	// Stale: the visible screen went stale (after an agent exited, T-970): what the shell prints from now on reaches
+	// the pane's recent output only (Later), never Screen.
+	Stale bool
+	Later string // what the shell printed while Stale: Recent shows it after Screen
 	// OnQuit is what /exit (Claude) or /quit (Codex) does: "" the agent exits; "stay": nothing; "linger": it exits,
 	// but the terminal still lists it for now; "dialog": Claude's background-task dialog opens on the Screen, its
 	// "1. Exit and stop tasks" exits, esc closes it.
@@ -351,6 +355,19 @@ func (f *term) Screen(ctx context.Context, id string, lines int) (string, error)
 	return p.Screen, nil
 }
 
+func (f *term) Recent(ctx context.Context, id string, lines int) (string, error) {
+	err := f.call("Recent", "pane", id)
+	defer f.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	p := f.pane(id)
+	if p == nil {
+		return "", termError("recent", "not found", "pane "+id+" not found")
+	}
+	return p.Screen + p.Later, nil
+}
+
 func (f *term) RenamePane(ctx context.Context, id, label string) error {
 	err := f.call("RenamePane", "pane", id, "label", label)
 	defer f.mu.Unlock()
@@ -525,14 +542,24 @@ func (p *mpane) run(text string) {
 		switch p.OnRun {
 		case "":
 			if w := echoWord(text, "&& echo "); w != "" {
-				p.Screen += w + "\n% \n"
+				p.print(w + "\n% \n")
 			}
 		case "fail":
 			if w := echoWord(text, "|| echo "); w != "" {
-				p.Screen += w + "\n% \n"
+				p.print(w + "\n% \n")
 			}
 		}
 	}
+}
+
+// print is text the pane's shell printed: on the Screen, or only in its recent output (Later) while the Screen is
+// Stale.
+func (p *mpane) print(text string) {
+	if p.Stale {
+		p.Later += text
+		return
+	}
+	p.Screen += text
 }
 
 // echoWord is the word line echoes after sep ("&& echo " when it succeeded, "|| echo " when it failed), quotes
