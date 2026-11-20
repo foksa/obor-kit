@@ -2,7 +2,11 @@
 // command that stops it. A reminder, never a stop: the lead may still want a follow-up in that session.
 package app
 
-import "time"
+import (
+	"time"
+
+	"obor/internal/app/port"
+)
 
 // roleDoneAfter is how long a role agent's pane may sit idle or done, with no open work, before the lead hears of it:
 // a constant, no config key.
@@ -21,33 +25,62 @@ func roleDoneLine(agent string, age time.Duration) string {
 // roleStopHint is the command that stops agent: obor status ends its line with it (wire.AgentStatus.Hint).
 func roleStopHint(agent string) string { return "obor restart " + agent + " --stop" }
 
-// doneRoles is p's role agents done with no open work now, each with since, when its pane began being ready (idle or
-// done): a pane of p that the identity table has for one agent (two are no agent) has been ready for roleDoneAfter,
-// and that agent is a role agent of no lane, not the lead (roleAgents), with nothing open for it (openWork). A pane
-// serve has not observed since it was ready (a zero ready timer) is no stretch. Under mu; obor status' hint and the
-// lead's line are this one condition.
-func (a *App) doneRoles(p *proj, now time.Time) map[string]time.Time {
-	type stretch struct {
-		agent string
-		since time.Time
+// roleDonePane is one of p's role agents' panes a done stretch may start in: the agent, and the pane its activity
+// dates.
+type roleDonePane struct {
+	agent string
+	pane  port.Pane
+}
+
+// roleDonePanes is the panes a done stretch may start in now (under mu): a pane of p that is ready (idle or done),
+// which the identity table has for one agent (two are no agent), and that agent is a role agent of no lane, not the
+// lead, with nothing open for it (roleAgents, openWork). While serve is not connected to the terminal there are none:
+// its panes are not known now, and the next connect decides afresh.
+func (a *App) roleDonePanes(p *proj) []roleDonePane {
+	if !a.connected {
+		return nil
 	}
-	var cands []stretch
+	var cands []roleDonePane
 	for _, o := range a.obs {
-		if a.projectOf(o.pane) != p || !Ready(o.pane.Status) || o.ready.IsZero() || now.Sub(o.ready) < roleDoneAfter {
+		if a.projectOf(o.pane) != p || !Ready(o.pane.Status) {
 			continue
 		}
 		if agent, ok := p.reg.WhoIs(o.pane); ok {
-			cands = append(cands, stretch{agent, o.ready})
+			cands = append(cands, roleDonePane{agent: agent, pane: o.pane})
 		}
 	}
-	out := map[string]time.Time{}
 	if len(cands) == 0 {
-		return out
+		return nil
 	}
 	roles := p.roleAgents()
-	for _, s := range cands {
-		if role, ok := roles[s.agent]; ok && !p.openWork(s.agent, role) {
-			out[s.agent] = s.since
+	var out []roleDonePane
+	for _, c := range cands {
+		if role, ok := roles[c.agent]; ok && !p.openWork(c.agent, role) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// doneRoles is the served project's role agents done for roleDoneAfter now, each with the start of its done stretch:
+// the agent's own last activity (activity.go), the transcript's last write, which outlives serve — a fresh serve dates
+// the same stretch the same, so the line's dedup key (roleDone, Seq = the stretch's start) matches across a restart and
+// a restart neither repeats nor postpones a reminder. Unknown activity (a kind whose transcripts obor cannot read) is
+// unknown, not inactive: no entry. Not under mu: it reads the panes' transcripts between its mu sections. While serve
+// is not connected to the terminal there is nothing: no hint and no line from a stale pane. obor status' hint and the
+// lead's line are this one condition.
+func (a *App) doneRoles(now time.Time) map[string]time.Time {
+	a.mu.Lock()
+	var cands []roleDonePane
+	if p := a.p; p != nil {
+		cands = a.roleDonePanes(p)
+	}
+	a.mu.Unlock()
+	out := map[string]time.Time{}
+	for _, c := range cands {
+		last, known := a.activity.Activity(c.pane)
+		if known && now.Sub(last) >= roleDoneAfter {
+			out[c.agent] = last
 		}
 	}
 	return out

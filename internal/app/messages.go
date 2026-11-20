@@ -186,6 +186,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	now := a.opt.Now()
 	a.logWorked(p)
 	a.roleTurns(ctx, p)
+	stretches := a.doneRoles(now) // before the lock: it reads the panes' transcripts
 
 	a.mu.Lock()
 	var done []event.Message
@@ -207,7 +208,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 		}
 	}
 	if p.out.Lead() != "" {
-		for agent, since := range a.doneRoles(p, now) {
+		for agent, since := range stretches {
 			of := event.Of{Kind: roleDone(agent), Seq: since.Unix()}
 			if _, did := p.folded.did[of]; did {
 				continue

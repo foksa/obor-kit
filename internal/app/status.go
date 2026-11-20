@@ -20,9 +20,10 @@ import (
 
 // Status is the app's state now.
 func (a *App) Status() wire.Status {
+	now := a.opt.Now()
+	done := a.doneRoles(now) // before the lock: it reads the panes' transcripts
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	now := a.opt.Now()
 	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, TerminalNote: a.terminalNote()}
 	if p := a.p; p != nil {
 		ps := wire.ProjectStatus{Name: p.name, Root: p.root, Merging: p.merging, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
@@ -34,7 +35,6 @@ func (a *App) Status() wire.Status {
 		}
 		ps.Lanes = a.lanesNote(p, now)
 		names := map[string]bool{} // the agents serve observes in a pane now: skewNote's seen
-		done := a.doneRoles(p, now)
 		for _, l := range p.lanes {
 			if p.laneHolds(l.Name) == "" {
 				ps.Free = append(ps.Free, l.Name)
