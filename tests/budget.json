@@ -76,6 +76,10 @@
       "full_s": 0.4,
       "git_procs": 0
     },
+    "obor/internal/herdrapp": {
+      "full_s": 0.4,
+      "git_procs": 0
+    },
     "obor/internal/launch": {
       "full_s": 6,
       "git_procs": 45

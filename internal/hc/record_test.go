@@ -85,17 +85,3 @@ func TestKindOf(t *testing.T) {
 		}
 	}
 }
-
-// versionBelow reads dotted versions by number (0.1.9 is older than 0.1.21) and refuses a word.
-func TestVersionBelow(t *testing.T) {
-	for _, c := range []struct {
-		v           string
-		below, read bool
-	}{{"0.1.21", false, true}, {"0.1.20", true, true}, {"0.1.9", true, true}, {"0.1.22", false, true}, {"0.2", false, true},
-		{"1.0.0-rc1", false, true}, {"0.1.20+build", true, true}, {"", false, false}, {"dev", false, false}} {
-		below, ok := versionBelow(c.v, MinVersion)
-		if below != c.below || ok != c.read {
-			t.Errorf("versionBelow(%q) = %v, %v; want %v, %v", c.v, below, ok, c.below, c.read)
-		}
-	}
-}

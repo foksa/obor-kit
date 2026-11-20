@@ -62,3 +62,19 @@ func TestCurrentLineDropsDevBuild(t *testing.T) {
 		t.Errorf("CurrentLine = %q, want %q", got, want)
 	}
 }
+
+// Older reads dotted versions by number (0.1.9 is older than 0.1.21) and refuses a word.
+func TestOlder(t *testing.T) {
+	for _, c := range []struct {
+		v, min      string
+		older, read bool
+	}{{"0.1.21", "0.1.21", false, true}, {"0.1.20", "0.1.21", true, true}, {"0.1.9", "0.1.21", true, true},
+		{"0.1.22", "0.1.21", false, true}, {"0.2", "0.1.21", false, true}, {"1.0.0-rc1", "1.0.0", false, true},
+		{"0.1.20+build", "0.1.21", true, true}, {"0.1.15", "0.1.16", true, true}, {"", "0.1.21", false, false},
+		{"dev", "0.1.21", false, false}} {
+		older, ok := Older(c.v, c.min)
+		if older != c.older || ok != c.read {
+			t.Errorf("Older(%q, %q) = %v, %v; want %v, %v", c.v, c.min, older, ok, c.older, c.read)
+		}
+	}
+}

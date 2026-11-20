@@ -4,10 +4,37 @@ package version
 import (
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"obor/internal/project"
 )
+
+// Older reports whether a tool's version v is older than min: both dotted numbers, a suffix after "-" or "+" not
+// read ("0.1.21-rc1" is 0.1.21). ok false: v is not such a version. The terminal adapters' version rules (hc's and
+// herdr-app's) read it.
+func Older(v, min string) (older, ok bool) {
+	num := func(s string) ([]int, bool) {
+		s, _, _ = strings.Cut(s, "-")
+		s, _, _ = strings.Cut(s, "+")
+		var out []int
+		for _, f := range strings.Split(s, ".") {
+			n, err := strconv.Atoi(f)
+			if err != nil {
+				return nil, false
+			}
+			out = append(out, n)
+		}
+		return out, len(out) > 0
+	}
+	a, ok := num(v)
+	b, _ := num(min)
+	if !ok {
+		return false, false
+	}
+	return slices.Compare(a, b) < 0, true
+}
 
 // Version is the build version, stamped by the build (the Makefile): the tag (v0.14.0) when HEAD is exactly at one, else
 // the newest release tag plus -dev+<short sha> (v0.14.0-dev+21242f62, -dirty when the tree is modified) — release tags

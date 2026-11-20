@@ -221,6 +221,14 @@ process (`plugin.Local`).
   start and records before it runs, and a fresh Codex start's session from the transcript its process holds
   open (a Codex rollout), both reported to serve; `CLIVersions`: the first line of each kind's
   `<kind> --version`, for serve's version read.
+- `herdrapp`: the herdr-app window's CLI client (`herdr-app ls`, `do <command> '<json>'`, `commands`, `--version`), the
+  surface that shows hc's terminals: `Spaces` (each space's id, name, folder, named flag and machine, its tabs) and the
+  local layout it needs — `EnsureSpace` (a project's space by name and folder: `space.new`, or an unnamed space at that
+  folder renamed), `EnsureTab` (`tab.new`, or a space's one unnamed tab renamed) and `Labels` (`herdr.space`/`herdr.tab`
+  for a terminal to show in a tab); a typed no-window error (`port.NotRunning`: place by labels later, never start the
+  app), the version rule (≥ 0.1.16) and `contract.go` (the commands and arguments obor sends, checked against a
+  committed copy of `herdr-app commands`; `tests/conformance` compares the copy with the installed app). Only
+  `internal/hc` imports it, for the hc layout; `herdrapptest` is its fake (test helper).
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop (the worker's

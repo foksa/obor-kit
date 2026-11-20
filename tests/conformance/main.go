@@ -79,7 +79,7 @@ func main() {
 	}
 	all := kinds
 	if tier == "static" { // the kind protocol has no live tier: its kind is a script, no CLI (plugin.go)
-		all = append(all[:len(all):len(all)], "plugin")
+		all = append(all[:len(all):len(all)], "plugin", "herdrapp")
 	}
 	run := all
 	if kind != "" {
@@ -111,7 +111,7 @@ func main() {
 
 // static is each kind's static tier.
 var static = map[string]func(){"herdr": herdrStatic, "claude": claudeStatic, "codex": codexStatic, "opencode": opencodeStatic,
-	"plugin": pluginStatic}
+	"plugin": pluginStatic, "herdrapp": herdrappStatic}
 
 // toRepoRoot moves to the directory holding go.mod, so the driver files named in the lines resolve.
 func toRepoRoot() error {
