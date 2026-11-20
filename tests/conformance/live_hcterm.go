@@ -297,14 +297,3 @@ func envOr(name, def string) string {
 	}
 	return def
 }
-
-// lastNonEmpty is the last line of s with text.
-func lastNonEmpty(s string) string {
-	ls := strings.Split(strings.TrimRight(s, " \n"), "\n")
-	for i := len(ls) - 1; i >= 0; i-- {
-		if strings.TrimSpace(ls[i]) != "" {
-			return strings.TrimSpace(ls[i])
-		}
-	}
-	return ""
-}
