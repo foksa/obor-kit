@@ -1,5 +1,25 @@
 # Upgrading an obor project from v0.40 to v0.41
 
+## v0.41.1 (fixes from the herdr-core trial)
+
+**obor init on a config you wrote.** Init fills a missing `project.agent_prefix` (and name) in a config it finds; no
+agent starts with an empty name.
+
+**Links and checkouts.** Every checkout obor runs in a lane or role worktree removes obor's link where the target
+commit tracks that path and puts the links back after, so committing a linked file (`.claude/settings.json`) no
+longer stops a dispatch, and a worktree behind that commit still gets the plugin settings. `obor config validate`
+warns about a `lanes.links` entry the repository tracks.
+
+**Restore.** On hc a lost holder restores every pane it held, the lead included. A restored worker (or integrator)
+gets its open job's wake, and `obor resume <task> "<line>"` types a line to an idle worker of a working task.
+
+**Smaller.** The web page shows an agent waiting for your input. `obor review start` uses `docs/reviews` when
+`reviews.dir` is unset. On hc, serve's notifications show as macOS notifications.
+
+```sh
+# nothing to do
+```
+
 ## v0.41.0 (herdr-core as an experimental terminal; obor prune and obor uninstall; the web page as a launchd agent)
 
 **herdr-core (experimental).** `"project": {"terminal": "hc"}` in `.obor/config.json` runs the project's agents in
