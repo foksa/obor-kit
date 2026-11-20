@@ -188,6 +188,9 @@ func TestOborKitConfig(t *testing.T) {
 			{"internal/app/loop.go", "internal/app/loop_test.go"},
 			{"internal/app/loop.go", "cmd/obor/main.go", "internal/checks/merge.go", "docs/tasks/T-75.md"},
 			{"tools/affected/main.go"}, // the kit's Go tool is Go code the gate tests
+			// the kit's test trees that run through go test: class go, no full suite (tests/release is class release)
+			{"tests/budget.json"}, {"tests/budget/budget.go"}, {"tests/conformance/live.go"}, {"tests/upgrade/upgrade_test.go"},
+			{"tests/go/socketprobe/main.go"}, {"internal/app/loop.go", "tests/go/socketprobe/main.go", "docs/tasks/T-75.md"},
 		}},
 		{"readers", "check_readers", [][]string{
 			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"}, {"bin/go-commands"},
@@ -242,7 +245,7 @@ func TestOborKitConfig(t *testing.T) {
 	}
 	// Anything no class names still runs the full suite, alone and beside a class's file.
 	for _, f := range []string{"go.mod", "go.sum", "bin/obor", "githooks/pre-commit",
-		"web/package.json", "README.md", "tests/go/socketprobe/main.go"} {
+		"web/package.json", "README.md", "tests/README.md"} {
 		if c := Classify(m, []string{f}, false); c.Partial {
 			t.Errorf("%s: %s (want a full merge)", f, c.Mode())
 		}
