@@ -26,7 +26,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		eqInt(t, len(x.calls("Start")), 3, "a start after each PaneBusy, then the one that ran")
 		eqInt(t, p.StartBusy, 0, "precondition: the busy answers were the two first starts'")
 		contains(t, out, "is not an available shell yet", "the busy answer's wait said")
@@ -74,7 +74,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		if !ok || len(spawns) != 0 {
 			t.Fatalf("the detached run: %v\n%s", spawns, out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		eqInt(t, len(x.calls("Start")), 3, "a start after each PaneBusy, then the one that ran")
 	})
 	t.Run("the shell never comes back: FAIL naming the pane, no env line, no start", func(t *testing.T) {
@@ -132,7 +132,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		}
 		contains(t, out, "waiting for the shell of pane w1:p3", "the wait said")
 		eqInt(t, left, 0, "the wait looked until the pane was its shell")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 }
 
@@ -160,7 +160,7 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 		if !ok {
 			t.Fatalf("a running start said failed:\n%s", out)
 		}
-		eq(t, last(out), "RESTARTED pj-lead (pane w1:p6, session new)", "result")
+		restarted(t, last(out), "pj-lead", "w1:p6", "new")
 		eq(t, x.f.At("w1:p6").Status, "working", "the new agent works on its first prompt")
 	})
 	t.Run("the detached handoff restart, the old Claude still listed: RESTARTED", func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 		if !ok || len(spawns) != 0 {
 			t.Fatalf("the detached run: %v\n%s", spawns, out)
 		}
-		eq(t, last(out), "RESTARTED pj-lead (pane w1:p6, session new)", "result")
+		restarted(t, last(out), "pj-lead", "w1:p6", "new")
 	})
 	t.Run("serve's worker start with its job's wake, the old Claude still listed: RESTARTED", func(t *testing.T) {
 		t.Parallel()
@@ -188,7 +188,7 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 		if !ok {
 			t.Fatalf("a running start said failed:\n%s", got)
 		}
-		eq(t, last(got), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		restarted(t, last(got), "pj-l-01", "w1:p3", "new")
 	})
 	t.Run("restore's restart of a labelled pane without an agent: busy retried, no shell wait, RESTARTED", func(t *testing.T) {
 		t.Parallel()
@@ -201,6 +201,6 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 			t.Fatalf("restart failed:\n%s", out)
 		}
 		lacks(t, out, "waiting for the shell of pane", "a pane that ran no agent is not waited on before the env line")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 	})
 }

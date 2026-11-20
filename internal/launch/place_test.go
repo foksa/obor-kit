@@ -46,7 +46,7 @@ func TestLaunchPlacesAPaneForAnAgentWithNone(t *testing.T) {
 	if call := x.startCall(); !strings.Contains(call, "pane=w1:p9") {
 		t.Errorf("start call %q, want it in the placed pane w1:p9", call)
 	}
-	if got := last(out); got != "RESTARTED pj-l-01 (pane w1:p9, session new)" {
+	if got := last(out); !isRestarted(got, "pj-l-01", "w1:p9", "new") {
 		t.Errorf("result %q, want the start in pane w1:p9", got)
 	}
 	if l := x.f.At("w1:p9").Label; l != "pj-l-01" {

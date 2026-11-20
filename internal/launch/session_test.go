@@ -31,7 +31,7 @@ func TestOpencodeStartsFresh(t *testing.T) {
 	if !ok {
 		t.Fatal(out)
 	}
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "fresh, not resumed")
+	restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 	contains(t, out, "warning: no resume for kind opencode: new session", "said")
 	if strings.Contains(out, "resuming sid-o") {
 		t.Errorf("a resume said:\n%s", out)

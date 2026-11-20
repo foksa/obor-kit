@@ -39,7 +39,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 			if !ok {
 				t.Fatalf("the first prompt failed the start: %s", out)
 			}
-			eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
+			restarted(t, last(out), "pj-rev", "w1:p7", "new")
 			args := strings.ReplaceAll(strings.TrimPrefix(c.head, "-- "), "<reviews>", filepath.Join(x.p.Root, "docs", "reviews"))
 			eq(t, x.named(x.startCall()), "Start argv=["+args+c.want+"] kind="+c.kind+" label=pj-rev pane=w1:p7", "agent start: the prompt")
 			contains(t, x.startCall(), c.want, "the prompt's text")
