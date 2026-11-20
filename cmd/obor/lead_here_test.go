@@ -28,9 +28,10 @@ func herdrCaller(t *testing.T) *leadFx {
 	x.f.Shell("w1:p1", "", x.p.Root)
 	x.f.Group("w1", "shell")
 	x.env = []string{"HERDR_PANE_ID=w1:p1"}
+	pg := syscall.Getpgrp() // obor lead runs in this process: its group is the one the offer names as the caller's
 	x.srv.Reply("pane.process_info", map[string]any{"type": "pane_process_info", "process_info": map[string]any{
-		"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 77,
-		"foreground_processes": []any{map[string]any{"pid": 77, "argv0": "obor"}}}})
+		"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": pg,
+		"foreground_processes": []any{map[string]any{"pid": pg, "argv0": "obor"}}}})
 	return x
 }
 
@@ -91,7 +92,7 @@ func TestLeadNewTabWhenTheCallersPaneDoesNotQualify(t *testing.T) {
 		{"an agent's pane", "this pane is a worker's (OBOR_ROLE is set)",
 			"OK pj-lead runs in workspace shell, tab lead (pane w1:n1)",
 			func(x *leadFx) { x.env = append(x.env, "OBOR_ROLE=worker") }},
-		{"a foreign workspace", "its workspace holds pane w1:p9 of another project (/elsewhere)",
+		{"a foreign workspace", "its group holds pane w1:p9 of another project (/elsewhere)",
 			"OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)",
 			func(x *leadFx) { x.f.Tab("w1:t9", 80, 24, "w1:p9"); x.f.Shell("w1:p9", "", "/elsewhere") }},
 	} {
