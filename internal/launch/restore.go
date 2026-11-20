@@ -1,13 +1,14 @@
 package launch
 
-// The restore after the terminal restarts: obor serve, once its subscription is back from a lost terminal
-// connection, restarts its project's panes (port.Restorer). It acts only on panes whose label is an agent of the obor
+// The restore after the terminal replaced panes' programs: obor serve, once a connect shows panes that lost their
+// program, restarts those of its project (port.Restorer, port.Lost names them). It acts only on panes whose label is an agent of the obor
 // project they work in (R-28 §2: obor setup and obor restart label the pane): the main checkout of the pane cwd's
 // repository, when its config knows the label. Anything else (no label, no git, no .obor/config.json, a label the
 // project has no agent for, a drive agent's (obor drive <T-xx> starts it again), another project's pane) is silent.
 //
-// After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
-// each labelled obor pane that runs no agent is restarted with obor restart, one at a time (a project's under its
+// After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells; every
+// pane is lost), or hc runs a fresh shell in a kept terminal: each lost labelled obor pane that runs no agent is
+// restarted with obor restart, one at a time (a project's under its
 // restore lock, so a reconnect during a run restarts a pane at most once), each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, the worker of a free
 // (or dirty-free) lane (obor dispatch starts it), and a role agent that is neither the lead nor a worker while its
@@ -86,11 +87,12 @@ func RestoreLog(env project.Env) string {
 	return filepath.Join(project.StateHome(env), "restore.log")
 }
 
-// RestoreProject restarts the labelled panes of the obor project at root that herdr's pane list shows without an
-// agent and that have work to come back to (serve's run after its terminal connection came back): the lead always,
-// a worker unless its lane is free, every other role while its OpenWork read says work is open. Another project's
-// panes are its serve's.
-func (p *Restorer) RestoreProject(ctx context.Context, root string) {
+// RestoreProject restarts the labelled panes of the obor project at root that lost lists, that the terminal's pane list
+// shows without an agent and that have work to come back to (serve's run after a connect showed them lost): the lead
+// always, a worker unless its lane is free, every other role while its OpenWork read says work is open. A pane lost
+// does not list is left as it is (a lead stopped on purpose stays at its shell); another project's panes are its
+// serve's.
+func (p *Restorer) RestoreProject(ctx context.Context, root string, lost port.Lost) {
 	root = filepath.Clean(root)
 	panes, ok := p.panes(ctx)
 	if !ok {
@@ -98,6 +100,9 @@ func (p *Restorer) RestoreProject(ctx context.Context, root string) {
 	}
 	found := false
 	for _, pane := range panes {
+		if !lost.Has(pane.ID) {
+			continue
+		}
 		if cfg, ok := oborPane(pane); ok && filepath.Clean(cfg.Root) == root {
 			found = true
 			break
@@ -110,7 +115,7 @@ func (p *Restorer) RestoreProject(ctx context.Context, root string) {
 	if n, err := strconv.Atoi(p.Env.Get("OBOR_RESTORE_TIMEOUT")); err == nil && n > 0 {
 		limit = time.Duration(n) * time.Second
 	}
-	p.restoreRoot(ctx, root, limit)
+	p.restoreRoot(ctx, root, lost, limit)
 }
 
 var _ port.Restorer = (*Restorer)(nil)
@@ -122,9 +127,9 @@ func RestoreLock(root string) *project.Lock {
 	return project.NewLock(filepath.Join(project.StateDir(root), "restore.lock"))
 }
 
-// restoreRoot restores the project at root's panes under its restore lock, from a pane list read once the lock is
-// held: a pane another run restarted meanwhile runs its agent now.
-func (p *Restorer) restoreRoot(ctx context.Context, root string, limit time.Duration) {
+// restoreRoot restores the project at root's panes that lost lists under its restore lock, from a pane list read once
+// the lock is held: a pane another run restarted meanwhile runs its agent now.
+func (p *Restorer) restoreRoot(ctx context.Context, root string, lost port.Lost, limit time.Duration) {
 	log := RestoreLog(p.Env)
 	lock := RestoreLock(root)
 	lock.Output = io.Discard
@@ -144,6 +149,9 @@ func (p *Restorer) restoreRoot(ctx context.Context, root string, limit time.Dura
 		return
 	}
 	for _, pane := range panes {
+		if !lost.Has(pane.ID) {
+			continue
+		}
 		cfg, ok := oborPane(pane)
 		if !ok || cfg.Root != root {
 			continue

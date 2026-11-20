@@ -51,7 +51,7 @@ func firstRestoreConnect(h *harness, wg *sync.WaitGroup, snap port.Snapshot) {
 // countRestorer counts the restores serve asks for.
 type countRestorer struct{ calls int }
 
-func (r *countRestorer) RestoreProject(context.Context, string) { r.calls++ }
+func (r *countRestorer) RestoreProject(context.Context, string, port.Lost) { r.calls++ }
 
 // The upgrade: serve finds the instance only under the old file's name (the one naming herdr) and reads it once as the
 // recorded instance, so a terminal that did not restart does not restore; the instance is written under the new name
@@ -157,5 +157,27 @@ func TestFirstConnectNoRestoreHerdrBeforeLastActivity(t *testing.T) {
 	}
 	if want := started.UTC().Format(time.RFC3339Nano); rec != want {
 		t.Fatalf("instance recorded %q, want %q", rec, want)
+	}
+}
+
+// A terminal whose panes name no run (herdr): a reconnect and a first connect to another instance than recorded each
+// restore every pane; with runs (hc), a reconnect whose panes kept their runs restores none.
+func TestRestoreWhyEveryPaneWithoutRuns(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.a.opt.Restore = &countRestorer{}
+	h.a.loadProject()
+	h.write(InstanceFile(h.root), "2026-10-24T08:00:00Z\n")
+	if c := h.a.restoreWhy(port.Snapshot{}, false, true); c.why != "reconnected" || !c.lost.All {
+		t.Errorf("reconnect = %+v, want every pane", c)
+	}
+	if c := h.a.restoreWhy(port.Snapshot{Instance: h.now.Format(time.RFC3339Nano)}, true, false); c.why == "" || !c.lost.All {
+		t.Errorf("first connect to another instance = %+v, want every pane", c)
+	}
+	h.connect()
+	snap := h.snap
+	snap.PaneRuns = true
+	if c := h.a.restoreWhy(snap, false, true); c.why != "" || !c.lost.None() {
+		t.Errorf("reconnect with runs, none changed = %+v, want no restore", c)
 	}
 }

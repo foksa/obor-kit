@@ -23,11 +23,11 @@ const HeartbeatLost = 45 * time.Second
 // (Group ""), sent like any other change.
 //
 // The stream ends, C closed and Err set:
-//   - as a refresh (port.Refreshed): hc's `missed` (it dropped events for a slow reader), or a seq gap in an event or
-//     a heartbeat;
+//   - as a refresh (port.Refreshed): hc's `missed` (it dropped events for a slow reader), a seq gap in an event or
+//     a heartbeat, or `restarted` (a holder was lost and a kept terminal runs a fresh shell: the new snapshot shows
+//     its new pid, the evidence serve's restore restarts its agent on);
 //   - as a lost connection (port.NotRunning): the connection closed (a restart or an update, a stop, a stalled reader
-//     hc dropped), no line for HeartbeatLost, `lost` with reason server_stop (a stop), or `restarted` (a holder was
-//     lost and a kept terminal runs a fresh shell: serve's restore after a reconnect restarts its agent).
+//     hc dropped), no line for HeartbeatLost, or `lost` with reason server_stop (a stop).
 func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	s, err := p.C.open(ctx, "events.subscribe")
@@ -230,7 +230,7 @@ func (st *stream) event(t, typ string, data json.RawMessage) (port.Event, bool, 
 		delete(st.recs, t)
 		return port.Event{Kind: port.EventClosed, Pane: t}, known, nil
 	case "restarted":
-		return port.Event{}, false, &Error{Op: "events.subscribe", down: true,
+		return port.Event{}, false, &Error{Op: "events.subscribe", refresh: true,
 			Msg: t + "'s holder was lost and hc runs a fresh shell in it: subscribe again"}
 	case "lost":
 		var d struct {

@@ -2,8 +2,7 @@ package hc
 
 import (
 	"context"
-	"slices"
-	"strings"
+	"strconv"
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
@@ -42,12 +41,16 @@ type Foreground struct {
 }
 
 // pane is r as the core sees it. Group and Label are the obor.project and obor.agent labels; Cwd the foreground's
-// (it follows a cd), else the record's. The agent is what the program reported: its kind the one whose agents report
+// (it follows a cd), else the record's; Run the terminal's own program's pid (a fresh shell after a lost holder or a
+// stop and start has another). The agent is what the program reported: its kind the one whose agents report
 // status.app (kindOf; never foreground.name, which is Claude's version), its status hc's word, with `error`
 // as idle (the turn ended, the agent takes a prompt again). With no status, a program other than the terminal's own
 // in the foreground is unknown; the terminal's own program (its shell) is no agent.
 func (r Record) pane() port.Pane {
 	p := port.Pane{ID: r.Address, Terminal: r.Address, Group: r.Labels[LabelProject], Label: r.Labels[LabelAgent], Cwd: r.Cwd}
+	if r.PID != 0 {
+		p.Run = strconv.Itoa(r.PID)
+	}
 	if f := r.Foreground; f != nil && f.Cwd != "" {
 		p.Cwd = f.Cwd
 	}
@@ -98,34 +101,18 @@ type Panes struct {
 
 var _ port.Panes = Panes{}
 
-// serverStatus is server.status as far as obor reads it: the core's permanent id and its holders.
+// serverStatus is server.status as far as obor reads it: the core's permanent id.
 type serverStatus struct {
 	Core struct {
 		ID string `json:"id"`
 	} `json:"core"`
-	Holders []struct {
-		Instance string `json:"instance"`
-	} `json:"holders"`
 }
 
-// instance is the core's run as obor's restore compares it: the core's id and its holders' instances, sorted. A
-// restart or an update keeps every program and every holder (the instance stays); a lost holder or a stop and start
-// loses programs and changes the holder set. "" when hc names no core id.
-func (s serverStatus) instance() string {
-	if s.Core.ID == "" {
-		return ""
-	}
-	var hs []string
-	for _, h := range s.Holders {
-		hs = append(hs, h.Instance)
-	}
-	slices.Sort(hs)
-	return s.Core.ID + ":" + strings.Join(hs, ",")
-}
-
-// snapshot is the port's snapshot of recs (finished terminals left out), with the core's version, instance and note.
+// snapshot is the port's snapshot of recs (finished terminals left out), with the core's version, its id as the
+// instance (a restart, an update and a stop keep it) and note. Each pane's Run is its program's pid (PaneRuns): what
+// tells serve's restore which panes lost their program.
 func snapshot(h hello, st serverStatus, recs []Record) port.Snapshot {
-	out := port.Snapshot{Version: h.Version, Instance: st.instance(), Note: note(h)}
+	out := port.Snapshot{Version: h.Version, Instance: st.Core.ID, Note: note(h), PaneRuns: true}
 	for _, r := range recs {
 		if r.State == "live" {
 			out.Panes = append(out.Panes, r.pane())

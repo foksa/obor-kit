@@ -1651,7 +1651,7 @@ func TestEnvLineSeenInRecentOutputWhenTheScreenIsStale(t *testing.T) {
 			Restart: func(ctx context.Context, _ *config.Config, req launch.Request, w io.Writer) (string, error) {
 				return x.launcher(w).Restart(ctx, req)
 			}}
-		r.RestoreProject(context.Background(), x.p.Root)
+		r.RestoreProject(context.Background(), x.p.Root, port.Lost{All: true})
 		log, _ := os.ReadFile(launch.RestoreLog(r.Env))
 		wantMarkInRecentOnly(t, x, "w1:p3")
 		contains(t, string(log), "RESTARTED pj-l-01", "the restore's restart")
@@ -2174,7 +2174,7 @@ func TestSessionResumeRule(t *testing.T) {
 		f.p.Config(testkit.Set("agents.roles", `{"reviewer": "opus"}`))
 		rev := f.p.PlainLane("review", "review")
 		f.shell("w1:p7", rev, "pj-rev")
-		f.pl.RestoreProject(context.Background(), f.p.Root)
+		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
 		f.wantCalls(f.p.Root + " restart pj-rev --pane w1:p7 --fresh")
 		has(t, f.restoreLog(), " restore pj-rev (pane w1:p7) in "+f.p.Root+" (reviewer, no recorded session: --fresh)",
 			"the fresh start is logged")
@@ -2186,7 +2186,7 @@ func TestSessionResumeRule(t *testing.T) {
 		f.p.Config()
 		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 		f.shell("w1:p1", lane, "pj-l-01")
-		f.pl.RestoreProject(context.Background(), f.p.Root)
+		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
 		log := f.restoreLog()
 		has(t, log, " restore pj-l-01 (pane w1:p1) in "+f.p.Root+" (worker, no recorded session: --fresh)",

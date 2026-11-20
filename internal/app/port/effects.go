@@ -3,6 +3,7 @@ package port
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -210,12 +211,39 @@ const StopTerminate = 10 * time.Second
 // StopBound is the most a stop may take: its idle wait, its quit wait and its terminate together.
 const StopBound = StopIdle + StopQuit + StopTerminate
 
-// Restorer restarts a project's labelled panes that run no agent (launch.Restorer): serve calls it once its
-// subscription is back from a lost terminal connection (a Subscribe or a stream's end with NotRunning), and at its
-// first connect when the terminal restarted since serve last recorded it. It is
-// idempotent: a pane whose agent runs is left alone, and runs for one project are one at a time. It returns when the run has ended (or ctx has).
+// Restorer restarts the labelled panes of a project that lost their program and run no agent (launch.Restorer): serve
+// calls it once a connect shows panes that lost their program (lost names them; internal/app/restore.go). It is
+// idempotent: a pane whose agent runs is left alone, and runs for one project are one at a time. It returns when the
+// run has ended (or ctx has).
 type Restorer interface {
-	RestoreProject(ctx context.Context, root string)
+	RestoreProject(ctx context.Context, root string, lost Lost)
+}
+
+// Lost is which panes lost their program: every pane (All: the terminal cannot tell which, Snapshot.PaneRuns false),
+// else the panes by id.
+type Lost struct {
+	All   bool
+	Panes []string
+}
+
+// Has: pane is one of the lost.
+func (l Lost) Has(pane string) bool { return l.All || slices.Contains(l.Panes, pane) }
+
+// None: no pane is lost.
+func (l Lost) None() bool { return !l.All && len(l.Panes) == 0 }
+
+// Add is l and m together: every pane when either is, else the panes of both, each once.
+func (l Lost) Add(m Lost) Lost {
+	if l.All || m.All {
+		return Lost{All: true}
+	}
+	out := Lost{Panes: slices.Clone(l.Panes)}
+	for _, p := range m.Panes {
+		if !slices.Contains(out.Panes, p) {
+			out.Panes = append(out.Panes, p)
+		}
+	}
+	return out
 }
 
 // TerminalSetup is what obor setup and obor init ask of the terminal, in terminal-neutral terms: the pane

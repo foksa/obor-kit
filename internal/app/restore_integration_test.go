@@ -13,6 +13,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/herdr"
 	"obor/internal/store"
@@ -28,7 +29,7 @@ type fakeRestorer struct {
 	hold    chan struct{}
 }
 
-func (f *fakeRestorer) RestoreProject(ctx context.Context, root string) {
+func (f *fakeRestorer) RestoreProject(ctx context.Context, root string, _ port.Lost) {
 	f.mu.Lock()
 	f.roots = append(f.roots, root)
 	f.running++

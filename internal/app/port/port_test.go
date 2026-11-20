@@ -24,3 +24,22 @@ func TestPaneReadyBusy(t *testing.T) {
 		}
 	}
 }
+
+// Lost: every pane when All, else its panes; Add joins two (every pane when either is), each pane once.
+func TestLost(t *testing.T) {
+	t.Parallel()
+	some := Lost{Panes: []string{"t1", "t2"}}
+	if !some.Has("t2") || some.Has("t3") || some.None() || !(Lost{}).None() || !(Lost{All: true}).Has("t3") {
+		t.Errorf("Has/None: %+v has t2 %v, t3 %v, none %v; zero none %v", some, some.Has("t2"), some.Has("t3"), some.None(),
+			(Lost{}).None())
+	}
+	if got := some.Add(Lost{Panes: []string{"t2", "t3"}}); got.All || len(got.Panes) != 3 || !got.Has("t3") {
+		t.Errorf("Add = %+v, want t1, t2, t3", got)
+	}
+	if got := some.Add(Lost{All: true}); !got.All {
+		t.Errorf("Add of every pane = %+v, want every pane", got)
+	}
+	if got := (Lost{}).Add(some); got.All || len(got.Panes) != 2 {
+		t.Errorf("Add to none = %+v, want %+v", got, some)
+	}
+}
