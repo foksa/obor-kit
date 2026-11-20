@@ -350,16 +350,17 @@ func write(key string, doc []byte, path []string, v any) (Write, error) {
 	return Write{Doc: out, Key: key, Val: fmt.Sprintf("%v", v)}, err
 }
 
-// ProjectDoc is doc (the kit's config example, shape 2) as obor init writes a new project's config: name, prefix and
-// lanesDir set, no lanes, project commands, lane links or protected files, the commands init detects (lanes.setup,
-// merge.check, nightly.slow_check) null; the example's agents.difficulty and agents.kinds go, but for each kit kind's
-// plugin (KitKinds).
-func ProjectDoc(doc []byte, name, prefix, lanesDir string) ([]byte, error) {
+// ProjectDoc is doc (the kit's config example, shape 2) as obor init writes a new project's config: name, prefix,
+// terminal (project.terminal, one of TerminalKinds) and lanesDir set, no lanes, project commands, lane links or
+// protected files, the commands init detects (lanes.setup, merge.check, nightly.slow_check) null; the example's
+// agents.difficulty and agents.kinds go, but for each kit kind's plugin (KitKinds).
+func ProjectDoc(doc []byte, name, prefix, terminal, lanesDir string) ([]byte, error) {
 	for _, kv := range []struct {
 		path []string
 		val  any
 	}{
-		{p("project", "name"), name}, {p("project", "agent_prefix"), prefix}, {p("lanes", "dir"), lanesDir},
+		{p("project", "name"), name}, {p("project", "agent_prefix"), prefix}, {p("project", "terminal"), terminal},
+		{p("lanes", "dir"), lanesDir},
 		{p("lanes", "count"), 0}, {p("lanes", "list"), nil},
 		{p("lanes", "setup"), json.RawMessage(`null`)}, {p("lanes", "ready"), nil},
 		{p("merge", "check"), json.RawMessage(`null`)}, {p("nightly", "slow_check"), json.RawMessage(`null`)},

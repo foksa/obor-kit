@@ -108,6 +108,9 @@ type Setup struct {
 	root  string // the main checkout, once found
 	cfg   *config.Config
 	wrote bool // init: a file was created or appended to
+	// terminal is the kind obor init writes into a new config and names in its refusals ("": herdr); cmd/obor
+	// passes it as --terminal, decided before any write.
+	terminal string
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool

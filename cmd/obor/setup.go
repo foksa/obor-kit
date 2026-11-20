@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 
@@ -19,9 +20,25 @@ import (
 func setupCmd(args []string) int {
 	cwd, _ := os.Getwd()
 	kit := project.KitRoot(project.OSEnv)
-	var cfg *config.Config // the project's, when obor setup runs in one (obor init: none, the default kind)
+	var cfg *config.Config // the project's, when obor setup runs in one (obor init: its terminal, below)
+	root := ""
 	if repo, err := project.Find(cwd); err == nil {
-		cfg, _, _ = config.LoadReader(repo.Root)
+		root = repo.Root
+		cfg, _, _ = config.LoadReader(root)
+	}
+	if len(args) > 0 && args[0] == "obor-init" {
+		// obor init decides its terminal first (an existing config's, else the caller's, else the one that answers)
+		kind, line, rest, err := initTerminalKind(context.Background(), project.OSEnv, root, cfg, args[1:],
+			realProbes(project.OSEnv))
+		if err != nil {
+			fmt.Fprintf(out, "FAIL %s\n", err)
+			return 1
+		}
+		if line != "" {
+			fmt.Fprintln(out, line)
+		}
+		args = append([]string{"obor-init"}, rest...)
+		cfg = &config.Config{Data: config.Data{Project: config.Project{Terminal: kind}}}
 	}
 	t, err := terminal(cfg, project.OSEnv)
 	if err != nil {
@@ -34,7 +51,7 @@ func setupCmd(args []string) int {
 	return s.Run(context.Background(), args)
 }
 
-// initCmd is `obor init [--name N] [--prefix P]` (P7-2): the project set up with no questions
+// initCmd is `obor init [--name N] [--prefix P] [--terminal herdr|hc]` (P7-2): the project set up with no questions
 // (internal/setup/oborinit.go), its summary, OK or FAIL.
 func initCmd(args []string) int { return setupCmd(append([]string{"obor-init"}, args...)) }
 

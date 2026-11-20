@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,23 +15,36 @@ import (
 	"obor/internal/project"
 )
 
-// initArgs parses [--name N] [--prefix P].
-func initArgs(args []string) (name, prefix string, err error) {
+// initArgs parses [--name N] [--prefix P] [--terminal herdr|hc]; terminal "": herdr.
+func initArgs(args []string) (name, prefix, terminal string, err error) {
 	for len(args) > 0 {
 		if len(args) < 2 || args[1] == "" {
-			return "", "", errUsage
+			return "", "", "", errUsage
 		}
 		switch args[0] {
 		case "--name":
 			name = args[1]
 		case "--prefix":
 			prefix = args[1]
+		case "--terminal":
+			if !slices.Contains(config.TerminalKinds, args[1]) {
+				return "", "", "", errUsage
+			}
+			terminal = args[1]
 		default:
-			return "", "", errUsage
+			return "", "", "", errUsage
 		}
 		args = args[2:]
 	}
-	return name, prefix, nil
+	return name, prefix, terminal, nil
+}
+
+// initTerminal is the terminal kind init writes into a new config: the --terminal's, else herdr.
+func (s *Setup) initTerminal() string {
+	if s.terminal == "" {
+		return config.DefaultTerminal
+	}
+	return s.terminal
 }
 
 // reviewsIgnore is the .gitignore line for the reviews dir, a directory line: a broad `git add -A` never stages an open
@@ -115,7 +129,7 @@ func (s *Setup) writeConfig(name, prefix string) error {
 		s.say("skip .obor/config.json (exists)")
 		return nil
 	}
-	doc, err := s.configJSON(name, prefix)
+	doc, err := s.configJSON(name, prefix, s.initTerminal())
 	if err != nil {
 		return err
 	}
@@ -126,20 +140,20 @@ func (s *Setup) writeConfig(name, prefix string) error {
 		return project.Failf("cannot write %s", path)
 	}
 	s.wrote = true
-	s.say("created .obor/config.json (name %s, prefix %s, no lanes)", name, prefix)
+	s.say("created .obor/config.json (name %s, prefix %s, terminal %s, no lanes)", name, prefix, s.initTerminal())
 	return nil
 }
 
-// configJSON is the .obor/config.json init writes: the kit's example with name, prefix, the lanes dir beside the root
+// configJSON is the .obor/config.json init writes: the kit's example with name, prefix, terminal, the lanes dir beside the root
 // and no lanes, commands, lane links or protected files; the example's difficulty and kinds go (initDifficulty writes
 // the levels from the kinds init detected), but for each kit kind's command (config.KitKinds: OpenCode's
 // binary).
-func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
+func (s *Setup) configJSON(name, prefix, terminal string) ([]byte, error) {
 	example, err := os.ReadFile(filepath.Join(s.Kit, "templates", "config.example.json"))
 	if err != nil {
 		return nil, project.Failf("cannot read %s", filepath.Join(s.Kit, "templates", "config.example.json"))
 	}
-	example, err = config.ProjectDoc(example, name, prefix, "../"+filepath.Base(s.root)+"-wt")
+	example, err = config.ProjectDoc(example, name, prefix, terminal, "../"+filepath.Base(s.root)+"-wt")
 	if err != nil {
 		return nil, project.Failf("cannot read templates/config.example.json: %v", err)
 	}
@@ -241,7 +255,7 @@ func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 
 // initFiles is what init writes into an empty root, by path relative to it, for the config there (.obor/config.json,
 // .gitignore, the docs); empty when root has no config yet (init writes it first). It loads that config into s.cfg.
-// It must follow configJSON's inputs (today name, prefix, the root's base name): a config needing more changes it.
+// It must follow configJSON's inputs (today name, prefix, terminal, the root's base name): a config needing more changes it.
 func (s *Setup) initFiles() (map[string][]byte, error) {
 	want := map[string][]byte{}
 	if !s.configExists() {
@@ -252,7 +266,7 @@ func (s *Setup) initFiles() (map[string][]byte, error) {
 		return want, nil // not init's config: a user's file
 	}
 	s.cfg = cfg
-	if want[".obor/config.json"], err = s.configJSON(cfg.Name(), cfg.Prefix()); err != nil {
+	if want[".obor/config.json"], err = s.configJSON(cfg.Name(), cfg.Prefix(), cfg.TerminalKind()); err != nil {
 		return nil, err
 	}
 	want[".gitignore"] = []byte(strings.Join(s.gitignoreLines(), "\n") + "\n")
