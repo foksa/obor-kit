@@ -184,6 +184,20 @@ type BackupReq struct {
 
 func (BackupReq) Method() string { return MethodBackup }
 
+// PruneReq is obor prune (the owner's or the lead's) and the nightly's branch prune: serve deletes the task branches
+// of finished tasks and the worktrees of lanes and roles the config no longer names. DryRun lists and deletes nothing;
+// Unmerged adds the branches of tasks that ended unmerged over pruneUnmerged ago; Nightly is the nightly's own call
+// (branches of tasks merged over pruneNightly ago, never worktrees or Unmerged). Reply: one line per deletion
+// (`deleted task/T-982 (was 1a2b3c4)`), a kept worktree's line, and the summary line last (`PRUNE …`).
+type PruneReq struct {
+	Envelope
+	DryRun   bool `json:"dry_run,omitempty"`
+	Unmerged bool `json:"unmerged,omitempty"`
+	Nightly  bool `json:"nightly,omitempty"`
+}
+
+func (PruneReq) Method() string { return MethodPrune }
+
 // SendReq is a line to another project's lead (obor send; messages.go): the envelope's Root the target project, From
 // the sender project's name, Text the text.
 type SendReq struct {

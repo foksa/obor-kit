@@ -281,7 +281,8 @@ func (p *proj) keptTask(l port.Lane) port.Lane {
 // review requests', a failed self-restart's, a failing rule's, the config rewrite's), not a task's.
 func projectKey(task string) bool {
 	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
-		task == event.ServeTask || task == event.RuleTask || task == event.ConfigTask || task == event.TrustTask
+		task == event.ServeTask || task == event.RuleTask || task == event.ConfigTask || task == event.TrustTask ||
+		task == event.PruneTask
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

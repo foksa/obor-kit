@@ -29,6 +29,8 @@ const (
 	ServeTask = "serve"
 	// ConfigTask is the task key of the owner's setup edits (obor web).
 	ConfigTask = "config"
+	// PruneTask is the task key of the facts of obor prune runs (data: Pruned).
+	PruneTask = "prune"
 	// IdleTask is the task key of the lead's acknowledgement of the project's idle state.
 	IdleTask = "idle"
 	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row.
@@ -70,6 +72,9 @@ const (
 
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
+
+// StepPruned is the fact of an obor prune run that deleted something (task PruneTask; data: Pruned).
+const StepPruned = "pruned"
 
 // StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet).
 const StepConfigSet = "config.set"

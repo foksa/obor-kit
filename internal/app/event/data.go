@@ -133,3 +133,18 @@ type SpecSet struct {
 	Call  string `json:"call"`
 	Reply string `json:"reply"`
 }
+
+// Pruned is fact pruned's data: what one obor prune run deleted, each with the tip it had, so `git branch <name> <sha>`
+// (or `git worktree add <dir> <sha>`) brings it back while git still has the commit.
+type Pruned struct {
+	Branches  []PrunedRef `json:"branches,omitempty"`
+	Worktrees []PrunedRef `json:"worktrees,omitempty"`
+	Unmerged  bool        `json:"unmerged,omitempty"` // the run also took the branches of tasks that ended unmerged
+	Nightly   bool        `json:"nightly,omitempty"`  // the nightly's run
+}
+
+// PrunedRef is a deleted branch or worktree (its dir) and its tip sha.
+type PrunedRef struct {
+	Name string `json:"name"`
+	SHA  string `json:"sha"`
+}

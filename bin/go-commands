@@ -22,6 +22,7 @@ spec
 flakes
 events
 nightly
+prune
 setup
 init
 status

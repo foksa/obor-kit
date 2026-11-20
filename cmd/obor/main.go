@@ -125,6 +125,8 @@ func main() {
 		exit(eventsCmd(args))
 	case "nightly":
 		exit(nightlyCmd(args))
+	case "prune":
+		exit(pruneCmd(args))
 	case "setup":
 		exit(setupCmd(args))
 	case "init":
@@ -227,6 +229,7 @@ var commands = map[string][]string{
 	"flakes":    nil,
 	"events":    nil,
 	"nightly":   {"on", "off"},
+	"prune":     nil,
 	"serve":     {"install", "uninstall", "restart"},
 	"mcp":       nil,
 	"stop":      nil,

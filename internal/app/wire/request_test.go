@@ -79,6 +79,8 @@ var goldenRequests = []requestLine{
 		`{"method":"config_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","changes":[{"key":"k","value":{"a":1}}],"base":"r1","source":"web"}}`, []droppedKey{dropTask}},
 	{&BackupReq{Envelope: env},
 		`{"method":"backup","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":""}}`, []droppedKey{dropTask}},
+	{&PruneReq{Envelope: env, DryRun: true, Unmerged: true, Nightly: true},
+		`{"method":"prune","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","dry_run":true,"unmerged":true,"nightly":true}}`, []droppedKey{dropTask}},
 	{&SendReq{Envelope: env, Text: "hi", From: "other"},
 		`{"method":"send","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"hi","from":"other"}}`, []droppedKey{dropTask}},
 	{&BriefReq{Envelope: env, Text: "brief", To: "lead", Prompt: "go", Fresh: true},
@@ -252,7 +254,7 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 		MethodConfig,
 		MethodBackup, MethodSend, MethodBrief, MethodStopped, MethodTurn, MethodRestartJob, MethodExit, MethodDrive,
 		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone, MethodMergePreview,
-		MethodWhere} {
+		MethodWhere, MethodPrune} {
 		if !methods[m] {
 			t.Errorf("no golden row for %s", m)
 		}
