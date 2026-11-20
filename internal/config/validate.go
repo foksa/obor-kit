@@ -406,11 +406,6 @@ func (v *validator) terminal() {
 	}
 }
 
-// HCRequiredArgs are the flags a kind's start must carry on an hc project, by kind: each turns off the kind's shared
-// background server, whose commands would run outside the agent's hc terminal (docs/research/hc-probes.md P1).
-// KindBaseArgs carries both.
-var HCRequiredArgs = map[string]string{"codex": "--no-daemon", "opencode": "--standalone"}
-
 // nonNegative: absent, or not negative (the decode made it an integer).
 func (v *validator) nonNegative(path string, n *int64) {
 	if n != nil && *n < 0 {

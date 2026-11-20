@@ -43,6 +43,11 @@ var KindBaseArgs = map[string][]string{
 	"opencode": {"--auto", "--standalone"},
 }
 
+// HCRequiredArgs are the flags a kind's start must carry on an hc project (project.terminal "hc"), by kind: each turns
+// off the kind's shared background server, whose commands would run outside the agent's hc terminal with another env
+// and cwd (docs/research/hc-probes.md P1). KindBaseArgs carries both; obor config validate refuses a model without.
+var HCRequiredArgs = map[string]string{"codex": "--no-daemon", "opencode": "--standalone"}
+
 // KindEntry is agents.kinds.<kind>: Args are extra args for every start of that CLI, JobNote the text added to every
 // work job an agent of that kind gets. Plugin makes it a plugin kind: the executable answering obor's kind
 // protocol (docs/agents/kind-protocol.md), a path (relative: to the project root; KindCommand).
