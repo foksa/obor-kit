@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ type shell struct {
 	keys     map[string][]string   // address → each key pressed
 	sendWait time.Duration         // how long terminal.send holds its answer (a person's draft)
 	pid      int                   // the last pid a program got
+	runs     []Run                 // every terminal.run answered
 }
 
 func newShell() shell {
@@ -202,4 +204,54 @@ func echoWord(line string) string {
 		w = w[:j]
 	}
 	return strings.ReplaceAll(w, `"`, "")
+}
+
+// Run is one terminal.run request as the core got it.
+type Run struct {
+	Argv   []string
+	Cwd    string
+	Env    map[string]string
+	Keep   bool
+	Labels map[string]string
+	// NoParent is no_parent: the terminal has no parent that ends it.
+	NoParent bool
+}
+
+// Runs is every terminal.run the core answered, in order.
+func (c *Core) Runs() []Run {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.runs)
+}
+
+// start answers terminal.run, under the core's lock: a new live terminal at the next address, its program the shell
+// (a request with an argv is not modelled: it fails invalid_params), labelled as asked; its created event goes out
+// once the answer has.
+func (c *Core) start(raw json.RawMessage) (any, string, string) {
+	var p struct {
+		Argv     []string          `json:"argv"`
+		Cwd      string            `json:"cwd"`
+		Env      map[string]string `json:"env"`
+		Keep     bool              `json:"keep"`
+		Labels   map[string]string `json:"labels"`
+		NoParent bool              `json:"no_parent"`
+	}
+	_ = json.Unmarshal(raw, &p)
+	if len(p.Argv) > 0 {
+		return nil, "invalid_params", "hctest runs a shell only"
+	}
+	c.runs = append(c.runs, Run{Argv: p.Argv, Cwd: p.Cwd, Env: p.Env, Keep: p.Keep, Labels: p.Labels, NoParent: p.NoParent})
+	n := len(c.recs) + 1
+	for slices.ContainsFunc(c.recs, func(r hc.Record) bool { return r.Address == "t"+strconv.Itoa(n) }) {
+		n++
+	}
+	pid := 42000 + n
+	r := hc.Record{Address: "t" + strconv.Itoa(n), State: "live", PID: pid, Cwd: p.Cwd, Labels: maps.Clone(p.Labels),
+		Foreground: &hc.Foreground{PID: pid, Name: "zsh", Argv: []string{"/bin/zsh", "-l"}, Cwd: p.Cwd}}
+	if r.Labels == nil {
+		r.Labels = map[string]string{}
+	}
+	c.recs = append(c.recs, r)
+	c.pending = append(c.pending, event{r.Address, "created", r})
+	return r, "", ""
 }
