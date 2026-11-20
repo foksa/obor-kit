@@ -137,13 +137,16 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()},
 		store.Session{Agent: "pj-l-01-drive", Kind: "claude", ID: "sid-drive", Started: time.Now().Unix()})
 	f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
-	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2 --fresh")
+	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2 --fresh",
+		f.p.Root+" restart pj-int --pane w1:p6 --fresh")
 	log := f.restoreLog()
 	has(t, log, " restore pj-l-01 (pane w1:p1) in "+f.p.Root+"\nstub restart ran: pj-l-01\nRESTARTED pj-l-01\n",
 		"the restore line, the restart's output and result")
 	has(t, log, " restore pj-lead (pane w1:p2) in "+f.p.Root+" (lead, no recorded session: --fresh)\n",
 		"a role with no recorded session starts fresh (T-627)")
-	has(t, log, " skip pj-int (pane w1:p6): runs claude", "busy pane: skipped, logged")
+	has(t, log, " restore pj-int (pane w1:p6) in "+f.p.Root+" (the terminal resumed claude without obor's start: "+
+		"obor restart replaces it) (integrator, no recorded session: --fresh)\n",
+		"a lost pane running an agent obor did not start: replaced, logged")
 	if n := strings.Count(log, " restore ") + strings.Count(log, " skip "); n != 3 {
 		t.Errorf("%d restore/skip lines, want 3 (unlabelled, non-obor, foreign-label and drive panes: none):\n%s", n, log)
 	}
@@ -543,4 +546,183 @@ func TestRestoreRefusedWhileTheAgentRunsElsewhere(t *testing.T) {
 	if p := f.h.At("w1:p7"); p.Kind != "claude" || p.Name != "pj-l-01" {
 		t.Errorf("the live agent = %+v, want it running", p)
 	}
+}
+
+// stops makes the restore's Stop a stub that records "stop <agent> --pane <pane>" and leaves the pane at its shell.
+func (f *rfx) stops() *[]string {
+	var got []string
+	f.pl.Stop = func(_ context.Context, cfg *config.Config, agent, pane string, w io.Writer) (string, error) {
+		f.mu.Lock()
+		got = append(got, "stop "+agent+" --pane "+pane)
+		f.mu.Unlock()
+		f.h.Set(pane, func(p *mpane) { p.Kind, p.Name, p.Status = "", "", "" })
+		return "STOPPED " + agent, nil
+	}
+	return &got
+}
+
+// resumedPane is a lost labelled pane running the agent the terminal resumed on its own (herdr's bare resume, idle).
+func (f *rfx) resumedPane(pane, cwd, label string) {
+	f.h.Agent(pane, label, "idle", cwd, func(p *mpane) { p.Label = label })
+}
+
+// After a herdr restart with herdr's own resume on, each lost labelled pane runs the agent herdr resumed, which obor did
+// not start: the restore treats it as a shell. The lead with a session is restarted by obor (resumed), a working
+// lane's worker with its job's wake; a free lane's worker and a role with no open work have herdr's agent stopped and
+// their shell left. With herdr's resume off (shells) the same panes restart as before and nothing is stopped.
+func TestRestoreReplacesTheTerminalsResumedAgents(t *testing.T) {
+	for _, resumed := range []bool{true, false} {
+		t.Run(map[bool]string{true: "resume on: herdr's agents", false: "resume off: shells"}[resumed], func(t *testing.T) {
+			f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
+			o1, o3 := f.p.Lane("L-01", "task/T-01"), f.p.Lane("L-03", "task/T-03")
+			f.p.Config(testkit.Set("agents.roles", `{"reviewer": "opus"}`))
+			f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
+			pane := f.shell
+			if resumed {
+				pane = f.resumedPane
+			}
+			pane("w1:p1", o1, "pj-l-01")
+			pane("w1:p3", f.p.Root, "pj-lead")
+			pane("w1:p4", f.p.Root, "pj-rev")
+			pane("w1:p5", o3, "pj-l-03")
+			recordSessions(t, f.p.Root,
+				store.Session{Agent: "pj-lead", Kind: "claude", ID: "sid-lead", Started: time.Now().Unix()},
+				store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
+			f.pl.OpenWork = func(string, string) (bool, error) { return false, nil }
+			f.pl.Job = func(_, agent, _, _ string) (string, error) {
+				return map[string]string{"pj-l-01": "T-01/1/work"}[agent], nil
+			}
+			stops := f.stops()
+			f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+
+			f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p3")
+			if got, want := f.prompts["pj-l-01"], wire.WakeLine("T-01/1/work"); got != want {
+				t.Errorf("the working lane's worker restarted with %q, want its job's wake %q", got, want)
+			}
+			if got := f.prompts["pj-lead"]; got != "" {
+				t.Errorf("the lead restarted with the prompt %q, want none", got)
+			}
+			log := f.restoreLog()
+			if !resumed {
+				if len(*stops) != 0 {
+					t.Errorf("shells: stopped %q, want nothing", *stops)
+				}
+				has(t, log, " skip pj-l-03 (pane w1:p5): lane L-03 is free (dispatch starts its worker)\n", "the free lane skipped")
+				has(t, log, " skip pj-rev (pane w1:p4): no open work (its next brief or job starts it)\n", "the idle role skipped")
+				lacks(t, log, "the terminal resumed", "no resumed agent named")
+				return
+			}
+			if want := []string{"stop pj-rev --pane w1:p4", "stop pj-l-03 --pane w1:p5"}; !slices.Equal(*stops, want) {
+				t.Errorf("stopped %q, want %q", *stops, want)
+			}
+			for _, id := range []string{"w1:p4", "w1:p5"} {
+				if p := f.h.At(id); p.Kind != "" || p.Label == "" {
+					t.Errorf("pane %s = %+v, want its labelled shell left", id, p)
+				}
+			}
+			has(t, log, " restore pj-l-01 (pane w1:p1) in "+f.p.Root+" (the terminal resumed claude without obor's start: "+
+				"obor restart replaces it) (wake: "+wire.WakeLine("T-01/1/work")+")\n", "the worker's line says it replaces herdr's")
+			has(t, log, " restore pj-lead (pane w1:p3) in "+f.p.Root+" (the terminal resumed claude without obor's start: "+
+				"obor restart replaces it)\n", "the lead's line says it replaces herdr's")
+			has(t, log, " stop pj-l-03 (pane w1:p5): lane L-03 is free (dispatch starts its worker); the terminal resumed "+
+				"claude without obor's start: stopped, its shell left\nSTOPPED pj-l-03\n", "the free lane's stop line and result")
+			has(t, log, " stop pj-rev (pane w1:p4): no open work (its next brief or job starts it); the terminal resumed "+
+				"claude without obor's start: stopped, its shell left\nSTOPPED pj-rev\n", "the idle role's stop line and result")
+			lacks(t, log, " skip ", "no pane skipped as running an agent")
+		})
+	}
+}
+
+// A lost pane whose agent obor started after the loss (its start record names the pane and the pid leading the pane's
+// foreground group) is left as it is: a reconnect's queued run restarts no pane twice. A record of another pid or
+// another pane is no proof: that agent is the terminal's, replaced.
+func TestRestoreLeavesAPaneOborStartedSince(t *testing.T) {
+	for _, c := range []struct {
+		name, pane string
+		pid        int
+		untouched  bool
+	}{
+		{"its pid recorded in the pane", "w1:p1", 2, true},
+		{"another pid recorded", "w1:p1", 7, false},
+		{"recorded in another pane", "w1:p9", 2, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newRfx(t)
+			f.p.Config()
+			f.resumedPane("w1:p1", f.p.Root, "pj-lead")
+			recordSessions(t, f.p.Root, store.Session{Agent: "pj-lead", Kind: "claude", ID: "sid-lead", Started: time.Now().Unix()})
+			if pi, err := f.h.ProcessInfo(context.Background(), "w1:p1"); err != nil || pi.FgPGID != 2 || pi.AtShell() {
+				t.Fatalf("precondition: the agent leads the pane's foreground as pid 2: %+v, %v", pi, err)
+			}
+			if err := launch.RecordStart(f.p.Root, "pj-lead", c.pane, c.pid); err != nil {
+				t.Fatal(err)
+			}
+			stops := f.stops()
+			f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+			if len(*stops) != 0 {
+				t.Errorf("stopped %q, want nothing", *stops)
+			}
+			if c.untouched {
+				f.wantCalls()
+				has(t, f.restoreLog(), " skip pj-lead (pane w1:p1): runs claude (obor started it since)\n", "the skip line")
+				return
+			}
+			f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1")
+			has(t, f.restoreLog(), "(the terminal resumed claude without obor's start: obor restart replaces it)", "replaced")
+		})
+	}
+}
+
+// herdr names the agent it resumes before its process runs (the pane's shell still has the foreground), then reports
+// it unknown while it starts: a pane still starting runs an agent, and the restore waits for it to settle before it
+// replaces it. A pane whose agent never comes up within the run's bound is a shell.
+func TestRestoreWaitsForAResumedAgentToSettle(t *testing.T) {
+	t.Run("still starting: waited for, then replaced", func(t *testing.T) {
+		f := newRfx(t)
+		f.p.Config()
+		f.h.Agent("w1:p1", "pj-lead", "idle", f.p.Root, func(p *mpane) { p.Label, p.Foreground = "pj-lead", 1 })
+		recordSessions(t, f.p.Root, store.Session{Agent: "pj-lead", Kind: "claude", ID: "sid-lead", Started: time.Now().Unix()})
+		f.pl.Settle, f.pl.Poll = 10*time.Second, time.Millisecond
+		looks, atRestart := 0, 0
+		f.h.Before(func(call string) {
+			if call != "ProcessInfo pane=w1:p1" {
+				return
+			}
+			switch looks++; looks {
+			case 2: // its process runs, herdr's old status still shown (the probe: ~0.3 s)
+				f.h.Set("w1:p1", func(p *mpane) { p.Foreground = 0 })
+			case 3: // starting
+				f.h.Set("w1:p1", func(p *mpane) { p.Status = "unknown" })
+			case 5: // up
+				f.h.Set("w1:p1", func(p *mpane) { p.Status = "idle" })
+			}
+		})
+		restart := f.pl.Restart
+		f.pl.Restart = func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
+			atRestart = looks
+			return restart(ctx, cfg, req, w)
+		}
+		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+		f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1")
+		if atRestart < 6 {
+			t.Errorf("restarted after %d looks at the pane, want the wait through its start and two looks at it up (≥ 6)",
+				atRestart)
+		}
+		has(t, f.restoreLog(), "(the terminal resumed claude without obor's start: obor restart replaces it)",
+			"the starting pane is taken as running an agent")
+		lacks(t, f.restoreLog(), "has not settled", "it settled")
+	})
+	t.Run("never comes up: a shell past the bound", func(t *testing.T) {
+		f := newRfx(t)
+		f.p.Config()
+		f.h.Agent("w1:p1", "pj-lead", "idle", f.p.Root, func(p *mpane) { p.Label, p.Foreground = "pj-lead", 1 })
+		recordSessions(t, f.p.Root, store.Session{Agent: "pj-lead", Kind: "claude", ID: "sid-lead", Started: time.Now().Unix()})
+		f.pl.Settle, f.pl.Poll = 30*time.Millisecond, time.Millisecond
+		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+		f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1")
+		log := f.restoreLog()
+		has(t, log, " pj-lead (pane w1:p1): the terminal's claude has not settled by the restore's bound: taken as it is\n",
+			"the bound is logged")
+		lacks(t, log, "the terminal resumed", "restored as a shell")
+	})
 }

@@ -238,6 +238,25 @@ is the screen at 60 s (the agent's TUI on its sleep). The last leg is obor's own
   agent (the legs above); H-L13 (no first prompt) still returned only once the launch was over.
 - `timeout_ms` would not help: herdr answers at once whatever it is; it bounds only how long the launch stays pending.
 
+## Restore with herdr's own resume on (T-1391): a bare resume, named before its process runs
+
+2026-11-20, herdr 0.9.5, claude 2.1.329, by hand in a throwaway session (`herdr --session obor-probe-resume server`
+under a clean env, its own `HERDR_CONFIG_PATH` with `resume_agents_on_restore = true`, `startup_per_agent_delay_ms =
+4000`; herdr's Claude integration v11 installed): a pane labelled `lead`, Claude started there with `agent start lead
+--kind claude --pane w1:p1 -- --settings '{}' "Reply with exactly OK"` (trust dialog answered), herdr reported its
+`agent_session` (`herdr:claude`); then `server stop` and `server` again, the pane read every 0.25–0.5 s. The pane
+came back with its label and cwd, a new `terminal_id` (`term_660ba013…` → `term_660ba035…`) and a new shell pid, and
+herdr ran `claude --resume <the same id>` in it: that argv and nothing else (none of the `--settings` the start had,
+no obor env; its MCP servers are the user's own). From the first read (0.25 s) the pane reported `agent: claude`,
+status `idle`, with its shell in the foreground (`foreground_process_group_id == shell_pid` until ~0.8 s); the claude
+process led the foreground from ~1.1 s, still reported `idle` for a moment, then `unknown` from ~1.4 s while it
+started, and `idle` from ~4.9 s on. So a pane herdr is still resuming reads as running an agent, and only the process
+info tells it apart from a shell; obor's restore (`internal/launch/restore.go`) waits for two looks in a row at the same
+foreground pid with a known status, and tells obor's agent from herdr's by its start record (pane + pid), never by
+the terminal id (an `obor restart` in place keeps it). Not probed live: serve's replacement itself (the restore's
+fake-terminal tests cover it); a second pane (the per-agent spacing); resume off on 0.9.5 (the restore's shell case,
+unchanged).
+
 ## Limits
 
 - One machine, one day, one run per kind; the timings above are a sample, not bounds.

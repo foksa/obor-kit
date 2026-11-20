@@ -54,8 +54,8 @@ import (
 //
 // The restore runs in its own goroutine (it restarts agents: minutes), never under mu, so the stream's events go on
 // meanwhile. Runs never overlap: a connect with lost panes while one runs asks for one more run after it, with those
-// panes (several coalesce, their panes together), which reads the panes afresh. The restore is idempotent (a pane whose
-// agent runs is left alone, and a project's runs are one at a time under its restore lock), so a reconnect's run and
+// panes (several coalesce, their panes together), which reads the panes afresh. The restore is idempotent (a pane running
+// an agent obor started since is left alone, and a project's runs are one at a time under its restore lock), so a reconnect's run and
 // the one it queued each restart a pane at most once.
 //
 // While a restore is pending or running, or waits for a pane between programs, a briefed agent that is gone ends no
@@ -423,9 +423,9 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, call restoreCall)
 		defer wg.Done()
 		why, lost := call.why, call.lost
 		for {
-			what := "the project's labelled panes that run no agent"
+			what := "the project's labelled panes"
 			if !lost.All {
-				what = "those of the project's labelled panes that run no agent"
+				what = "those of the project's labelled panes"
 			}
 			a.logf("terminal: %s: restoring %s", why, what)
 			a.opt.Restore.RestoreProject(ctx, a.opt.Root, lost)

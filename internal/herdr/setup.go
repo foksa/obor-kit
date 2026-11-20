@@ -389,10 +389,10 @@ func (h *Setup) CloseProject(ctx context.Context, c port.CloseProject) ([]string
 
 var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)
 
-// ResumeHint: obor serve restarts obor's panes itself, so herdr must not resume agents on a restore.
-// Unless herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) sets `[session]
-// resume_agents_on_restore = false`: the one line to add, saying it is user-global; "" when it is set.
-// Never edited.
+// ResumeHint: after a herdr restart obor serve restores obor's panes itself, replacing an agent herdr resumed in one
+// (launch.Restorer), so herdr's own resume of them is a double start. Unless herdr's config.toml ($HERDR_CONFIG_PATH,
+// else ~/.config/herdr/config.toml) sets `[session] resume_agents_on_restore = false`: the line that saves it, saying
+// it is optional and user-global; "" when it is set. Never edited.
 func (h *Setup) ResumeHint() string {
 	path := h.Env.Get("HERDR_CONFIG_PATH")
 	if path == "" {
@@ -416,8 +416,9 @@ func (h *Setup) ResumeHint() string {
 	if value == "false" {
 		return ""
 	}
-	return "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false under [session] in " +
-		path + " (user-global: affects every herdr pane, not only obor's; those come back as shells)"
+	return "hint: after a herdr restart obor replaces the agents herdr resumes in its panes; to save that double start, " +
+		"set resume_agents_on_restore = false under [session] in " + path +
+		" (optional; user-global: affects every herdr pane, not only obor's; those come back as shells)"
 }
 
 // --- project rename ----------------------------------------------------------------------------------------------

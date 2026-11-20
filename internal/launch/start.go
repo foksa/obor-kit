@@ -153,11 +153,13 @@ func (l *Launcher) agentStart(s Start) port.AgentStart {
 		Prompt: s.Prompt, Bound: l.upWait(), Poll: l.poll(), Say: say}
 }
 
-// done is a start's success path, the one for Start and restart: it reports the confirmed start (serve ends the agent's
-// skew entry), then, for a start of a kind whose sessions its transcript names, the session the agent runs (report):
-// a resume reports the session it resumed, a fresh start searches for its own (searchRollout: the transcript its process
-// holds open).
+// done is a start's success path, the one for Start and restart: it records the start (recordStart: the restore's
+// proof that obor started the agent in the pane), reports the confirmed start (serve ends the agent's skew entry),
+// then, for a start of a kind whose sessions its transcript names, the session the agent runs (report): a resume
+// reports the session it resumed, a fresh start searches for its own (searchRollout: the transcript its process holds
+// open).
 func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
+	l.recordStart(ctx, s, s.Pane)
 	l.reportStarted(ctx, s)
 	if k, ok := agents.Lookup(s.Kind); !ok || !k.Caps().Sessions {
 		return a

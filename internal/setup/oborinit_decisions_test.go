@@ -222,7 +222,8 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	has(t, out, "detected: claude, codex on PATH; no build files", "detected line")
 	has(t, out, "nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, "+
 		"docs/agents/", "the files to commit named")
-	has(t, out, "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false", "herdr hint")
+	has(t, out, "hint: after a herdr restart obor replaces the agents herdr resumes in its panes; to save that double "+
+		"start, set resume_agents_on_restore = false", "herdr hint: optional")
 	if n := strings.Count(out, "resume_agents_on_restore"); n != 1 {
 		t.Errorf("the herdr hint %d times (once, in the summary)", n)
 	}

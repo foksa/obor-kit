@@ -43,9 +43,10 @@ package setup
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           commit and the panes: an agent started without the plugin runs without obor's hooks and MCP tools.
-//	herdr      serve restarts its own panes after a herdr restart, so herdr must not resume agents: when its
-//	           config.toml does not set `[session] resume_agents_on_restore = false`, the summary says the line to
-//	           add (user-global: it affects every herdr pane; obor never edits that config).
+//	herdr      serve restores its own panes after a herdr restart, replacing an agent herdr resumed there: when
+//	           herdr's config.toml does not set `[session] resume_agents_on_restore = false`, the summary says that
+//	           line saves the double start (optional; user-global: it affects every herdr pane; obor never edits
+//	           that config).
 //	panes      the first two configured lanes (lanes.list's, else L-01 … L-max(2, lanes.count)) in a lanes tab, the
 //	           integrator and the reviewer in a roles tab (the terminal's placement by kind: a tab of the project
 //	           whose panes are all of that kind, else a new one, "lanes" or "roles"; never the caller's tab). A pane
@@ -286,8 +287,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin-links", state, "%s", what)
 
-	// herdr: serve restarts its own panes after a herdr restart, so herdr must not resume agents; herdr's config is
-	// never edited, and its hint goes to the summary.
+	// herdr: serve restores its own panes after a herdr restart, replacing an agent herdr resumed there, so herdr's
+	// own resume is a double start; herdr's config is never edited, and the hint that saves it goes to the summary.
 	if h := s.T.ResumeHint(); h != "" {
 		hints = append(hints, h)
 	}
