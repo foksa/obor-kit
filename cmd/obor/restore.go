@@ -49,6 +49,7 @@ func restorer(term port.Terminal, env project.Env, s serveApp) *launch.Restorer 
 			return checks.NewLaneTable(context.Background(), cfg).LaneState(l).State
 		},
 		OpenWork: s.OpenWork,
+		Sessions: s.Sessions,
 		Restart: func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
 			l := serveLauncher(cfg, env, term.Control, w, s)
 			l.Job = func(_ context.Context, role, lane string) (string, error) {
