@@ -243,7 +243,10 @@ the MCP server and every CLI call to serve; no `OBOR_AGENT` is exported, and one
 obor derives needs no stored copy). The CLI finds an agent's pane by label (`launch.Launcher.PaneOf`); serve finds it by
 proofs ("Finding the pane" below); `obor hook` under opencode has no env and derives the name from the cwd alone (see
 "opencode lanes").
-After a herdr restart (herdr `resume_agents_on_restore = false`), serve restarts its project's labelled panes
+After a herdr restart serve restarts its project's labelled panes (with herdr's `resume_agents_on_restore = false`
+they come back as shells; with it on, herdr resumes their agents bare, without obor's start, and serve treats such a
+lost pane as a shell: `obor restart` for one it restores, herdr's agent stopped for one it skips; the line only
+saves the double start)
 (`launch.Restorer`): when its terminal connection comes back during its lifetime, and at its first connect
 when the terminal restarted while serve was down — told by the adapter's instance (herdr: its socket file's mtime;
 herdr exposes no instance id) against the instance serve last restored for (`.obor/state/terminal-instance`). A serve restart or re-exec with
