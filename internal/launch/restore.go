@@ -21,7 +21,8 @@ package launch
 // no recorded session (serve's store) or a kind that resumes nothing starts --fresh (a role pane started fresh with no
 // prompt wrote no transcript either, so no restart could resume it). A lane's worker and the integrator start with
 // the wake of the job serve holds open for them (Launcher.Job: the restart's own) as their first prompt: typed once a
-// resumed session is up, the first prompt of a fresh one; no open job, no prompt. Log: ~/.obor/restore.log (last 200).
+// resumed session is up, the first prompt of a fresh one; no open job, no prompt. One rule for both reads (OpenWork,
+// Launcher.Job): an error restores the pane (a real job is never left stopped), with no wake. Log: ~/.obor/restore.log (last 200).
 
 import (
 	"bufio"
@@ -54,7 +55,8 @@ type Restorer struct {
 	H   port.PaneControl // only its Panes
 	Now func() time.Time // nil: time.Now
 	// Restart is `obor restart` in the loaded project: the result line, or the error (project.Fail) it failed with. Its
-	// launcher carries the open job's wake (Launcher.Job).
+	// launcher carries the open job's wake (Launcher.Job); an error of that read restores the pane with no wake (the
+	// same rule as OpenWork's), where obor restart refuses.
 	Restart func(ctx context.Context, cfg *config.Config, req Request, out io.Writer) (string, error)
 	// LaneState is the lane's state as the lane table says (free, dirty-free, working, …).
 	LaneState func(cfg *config.Config, l config.Lane) string
