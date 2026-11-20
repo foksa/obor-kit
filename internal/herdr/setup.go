@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"obor/internal/app/layout"
@@ -262,37 +263,43 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 
 // --- the caller's pane as the lead's ----------------------------------------------------------------------------
 
-// TakeLead makes the caller's pane p.Pane the lead's home (port.TerminalSetup) when it is a pane of this herdr, at its
-// shell, alone in its tab, and its workspace holds no pane of another project (a known cwd outside the project, as
-// projectWorkspace counts it). Taken: the pane labelled p.Agent, its tab labelled lead, its workspace labelled the
+// TakeLead makes the caller's pane p.Pane the lead's home (port.TerminalSetup) when layout.Home says it qualifies over
+// herdr's facts: a pane of this herdr, no agent, nothing but its shell (or the command offering it, p.Caller) in the
+// foreground, alone in its tab, its workspace holding no pane of another project (a known cwd outside the project, as
+// projectWorkspace counts it). Its refusals are Home's texts. Taken: the pane labelled p.Agent, its tab labelled lead, its workspace labelled the
 // project's name (serve serves the panes of the workspace labelled so).
 func (h *Setup) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken, error) {
 	snap, err := h.Snapshot(ctx)
 	if err != nil {
 		return port.LeadTaken{}, project.Failf("herdr session snapshot failed: %v", err)
 	}
+	c := layout.Caller{Pane: p.Pane, Project: p.Project.Name, Grouped: true}
 	var me *Pane
 	for i := range snap.Panes {
 		if snap.Panes[i].ID == p.Pane {
-			me = &snap.Panes[i]
+			me, c.Found = &snap.Panes[i], true
 		}
 	}
-	no := func(format string, a ...any) (port.LeadTaken, error) {
-		return port.LeadTaken{Line: fmt.Sprintf(format, a...)}, nil
-	}
-	switch {
-	case me == nil:
-		return no("pane %s is not a pane of this herdr", p.Pane)
-	case me.Agent != "":
-		return no("pane %s runs an agent (%s)", p.Pane, me.Agent)
-	}
-	if n := inTab(snap.Panes, me.Tab); n > 1 {
-		return no("pane %s shares its tab with %d other pane(s)", p.Pane, n-1)
-	}
-	for _, q := range snap.Panes {
-		if q.Workspace == me.Workspace && q.Cwd != "" && !p.Project.Has(q.Cwd) {
-			return no("its workspace holds pane %s of another project (%s)", q.ID, q.Cwd)
+	if me != nil {
+		c.Agent = me.Agent
+		// a foreground other than the shell and the command offering the pane (p.Caller's process group); herdr
+		// not saying (an error, no process group) is no program
+		if pi, err := h.ProcessInfo(ctx, p.Pane); err == nil && pi.FgPGID != 0 && !pi.AtShell() &&
+			(p.Caller == 0 || pi.FgPGID != p.Caller) {
+			c.Program = cmp.Or(pi.Foreground(), strconv.Itoa(pi.FgPGID))
 		}
+		c.Tabbed = me.Tab != ""
+		c.TabMates = inTab(snap.Panes, me.Tab) - 1
+		c.Group = snap.labels()[me.Workspace]
+		for _, q := range snap.Panes {
+			if q.Workspace == me.Workspace && q.Cwd != "" && !p.Project.Has(q.Cwd) {
+				c.Foreign, c.ForeignOf = q.ID, q.Cwd
+				break
+			}
+		}
+	}
+	if why := layout.Home(c); why != "" {
+		return port.LeadTaken{Line: why}, nil
 	}
 	if err := h.RenamePane(ctx, p.Pane, p.Agent); err != nil {
 		return port.LeadTaken{}, project.Failf("herdr pane rename %s %s failed: %v", p.Pane, p.Agent, err)
