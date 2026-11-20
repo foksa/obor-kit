@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
@@ -587,5 +588,51 @@ func TestPlaceLanePlacesALanePane(t *testing.T) {
 	_, err = s.PlaceLane(context.Background(), "L-09")
 	if want := "unknown lane L-09 (lanes: 5; obor setup lane L-09 first)"; err == nil || err.Error() != want {
 		t.Errorf("PlaceLane of an unknown lane: %v, want %q", err, want)
+	}
+}
+
+// placeSpy is a terminal that records each placement it is asked for and places it on the terminal it wraps.
+type placeSpy struct {
+	port.TerminalSetup
+	got []port.Placement
+}
+
+func (s *placeSpy) Place(ctx context.Context, p port.Placement) (string, error) {
+	s.got = append(s.got, p)
+	return s.TerminalSetup.Place(ctx, p)
+}
+
+// A placement says Starts only when a start follows that types the env line itself (--start, and serve's PlaceLane):
+// a pane without --start is the terminal's to ready, so the pane's env and cwd are set once either way.
+func TestPlacementStartsOnlyWithAStart(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.lane(t, "L-01")
+	x.lane(t, "L-02")
+	x.lane(t, "L-03")
+	run := func(args ...string) []port.Placement {
+		t.Helper()
+		s, out := x.newSetup(t)
+		s.Dir = x.Root
+		spy := &placeSpy{TerminalSetup: s.T}
+		s.T = spy
+		if rc := s.Run(context.Background(), args); rc != 0 {
+			t.Fatalf("obor setup %q: exit %d\n%s", args, rc, out)
+		}
+		return spy.got
+	}
+	if got := run("pane", "L-01"); len(got) != 1 || got[0].Starts {
+		t.Errorf("pane L-01 without --start placed %+v, want one placement without Starts", got)
+	}
+	x.noAgents()
+	if got := run("pane", "--start", "L-02"); len(got) != 1 || !got[0].Starts {
+		t.Errorf("pane --start L-02 placed %+v, want one placement with Starts", got)
+	}
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	spy := &placeSpy{TerminalSetup: s.T}
+	s.T = spy
+	if _, err := s.PlaceLane(context.Background(), "L-03"); err != nil || len(spy.got) != 1 || !spy.got[0].Starts {
+		t.Errorf("PlaceLane L-03 = %v, placed %+v; want one placement with Starts\n%s", err, spy.got, out)
 	}
 }

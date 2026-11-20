@@ -297,6 +297,10 @@ type Placement struct {
 	In      string   // in the group the terminal knows by this id (obor setup --tab), unless it is the lead's
 	Project PlaceProject
 	Say     func(line string) // the placement's progress lines (a new group, a split)
+	// Starts: the caller starts an agent in the pane at once, its start typing the env line (cwd and env) at the
+	// pane's shell first (Start.Env), so the pane's shell needs no line typed by the placement too. Without it a
+	// placed pane has Cwd and Env as Place returns.
+	Starts bool
 }
 
 // PaneKind is what a pane is to placement: the lead's, a lane's (its worker or drive agent), or a role's (any other

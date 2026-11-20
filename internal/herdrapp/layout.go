@@ -12,8 +12,9 @@ import (
 )
 
 // Space is a space of the window (`herdr-app ls`): its id and name, the folder its new terminals start in, whether
-// someone named it, the machine it lives on ("" is this computer) and its tabs. Made: this call made it
-// (`space.new`), so its one tab and the terminal the app started in it are new.
+// someone named it, the machine it lives on ("" is this computer) and its tabs. First is the tab `space.new` made
+// with the space when this call made it, its Terminal the one herdr-app started there; zero for a space that was
+// there (its tabs are in Tabs).
 type Space struct {
 	ID      string
 	Name    string
@@ -21,16 +22,17 @@ type Space struct {
 	Named   bool
 	Machine string
 	Tabs    []Tab
-	Made    bool
+	First   Tab
 }
 
 // Tab is a tab of a space: its id, its name and whether someone named it (an unnamed tab is called by its number).
-// Made: this call made it (`tab.new`), so the terminal the app started in it is new.
+// Terminal is the hc terminal herdr-app started in the tab when this call made it (`tab.new`, `space.new`): the
+// address the command printed; "" for a tab that was there.
 type Tab struct {
-	ID    string
-	Name  string
-	Named bool
-	Made  bool
+	ID       string
+	Name     string
+	Named    bool
+	Terminal string
 }
 
 // Labels is a terminal's label pair for a tab: the label map that makes a terminal of this machine show in that tab
@@ -91,8 +93,9 @@ func (c *Client) Spaces(ctx context.Context) ([]Space, error) {
 }
 
 // EnsureSpace is the project's space: the local space named name, else an unnamed local space at folder renamed to
-// name, else a new one (`space.new {name, folder}`). A second call finds the first's space and runs no command; a
-// remote machine's space is never taken.
+// name, else a new one (`space.new {name, folder}`, its First tab and that tab's terminal as the command printed
+// them; an answer without either is an error). A second call finds the first's space and runs no command; a remote
+// machine's space is never taken.
 func (c *Client) EnsureSpace(ctx context.Context, name, folder string) (Space, error) {
 	if name == "" || folder == "" {
 		return Space{}, &Error{Op: "space", Msg: "an ensured space needs a name and a folder"}
@@ -120,14 +123,14 @@ func (c *Client) EnsureSpace(ctx context.Context, name, folder string) (Space, e
 	if err != nil {
 		return Space{}, err
 	}
-	if r.Space == "" {
+	switch {
+	case r.Space == "":
 		return Space{}, &Error{Op: "space.new", Msg: "no space in the answer"}
+	case r.Tab == "" || r.Terminal == "":
+		return Space{}, &Error{Op: "space.new", Msg: "no tab or terminal in the answer"}
 	}
-	sp := Space{ID: r.Space, Name: name, Folder: folder, Named: true, Made: true}
-	if r.Tab != "" {
-		sp.Tabs = []Tab{{ID: r.Tab, Name: "1", Made: true}}
-	}
-	return sp, nil
+	return Space{ID: r.Space, Name: name, Folder: folder, Named: true,
+		First: Tab{ID: r.Tab, Name: "1", Terminal: r.Terminal}}, nil
 }
 
 // EnsureTab is the space's tab named name: the tab itself, else the space's one unnamed tab renamed (RenameTab), else
@@ -159,7 +162,8 @@ func (c *Client) EnsureTab(ctx context.Context, space, name, folder string) (Tab
 
 // NewTab is a new tab named name in the space (`tab.new {name, space, folder}`), though the space has one of that
 // name: a second `lanes` tab when the first is full. herdr-app starts the tab's first terminal in folder ("": the
-// app's default); the answer is Made. EnsureTab finds a tab; this makes one.
+// app's default); the answer carries that terminal's address as the command printed it (Terminal; an answer without
+// it is an error). EnsureTab finds a tab; this makes one.
 func (c *Client) NewTab(ctx context.Context, space, name, folder string) (Tab, error) {
 	if space == "" || name == "" {
 		return Tab{}, &Error{Op: "tab", Msg: "a new tab needs a space and a name"}
@@ -175,10 +179,10 @@ func (c *Client) NewTab(ctx context.Context, space, name, folder string) (Tab, e
 	if err != nil {
 		return Tab{}, err
 	}
-	if r.Tab == "" {
-		return Tab{}, &Error{Op: "tab.new", Msg: "no tab in the answer"}
+	if r.Tab == "" || r.Terminal == "" {
+		return Tab{}, &Error{Op: "tab.new", Msg: "no tab or terminal in the answer"}
 	}
-	return Tab{ID: r.Tab, Name: name, Named: true, Made: true}, nil
+	return Tab{ID: r.Tab, Name: name, Named: true, Terminal: r.Terminal}, nil
 }
 
 // RenameTab names the tab id name (`tab.rename`).
@@ -231,11 +235,12 @@ func (c *Client) CloseTab(ctx context.Context, id string) error {
 	return err
 }
 
-// ids are what a `do` command printed of what it made.
+// ids are what a `do` command printed of what it made: space.new and tab.new print the terminal they started too.
 type ids struct {
-	Space string `json:"space"`
-	Tab   string `json:"tab"`
-	Error string `json:"error"`
+	Space    string `json:"space"`
+	Tab      string `json:"tab"`
+	Terminal string `json:"terminal"`
+	Error    string `json:"error"`
 }
 
 // do runs one command as `herdr-app do <command> '<json>'`: the ids it printed, its {"error": …} reply as an error.

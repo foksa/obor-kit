@@ -15,22 +15,24 @@ import (
 // terminal.send pastes its text after the terminal's unsent input and presses Enter, refused at a program that reports
 // blocked unless forced; a shell terminal whose shell holds the foreground runs the line: a program the test named
 // (Program) takes the foreground and reports its status, any other line prints the word its `&& echo <word>` clause
-// echoes. terminal.keys presses keys (ctrl+u clears the unsent input), terminal.label sets labels.
+// echoes, after its `cd`, `unset` and `export` clauses change the terminal's cwd and its shell's env (Env).
+// terminal.keys presses keys (ctrl+u clears the unsent input), terminal.label sets labels.
 
 // shell is the core's typing state, under the core's lock.
 type shell struct {
-	programs map[string]*hc.Status // name → the status it reports once up (nil: none)
-	input    map[string]string     // address → its unsent input
-	sent     map[string][]string   // address → each line a send delivered, unsent input first
-	keys     map[string][]string   // address → each key pressed
-	sendWait time.Duration         // how long terminal.send holds its answer (a person's draft)
-	pid      int                   // the last pid a program got
-	runs     []Run                 // every terminal.run answered
+	programs map[string]*hc.Status        // name → the status it reports once up (nil: none)
+	input    map[string]string            // address → its unsent input
+	sent     map[string][]string          // address → each line a send delivered, unsent input first
+	keys     map[string][]string          // address → each key pressed
+	sendWait time.Duration                // how long terminal.send holds its answer (a person's draft)
+	pid      int                          // the last pid a program got
+	runs     []Run                        // every terminal.run answered
+	env      map[string]map[string]string // address → its shell's env: terminal.run's, then the lines it ran
 }
 
 func newShell() shell {
 	return shell{programs: map[string]*hc.Status{}, input: map[string]string{}, sent: map[string][]string{},
-		keys: map[string][]string{}, pid: 60000}
+		keys: map[string][]string{}, pid: 60000, env: map[string]map[string]string{}}
 }
 
 // event is one event an answer made, sent after the answer.
@@ -170,6 +172,7 @@ func (c *Core) run(r *hc.Record, line string) {
 	}
 	status, ok := c.shell.programs[words[0]]
 	if !ok {
+		c.clauses(r, line)
 		if w := echoWord(line); w != "" {
 			c.screens[r.Address] += w + "\n% \n"
 		}
@@ -184,6 +187,48 @@ func (c *Core) run(r *hc.Record, line string) {
 		r.Status, r.Reported = &s, true
 		c.pending = append(c.pending, event{r.Address, "status", map[string]any{"status": s, "reported": true, "records": map[string]any{}}})
 	}
+}
+
+// clauses runs line's `cd <dir>`, `unset <names>` and `export <NAME=value …>` clauses (the clauses joined by " && "
+// before any " || ") on r, under the core's lock: its cwd and its shell's env. Words split at spaces; a word's single
+// quotes are dropped (project.ShellQuote's quoting of a plain value).
+func (c *Core) clauses(r *hc.Record, line string) {
+	head, _, _ := strings.Cut(line, " || ")
+	env := c.shell.env[r.Address]
+	if env == nil {
+		env = map[string]string{}
+		c.shell.env[r.Address] = env
+	}
+	for _, clause := range strings.Split(head, " && ") {
+		words := strings.Fields(clause)
+		if len(words) < 2 {
+			continue
+		}
+		switch words[0] {
+		case "cd":
+			r.Cwd = strings.Trim(words[1], "'")
+			if r.Foreground != nil {
+				r.Foreground.Cwd = r.Cwd
+			}
+		case "unset":
+			for _, w := range words[1:] {
+				delete(env, w)
+			}
+		case "export":
+			for _, w := range words[1:] {
+				k, v, _ := strings.Cut(w, "=")
+				env[k] = strings.Trim(v, "'")
+			}
+		}
+	}
+}
+
+// Env is address's shell env as the core holds it: terminal.run's env, then the cd/unset/export lines its shell ran
+// (an app terminal starts with none).
+func (c *Core) Env(address string) map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Clone(c.shell.env[address])
 }
 
 // state is s's word, nil (JSON null) for no status.
@@ -242,6 +287,7 @@ func (c *Core) start(raw json.RawMessage) (any, string, string) {
 	}
 	c.runs = append(c.runs, Run{Argv: p.Argv, Cwd: p.Cwd, Env: p.Env, Keep: p.Keep, Labels: p.Labels, NoParent: p.NoParent})
 	r := c.shellRecord(p.Cwd, p.Keep, p.Labels)
+	c.shell.env[r.Address] = maps.Clone(p.Env)
 	c.pending = append(c.pending, event{r.Address, "created", r})
 	return r, "", ""
 }
