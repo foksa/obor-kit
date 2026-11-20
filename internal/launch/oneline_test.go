@@ -9,10 +9,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// a fresh start's first prompt of many lines reaches herdr as one line (each run of newlines and \r one space),
-// for every kind, the text otherwise unchanged: herdr refuses an agent.start argument with a newline
-// ("agent arguments cannot be encoded safely for the target shell"; the fake refuses it too), so a typed job's
-// multi-line text would leave the pane at a shell. A prompt with no line break is passed as it is.
+// a fresh start's first prompt of many lines reaches the terminal's start as one line (each run of newlines and \r
+// one space), for every kind, the text otherwise unchanged: the start's argv is typed as one command line at the
+// pane's shell (herdr refuses an argument with a newline), so a typed job's multi-line text would leave the pane at a
+// shell. A prompt with no line break is passed as it is.
 func TestStartPromptIsOneLine(t *testing.T) {
 	t.Parallel()
 	const prompt = "You are a worker.\n\nRead AGENTS.md.\r\n\r\nGo.\nMore."
@@ -41,14 +41,14 @@ func TestStartPromptIsOneLine(t *testing.T) {
 			}
 			eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
 			args := strings.ReplaceAll(strings.TrimPrefix(c.head, "-- "), "<reviews>", filepath.Join(x.p.Root, "docs", "reviews"))
-			eq(t, x.named(x.startCall()), "agent.start args=["+args+c.want+"] kind="+c.kind+" name=pj-rev pane_id=w1:p7", "agent start: the prompt")
+			eq(t, x.named(x.startCall()), "Start argv=["+args+c.want+"] kind="+c.kind+" label=pj-rev pane=w1:p7", "agent start: the prompt")
 			contains(t, x.startCall(), c.want, "the prompt's text")
-			eq(t, x.f.Pane("w1:p7").Name, "pj-rev", "herdr ran the agent")
+			eq(t, x.f.At("w1:p7").Name, "pj-rev", "the terminal ran the agent")
 		})
 	}
 }
 
-// a start of a kind obor has no bridge for is refused before herdr's agent start (dispatch and obor
+// a start of a kind obor has no bridge for is refused before the terminal's agent start (dispatch and obor
 // config validate refuse such a model; no degraded start with its args alone).
 func TestStartWithoutBridgeRefused(t *testing.T) {
 	t.Parallel()
@@ -61,5 +61,5 @@ func TestStartWithoutBridgeRefused(t *testing.T) {
 	}
 	contains(t, out, "pane w1:p7 (from label)", "precondition: the restart found the pane")
 	eq(t, failLine(out), "FAIL pj-rev: kind cursor has no bridge (obor config validate)", "result")
-	eq(t, x.startCall(), "", "no herdr agent start")
+	eq(t, x.startCall(), "", "no agent start")
 }

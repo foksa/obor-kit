@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 )
 
@@ -15,7 +14,7 @@ import (
 const trustHint = "pj-l-01 waits at a 'Trust this folder?' dialog in pane w1:p3: select its trust option (\"Yes, I trust this folder\") " +
 	"there, not the default \"No, exit\", which quits Claude (once per repo)"
 
-// A fresh start herdr gives up on (agent_not_ready) whose pane shows a "Trust this folder?" dialog is a started agent:
+// A fresh start the terminal accepted and gave up on (NotReady) whose pane shows a "Trust this folder?" dialog is a started agent:
 // Launch returns its Started (its pane the dialog's) with a port.TrustDialog carrying the hint, the start reported (the
 // success path), and obor restart's line says RESTARTED with the hint. A resumed start at the dialog (its prompt not in
 // the argv) is a failed start, its wake not typed, nothing reported. The same start whose screen shows no dialog fails
@@ -23,13 +22,12 @@ const trustHint = "pj-l-01 waits at a 'Trust this folder?' dialog in pane w1:p3:
 func TestLaunchHeldByTrustDialog(t *testing.T) {
 	t.Parallel()
 	const dialog = "> You are in /x\n  Do you trust the files in this folder?\n  Trust this folder? 1. Yes  2. No\n"
-	notReady := herdrtest.Failure{Code: "agent_not_ready", Message: "blocked during startup"}
 	t.Run("a screen with the dialog: started, the trust result with its pane", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Screen = dialog })
-		x.srv.Once("agent.start", notReady)
+		x.f.Set("w1:p3", func(p *mpane) { p.Screen = dialog })
+		x.f.Once("Start", notReady())
 		var out bytes.Buffer
 		l := x.launcher(&out)
 		var reported []string
@@ -48,14 +46,14 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 		if len(reported) != 1 || reported[0] != "pj-l-01" {
 			t.Errorf("reported starts %q, want pj-l-01's", reported)
 		}
-		eqInt(t, len(x.calls("agent.start")), 1, "one start")
+		eqInt(t, len(x.calls("Start")), 1, "one start")
 	})
 	t.Run("obor restart: RESTARTED, the dialog named", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Screen = dialog })
-		x.srv.Once("agent.start", notReady)
+		x.f.Set("w1:p3", func(p *mpane) { p.Screen = dialog })
+		x.f.Once("Start", notReady())
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if !ok {
 			t.Fatalf("a restart held by the dialog failed:\n%s", out)
@@ -68,8 +66,8 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Screen = dialog })
-		x.srv.Once("agent.start", notReady)
+		x.f.Set("w1:p3", func(p *mpane) { p.Screen = dialog })
+		x.f.Once("Start", notReady())
 		var out bytes.Buffer
 		l := x.launcher(&out)
 		var reported []string
@@ -85,9 +83,9 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 			t.Fatalf("err %v, want a failed start that is no trust result\n%s", err, out.String())
 		}
 		eq(t, err.Error(), "start failed in w1:p3 ("+trustHint+")", "error")
-		eqInt(t, len(x.calls("agent.prompt")), 0, "wakes typed")
+		eqInt(t, len(x.calls("Prompt")), 0, "wakes typed")
 		eqInt(t, len(reported), 0, "starts reported")
-		x.srv.Once("agent.start", notReady) // obor restart's resume, held the same way
+		x.f.Once("Start", notReady()) // obor restart's resume, held the same way
 		got, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Errorf("obor restart of a resume held by the dialog succeeded, want its failed start:\n%s", got)
@@ -98,7 +96,7 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
-		x.srv.Once("agent.start", notReady)
+		x.f.Once("Start", notReady())
 		var out bytes.Buffer
 		_, err := x.launcher(&out).Launch(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
 		if err == nil || port.TrustHeld(err) != nil {

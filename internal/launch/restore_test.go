@@ -16,19 +16,17 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
-// rfx is a test project (testkit: prefix pj, lanes of type opus) with a fake herdr and a restart that logs "<root> restart <agent> --pane <pane>[ --fresh]" (and fails for the agents in fail).
+// rfx is a test project (testkit: prefix pj, lanes of type opus) with an in-memory terminal and a restart that logs "<root> restart <agent> --pane <pane>[ --fresh]" (and fails for the agents in fail).
 type rfx struct {
 	t     *testing.T
 	p     *testkit.Project
-	h     *herdrtest.Fake
-	srv   *herdrtest.Server
+	h     *term
 	pl    *launch.Restorer
 	mu    sync.Mutex
 	calls []string
@@ -53,9 +51,8 @@ func newRfxAt(t *testing.T, git bool) *rfx {
 		p = testkit.New(t)
 	}
 	f := &rfx{t: t, p: p, fail: map[string]bool{}}
-	f.h = f.p.Herdr()
-	f.srv = herdrtest.Serve(t, f.h)
-	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.srv.Client(), Now: func() time.Time { return time.Unix(0, 0) },
+	f.h = newTerm()
+	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.h, Now: func() time.Time { return time.Unix(0, 0) },
 		LaneState: func(cfg *config.Config, l config.Lane) string {
 			if !git {
 				return port.LaneWorking // a lane with its task: the free-lane skip is newGitRfx's
@@ -129,7 +126,7 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	f.shell("w1:p4", other, "pj-l-01")
 	f.shell("w1:p5", f.p.Root, "my notes")
 	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root)
-	f.h.Set("w1:p6", func(p *herdrtest.Pane) { p.Label = "pj-int" })
+	f.h.Set("w1:p6", func(p *mpane) { p.Label = "pj-int" })
 	f.shell("w1:p7", lane, "pj-l-01-drive") // the owner's drive: obor drive starts it again, the restore does not
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()},
 		store.Session{Agent: "pj-l-01-drive", Kind: "claude", ID: "sid-drive", Started: time.Now().Unix()})
@@ -164,13 +161,13 @@ func TestRestoreOutsideOborSilent(t *testing.T) {
 	}
 	f.p.Config()
 	f.shell("w1:p4", f.p.Root, "pj-lead")
-	f.srv.Fail("pane.list", "internal", "herdr is down")
+	f.h.Fail("Panes", termError("panes", "", "herdr is down"))
 	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls()
 	if _, err := os.Stat(launch.RestoreLog(f.pl.Env)); err == nil {
 		t.Error("pane list failing: a log")
 	}
-	f.srv.Clear("pane.list")
+	f.h.Clear("Panes")
 	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p4 --fresh") // precondition: the obor pane restarts once herdr answers
 }
@@ -183,14 +180,14 @@ func TestRestoreIgnoresMonitorPane(t *testing.T) {
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", f.p.Root, "pj-monitor")
 	f.h.Agent("w1:p3", "x", "idle", f.p.Root)
-	f.h.Set("w1:p3", func(p *herdrtest.Pane) { p.Label = "pj-monitor" })
+	f.h.Set("w1:p3", func(p *mpane) { p.Label = "pj-monitor" })
 	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh") // the lead restarts; the monitor panes do not
 	if log := f.restoreLog(); strings.Contains(log, "monitor") {
 		t.Errorf("the restore logged a monitor pane:\n%s", log)
 	}
-	for _, r := range f.srv.Requests() {
-		if s := r.String(); strings.HasPrefix(s, "pane.send_input") {
+	for _, s := range f.h.Calls() {
+		if strings.HasPrefix(s, "Write") {
 			t.Errorf("the restore typed into a pane: %s", s)
 		}
 	}
@@ -419,10 +416,10 @@ func TestRestoreRefusedWhileTheAgentRunsElsewhere(t *testing.T) {
 	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
 	f.shell("w1:p1", lane, "pj-l-01")
 	f.h.Agent("w1:p7", "pj-l-01", "idle", lane)
-	f.h.Set("w1:p7", func(p *herdrtest.Pane) { p.Label = "notes" })
+	f.h.Set("w1:p7", func(p *mpane) { p.Label = "notes" })
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
 	f.pl.Restart = func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
-		l := &launch.Launcher{Cfg: cfg, Env: f.p.Env(), H: f.srv.Client(), Out: w,
+		l := &launch.Launcher{Cfg: cfg, Env: f.p.Env(), H: f.h, Out: w,
 			Where: func(context.Context, wire.WhereReq) (wire.WhereReply, error) {
 				return wire.WhereReply{State: wire.WhereIdentified, Pane: "w1:p7", Source: "session", Label: "notes"}, nil
 			}}
@@ -431,12 +428,12 @@ func TestRestoreRefusedWhileTheAgentRunsElsewhere(t *testing.T) {
 	f.pl.RestoreProject(context.Background(), f.p.Root)
 	has(t, f.restoreLog(), "obor restart pj-l-01: FAIL pj-l-01 already runs in pane w1:p7 (proof: session; label notes): "+
 		"obor restart pj-l-01 --pane w1:p7 restarts it there, or quit it there first\n", "the refusal logged")
-	for _, c := range f.srv.Calls() {
-		if strings.HasPrefix(c, "pane.send_input") || strings.HasPrefix(c, "pane.rename") || strings.HasPrefix(c, "agent.start") {
+	for _, c := range f.h.Calls() {
+		if strings.HasPrefix(c, "Write") || strings.HasPrefix(c, "RenamePane") || strings.HasPrefix(c, "Start") {
 			t.Errorf("the refused restore touched a pane: %q", c)
 		}
 	}
-	if p := f.h.Pane("w1:p7"); p.Kind != "claude" || p.Name != "pj-l-01" {
+	if p := f.h.At("w1:p7"); p.Kind != "claude" || p.Name != "pj-l-01" {
 		t.Errorf("the live agent = %+v, want it running", p)
 	}
 }

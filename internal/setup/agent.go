@@ -339,9 +339,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	setEnv := func() error {
-		return l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars})
-	}
+	whose := port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}
+	setEnv := func() error { return l.SetEnv(ctx, pane, whose) }
 	if !fresh { // a reused pane: its shell may hold the env of the agent that ran there before
 		if err := setEnv(); err != nil {
 			return err
@@ -364,7 +363,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	// known now: the env line exports OBOR_PANE before the start) and retries a busy answer within the same
 	// bound (launch's one start). A reused pane's env line is typed above, and its start is not retried.
 	st := port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: built.Args, Session: built.Session,
-		Lane: a.lane, Prompt: prompt, Again: a.again}
+		Lane: a.lane, Prompt: prompt, Again: a.again, Whose: whose}
 	if fresh {
 		st.Shell, st.Await, st.Env = s.shellWait(), true, func(context.Context) error { return setEnv() }
 	}

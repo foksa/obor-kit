@@ -116,7 +116,7 @@ func TestRV47StartVariadicConfig(t *testing.T) {
 		t.Fatalf("start failed:\n%s", out)
 	}
 	want := "--permission-mode auto --model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " --session-id <new> -- " + wake
-	eq(t, x.named(x.startCall()), "agent.start args=["+want+"] kind=claude name=pj-rev pane_id=w1:p7", "agent start")
+	eq(t, x.named(x.startCall()), "Start argv=["+want+"] kind=claude label=pj-rev pane=w1:p7", "agent start")
 	if strings.Contains(x.startCall(), claude.MCPConfig("/kit")) {
 		t.Errorf("obor added a second obor entry: %q", x.startCall())
 	}
@@ -223,7 +223,7 @@ func TestStartReadsTheLaneProjectConfig(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, typ, rel, file string
-		has, lacks           []string // of the agent.start call, with the content of a Claude start's settings file
+		has, lacks           []string // of the Start call, with the content of a Claude start's settings file
 	}{
 		{"claude", "", ".claude/settings.json", `{"enabledMcpjsonServers":["mine"],"autoMemoryEnabled":true}`,
 			[]string{`settings file {"remoteControlAtStartup":false}`, "kind=claude"},
@@ -253,18 +253,18 @@ func TestStartReadsTheLaneProjectConfig(t *testing.T) {
 			before := start("") // precondition: without the file, the start carries obor's flags
 			for _, l := range c.lacks {
 				if !strings.Contains(before, l) {
-					t.Fatalf("precondition: no project file, agent.start %q lacks %q", before, l)
+					t.Fatalf("precondition: no project file, Start %q lacks %q", before, l)
 				}
 			}
 			got := start(c.file)
 			for _, h := range c.has {
 				if !strings.Contains(got, h) {
-					t.Errorf("agent.start %q lacks %q", got, h)
+					t.Errorf("Start %q lacks %q", got, h)
 				}
 			}
 			for _, l := range c.lacks {
 				if strings.Contains(got, l) {
-					t.Errorf("agent.start %q has %q", got, l)
+					t.Errorf("Start %q has %q", got, l)
 				}
 			}
 		})

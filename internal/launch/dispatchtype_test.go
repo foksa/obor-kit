@@ -39,17 +39,17 @@ func TestRestartResumesOnlyTheRowTypesKind(t *testing.T) {
 				t.Errorf("output %q lacks %q", out, c.out)
 			}
 			start := x.startCall()
-			if !strings.HasPrefix(start, "agent.start args=[") {
-				t.Fatalf("no agent.start: %q", start)
+			if !strings.HasPrefix(start, "Start argv=[") {
+				t.Fatalf("no Start: %q", start)
 			}
 			for _, h := range c.has {
 				if !strings.Contains(start, h) {
-					t.Errorf("agent.start %q lacks %q", start, h)
+					t.Errorf("Start %q lacks %q", start, h)
 				}
 			}
 			for _, l := range c.lacks {
 				if strings.Contains(start, l) {
-					t.Errorf("agent.start %q has %q", start, l)
+					t.Errorf("Start %q has %q", start, l)
 				}
 			}
 		})

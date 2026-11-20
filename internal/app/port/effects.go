@@ -66,10 +66,10 @@ const (
 	KeyCtrlU = "ctrl+u"
 )
 
-// PaneControl is the pane operations launch needs: read panes, look at one, type into it, start an agent CLI in it.
-// A pane is named by its id, an agent by its pane's label; the terminal's own name for an agent is read only by Named,
-// on the agent layer's side with Start and Prompt. A "not found" error matches NotFound; every other kind of failure the callers ask about is a predicate below
-// (PaneBusy, NotReady, TimedOut, …), never a code of the terminal's.
+// PaneControl is the pane operations launch needs: read panes, look at one, type into it. A pane is named by its id,
+// an agent by its pane's label; the terminal's own name for an agent is read only by Named, on the agent layer's side
+// with Prompt and the terminal's AgentStarter. A "not found" error matches NotFound; every other kind of failure the
+// callers ask about is a predicate below (PaneBusy, NotReady, TimedOut, …), never a code of the terminal's.
 type PaneControl interface {
 	Prompter
 	// Pane is pane as the terminal reports it now: its label and cwd, and the facts of the agent that runs in it
@@ -82,27 +82,48 @@ type PaneControl interface {
 	// WaitStatus waits (up to timeout) for the agent in pane to be in one of until (idle, done): the error matches
 	// TimedOut when it is not; any other error says no agent is there to wait for (none ran, or it left the pane).
 	WaitStatus(ctx context.Context, pane string, until []string, timeout time.Duration) error
-	// WaitForOutput waits (up to timeout) for a line of the pane's recent text to match regex, and returns the text
-	// as it then reads: the error matches TimedOut when nothing matched.
-	WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error)
 	RenamePane(ctx context.Context, pane, label string) error // label "" clears it
 	// Write types text into pane, whatever runs there, and with submit sends Enter after it: the multiplexer's way to
 	// type (a command line at a shell, an agent's quit). It judges nothing: an agent at a dialog gets the text too.
 	Write(ctx context.Context, pane, text string, submit bool) error
 	// SendKeys sends keys (Keys' names) to pane, whatever runs there.
 	SendKeys(ctx context.Context, pane string, keys ...string) error
-	// Start starts agent CLI kind in pane for the agent name, returning once the terminal took the start: the pane as
-	// it answered, or as it shows it when the answer came later (its ID "" when neither showed one). What the terminal
-	// keeps of an earlier start of name that a live agent does not hold is cleared and the start retried once, say
-	// taking the adapter's lines for it and for a failed clear (nil: silent). It decides no identity: a live agent in
-	// another pane holding the name (a start that lost a race) is a refusal for good, the adapter's error matching
-	// NameHeld with that pane. The holder lookup is Named's: only its NotFound says the name has no holder, any other
-	// error stops the start with it, nothing cleared.
-	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
 	// Named is the pane whose live agent the terminal holds under name, the agent as the terminal reports it (its
 	// label not read). NotFound: no live agent holds the name. An answer that names no pane is an error, never "no
 	// holder".
 	Named(ctx context.Context, name string) (Pane, error)
+}
+
+// AgentStarter is a terminal's own start of an agent CLI in a pane whose shell has the agent's env and cwd already
+// (launch typed its env line there): launch asks the terminal's PaneControl for it. Start returns once the agent runs
+// in the pane, the pane as the terminal then shows it (its ID may be another pane than s.Pane: the agent runs there).
+// A failed start's error matches PaneBusy when the pane is no available shell (the caller may wait for its shell and
+// start again), NotReady when the agent waits at a startup dialog, TimedOut when no agent came up within s.Bound,
+// NameHeld when a live agent in another pane holds the agent's name (a start that lost a race: a refusal for good),
+// and Accepted when the terminal had accepted the start (its command ran: the agent may run, at a dialog say). What
+// the terminal keeps of an earlier start of the name that a live agent does not hold is the adapter's to clear, said
+// on s.Say.
+type AgentStarter interface {
+	Start(ctx context.Context, s AgentStart) (Pane, error)
+}
+
+// AgentStart is one agent start a terminal makes (AgentStarter): the pane, the agent's name (obor's label of the
+// pane), its kind and argv after the binary (the first prompt in it already, Prompt too), the env and cwd launch's env
+// line gave the pane's shell (an adapter that starts a program with its own env and cwd may pass them; one that types
+// the command at the shell reads neither), how long the agent may take to come up and how often the adapter looks,
+// and where the adapter's own lines go.
+type AgentStart struct {
+	Pane, Label, Kind string
+	Argv              []string
+	// Env is NAME=VALUE for each variable the env line exports; the registry's other variables it unsets.
+	Env    []string
+	Cwd    string        // the directory the env line changed to ("": the shell's)
+	Prompt string        // the first prompt, in Argv already ("": none)
+	Bound  time.Duration // for the agent to come up (0: the adapter's default)
+	Poll   time.Duration // how often the adapter looks while it waits (0: the adapter's default)
+	// Say takes the adapter's lines (a name it kept and cleared, a start it counts though its own answer failed); nil:
+	// silent.
+	Say func(format string, args ...any)
 }
 
 // NotFound: err says the pane or agent asked about does not exist (an error in the chain with NotFound() true).
@@ -132,6 +153,13 @@ func NameHeld(err error) (pane string, held bool) {
 		return "", false
 	}
 	return e.NameHeld(), true
+}
+
+// Accepted: err is a failed agent start the terminal had accepted (AgentStarter; an error in the chain with
+// Accepted() true): it ran the agent's command, so the agent may run, at a startup dialog say.
+func Accepted(err error) bool {
+	var e interface{ Accepted() bool }
+	return errors.As(err, &e) && e.Accepted()
 }
 
 // TimedOut: err says the terminal's wait ended at its own timeout (an error in the chain with TimedOut() true).
@@ -301,6 +329,9 @@ type Start struct {
 	Await bool
 	// Env types the agent's env line at the pane's shell once it is up, before the start (nil: the caller set it).
 	Env func(ctx context.Context) error
+	// Whose is whose env and cwd that line sets (the AgentEnv the caller types it from): the terminal's AgentStart
+	// carries them as its Env and Cwd. Zero: none given (a caller that set the env itself).
+	Whose AgentEnv
 }
 
 // StartError is a failed start (the multiplexer's error, or the startup dialog seen in the pane). NotReady: the agent

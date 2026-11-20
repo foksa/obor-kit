@@ -46,7 +46,7 @@ func herdrLive(l *lab, turn bool) {
 	hL12(l, pane)
 	hL13(l, pane)
 	if _, err := exec.LookPath("claude"); err != nil {
-		report("SKIP", "H-L14", "a first-prompt start: claude is not installed", "internal/launch/start.go")
+		report("SKIP", "H-L14", "a first-prompt start: claude is not installed", "internal/herdr/start.go")
 	} else {
 		hL14(l, "claude", pane, kindOf("claude").(agents.Split).Start(agents.Start{
 			Args: []string{"--allowedTools", "Bash(perl:*)", "--model", "haiku"}, Prompt: hL14Prompt}), turn)
@@ -390,7 +390,7 @@ func orNone(s string) string {
 
 // hL1Timeout: agent.start honours timeout_ms when the agent never comes up (the CLI exits on an unknown flag).
 func hL1Timeout(l *lab, pane string) {
-	where := at(socketGo, "func (s *Socket) Start") + ", F3.4, CAP §5.4"
+	where := at(socketGo, "func (s *Socket) startAgent") + ", F3.4, CAP §5.4"
 	kind := ""
 	for _, k := range []string{"claude", "codex", "opencode"} {
 		if _, err := exec.LookPath(k); err == nil {
@@ -608,9 +608,9 @@ func hL8(l *lab) {
 // (agent.get sampled every 200 ms from the start until it is ready), its exit (sampled for 3 s after the pane is its
 // shell again), and a second start right after that exit (sampled until ready): each change of status,
 // launch_pending and interactive_ready, with the raw agent.get answer while the second start was pending. The start
-// rule (internal/launch/start.go) reads launch_pending/interactive_ready only if they are there and change.
+// rule (internal/herdr/start.go) reads launch_pending/interactive_ready only if they are there and change.
 func hL12(l *lab, pane string) {
-	where := at("internal/launch/start.go", "func (l *Launcher) started") + ", " + at(socketGo, "func (w Wire) pane") + ", H6"
+	where := at("internal/herdr/start.go", "func started") + ", " + at(socketGo, "func (w Wire) pane") + ", H6"
 	if _, err := exec.LookPath("claude"); err != nil {
 		report("SKIP", "H-L12", "agent.get across a start: claude is not installed", where)
 		return
@@ -696,7 +696,7 @@ func hL12(l *lab, pane string) {
 // must return only once herdr says the launch is over (agent.get: launch_pending gone, interactive_ready), never on
 // the pending listing herdr answers at once. Run after H-L12 (the scratch dir is trusted by then).
 func hL13(l *lab, pane string) {
-	where := at("internal/launch/start.go", "func (t attempt) counts") + ", " + at(socketGo, "Launched: !w.LaunchPending")
+	where := at("internal/herdr/start.go", "func (t attempt) counts") + ", " + at(socketGo, "Launched: !w.LaunchPending")
 	if _, err := exec.LookPath("claude"); err != nil {
 		report("SKIP", "H-L13", "obor's start: claude is not installed", where)
 		return
@@ -750,7 +750,7 @@ const hL14Prompt = "Run the shell command `perl -e 'sleep 70'` exactly once in t
 // agent is stopped (halt) and the same start runs right after its exit in the pane; last, obor's own start of it
 // (hL14Obor). argv is kind's command line with the prompt. A model call: TURN=1 only.
 func hL14(l *lab, kind, pane string, argv []string, turn bool) {
-	where := at("internal/launch/start.go", "func (l *Launcher) started") + ", " + at(socketGo, "func (s *Socket) Start")
+	where := at("internal/herdr/start.go", "func started") + ", " + at(socketGo, "func (s *Socket) startAgent")
 	if !turn {
 		report("SKIP", "H-L14", kind+": a first-prompt start needs TURN=1 (a model call)", where)
 		return

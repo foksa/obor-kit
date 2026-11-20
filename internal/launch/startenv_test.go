@@ -58,7 +58,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			if out, ok := c.run(x); !ok {
 				t.Fatal(out)
 			}
-			runs := x.calls("pane.send_input pane_id=" + c.pane)
+			runs := x.calls("Write pane=" + c.pane)
 			if len(runs) == 0 {
 				t.Fatalf("no env line typed at %s", c.pane)
 			}
@@ -101,11 +101,11 @@ func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 	x.agent("w1:p8", "pj-int", "claude", "idle")
 	// lineOf runs req's restart and reads the env line it typed: the line, and the config path it names ("" when none).
 	lineOf := func(req launch.Request) (string, string) {
-		before := len(x.calls("pane.send_input"))
+		before := len(x.calls("Write"))
 		if out, ok := x.restart(req); !ok {
 			t.Fatal(out)
 		}
-		for _, c := range x.calls("pane.send_input")[before:] {
+		for _, c := range x.calls("Write")[before:] {
 			_, line, _ := strings.Cut(c, " text=")
 			if !strings.Contains(line, "export ") {
 				continue

@@ -41,7 +41,7 @@ func TestPanesSubscribe(t *testing.T) {
 	defer st.Close()
 	// The core sees workspace w1 by its label, as the pane's group.
 	want := port.Pane{ID: "w1:p1", Group: "pj", Cwd: "/proj-wt/L-01", Agent: "claude", Status: "idle",
-		Label: "pj-l-01", Session: "5e1d0c2b-aaaa", Launched: true}
+		Label: "pj-l-01", Session: "5e1d0c2b-aaaa"}
 	if len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
 		t.Fatalf("snapshot = %+v\nwant first pane %+v", st.Snapshot, want)
 	}

@@ -24,7 +24,7 @@ func TestStopNoPanePlainFail(t *testing.T) {
 		want: "no pane labelled pj-l-01 (pass --pane)",
 	}, {
 		name: "the terminal pane list failed",
-		prep: func(x *fx) { x.srv.Fail("pane.list", "internal", "boom") },
+		prep: func(x *fx) { x.f.Fail("Panes", termError("panes", "", "boom")) },
 		want: "terminal pane list failed (is the terminal running?)",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestStopNoPanePlainFail(t *testing.T) {
 			c.prep(x)
 			labelled := false // precondition: pj-l-01 is the config's lane agent, and no pane is labelled it
 			x.f.Locked(func() {
-				for _, p := range x.f.Panes {
+				for _, p := range x.f.All {
 					labelled = labelled || p.Label == "pj-l-01"
 				}
 			})

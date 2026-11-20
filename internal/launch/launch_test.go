@@ -25,8 +25,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -47,18 +45,17 @@ var settingsFileRE = regexp.MustCompile(`--settings \S+/\.obor/state/settings/[^
 const laneMCP = strictMCP + " --strict-mcp-config "
 
 // fx is a project with lane L-01, the built-in models (opus: claude --permission-mode auto --model opus; luna: codex
-// -s workspace-write -a never -m gpt-6-luna), roles integrator and lead (opus) and reviewer (luna), a fake herdr with no panes, every pid alive and a ps that lists no
-// process.
+// -s workspace-write -a never -m gpt-6-luna), roles integrator and lead (opus) and reviewer (luna), an in-memory
+// terminal with no panes (term), every pid alive and a ps that lists no process.
 type fx struct {
 	t          *testing.T
 	p          *testkit.Project
-	f          *herdrtest.Fake
-	srv        *herdrtest.Server // the fake herdr's socket: what the launch called
+	f          *term // the terminal: its panes and what the launch called
 	lane       string
 	claude     string // CLAUDE_CONFIG_DIR
-	wrap       func(port.PaneControl) port.PaneControl
+	wrap       func(control) control
 	gone       map[string]bool                      // pids that are not alive (every other pid is)
-	onExit     func()                               // what /exit does besides the fake herdr's OnQuit (nil: nothing)
+	onExit     func()                               // what /exit does besides the terminal's OnQuit (nil: nothing)
 	kills      []string                             // kill hook calls: "<pgid> <signal>"
 	onKill     func(pgid int, sig syscall.Signal)   // what a kill does (nil: nothing)
 	ps         func(args ...string) ([]byte, error) // the launcher's PS (nil: the real ps)
@@ -93,7 +90,7 @@ type fx struct {
 	reports    chan store.Session
 	reportErr  error           // what the launcher's Report returns (nil: recorded)
 	logged     strings.Builder // what a background search said (the launcher's Log)
-	// open: the files each pid holds open (the launcher's Open; hold sets it). The fake herdr's agent is pid 2 unless
+	// open: the files each pid holds open (the launcher's Open; hold sets it). The terminal's agent is pid 2 unless
 	// a test gives its pane another.
 	open map[int][]string
 	// files replaces the launcher's Open when set: a test's own view of the files (it may act while the search reads
@@ -189,8 +186,7 @@ func newFx(t *testing.T, git bool, edits ...func(map[string]any)) *fx {
 		p = testkit.NewPlain(t)
 		lane = p.PlainLane("L-01", "")
 	}
-	f := p.Herdr()
-	x := &fx{t: t, p: p, f: f, srv: herdrtest.Serve(t, f), lane: lane, claude: filepath.Join(p.Base, "claude"),
+	x := &fx{t: t, p: p, f: newTerm(), lane: lane, claude: filepath.Join(p.Base, "claude"),
 		gone: map[string]bool{}, ps: func(...string) ([]byte, error) { return nil, nil }}
 	p.Config(append([]func(map[string]any){
 		testkit.Set("agents.roles", `{"integrator":"opus","lead":"opus","reviewer":"luna"}`),
@@ -204,7 +200,7 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	if err != nil {
 		x.t.Fatal(err)
 	}
-	var h port.PaneControl = x.srv.Client()
+	var h control = x.f
 	if x.onExit != nil {
 		h = exitHook{h, x.onExit}
 	}
@@ -399,20 +395,20 @@ func (x *fx) transcript(sid string) string {
 }
 
 // shell is a pane at its shell (no agent), labelled label.
-func (x *fx) shell(pane, label, cwd string) *herdrtest.Pane { return x.f.Shell(pane, label, cwd) }
+func (x *fx) shell(pane, label, cwd string) *mpane { return x.f.Shell(pane, label, cwd) }
 
 // agent is a pane labelled and named name with an agent of kind in status, which leads the pane's foreground group 2.
-func (x *fx) agent(pane, name, kind, status string) *herdrtest.Pane {
-	return x.f.Agent(pane, name, status, "", func(a *herdrtest.Pane) {
+func (x *fx) agent(pane, name, kind, status string) *mpane {
+	return x.f.Agent(pane, name, status, "", func(a *mpane) {
 		a.Label, a.Kind = name, kind
-		a.Procs = []herdr.Process{{PID: 2, Argv0: kind}}
+		a.Procs = []port.Process{{PID: 2, Argv0: kind}}
 	})
 }
 
-// calls is the requests whose call line has every part of query, e.g. "pane.send_input keys=[Enter] pane_id=w1:p3".
+// calls is the requests whose call line has every part of query, e.g. "Write pane=w1:p3 submit=true".
 func (x *fx) calls(query string) []string {
 	var out []string
-	for _, c := range x.srv.Calls() {
+	for _, c := range x.f.Calls() {
 		if hasParts(c, query) {
 			out = append(out, c)
 		}
@@ -430,7 +426,7 @@ func hasParts(line, query string) bool {
 	return true
 }
 
-func (x *fx) startCall() string { return strings.Join(x.calls("agent.start"), "\n") }
+func (x *fx) startCall() string { return strings.Join(x.calls("Start"), "\n") }
 
 // namedSession is the session id the launcher recorded before its start for a kind whose sessions obor names;
 // "" when none was reported.
@@ -492,7 +488,7 @@ func TestStartWritesTheSettingsFile(t *testing.T) {
 		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
 			t.Fatal(out)
 		}
-		calls := x.calls("agent.start")
+		calls := x.calls("Start")
 		return calls[len(calls)-1]
 	}
 	const want = `{"autoMemoryEnabled":false,"enabledPlugins":{"a@m":false},"env":{"KIND":"k","USER":"u"},` +
@@ -515,12 +511,12 @@ func TestStartWritesTheSettingsFile(t *testing.T) {
 	}
 
 	x.p.Write(".obor/claude/settings_override.json", `{"env": `)
-	before := len(x.calls("agent.start"))
+	before := len(x.calls("Start"))
 	x.shell("w1:p5", "pj-int", x.p.Root)
 	out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true})
-	if ok || !strings.Contains(out, ".obor/claude/settings_override.json: does not parse") || len(x.calls("agent.start")) != before {
+	if ok || !strings.Contains(out, ".obor/claude/settings_override.json: does not parse") || len(x.calls("Start")) != before {
 		t.Errorf("an override file that does not parse: restart = %q, %v with %d more starts; want it refused, naming the file",
-			out, ok, len(x.calls("agent.start"))-before)
+			out, ok, len(x.calls("Start"))-before)
 	}
 }
 
@@ -534,14 +530,14 @@ func TestStartRefusedWhenTheSettingsFileCannotBeWritten(t *testing.T) {
 	if ok || !strings.Contains(out, "settings/pj-int.json") {
 		t.Errorf("restart = %q, %v: want it refused, naming settings/pj-int.json", out, ok)
 	}
-	if calls := x.calls("agent.start"); len(calls) != 0 {
-		t.Errorf("agent.start %q, want no start", calls)
+	if calls := x.calls("Start"); len(calls) != 0 {
+		t.Errorf("Start %q, want no start", calls)
 	}
 }
 
 // index is the position of the first request matching query (-1: none).
 func (x *fx) index(query string) int {
-	for i, c := range x.srv.Calls() {
+	for i, c := range x.f.Calls() {
 		if hasParts(c, query) {
 			return i
 		}
@@ -550,9 +546,9 @@ func (x *fx) index(query string) int {
 }
 
 // lastIndex is the position of the last request matching query (-1: none): a call's line is no unique key, since a
-// request repeated with the same params (a poll's agent.get) reads the same both times.
+// request repeated with the same params (a poll's Pane) reads the same both times.
 func (x *fx) lastIndex(query string) int {
-	calls, last := x.srv.Calls(), -1
+	calls, last := x.f.Calls(), -1
 	for i := len(calls) - 1; i >= 0; i-- {
 		if hasParts(calls[i], query) {
 			last = i
@@ -562,7 +558,7 @@ func (x *fx) lastIndex(query string) int {
 	return last
 }
 
-func (x *fx) reset() { x.f.Panes = nil }
+func (x *fx) reset() { x.f.All = nil }
 
 func contains(t *testing.T, s, sub, what string) {
 	t.Helper()
@@ -619,14 +615,14 @@ func TestRestartLaneEnv(t *testing.T) {
 			x.goflags = c.goflags
 			x.sid(c.agent, "sid-1")
 			x.shell(c.pane, c.agent, "")
-			x.f.Set(c.pane, func(p *herdrtest.Pane) { p.Session = "sid-1" })
+			x.f.Set(c.pane, func(p *mpane) { p.Session = "sid-1" })
 			if s := x.startCall(); s != "" {
 				t.Fatalf("precondition: nothing started, got %q", s)
 			}
 			if out, ok := x.restart(launch.Request{Agent: c.agent}); !ok {
 				t.Fatalf("restart failed:\n%s", out)
 			}
-			runs := x.calls("pane.send_input")
+			runs := x.calls("Write")
 			if len(runs) != 1 {
 				t.Fatalf("one env line typed, got %q", runs)
 			}
@@ -660,13 +656,13 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) {
 			x.sid("pj-l-01", "sid-1")
 			x.shell("w1:p3", "pj-l-01", "")
-			x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-1" })
+			x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-1" })
 		},
 		req: launch.Request{Agent: "pj-l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
+			return "Write pane=w1:p3 submit=true text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
+		start: "Start argv=[" + laneMCP + settings + " --resume sid-1] kind=claude label=pj-l-01 pane=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// A trimmed Claude start loads no user hooks, herdr's among them, so herdr reports no session for its pane:
@@ -680,9 +676,9 @@ func TestRestartWho(t *testing.T) {
 		},
 		req: launch.Request{Agent: "pj-l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
+			return "Write pane=w1:p3 submit=true text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
+		start: "Start argv=[" + laneMCP + settings + " --resume sid-1] kind=claude label=pj-l-01 pane=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// another project's agent may be named like a lane; no lane env, no lane settings
@@ -694,9 +690,9 @@ func TestRestartWho(t *testing.T) {
 		},
 		req: launch.Request{Agent: "l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_PANE=w1:p3"
+			return "Write pane=w1:p3 submit=true text=unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_PANE=w1:p3"
 		},
-		start: "agent.start args=[--resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
+		start: "Start argv=[--resume sid-1] kind=claude label=l-01 pane=w1:p3",
 		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// bash restart.test.sh case_lane_agent_matched_by_pane_cwd
@@ -704,9 +700,9 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("odd-name", "sid-1"); x.shell("w1:p3", "odd-name", x.lane) },
 		req:  launch.Request{Agent: "odd-name"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
+			return "Write pane=w1:p3 submit=true text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
+		start: "Start argv=[" + laneMCP + settings + " --resume sid-1] kind=claude label=odd-name pane=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",
 		out:   "lane L-01 (pane w1:p3 cwd)",
 	}, {
@@ -716,13 +712,13 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) {
 			x.sid("pj-int", "sid-i")
 			x.shell("w1:p5", "pj-int", "")
-			x.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Session = "sid-i" })
+			x.f.Set("w1:p5", func(p *mpane) { p.Session = "sid-i" })
 		},
 		req: launch.Request{Agent: "pj-int"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.LaneDir("integrator")) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=integrator OBOR_PANE=w1:p5"
+			return "Write pane=w1:p5 submit=true text=cd " + q(x.p.LaneDir("integrator")) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=integrator OBOR_PANE=w1:p5"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --resume sid-i] kind=claude name=pj-int pane_id=w1:p5",
+		start: "Start argv=[--permission-mode auto --model opus " + settings + " --resume sid-i] kind=claude label=pj-int pane=w1:p5",
 		line:  "RESTARTED pj-int (pane w1:p5, session sid-i)",
 	}, {
 		// bash restart.test.sh case_lead_agent_is_a_role_agent, case_lead_unsets_obor_lane
@@ -730,9 +726,9 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
+			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "Start argv=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude label=pj-lead pane=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
@@ -740,13 +736,13 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) {
 			x.sid("triage", "sid-t")
 			x.shell("w1:p8", "triage", "")
-			x.f.Set("w1:p8", func(p *herdrtest.Pane) { p.Session = "sid-t" })
+			x.f.Set("w1:p8", func(p *mpane) { p.Session = "sid-t" })
 		},
 		req: launch.Request{Agent: "triage"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p8 text=unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_PANE=w1:p8"
+			return "Write pane=w1:p8 submit=true text=unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_PANE=w1:p8"
 		},
-		start: "agent.start args=[--resume sid-t] kind=claude name=triage pane_id=w1:p8",
+		start: "Start argv=[--resume sid-t] kind=claude label=triage pane=w1:p8",
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
 	}, {
 		// OBOR_ROLE=triage like every other role
@@ -755,9 +751,9 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-triage", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=triage OBOR_PANE=w1:p6"
+			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=triage OBOR_PANE=w1:p6"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-triage pane_id=w1:p6",
+		start: "Start argv=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude label=pj-triage pane=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
 		// its role worktree
@@ -769,11 +765,11 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-deep-dive", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.LaneDir("deep_dive")) +
+			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.LaneDir("deep_dive")) +
 				" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=deep_dive OBOR_PANE=w1:p6"
 
 		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-deep-dive pane_id=w1:p6",
+		start: "Start argv=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude label=pj-deep-dive pane=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
@@ -782,9 +778,9 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
+			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "agent.start args=[--session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "Start argv=[--session-id <new> /obor:lead] kind=claude label=pj-lead pane=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 		out:   "args (claude): --session-id <new> /obor:lead",
 	}} {
@@ -801,7 +797,7 @@ func TestRestartWho(t *testing.T) {
 			}
 			out = x.named(out)
 			eq(t, last(out), c.line, "result line")
-			runs := x.calls("pane.send_input")
+			runs := x.calls("Write")
 			if len(runs) != 1 {
 				t.Fatalf("one env line typed, got %q", runs)
 			}
@@ -841,7 +837,7 @@ func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
 		x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
 		x.sid("pj-int", "sid-i")
 		x.shell("w1:p5", "pj-int", "")
-		x.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Session = "sid-i" })
+		x.f.Set("w1:p5", func(p *mpane) { p.Session = "sid-i" })
 		if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
@@ -907,7 +903,7 @@ func restartIntegrator(t *testing.T, x *fx) {
 	}
 	x.sid("pj-int", "sid-i")
 	x.shell("w1:p5", "pj-int", "")
-	x.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Session = "sid-i" })
+	x.f.Set("w1:p5", func(p *mpane) { p.Session = "sid-i" })
 	if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
 		t.Fatalf("restart failed:\n%s", out)
 	}
@@ -1022,13 +1018,13 @@ func TestRestartNoSessionFailsFreshStartsNew(t *testing.T) {
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p4 (from label)", "the labelled pane, not the lane cwd one")
 	eq(t, last(out), "FAIL no session to resume for pj-l-01 (pass --fresh to start a new one)", "no session")
-	if ok || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
-		t.Errorf("nothing typed or started: %q", x.srv.Calls())
+	if ok || len(x.calls("Write")) > 0 || x.startCall() != "" {
+		t.Errorf("nothing typed or started: %q", x.f.Calls())
 	}
 	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session new)", "--fresh")
 	lacks(t, x.startCall(), "--resume", "--fresh: no --resume")
-	contains(t, x.startCall(), "pane_id=w1:p4", "started in the labelled pane")
+	contains(t, x.startCall(), "pane=w1:p4", "started in the labelled pane")
 }
 
 // bash restart.test.sh case_unknown_agent_without_sid_fails, case_no_pane_fails, case_where_by_label,
@@ -1069,8 +1065,8 @@ func TestRestartWhereRefusals(t *testing.T) {
 		prep: func(x *fx) {
 			x.sid("pj-l-01", "sid-1")
 			s := x.shell("w1:p4", "pj-l-01", "")
-			x.f.Set(s.ID, func(p *herdrtest.Pane) {
-				p.Foreground, p.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/vim", Name: "vim"}}
+			x.f.Set(s.ID, func(p *mpane) {
+				p.Foreground, p.Procs = 200, []port.Process{{PID: 200, Argv0: "/usr/bin/vim", Name: "vim"}}
 			})
 		},
 		req:  launch.Request{Agent: "pj-l-01"},
@@ -1082,8 +1078,8 @@ func TestRestartWhereRefusals(t *testing.T) {
 			c.prep(x)
 			out, ok := x.restart(c.req)
 			eq(t, last(out), c.line, "result")
-			if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.rename")) > 0 || x.startCall() != "" {
-				t.Errorf("nothing typed, labelled or started: %q", x.srv.Calls())
+			if ok || len(x.calls("Write")) > 0 || len(x.calls("RenamePane")) > 0 || x.startCall() != "" {
+				t.Errorf("nothing typed, labelled or started: %q", x.f.Calls())
 			}
 		})
 	}
@@ -1111,7 +1107,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 			t.Fatal(err)
 		}
 		pane := x.agent("w2:pF", "l-02", "claude", "idle")
-		x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.Cwd = axisWt })
+		x.f.Set(pane.ID, func(p *mpane) { p.Cwd = axisWt })
 		return x, axis, axisWt
 	}
 	restart := func(x *fx, cfg *config.Config) (string, bool) {
@@ -1132,7 +1128,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 			t.Fatal(err)
 		}
 		// axis's L-02 pane runs an agent named as the kit's lane L-02's worker (pj-l-02: derived in both).
-		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Name, p.Label = "pj-l-02", "pj-l-02" })
+		x.f.Set("w2:pF", func(p *mpane) { p.Name, p.Label = "pj-l-02", "pj-l-02" })
 		if info, ok := kit.AgentLookup("pj-l-02", ""); !ok || info.Lane != "L-02" {
 			t.Fatalf("precondition: the kit's config takes pj-l-02 for its lane L-02: %+v %v", info, ok)
 		}
@@ -1144,8 +1140,8 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 			" (another project's agent? run obor restart pj-l-02 in its own project)", "result")
 		contains(t, out, "pane screen", "evidence")
 		contains(t, x.p.Read(".obor/state/launch.log"), "pane w2:pF is not this project's", "evidence logged")
-		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-			t.Errorf("nothing stopped, typed or started: %q", x.srv.Calls())
+		if ok || len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+			t.Errorf("nothing stopped, typed or started: %q", x.f.Calls())
 		}
 	})
 	t.Run("control: axis's config restarts its lane worker in its own worktree", func(t *testing.T) {
@@ -1155,19 +1151,19 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
 		}
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+axisWt+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-02",
+		contains(t, strings.Join(x.calls("Write"), "\n"), "cd "+axisWt+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-02",
 			"started in axis's worktree, its lane's worker")
 		contains(t, x.startCall(), "--strict-mcp-config", "axis's kinds.claude.args")
 	})
 	t.Run("control: the kit's own lane pane restarts in the kit's lane worktree", func(t *testing.T) {
 		t.Parallel()
 		x, _, _ := fixtures(t)
-		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Cwd = x.p.LaneDir("L-02") })
+		x.f.Set("w2:pF", func(p *mpane) { p.Cwd = x.p.LaneDir("L-02") })
 		out, ok := restart(x, nil)
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
 		}
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+x.p.LaneDir("L-02")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker",
+		contains(t, strings.Join(x.calls("Write"), "\n"), "cd "+x.p.LaneDir("L-02")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker",
 			"started in the kit's lane")
 	})
 	t.Run("control: a pane in another worktree of the kit's repository is the kit's", func(t *testing.T) {
@@ -1175,7 +1171,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		x, _, _ := fixtures(t)
 		stable := filepath.Join(x.p.Base, "stable")
 		x.p.Worktree(stable, "")
-		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Cwd = stable })
+		x.f.Set("w2:pF", func(p *mpane) { p.Cwd = stable })
 		out, ok := restart(x, nil)
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
@@ -1202,26 +1198,26 @@ func TestRestartLabel(t *testing.T) {
 	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p4"})
 	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "an unlabelled --pane is fine")
 	contains(t, out, "labelled pane w1:p4 pj-l-01", "said")
-	eq(t, x.f.Panes[0].Label, "pj-l-01", "label set in herdr")
-	env, ren, start := x.index("pane.send_input keys=[Enter] pane_id=w1:p4 text=cd "), x.index("pane.rename label=pj-l-01 pane_id=w1:p4"), x.lastIndex("agent.start")
+	eq(t, x.f.All[0].Label, "pj-l-01", "label set in herdr")
+	env, ren, start := x.index("Write pane=w1:p4 submit=true text=cd "), x.index("RenamePane label=pj-l-01 pane=w1:p4"), x.lastIndex("Start")
 	if !(env >= 0 && env < ren && ren < start) {
-		t.Errorf("env, then label, then start: %q", x.srv.Calls())
+		t.Errorf("env, then label, then start: %q", x.f.Calls())
 	}
 
-	x.f.Set("w1:p4", func(p *herdrtest.Pane) { p.Kind, p.Foreground = "", 0 }) // the agent exited again
-	n := len(x.srv.Calls())
+	x.f.Set("w1:p4", func(p *mpane) { p.Kind, p.Foreground = "", 0 }) // the agent exited again
+	n := len(x.f.Calls())
 	out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p4 (from label)", "found by the label just set")
-	lacks(t, strings.Join(x.srv.Calls()[n:], "\n"), "pane.rename", "already labelled: no rename")
+	lacks(t, strings.Join(x.f.Calls()[n:], "\n"), "RenamePane", "already labelled: no rename")
 	lacks(t, out, "labelled pane", "nothing said")
 
 	x.reset()
 	x.shell("w1:p5", "", "")
-	x.srv.Fail("pane.rename", "pane_not_found", "gone")
-	n = len(x.srv.Calls())
+	x.f.Fail("RenamePane", termError("rename", "not found", "gone"))
+	n = len(x.f.Calls())
 	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p5"})
 	eq(t, last(out), "FAIL terminal pane rename w1:p5 pj-l-01 failed", "rename failing")
-	if ok || strings.Contains(strings.Join(x.srv.Calls()[n:], "\n"), "agent.start") {
+	if ok || strings.Contains(strings.Join(x.f.Calls()[n:], "\n"), "Start") {
 		t.Error("no start after a failed rename")
 	}
 }
@@ -1257,7 +1253,7 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		}
 		return got, asked
 	}
-	typed := func(x *fx) []string { return x.calls("agent.prompt target=w1:p3 text=" + wake) }
+	typed := func(x *fx) []string { return x.calls("Prompt pane=w1:p3 text=" + wake) }
 	t.Run("fresh: the wake is the first prompt", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -1278,26 +1274,26 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		out, _ := restart(x, "T-1/1/work", launch.Request{Agent: "pj-l-01"})
 		contains(t, x.startCall(), "--resume sid-1", "resumed")
 		lacks(t, x.startCall(), wake, "a resume carries no first prompt")
-		if start, wakes := x.index("agent.start"), typed(x); len(wakes) != 1 || x.index(wakes[0]) < start {
-			t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
+		if start, wakes := x.index("Start"), typed(x); len(wakes) != 1 || x.index(wakes[0]) < start {
+			t.Errorf("the wake typed once after the start: %q", x.f.Calls())
 		}
 		contains(t, out, "job T-1/1/work: its wake typed", "said")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
-		eqInt(t, len(x.calls("pane.send_input text=[obor job")), 0, "wakes sent through send_input")
+		eqInt(t, len(x.calls("Write text=[obor job")), 0, "wakes sent through send_input")
 	})
 	t.Run("resumed, agent blocked: warning, nothing typed (T-800)", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnPrompt = "refused" })
+		x.f.Set("w1:p3", func(p *mpane) { p.OnPrompt = "refused" })
 		out, _ := restart(x, "T-1/1/work", launch.Request{Agent: "pj-l-01"})
 		contains(t, x.startCall(), "--resume sid-1", "precondition: resumed")
-		eqInt(t, len(x.calls("agent.prompt")), 1, "precondition: the wake offered to herdr's agent.prompt")
+		eqInt(t, len(x.calls("Prompt")), 1, "precondition: the wake offered to the terminal's Prompt")
 		contains(t, out, "warning: job T-1/1/work's wake not typed into pane w1:p3", "said")
 		contains(t, out, "(type it there: "+wake+")", "the line to type by hand")
 		lacks(t, out, "its wake typed", "no success line")
-		eqInt(t, len(x.calls("pane.send_input text=[obor job")), 0, "wakes sent through send_input")
+		eqInt(t, len(x.calls("Write text=[obor job")), 0, "wakes sent through send_input")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 	})
 	t.Run("no job: no wake", func(t *testing.T) {
@@ -1351,7 +1347,7 @@ func TestRestartIntegratorWithItsJob(t *testing.T) {
 		}
 		return got, asked
 	}
-	typed := func(x *fx, wake string) []string { return x.calls("agent.prompt target=w1:p5 text=" + wake) }
+	typed := func(x *fx, wake string) []string { return x.calls("Prompt pane=w1:p5 text=" + wake) }
 	for _, c := range []struct {
 		name, job string
 		fresh     bool
@@ -1379,8 +1375,8 @@ func TestRestartIntegratorWithItsJob(t *testing.T) {
 			}
 			contains(t, x.startCall(), "--resume sid-int", "resumed")
 			lacks(t, x.startCall(), wake, "a resume carries no first prompt")
-			if start, wakes := x.index("agent.start"), typed(x, wake); len(wakes) != 1 || x.index(wakes[0]) < start {
-				t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
+			if start, wakes := x.index("Start"), typed(x, wake); len(wakes) != 1 || x.index(wakes[0]) < start {
+				t.Errorf("the wake typed once after the start: %q", x.f.Calls())
 			}
 			contains(t, out, "job "+c.job+": its wake typed", "said")
 			eq(t, last(out), "RESTARTED pj-int (pane w1:p5, session sid-int)", "result")
@@ -1414,7 +1410,7 @@ func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
 		}
 		return got
 	}
-	typed := func(x *fx) []string { return x.calls("agent.prompt target=w1:p3 text=" + wake) }
+	typed := func(x *fx) []string { return x.calls("Prompt pane=w1:p3 text=" + wake) }
 	t.Run("a session to resume: resumed, the prompt typed after the start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -1423,8 +1419,8 @@ func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
 		out := launchIt(x)
 		contains(t, x.startCall(), "--resume sid-1", "resumed")
 		lacks(t, x.startCall(), wake, "a resume carries no first prompt")
-		if start, wakes := x.index("agent.start"), typed(x); len(wakes) != 1 || x.index(wakes[0]) < start {
-			t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
+		if start, wakes := x.index("Start"), typed(x); len(wakes) != 1 || x.index(wakes[0]) < start {
+			t.Errorf("the wake typed once after the start: %q", x.f.Calls())
 		}
 		contains(t, out, "the first prompt: its wake typed", "said")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
@@ -1465,8 +1461,8 @@ func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
 	}
 	contains(t, failLine(got), "FAIL pj-l-01 not restarted (nothing stopped): L-01 holds T-1 and obor serve cannot tell "+
 		"its job", "result")
-	if len(x.calls("pane.send_keys")) > 0 || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
-		t.Errorf("the agent touched: %q", x.srv.Calls())
+	if len(x.calls("SendKeys")) > 0 || len(x.calls("Write")) > 0 || x.startCall() != "" {
+		t.Errorf("the agent touched: %q", x.f.Calls())
 	}
 }
 
@@ -1490,92 +1486,8 @@ func TestRestartIntegratorServeDownRefuses(t *testing.T) {
 	}
 	const want = "FAIL restart pj-int: obor serve is not running; it may hold an open job for pj-int: start serve, then restart"
 	eq(t, failLine(got), want, "result")
-	if len(x.calls("pane.send_keys")) > 0 || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
-		t.Errorf("the agent touched: %q", x.srv.Calls())
-	}
-}
-
-// herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up
-// after 30 s and keeps no name for it. A start with a prompt whose agent runs and works in the pane is a start; the
-// name it keeps from herdr is not obor's business (no rename back).
-func TestStartBusyOnFirstPrompt(t *testing.T) {
-	t.Parallel()
-	const wake = "[obor job T-1/1/work] call the obor job_next tool"
-	for _, c := range []struct {
-		name, prompt, status string
-		ok                   bool
-	}{
-		{"wake, working at herdr's timeout: RESTARTED", wake, "working", true},
-		{"wake, blocked at herdr's timeout: FAIL", wake, "blocked", false},
-		{"no wake, working at herdr's timeout: FAIL as before", "", "working", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			x.poll = bound // let herdr's immediate timeout win before started() polls the new agent
-			x.shell("w1:p3", "pj-l-01", "")
-			x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnStart = c.status })
-			out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: c.prompt})
-			eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start")
-			contains(t, out, "(timeout)", "precondition: herdr gave up")
-			if ok != c.ok {
-				t.Fatalf("ok = %v, want %v: %s", ok, c.ok, out)
-			}
-			if !c.ok {
-				contains(t, failLine(out), "FAIL start failed in w1:p3", "result")
-				eqInt(t, len(x.calls("agent.rename")), 0, "not named")
-				return
-			}
-			eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
-			contains(t, out, "pj-l-01 runs in w1:p3 (working on its first prompt): started", "said")
-			eqInt(t, len(x.calls("agent.rename")), 0, "nothing renamed")
-			eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name, and the start stands")
-		})
-	}
-}
-
-// serve's first-prompt starts through Launch, a review's fresh start on its
-// brief (internal/app/review.go) and a worker dispatch's fresh start on its first prompt (internal/app/dispatch.go):
-// herdr answers at once with the launch pending and keeps it pending while the agent works on the prompt, past the
-// start's bound. Started on the agent working, not FAIL.
-func TestServeFirstPromptStartWhileTheLaunchStaysPending(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name, pane, kind string
-		req              launch.Request
-	}{
-		{"a serve review start: the reviewer (codex) fresh on its brief", "w1:p7", "codex",
-			launch.Request{Agent: "pj-rev", Fresh: true, Prompt: "Review RV-5. main is at abcdef0. write only reviews/RV-5.md"}},
-		{"a serve worker dispatch: the lane's worker fresh on its first prompt", "w1:p3", "claude",
-			launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool"}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			p := x.shell(c.pane, c.req.Agent, "")
-			// pending for every read: herdr's own bound is past the start's
-			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.StartPending, p.PendingStatus = 1<<30, "working" })
-			var out bytes.Buffer
-			s, err := x.launcher(&out).Launch(context.Background(), c.req)
-			got, ok := result(t, &out, s.Line, err)
-			eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start")
-			contains(t, x.startCall(), " "+c.req.Prompt+"]", "precondition: the prompt is the start's first")
-			if !ok {
-				t.Fatalf("a first-prompt start whose agent works was not started:\n%s", got)
-			}
-			var pending bool
-			var kind, status string
-			x.f.Locked(func() { pending, kind, status = p.LaunchPending, p.Kind, p.Status })
-			if !pending || kind != c.kind || status != "working" {
-				t.Fatalf("precondition: herdr still lists the launch pending, %s working; got pending %t, %s %s", c.kind, pending, kind, status)
-			}
-			// A poll read of the pane runs alongside the start (started), so a loaded machine can record one before
-			// the start: the clause is a read after the start, found by the last read's position, never the first
-			if start := x.index("agent.start"); start < 0 || x.lastIndex("agent.get target="+c.pane) < start {
-				t.Errorf("started without a listing read after the start: %q", x.srv.Calls())
-			}
-			eq(t, last(got), "RESTARTED "+c.req.Agent+" (pane "+c.pane+", session new)", "result")
-		})
+	if len(x.calls("SendKeys")) > 0 || len(x.calls("Write")) > 0 || x.startCall() != "" {
+		t.Errorf("the agent touched: %q", x.f.Calls())
 	}
 }
 
@@ -1586,8 +1498,8 @@ func TestRestartResolvesFromOnePaneList(t *testing.T) {
 	x := setup(t)
 	pane := x.shell("w1:p3", "pj-l-01", "")
 	lists := 0
-	x.srv.Before(func(r herdrtest.Request) {
-		if r.Method != "pane.list" {
+	x.f.Before(func(call string) {
+		if call != "Panes" {
 			return
 		}
 		if lists++; lists > 1 {
@@ -1595,67 +1507,78 @@ func TestRestartResolvesFromOnePaneList(t *testing.T) {
 		}
 	})
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-	eqInt(t, len(x.calls("agent.start")), 1, "precondition: the restart got as far as the start")
+	eqInt(t, len(x.calls("Start")), 1, "precondition: the restart got as far as the start")
 	lacks(t, out, "no pane labelled", "found in the first list")
 	if !ok {
 		t.Fatalf("restart failed:\n%s", out)
 	}
 }
 
-// herdr answers agent.start at once (launch_pending), before the agent runs; a start whose agent never comes
-// up (live: the command cut off at the shell, left at an open quote) is a FAIL that says so, not RESTARTED.
+// a start whose agent never comes up (the terminal's start timed out at Up; live: the command cut off at the shell,
+// left at an open quote) is a FAIL that says so, not RESTARTED.
 func TestStartAgentNeverUp(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	x.wait = 200 * time.Millisecond
 	x.shell("w1:p3", "pj-l-01", "")
-	x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnStart = "never" })
+	x.f.Set("w1:p3", func(p *mpane) { p.OnStart = "never" })
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: strings.Repeat("a long brief ", 130)})
-	eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start, sent once")
-	lacks(t, out, "(timeout)", "precondition: herdr answered the start with success")
+	eqInt(t, len(x.calls("Start")), 1, "precondition: one start, sent once")
 	if ok || strings.Contains(out, "RESTARTED") {
 		t.Fatalf("a start with no agent up said RESTARTED:\n%s", out)
 	}
-	contains(t, out, "no claude agent came up in w1:p3 within 200ms", "why")
+	contains(t, out, "no claude agent came up in w1:p3 within 200ms", "the terminal's error printed")
 	eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: "+
 		"run obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)", "result")
-	eqInt(t, len(x.calls("agent.rename")), 0, "nothing named")
 }
 
 // the start's command is typed only once the shell has run the env line and is back at its prompt (zsh runs a
-// line with the tty in cooked mode, where a long command typed at once is cut off): the mark it echoes, waited for by
-// herdr (pane.wait_for_output, one server-side wait instead of a screen poll), then a start.
+// line with the tty in cooked mode, where a long command typed at once is cut off): the mark it echoes, read on the
+// pane's screen until it shows, then a start.
 func TestRestartWaitsForTheEnvLine(t *testing.T) {
 	t.Parallel()
-	t.Run("the shell back: the start after the mark", func(t *testing.T) {
+	t.Run("the shell back: the start after the mark shows", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *mpane) { p.OnRun = "hang" }) // the shell prints the mark at the third look, below
+		okWord, looks := "", 0
+		x.f.Before(func(call string) {
+			switch {
+			case strings.HasPrefix(call, "Write pane=w1:p3 submit=true text=") && okWord == "":
+				okWord, _ = envWords(t, call)
+			case call == "Screen pane=w1:p3" && okWord != "":
+				if looks++; looks == 3 {
+					x.f.Set("w1:p3", func(p *mpane) { p.Screen += okWord + "\n% \n" })
+				}
+			}
+		})
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
-		env, wait, start := x.index("pane.send_input pane_id=w1:p3"), x.index("pane.wait_for_output pane_id=w1:p3"), x.index("agent.start")
-		if env < 0 || wait < env || start < wait {
-			t.Errorf("env line %d, output wait %d, start %d: want the start after the wait after the env line:\n%s",
-				env, wait, start, strings.Join(x.srv.Calls(), "\n"))
+		contains(t, x.f.At("w1:p3").Screen, okWord, "precondition: the shell echoed the mark")
+		calls := x.f.Calls()
+		env, start := x.index("Write pane=w1:p3"), x.index("Start")
+		reads := 0
+		for _, c := range calls[max(env, 0):max(start, 0)] {
+			if c == "Screen pane=w1:p3" {
+				reads++
+			}
 		}
-		okWord, badWord := envWords(t, x.calls("pane.send_input pane_id=w1:p3")[0])
-		waits := x.calls("pane.wait_for_output pane_id=w1:p3")
-		if len(waits) != 1 {
-			t.Fatalf("one env wait, got %q", waits)
+		if env < 0 || start < env || reads < 3 {
+			t.Errorf("env line %d, start %d, %d screen reads between: want the start after the reads up to the mark:\n%s",
+				env, start, reads, strings.Join(calls, "\n"))
 		}
-		contains(t, waits[0], okWord+"|"+badWord, "the env wait's regex: both marks")
-		contains(t, x.f.Pane("w1:p3").Screen, "obor-env-", "precondition: the shell echoed the mark")
 	})
 	t.Run("the shell never back: FAIL, nothing started", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = 200 * time.Millisecond
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnRun = "hang" })
+		x.f.Set("w1:p3", func(p *mpane) { p.OnRun = "hang" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-		eqInt(t, len(x.calls("pane.send_input pane_id=w1:p3")), 1, "precondition: the env line typed")
+		eqInt(t, len(x.calls("Write pane=w1:p3")), 1, "precondition: the env line typed")
 		if ok {
 			t.Fatalf("restarted while the shell still ran the env line:\n%s", out)
 		}
@@ -1672,12 +1595,12 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		pane := x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.OnRun = "fail" })
+		x.f.Set(pane.ID, func(p *mpane) { p.OnRun = "fail" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if ok {
 			t.Fatalf("restarted after a failed env line:\n%s", out)
 		}
-		runs := x.calls("pane.send_input pane_id=w1:p3")
+		runs := x.calls("Write pane=w1:p3")
 		if len(runs) != 1 {
 			t.Fatalf("one env line typed, got %q", runs)
 		}
@@ -1695,14 +1618,14 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
-		runs := x.calls("pane.send_input pane_id=w1:p3")
+		runs := x.calls("Write pane=w1:p3")
 		if len(runs) != 1 {
 			t.Fatalf("one env line typed, got %q", runs)
 		}
 		okWord, badWord := envWords(t, runs[0])
 		contains(t, pane.Screen, okWord, "the screen: the success mark")
 		lacks(t, pane.Screen, badWord, "the screen: the failure mark")
-		if s := x.startCall(); !strings.Contains(s, "name=pj-l-01 pane_id=w1:p3") {
+		if s := x.startCall(); !strings.Contains(s, "label=pj-l-01 pane=w1:p3") {
 			t.Errorf("the agent started after the env line succeeded, got %q", s)
 		}
 	})
@@ -1718,132 +1641,9 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 	return "obor-env-" + m[1], "obor-env-" + m[2]
 }
 
-// a listing read before herdr answered the start is no proof (it cannot tell the old agent from the new): with
-// herdr's answer held while its state already shows the agent up, the start waits for the answer and is started only
-// by it (herdr left the agent unnamed; nothing renames it back); held past the bound, it fails, and the call it
-// owns has ended before it returns.
-func TestStartWaitsForHerdrsAnswer(t *testing.T) {
-	t.Parallel()
-	t.Run("held, the agent up meanwhile: started by the answer", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		release := make(chan struct{})
-		x.pendingStart(release, nil)
-		pane := x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.OnStart = "unnamed" })
-		var out bytes.Buffer
-		done := make(chan error, 1)
-		go func() {
-			_, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
-			done <- err
-		}()
-		up := func() bool {
-			var ok bool
-			x.f.Locked(func() { ok = pane.Kind == "claude" && pane.InteractiveReady })
-			return ok
-		}
-		for deadline := time.Now().Add(time.Second); !up() && time.Now().Before(deadline); {
-			time.Sleep(time.Millisecond)
-		}
-		if !up() {
-			t.Fatal("precondition: herdr's state shows the agent up while its answer is held")
-		}
-		select {
-		case err := <-done:
-			t.Fatalf("the start ended before herdr's answer: %v\n%s", err, out.String())
-		case <-time.After(100 * time.Millisecond):
-		}
-		close(release)
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("the start: %v\n%s", err, out.String())
-			}
-		case <-time.After(10 * time.Second):
-			t.Fatal("the start did not end with herdr's answer")
-		}
-		eqInt(t, len(x.calls("agent.rename")), 0, "nothing renamed")
-		eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name, and the start stands")
-	})
-	t.Run("held past the bound: failed, herdr's call ended first", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.up = shortWait
-		release, ended := make(chan struct{}), make(chan struct{})
-		defer close(release)
-		x.pendingStart(release, ended)
-		x.shell("w1:p3", "pj-l-01", "")
-		var out bytes.Buffer
-		err := x.launcher(&out).Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3"})
-		if err == nil {
-			t.Fatalf("started with no answer from herdr:\n%s", out.String())
-		}
-		contains(t, err.Error(), "no claude agent came up in w1:p3 within 60ms", "why")
-		select { // the start owns herdr's call: ended (cancelled) before the start returns
-		case <-ended:
-		default:
-			t.Error("herdr's agent start call still runs after the start returned")
-		}
-	})
-}
-
-// a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the
-// start: obor setup's Start on such a pane waits for herdr's answer, which refuses it (the pane hosts an agent).
-func TestStartNotTakenForAnOldAgent(t *testing.T) {
-	t.Parallel()
-	x := setup(t)
-	release := make(chan struct{})
-	x.pendingStart(release, nil)
-	x.f.Agent("w1:p3", "", "idle", "") // an old claude herdr lost the name of
-	var out bytes.Buffer
-	done := make(chan error, 1)
-	go func() {
-		done <- x.launcher(&out).Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3"})
-	}()
-	select {
-	case err := <-done:
-		t.Fatalf("the start took the old agent for its own: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	close(release)
-	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "pane w1:p3 already hosts an agent") {
-			t.Fatalf("the start's answer: %v, want herdr's refusal", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the start did not end with herdr's answer")
-	}
-	eq(t, x.f.Pane("w1:p3").Name, "", "the old agent is not named pj-l-01")
-}
-
-// pendingStart holds herdr's agent start answer until release: herdr acts (its state shows the start), the call has
-// no answer yet. ended (nil: not needed) closes once the start call returns.
-func (x *fx) pendingStart(release chan struct{}, ended chan struct{}) {
-	rel, _ := x.srv.Hold("agent.start")
-	go func() {
-		<-release
-		rel()
-	}()
-	if ended != nil {
-		x.wrap = func(h port.PaneControl) port.PaneControl { return startEnds{h, ended} }
-	}
-}
-
-// startEnds closes ended when its agent start returns.
-type startEnds struct {
-	port.PaneControl
-	ended chan struct{}
-}
-
-func (s startEnds) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
-	defer close(s.ended)
-	return s.PaneControl.Start(ctx, name, kind, pane, say, args...)
-}
-
-// waitGone makes herdr's agent.wait answer err at once: a stop's idle wait sees the agent leave (agent_not_running).
+// waitGone makes the terminal's WaitStatus answer err at once: a stop's idle wait sees the agent leave.
 type waitGone struct {
-	port.PaneControl
+	control
 	err error
 }
 
@@ -1867,8 +1667,8 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 			t.Fatal(out)
 		}
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
-		if e, s := x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit"), x.index("agent.start"); e < 0 || e > s {
-			t.Errorf("/exit before the start: %q", x.srv.Calls())
+		if e, s := x.index("Write pane=w1:p3 submit=true text=/exit"), x.index("Start"); e < 0 || e > s {
+			t.Errorf("/exit before the start: %q", x.f.Calls())
 		}
 		contains(t, out, "stopped claude in pane w1:p3", "said")
 	})
@@ -1878,7 +1678,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x.wait = shortWait
 		x.sid("pj-l-01", "sid-1")
 		x.agent("w1:p3", "pj-l-01", "claude", "done")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnQuit = "stay" })
+		x.f.Set("w1:p3", func(p *mpane) { p.OnQuit = "stay" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		if ok || x.startCall() != "" {
@@ -1892,27 +1692,27 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x.agent("w1:p3", "pj-l-01", "claude", "working")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, failLine(out), "FAIL pj-l-01 is working (--force to restart anyway)", "result")
-		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-			t.Errorf("nothing typed or started: %q", x.srv.Calls())
+		if ok || len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+			t.Errorf("nothing typed or started: %q", x.f.Calls())
 		}
 		out, ok = x.restart(launch.Request{Agent: "pj-l-01", Force: true})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "--force restarts")
-		esc, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
+		esc, exit := x.index("SendKeys keys=[esc] pane=w1:p3"), x.index("Write pane=w1:p3 submit=true text=/exit")
 		if !(ok && esc >= 0 && esc < exit) {
-			t.Errorf("--force: Escape, then /exit: %q", x.srv.Calls())
+			t.Errorf("--force: Escape, then /exit: %q", x.f.Calls())
 		}
 	})
 	t.Run("codex: /quit, resume <herdr session id>", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		a := x.agent("w1:p7", "pj-rev", "codex", "idle")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "cx-9" })
+		x.f.Set(a.ID, func(p *mpane) { p.Session = "cx-9" })
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "Codex quits with /quit")
+		contains(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p7 submit=true text=/quit", "Codex quits with /quit")
 		// the reviewer's Codex start writes the main checkout's reviews dir too (made for it).
 		reviews := filepath.Join(x.p.Root, "docs", "reviews")
-		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir "+reviews+" "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
+		eq(t, x.startCall(), "Start argv=[resume cx-9 -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir "+reviews+" "+codexUpdate+" "+codexMCP+"] kind=codex label=pj-rev pane=w1:p7", "codex resume <id>")
 		if !x.p.Exists(reviews) {
 			t.Errorf("no %s made for the start", reviews)
 		}
@@ -1927,12 +1727,12 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) {
-			p.Procs = append(p.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"}, herdr.Process{PID: 301, Argv0: "node"})
+		x.f.Set(a.ID, func(p *mpane) {
+			p.Procs = append(p.Procs, port.Process{PID: 300, Argv0: "/bin/zsh"}, port.Process{PID: 301, Argv0: "node"})
 		})
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-l-01 ") || len(x.calls("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")) != 1 {
-			t.Errorf("/exit, then restarted:\n%s\n%q", out, x.srv.Calls())
+		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-l-01 ") || len(x.calls("Write pane=w1:p3 submit=true text=/exit")) != 1 {
+			t.Errorf("/exit, then restarted:\n%s\n%q", out, x.f.Calls())
 		}
 	})
 	t.Run("exit dialog: Escape + FAIL; --force: Exit and stop tasks", func(t *testing.T) {
@@ -1940,24 +1740,24 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnQuit = "dialog" })
+		x.f.Set(a.ID, func(p *mpane) { p.OnQuit = "dialog" })
 		if len(a.Procs) != 1 {
 			t.Fatal("precondition: no background task seen")
 		}
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "precondition: /exit sent")
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_keys keys=[esc] pane_id=w1:p3", "Escape closes the dialog")
-		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 0, "no Enter into the exit dialog")
-		eqInt(t, len(x.calls("pane.send_keys keys=[1] pane_id=w1:p3")), 0, "no option chosen")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "precondition: /exit sent")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "SendKeys keys=[esc] pane=w1:p3", "Escape closes the dialog")
+		eqInt(t, len(x.calls("SendKeys keys=[enter] pane=w1:p3")), 0, "no Enter into the exit dialog")
+		eqInt(t, len(x.calls("SendKeys keys=[1] pane=w1:p3")), 0, "no option chosen")
 		eq(t, failLine(out), "FAIL pj-l-01 has background tasks (finish them, or --force to stop them)", "result")
-		if ok || x.startCall() != "" || x.f.Panes[0].Screen != "" {
+		if ok || x.startCall() != "" || x.f.All[0].Screen != "" {
 			t.Error("nothing started; dialog closed")
 		}
-		n := len(x.srv.Calls())
+		n := len(x.f.Calls())
 		out, ok = x.restart(launch.Request{Agent: "pj-l-01", Force: true})
-		calls := strings.Join(x.srv.Calls()[n:], "\n")
-		eqInt(t, strings.Count(calls, "pane.send_keys keys=[1] pane_id=w1:p3"), 1, "chose 1. Exit and stop tasks, once")
-		lacks(t, calls, "pane.send_keys keys=[esc] pane_id=w1:p3", "no Escape")
+		calls := strings.Join(x.f.Calls()[n:], "\n")
+		eqInt(t, strings.Count(calls, "SendKeys keys=[1] pane=w1:p3"), 1, "chose 1. Exit and stop tasks, once")
+		lacks(t, calls, "SendKeys keys=[esc] pane=w1:p3", "no Escape")
 		contains(t, out, "exit dialog: chose 1. Exit and stop tasks (--force)", "said")
 		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-l-01 ") {
 			t.Errorf("--force restarts:\n%s", out)
@@ -1972,71 +1772,55 @@ func eqInt(t *testing.T, got, want int, what string) {
 	}
 }
 
-// A start the terminal's adapter retries itself (herdr: a name it kept with no live agent behind it, cleared; herdr's
-// TestSocketStartNameTaken has the cases) is a start: the adapter's lines are printed. One herdr answers NotReady is
-// the startup-dialog FAIL. A name a live agent holds is Locate's refusal (TestRestartRefusedTouchesNothing).
+// A start's terminal-adapter lines (port.AgentStart.Say: a name the terminal kept, cleared and retried) are printed
+// with the start (herdr's TestStartNameTakenAndNotReady has its cases); a serve start (Out discarded, Diag serve's
+// log) puts them in the log and nothing else. A start the terminal answers NotReady is the startup-dialog FAIL. A name
+// a live agent holds is Locate's refusal (TestRestartRefusedTouchesNothing).
 func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
-	t.Run("start agent_name_taken once: name cleared, retried, RESTARTED", func(t *testing.T) {
+	const said = "agent start: name pj-l-01 taken: clearing it and retrying"
+	t.Run("the adapter's line said with the start: RESTARTED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
+		x.f.Set("w1:p3", func(p *mpane) { p.Says = said })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		contains(t, out, "agent start: name pj-l-01 taken: clearing it and retrying", "said")
-		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
-		if clr, start := x.index("agent.rename name=null target=pj-l-01"), len(x.srv.Calls())-1; clr < 0 || clr > start {
-			t.Errorf("cleared before the retry: %q", x.srv.Calls())
-		}
+		contains(t, out, said, "said")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok {
 			t.Errorf("restarted:\n%s", out)
 		}
 	})
-	t.Run("start blocked at a startup dialog (agent_not_ready): FAIL that says so, not retried", func(t *testing.T) {
+	t.Run("a serve start: the adapter's line in serve's log only", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *mpane) { p.Says = said })
+		var log, out bytes.Buffer
+		l := x.launcher(&out) // serve's launcher discards Out: what reaches it is no diagnostic
+		l.Diag = &log
+		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01"})
+		if err != nil || line != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" {
+			t.Fatalf("restart = %q, %v; want the start in its pane", line, err)
+		}
+		eq(t, log.String(), said+"\n", "serve's log")
+		lacks(t, out.String(), said, "Out")
+	})
+	t.Run("start blocked at a startup dialog (NotReady): FAIL that says so, not retried", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
-		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_not_ready", Message: "blocked during startup"})
+		x.f.Once("Start", notReady())
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-		contains(t, out, "agent_not_ready", "herdr's error printed")
-		eqInt(t, len(x.calls("agent.start")), 1, "not retried")
+		contains(t, out, "blocked during startup (not ready)", "the terminal's error printed")
+		eqInt(t, len(x.calls("Start")), 1, "not retried")
 		eq(t, failLine(out), "FAIL start failed in w1:p3 (pj-l-01 waits at a startup dialog in pane w1:p3: answer it there)", "result")
 		if ok {
 			t.Error("a failure")
 		}
 	})
-}
-
-// A serve start (Out discarded, Diag serve's log) keeps the terminal adapter's recovery lines: a start herdr refuses
-// for a name it kept, cleared and retried with the clear failing too, puts the retry line and the warning in the log,
-// and nothing else. A CLI restart's same lines go to its screen (TestRestartAgentNameTaken).
-func TestServeStartLogsNameRecovery(t *testing.T) {
-	t.Parallel()
-	x := setup(t)
-	x.sid("pj-l-01", "sid-1")
-	x.shell("w1:p3", "pj-l-01", "")
-	x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
-	x.srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "agent pj-l-01 not found"})
-	var log bytes.Buffer
-	l := x.launcher(io.Discard) // serve's launcher: a start's progress goes nowhere
-	l.Diag = &log
-	line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01"})
-	if err != nil || line != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" {
-		t.Fatalf("restart = %q, %v; want the start retried in its pane", line, err)
-	}
-	if n := len(x.calls("agent.start")); n != 2 {
-		t.Errorf("agent.start sent %d times, want one retry", n)
-	}
-	lines := strings.Split(strings.TrimSuffix(log.String(), "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("serve's log got %q, want the retry line and the failed clear's warning only", log.String())
-	}
-	eq(t, lines[0], "agent start: name pj-l-01 taken: clearing it and retrying", "the retry line")
-	if !strings.HasPrefix(lines[1], "warning: herdr kept the name pj-l-01: ") || !strings.Contains(lines[1], "agent_not_found") {
-		t.Errorf("serve's log warning = %q, want the failed clear", lines[1])
-	}
 }
 
 // Claude suspends on Ctrl+Z and herdr then sees an idle shell; a stopped child of the pane's shell refuses
@@ -2085,12 +1869,12 @@ func TestRestartSuspended(t *testing.T) {
 	atSh := func(x *fx) {
 		x.ps = nil
 		shp := sh.Process.Pid
-		x.procInfo(func(p *herdrtest.Pane) { p.Shell, p.Foreground = shp, shp })
+		x.procInfo(func(p *mpane) { p.Shell, p.Foreground = shp, shp })
 	}
 	nothing := func(x *fx) {
 		t.Helper()
-		if len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-			t.Errorf("nothing typed or started: %q", x.srv.Calls())
+		if len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+			t.Errorf("nothing typed or started: %q", x.f.Calls())
 		}
 	}
 
@@ -2236,7 +2020,7 @@ func TestRestartRecordedSession(t *testing.T) {
 			t.Fatal(out)
 		}
 		contains(t, out, "recorded session cx-1 not checked (codex's sessions are not obor's)", "said")
-		contains(t, x.startCall(), "args=[resume cx-1", "codex resumes its record")
+		contains(t, x.startCall(), "argv=[resume cx-1", "codex resumes its record")
 	})
 }
 
@@ -2350,9 +2134,9 @@ func TestStop(t *testing.T) {
 		x.agent("w1:p3", "pj-l-01", "claude", "idle")
 		out, ok := x.stop("pj-l-01", "", false)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "only /exit typed")
-		if !ok || x.startCall() != "" || x.f.Panes[0].Label != "pj-l-01" || x.f.Panes[0].Kind != "" {
-			t.Errorf("stopped, labelled, not started: %+v %q", x.f.Panes[0], x.srv.Calls())
+		eq(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p3 submit=true text=/exit", "only /exit typed")
+		if !ok || x.startCall() != "" || x.f.All[0].Label != "pj-l-01" || x.f.All[0].Kind != "" {
+			t.Errorf("stopped, labelled, not started: %+v %q", x.f.All[0], x.f.Calls())
 		}
 	})
 	t.Run("at a shell already", func(t *testing.T) {
@@ -2361,39 +2145,39 @@ func TestStop(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.stop("pj-l-01", "", false)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3, already at a shell)", "result")
-		if !ok || len(x.calls("pane.send_input")) > 0 {
+		if !ok || len(x.calls("Write")) > 0 {
 			t.Error("nothing typed")
 		}
 	})
 	// no "left running": a working agent is interrupted with Escape and quits once idle, force or not.
-	// the idle wait is herdr's agent.wait (idle, done), one server-side wait instead of an agent.get poll.
+	// the idle wait is the terminal's WaitStatus (idle, done), one wait instead of a poll of the pane.
 	t.Run("working, no force: Escape, wait idle, /exit, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.agent("w1:p3", "pj-l-01", "claude", "working")
 		out, ok := x.stop("pj-l-01", "", false)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		esc, wait, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("agent.wait"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
-		if !ok || esc < 0 || wait < esc || exit < wait || x.f.Panes[0].Kind != "" {
-			t.Errorf("Escape, then agent.wait, then /exit, the agent gone: %+v %q", x.f.Panes[0], x.srv.Calls())
+		esc, wait, exit := x.index("SendKeys keys=[esc] pane=w1:p3"), x.index("WaitStatus"), x.index("Write pane=w1:p3 submit=true text=/exit")
+		if !ok || esc < 0 || wait < esc || exit < wait || x.f.All[0].Kind != "" {
+			t.Errorf("Escape, then WaitStatus, then /exit, the agent gone: %+v %q", x.f.All[0], x.f.Calls())
 		}
-		waits := x.calls("agent.wait")
+		waits := x.calls("WaitStatus")
 		if len(waits) != 1 {
 			t.Fatalf("one idle wait, got %q", waits)
 		}
-		contains(t, waits[0], "target=w1:p3 timeout_ms=10000 until=[idle done]", "the idle wait's agent and states")
+		contains(t, waits[0], "pane=w1:p3 timeout=10s until=[idle done]", "the idle wait's agent and states")
 	})
 	t.Run("working, no force, the agent leaves in the idle wait: done, /exit, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.agent("w1:p3", "pj-l-01", "claude", "working")
-		x.wrap = func(h port.PaneControl) port.PaneControl {
-			return waitGone{h, &herdr.Error{Kind: herdr.Failed, Code: "agent_not_running", Msg: "agent is no longer running in the target pane"}}
+		x.wrap = func(h control) control {
+			return waitGone{h, termError("wait", "", "the agent left w1:p3")}
 		}
 		out, ok := x.stop("pj-l-01", "", false)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		if !ok || len(x.calls("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")) != 1 {
-			t.Errorf("the agent gone ends the idle wait, then /exit: %q", x.srv.Calls())
+		if !ok || len(x.calls("Write pane=w1:p3 submit=true text=/exit")) != 1 {
+			t.Errorf("the agent gone ends the idle wait, then /exit: %q", x.f.Calls())
 		}
 	})
 	t.Run("working, no force, Escape ignored: FAIL naming --force, no exit typed", func(t *testing.T) {
@@ -2401,16 +2185,16 @@ func TestStop(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnEsc = "ignore" })
+		x.f.Set(a.ID, func(p *mpane) { p.OnEsc = "ignore" })
 		out, ok := x.stop("pj-l-01", "", false)
-		if len(x.calls("pane.send_keys keys=[esc] pane_id=w1:p3")) == 0 {
-			t.Fatalf("precondition: Escape sent: %q", x.srv.Calls())
+		if len(x.calls("SendKeys keys=[esc] pane=w1:p3")) == 0 {
+			t.Fatalf("precondition: Escape sent: %q", x.f.Calls())
 		}
 		eq(t, failLine(out), "FAIL pj-l-01 still working 60ms after Escape (--force stops it)", "result")
-		if ok || len(x.calls("text=/exit")) > 0 || x.f.Panes[0].Kind != "claude" {
-			t.Errorf("not stopped, no /exit typed: %+v %q", x.f.Panes[0], x.srv.Calls())
+		if ok || len(x.calls("text=/exit")) > 0 || x.f.All[0].Kind != "claude" {
+			t.Errorf("not stopped, no /exit typed: %+v %q", x.f.All[0], x.f.Calls())
 		}
-		if n := len(x.calls("agent.wait")); n != 1 {
+		if n := len(x.calls("WaitStatus")); n != 1 {
 			t.Errorf("%d idle waits, want the one herdr timed out", n)
 		}
 		// serve's drop refuses on this refusal alone: port.NeedsForce reads it.
@@ -2423,14 +2207,14 @@ func TestStop(t *testing.T) {
 		x := setup(t)
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		// a background task: --force stops it too
-		x.f.Set(a.ID, func(p *herdrtest.Pane) {
-			p.Procs = append(p.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"})
+		x.f.Set(a.ID, func(p *mpane) {
+			p.Procs = append(p.Procs, port.Process{PID: 300, Argv0: "/bin/zsh"})
 		})
 		out, ok := x.stop("pj-l-01", "", true)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		esc, clr, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_keys keys=[ctrl+c] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
+		esc, clr, exit := x.index("SendKeys keys=[esc] pane=w1:p3"), x.index("SendKeys keys=[ctrl+c] pane=w1:p3"), x.index("Write pane=w1:p3 submit=true text=/exit")
 		if !ok || esc < 0 || esc > clr || clr > exit {
-			t.Errorf("Escape, then ctrl+c (the restored prompt cleared), then /exit: %q", x.srv.Calls())
+			t.Errorf("Escape, then ctrl+c (the restored prompt cleared), then /exit: %q", x.f.Calls())
 		}
 		lacks(t, out, "warning", "it went idle")
 	})
@@ -2439,7 +2223,7 @@ func TestStop(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		a := x.agent("w1:p3", "pj-l-01", "claude", "blocked")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnEsc = "ignore" })
+		x.f.Set(a.ID, func(p *mpane) { p.OnEsc = "ignore" })
 		out, ok := x.stop("pj-l-01", "", true)
 		contains(t, out, "warning: pj-l-01 still blocked 60ms after Escape: exiting anyway", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
@@ -2451,7 +2235,7 @@ func TestStop(t *testing.T) {
 		x.wait = shortWait
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		// herdr lists nothing in the group: no exit, no leader
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.OnQuit, p.Procs = "stay", []herdr.Process{} })
+		x.f.Set(a.ID, func(p *mpane) { p.OnQuit, p.Procs = "stay", []port.Process{} })
 		out, ok := x.stop("pj-l-01", "", true)
 		eq(t, failLine(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "", not claude)`, "result")
 		eqInt(t, len(x.kills), 0, "no signal")
@@ -2477,10 +2261,10 @@ func TestStopBound(t *testing.T) {
 			x := setup(t)
 			x.bound, x.idle, x.waitZero, x.waitEnv = time.Second, shortWait, true, c.env
 			p := x.agent("w1:p3", "pj-l-01", "claude", "working")
-			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnEsc, p.OnQuit = "ignore", "stay" })
+			x.f.Set(p.ID, func(p *mpane) { p.OnEsc, p.OnQuit = "ignore", "stay" })
 			x.onKill = func(_ int, sig syscall.Signal) {
 				if sig == syscall.SIGTERM { // the signal ends it at once
-					x.f.Set(p.ID, func(p *herdrtest.Pane) {
+					x.f.Set(p.ID, func(p *mpane) {
 						p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
 					})
 					x.gone["2"] = true
@@ -2512,23 +2296,23 @@ func TestStopForceTerminates(t *testing.T) {
 	t.Parallel()
 	// ignoring: an idle Claude leading group 2 with uvx, that ignores /exit; a signal in dies (pid 2 gone, unlisted)
 	// takes the leader, and with leftovers the uvx stays until the next signal.
-	ignoring := func(x *fx, dies syscall.Signal, leftovers bool) *herdrtest.Pane {
+	ignoring := func(x *fx, dies syscall.Signal, leftovers bool) *mpane {
 		p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+		x.f.Set(p.ID, func(p *mpane) {
 			p.OnQuit = "stay"
-			p.Procs = []herdr.Process{{PID: 2, Argv0: "/Users/u/.local/bin/claude"}, {PID: 300, Argv0: "uvx"}}
+			p.Procs = []port.Process{{PID: 2, Argv0: "/Users/u/.local/bin/claude"}, {PID: 300, Argv0: "uvx"}}
 		})
 		x.onKill = func(_ int, sig syscall.Signal) {
 			switch {
 			case x.gone["2"]:
-				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+				x.f.Set(p.ID, func(p *mpane) {
 					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil // the leftovers go too
 				})
 			case sig == dies && leftovers:
-				x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = p.Procs[1:] })
+				x.f.Set(p.ID, func(p *mpane) { p.Procs = p.Procs[1:] })
 				x.gone["2"] = true
 			case sig == dies:
-				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+				x.f.Set(p.ID, func(p *mpane) {
 					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
 				})
 				x.gone["2"] = true
@@ -2545,7 +2329,7 @@ func TestStopForceTerminates(t *testing.T) {
 		if ok {
 			t.Fatal("must fail")
 		}
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		contains(t, out, "in the group: 2 claude", "evidence")
 		eqInt(t, len(x.kills), 0, "no signal")
@@ -2611,21 +2395,21 @@ func TestStopForceTerminates(t *testing.T) {
 		name      string
 		when      string // "wait": changed before the first check; "term": after SIGTERM
 		shell, fg int    // the pane's shell and foreground group from then on (0: unchanged)
-		procs     []herdr.Process
+		procs     []port.Process
 		kills     string
 		fail      string
 	}{
-		{name: "leader changed: no signal", when: "wait", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
+		{name: "leader changed: no signal", when: "wait", procs: []port.Process{{PID: 2, Argv0: "vim"}},
 			fail: `not terminated: the group's leader (pid 2) is "vim", not claude`},
 		// Not listed is gone: the agent counts as exited, what is left is the leftovers' ladder's.
-		{name: "leader gone from the list: exited, its leftovers signalled", when: "wait", procs: []herdr.Process{{PID: 300, Argv0: "uvx"}},
+		{name: "leader gone from the list: exited, its leftovers signalled", when: "wait", procs: []port.Process{{PID: 300, Argv0: "uvx"}},
 			kills: "2 terminated,2 killed", fail: "pj-l-01 exited, but its leftover process(es) (uvx) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)"},
 		{name: "shell changed: no signal", when: "wait", shell: 7,
 			fail: "not terminated: the pane's shell is pid 7, not 1"},
 		// another group has the foreground after the wait: the user's next job, never the agent's.
 		{name: "foreground changed: no signal", when: "wait", fg: 5,
 			fail: "not terminated: the foreground is group 5, not 2"},
-		{name: "leader changed after TERM: no KILL", when: "term", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
+		{name: "leader changed after TERM: no KILL", when: "term", procs: []port.Process{{PID: 2, Argv0: "vim"}},
 			kills: "2 terminated", fail: `nor on SIGTERM (pane w1:p3; no SIGKILL: the group's leader (pid 2) is "vim", not claude)`},
 		{name: "shell changed after TERM: no KILL", when: "term", shell: 7,
 			kills: "2 terminated", fail: "nor on SIGTERM (pane w1:p3; no SIGKILL: the pane's shell is pid 7, not 1)"},
@@ -2639,10 +2423,10 @@ func TestStopForceTerminates(t *testing.T) {
 			change := func() {
 				changed = true
 				if c.procs != nil {
-					x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = c.procs })
+					x.f.Set(p.ID, func(p *mpane) { p.Procs = c.procs })
 				}
 			}
-			x.procInfo(func(p *herdrtest.Pane) {
+			x.procInfo(func(p *mpane) {
 				if !changed {
 					return
 				}
@@ -2671,7 +2455,7 @@ func TestStopForceTerminates(t *testing.T) {
 
 // lockSpy notes, when /exit is typed and when the agent is started, which of the restart locks it watches are held.
 type lockSpy struct {
-	port.PaneControl
+	control
 	locks []*project.Lock
 	seen  *[]string
 }
@@ -2686,12 +2470,12 @@ func (s lockSpy) note(what string) {
 
 func (s lockSpy) Write(ctx context.Context, pane, text string, submit bool) error {
 	s.note("run")
-	return s.PaneControl.Write(ctx, pane, text, submit)
+	return s.control.Write(ctx, pane, text, submit)
 }
 
-func (s lockSpy) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
+func (s lockSpy) Start(ctx context.Context, a port.AgentStart) (port.Pane, error) {
 	s.note("start")
-	return s.PaneControl.Start(ctx, name, kind, pane, say, args...)
+	return s.control.Start(ctx, a)
 }
 
 // one restart lock (the lane's, else the agent's) held for the whole operation, freed at its end.
@@ -2702,7 +2486,7 @@ func TestOneRestartLock(t *testing.T) {
 	x.agent("w1:p3", "pj-l-01", "claude", "idle")
 	var seen []string
 	lane, agent := launch.RestartLock(x.p.Root, "L-01", ""), launch.RestartLock(x.p.Root, "", "pj-int")
-	x.wrap = func(h port.PaneControl) port.PaneControl { return lockSpy{h, []*project.Lock{lane, agent}, &seen} }
+	x.wrap = func(h control) control { return lockSpy{h, []*project.Lock{lane, agent}, &seen} }
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	if !ok {
 		t.Fatal(out)
@@ -2734,14 +2518,14 @@ func TestDriveNameTakesItsLanesRestartLock(t *testing.T) {
 	x.agent("w1:p3", "pj-l-01-drive", "claude", "idle")
 	var seen []string
 	lane, own := launch.RestartLock(x.p.Root, "L-01", ""), launch.RestartLock(x.p.Root, "", "pj-l-01-drive")
-	x.wrap = func(h port.PaneControl) port.PaneControl { return lockSpy{h, []*project.Lock{lane, own}, &seen} }
+	x.wrap = func(h control) control { return lockSpy{h, []*project.Lock{lane, own}, &seen} }
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01-drive"})
 	if !ok {
 		t.Fatal(out)
 	}
 	eq(t, strings.Join(seen, " "), "run:restart-L-01.lock run:restart-L-01.lock start:restart-L-01.lock",
 		"the lane's restart lock held at the /exit, the env line and the start")
-	env := strings.Join(x.calls("pane.send_input pane_id=w1:p3"), "\n")
+	env := strings.Join(x.calls("Write pane=w1:p3"), "\n")
 	has(t, env, "export OBOR_ROLE=driver OBOR_LANE=L-01 OBOR_PANE=w1:p3", "the drive's env line")
 
 	seen = nil
@@ -2807,8 +2591,8 @@ func TestConcurrentRestartWaits(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed while it waits")
-	eqInt(t, len(x.calls("agent.start")), 0, "nothing started while it waits")
+	eqInt(t, len(x.calls("Write")), 0, "nothing typed while it waits")
+	eqInt(t, len(x.calls("Start")), 0, "nothing started while it waits")
 	first.Unlock()
 	var r res
 	select {
@@ -2820,7 +2604,7 @@ func TestConcurrentRestartWaits(t *testing.T) {
 		t.Fatalf("%v\n%s", r.err, out.String())
 	}
 	eq(t, r.line, "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
-	eqInt(t, len(x.calls("agent.start")), 1, "started once the first ended")
+	eqInt(t, len(x.calls("Start")), 1, "started once the first ended")
 }
 
 // q is s as one shell word, as the env line quotes it.
@@ -2833,7 +2617,7 @@ func q(s string) string {
 
 // failCalls fails the pane calls of ops: "screen" (pane read) or "process-info".
 type failCalls struct {
-	port.PaneControl
+	control
 	ops map[string]bool
 	why error
 }
@@ -2842,14 +2626,14 @@ func (f failCalls) Screen(ctx context.Context, pane string, lines int) (string, 
 	if f.ops["screen"] {
 		return "", f.why
 	}
-	return f.PaneControl.Screen(ctx, pane, lines)
+	return f.control.Screen(ctx, pane, lines)
 }
 
 func (f failCalls) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	if f.ops["process-info"] {
 		return port.ProcessInfo{}, f.why
 	}
-	return f.PaneControl.ProcessInfo(ctx, pane)
+	return f.control.ProcessInfo(ctx, pane)
 }
 
 // a give-up carries its evidence: the agent's status, the pane's last non-empty lines, the processes.
@@ -2862,10 +2646,10 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		for i := 1; i <= 20; i++ {
 			lines = append(lines, "screen line "+strings.Repeat("x", i%3), "", "   ")
 		}
-		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+		x.f.Set(p.ID, func(p *mpane) {
 			p.OnQuit = "stay"
 			p.Screen = strings.Join(lines, "\n") + "\ndraft in the box"
-			p.Foreground, p.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/claude", Name: "claude", Cmdline: "claude --resume sid-1"},
+			p.Foreground, p.Procs = 200, []port.Process{{PID: 200, Argv0: "/usr/bin/claude", Name: "claude", Cmdline: "claude --resume sid-1"},
 				{PID: 301, Argv0: "/usr/bin/sleep", Cmdline: "/usr/bin/sleep 60"}}
 		})
 	}
@@ -2915,7 +2699,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		stuck(x)
-		x.wrap = func(h port.PaneControl) port.PaneControl {
+		x.wrap = func(h control) control {
 			return failCalls{h, map[string]bool{"screen": true}, errors.New("herdr went away")}
 		}
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
@@ -2927,7 +2711,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		contains(t, out, "herdr went away", "why")
 		contains(t, out, "foreground: claude", "processes still given")
 
-		x.wrap = func(h port.PaneControl) port.PaneControl {
+		x.wrap = func(h control) control {
 			return failCalls{h, map[string]bool{"process-info": true}, errors.New("herdr went away")}
 		}
 		out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
@@ -2938,7 +2722,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
-		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_not_ready", Message: "blocked during startup"})
+		x.f.Once("Start", notReady())
 		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		contains(t, out, "agent status:", "evidence")
 		eq(t, last(out), "FAIL start failed in w1:p3 (pj-l-01 waits at a startup dialog in pane w1:p3: answer it there)", "FAIL last")
@@ -2948,12 +2732,12 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 
 // exitHook runs fn after each /exit typed into a pane.
 type exitHook struct {
-	port.PaneControl
+	control
 	fn func()
 }
 
 func (e exitHook) Write(ctx context.Context, pane, text string, submit bool) error {
-	err := e.PaneControl.Write(ctx, pane, text, submit)
+	err := e.control.Write(ctx, pane, text, submit)
 	if text == "/exit" {
 		e.fn()
 	}
@@ -2962,26 +2746,26 @@ func (e exitHook) Write(ctx context.Context, pane, text string, submit bool) err
 
 // procFix sets a pane's process info before each look (the fake's shell pid and foreground group).
 type procFix struct {
-	port.PaneControl
+	control
 	fix func(pane string)
 }
 
 func (p procFix) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	p.fix(pane)
-	return p.PaneControl.ProcessInfo(ctx, pane)
+	return p.control.ProcessInfo(ctx, pane)
 }
 
 // procInfo sets pane's process info before each look (its shell pid and foreground group).
-func (x *fx) procInfo(fix func(p *herdrtest.Pane)) {
-	x.wrap = func(h port.PaneControl) port.PaneControl {
+func (x *fx) procInfo(fix func(p *mpane)) {
+	x.wrap = func(h control) control {
 		return procFix{h, func(pane string) { x.f.Set(pane, fix) }}
 	}
 }
 
-// quitTyped sets quit when /exit is typed into a pane (before herdr acts on it).
+// quitTyped sets quit when /exit is typed into a pane (before the terminal acts on it).
 func (x *fx) quitTyped(quit *atomic.Bool) {
-	x.srv.Before(func(r herdrtest.Request) {
-		if r.Method == "pane.send_input" && strings.Contains(string(r.Params), `"/exit"`) {
+	x.f.Before(func(call string) {
+		if strings.HasPrefix(call, "Write ") && strings.HasSuffix(call, " text=/exit") {
 			quit.Store(true)
 		}
 	})
@@ -2998,7 +2782,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		x.agent("w1:p3", "pj-l-01", "claude", "idle")
 		out, ok := x.stop("pj-l-01", "", false)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 		contains(t, out, "stopped claude in pane w1:p3", "said")
 		lacks(t, out, "leftover", "no leftovers")
 		eqInt(t, len(x.kills), 0, "no kill")
@@ -3010,14 +2794,14 @@ func TestStopLeftoverMCP(t *testing.T) {
 		p := mcp(x)
 		x.onKill = func(pgid int, sig syscall.Signal) {
 			if sig == syscall.SIGTERM {
-				x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Foreground = 1 })
+				x.f.Set(p.ID, func(p *mpane) { p.Foreground = 1 })
 			}
 		}
 		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to pgid 2 only")
 		contains(t, out, "stopped 2 leftover process(es) of pj-l-01 (uvx, python)\n", "leftover line")
 		contains(t, out, "stopped claude in pane w1:p3", "stopped line")
@@ -3029,7 +2813,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		p := mcp(x)
 		x.onKill = func(pgid int, sig syscall.Signal) {
 			if sig == syscall.SIGKILL {
-				x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Foreground = 1 })
+				x.f.Set(p.ID, func(p *mpane) { p.Foreground = 1 })
 			}
 		}
 		out, ok := x.stop("pj-l-01", "", false)
@@ -3070,13 +2854,13 @@ func TestStopLeftoverMCP(t *testing.T) {
 			p := mcp(x)
 			if c.after == 0 {
 				x.onExit = func() {
-					x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = []herdr.Process{} })
+					x.f.Set(p.ID, func(p *mpane) { p.Procs = []port.Process{} })
 					x.gone["2"] = true
 				}
 			}
 			x.onKill = func(_ int, sig syscall.Signal) {
 				if sig == c.after {
-					x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = []herdr.Process{} })
+					x.f.Set(p.ID, func(p *mpane) { p.Procs = []port.Process{} })
 				}
 			}
 			out, ok := x.stop("pj-l-01", "", false)
@@ -3084,7 +2868,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 				t.Fatal(out)
 			}
 			eqInt(t, p.Foreground, 0, "precondition: the foreground stays group 2")
-			contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+			contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 			eq(t, strings.Join(x.kills, ","), c.kills, "signals")
 			if c.after == 0 {
 				lacks(t, out, "leftover", "nothing stopped")
@@ -3101,7 +2885,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		x.up = bound       // the start's outcome, not a give-up: 60ms failed under the gate's load
 		x.sid("pj-l-01", "sid-1")
 		p := mcp(x)
-		x.onKill = func(int, syscall.Signal) { x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Foreground = 1 }) }
+		x.onKill = func(int, syscall.Signal) { x.f.Set(p.ID, func(p *mpane) { p.Foreground = 1 }) }
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -3120,7 +2904,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		if ok {
 			t.Fatal("must fail")
 		}
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		eqInt(t, len(x.kills), 0, "no kill")
 	})
@@ -3132,7 +2916,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		mcp(x)
 		quit := &atomic.Bool{}
 		x.quitTyped(quit)
-		x.procInfo(func(p *herdrtest.Pane) {
+		x.procInfo(func(p *mpane) {
 			if quit.Load() {
 				p.Shell, p.Foreground = 2, 9
 			}
@@ -3151,7 +2935,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		y.gone["1"] = true
 		q := &atomic.Bool{}
 		y.quitTyped(q)
-		y.procInfo(func(p *herdrtest.Pane) { p.Shell, p.Foreground = 5, 1 })
+		y.procInfo(func(p *mpane) { p.Shell, p.Foreground = 5, 1 })
 		out, ok = y.stop("pj-l-01", "", false)
 		if ok || !q.Load() {
 			t.Fatalf("must fail after /exit:\n%s", out)
@@ -3163,14 +2947,14 @@ func TestStopLeftoverMCP(t *testing.T) {
 
 // leftoverMCP: an idle Claude in w1:p3 leading group 2 (listed, alive) that exits on /exit, its pid gone and no
 // longer listed, but leaves uvx and python in its group (one consistent process model).
-func leftoverMCP(x *fx) *herdrtest.Pane {
+func leftoverMCP(x *fx) *mpane {
 	p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-	x.f.Set(p.ID, func(p *herdrtest.Pane) {
+	x.f.Set(p.ID, func(p *mpane) {
 		p.OnQuit = "stay"
-		p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "/usr/local/bin/uvx"}, {PID: 301, Name: "python"}}
+		p.Procs = []port.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "/usr/local/bin/uvx"}, {PID: 301, Name: "python"}}
 	})
 	x.onExit = func() {
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Procs = p.Procs[1:] })
+		x.f.Set(p.ID, func(p *mpane) { p.Procs = p.Procs[1:] })
 		x.gone["2"] = true
 	}
 	return p
@@ -3183,7 +2967,7 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 	t.Parallel()
 	// unreadable makes herdr's process info fail from then on.
 	unreadable := func(x *fx) {
-		x.srv.Fail("pane.process_info", "internal", "denied")
+		x.f.Fail("ProcessInfo", termError("process info", "", "denied"))
 	}
 	// /exit does nothing (claude and uvx stay in group 2), and process info is unreadable after it.
 	for _, force := range []bool{false, true} {
@@ -3192,16 +2976,16 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 			x := setup(t)
 			x.wait = shortWait
 			p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-			x.f.Set(p.ID, func(p *herdrtest.Pane) {
+			x.f.Set(p.ID, func(p *mpane) {
 				p.OnQuit = "stay"
-				p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
+				p.Procs = []port.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
 			})
 			x.onExit = func() { unreadable(x) }
 			out, ok := x.stop("pj-l-01", "", force)
 			if ok {
 				t.Fatal("must fail:\n" + out)
 			}
-			contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+			contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 			want := "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)"
 			if force {
 				want = "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: process info unavailable: "
@@ -3222,7 +3006,7 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
-		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
+		contains(t, strings.Join(x.f.Calls(), "\n"), "Write pane=w1:p3 submit=true text=/exit", "/exit sent")
 		contains(t, last(out), "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: process info unavailable: ", "result")
 		eqInt(t, len(x.kills), 0, "no kill")
 		eq(t, x.startCall(), "", "no start")
@@ -3246,8 +3030,8 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		p := leftoverMCP(x)
 		x.onKill = func(_ int, sig syscall.Signal) {
 			if sig == syscall.SIGTERM {
-				x.f.Set(p.ID, func(p *herdrtest.Pane) {
-					p.Foreground, p.Procs = 9, []herdr.Process{{PID: 9, Argv0: "other-program"}}
+				x.f.Set(p.ID, func(p *mpane) {
+					p.Foreground, p.Procs = 9, []port.Process{{PID: 9, Argv0: "other-program"}}
 				})
 			}
 		}
@@ -3276,7 +3060,7 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		var quit, termed atomic.Bool
 		x.onKill = func(int, syscall.Signal) { termed.Store(true) }
 		x.quitTyped(&quit)
-		x.procInfo(func(p *herdrtest.Pane) {
+		x.procInfo(func(p *mpane) {
 			switch {
 			case termed.Load():
 				p.Shell = afterTerm
@@ -3321,7 +3105,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-1" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok || strings.Contains(out, "warning:") {
@@ -3351,7 +3135,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-rec")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-live" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
 		if !ok {
@@ -3367,7 +3151,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x := setup(t)
 		x.record("pj-l-01", "sid-old")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-live" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -3380,7 +3164,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-h" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-h" })
 		if x.recorded("pj-l-01") != "" {
 			t.Fatal("precondition: no record")
 		}
@@ -3390,7 +3174,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		}
 		eq(t, last(out), "FAIL no session to resume for pj-l-01 (pass --fresh to start a new one)", "no source but obor's")
 		lacks(t, out, "from herdr", "herdr's session not adopted")
-		if x.startCall() != "" || len(x.calls("pane.send_input")) > 0 {
+		if x.startCall() != "" || len(x.calls("Write")) > 0 {
 			t.Errorf("nothing typed or started")
 		}
 	})
@@ -3398,7 +3182,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p7", "pj-rev", "")
-		x.f.Set("w1:p7", func(p *herdrtest.Pane) { p.Session = "sid-h" })
+		x.f.Set("w1:p7", func(p *mpane) { p.Session = "sid-h" })
 		if x.recorded("pj-rev") != "" {
 			t.Fatal("precondition: no record")
 		}
@@ -3414,7 +3198,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-old")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "sid-live" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
 		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "--fresh result")
 		if strings.Contains(out, "warning: recorded session") {
@@ -3428,7 +3212,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 // popup is opencode's slash-command popup: it takes the Enter typed with /exit (nothing happens, the text stays in
 // the input), and a separate Enter then runs the quit.
 type popup struct {
-	port.PaneControl
+	control
 	enters *int
 }
 
@@ -3436,23 +3220,23 @@ func (p popup) Write(ctx context.Context, pane, text string, submit bool) error 
 	if text == "/exit" {
 		return nil
 	}
-	return p.PaneControl.Write(ctx, pane, text, submit)
+	return p.control.Write(ctx, pane, text, submit)
 }
 
 func (p popup) SendKeys(ctx context.Context, pane string, keys ...string) error {
 	for _, k := range keys {
 		if k == "enter" {
 			*p.enters++
-			return p.PaneControl.Write(ctx, pane, "/exit", true)
+			return p.control.Write(ctx, pane, "/exit", true)
 		}
 	}
-	return p.PaneControl.SendKeys(ctx, pane, keys...)
+	return p.control.SendKeys(ctx, pane, keys...)
 }
 
 // slowAfterQuit holds the pane's process info past a short wait once the quit is typed: the exit poll's first look
 // eats the whole wait, so the second Enter can only come from the give-up.
 type slowAfterQuit struct {
-	port.PaneControl
+	control
 	quit *bool
 }
 
@@ -3460,14 +3244,14 @@ func (s slowAfterQuit) Write(ctx context.Context, pane, text string, submit bool
 	if text == "/exit" {
 		*s.quit = true
 	}
-	return s.PaneControl.Write(ctx, pane, text, submit)
+	return s.control.Write(ctx, pane, text, submit)
 }
 
 func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	if *s.quit {
 		time.Sleep(2 * shortWait)
 	}
-	return s.PaneControl.ProcessInfo(ctx, pane)
+	return s.control.ProcessInfo(ctx, pane)
 }
 
 // stop for every agent kind. The leader to prove is the program of the kind herdr sees running (not
@@ -3476,16 +3260,16 @@ func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (port.Proce
 func TestStopEveryKind(t *testing.T) {
 	t.Parallel()
 	// kind: lane L-01's agent of that kind (as herdr sees it); it runs as leader of group 2 and ignores the quit.
-	kind := func(t *testing.T, kind string, leader herdr.Process) (*fx, *herdrtest.Pane) {
+	kind := func(t *testing.T, kind string, leader port.Process) (*fx, *mpane) {
 		x := setup(t)
 		p := x.agent("w1:p3", "pj-l-01", kind, "idle")
-		x.f.Set(p.ID, func(p *herdrtest.Pane) {
+		x.f.Set(p.ID, func(p *mpane) {
 			p.OnQuit = "stay"
-			p.Procs = []herdr.Process{leader}
+			p.Procs = []port.Process{leader}
 		})
 		x.onKill = func(_ int, sig syscall.Signal) {
 			if sig == syscall.SIGTERM {
-				x.f.Set(p.ID, func(p *herdrtest.Pane) {
+				x.f.Set(p.ID, func(p *mpane) {
 					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
 				})
 				x.gone["2"] = true
@@ -3495,24 +3279,24 @@ func TestStopEveryKind(t *testing.T) {
 	}
 	t.Run("opencode, quit ignored, --force: /exit and a second Enter, SIGTERM, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, _ := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
+		x, _ := kind(t, "opencode", port.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "opencode's quit typed")
-		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 1, "one second Enter")
+		eq(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p3 submit=true text=/exit", "opencode's quit typed")
+		eqInt(t, len(x.calls("SendKeys keys=[enter] pane=w1:p3")), 1, "one second Enter")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		contains(t, out, "terminated pj-l-01 (opencode pid 2, SIGTERM): it did not exit in 60ms\n", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("opencode, the popup takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit = "" })
+		x, p := kind(t, "opencode", port.Process{PID: 2, Argv0: "opencode"})
+		x.f.Set(p.ID, func(p *mpane) { p.OnQuit = "" })
 		enters := 0
-		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
+		x.wrap = func(h control) control { return popup{h, &enters} }
 		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
@@ -3524,10 +3308,10 @@ func TestStopEveryKind(t *testing.T) {
 	// Claude Code's slash-command menu (many plugin commands) takes the Enter: the second Enter submits.
 	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit = "" })
+		x, p := kind(t, "claude", port.Process{PID: 2, Argv0: "claude"})
+		x.f.Set(p.ID, func(p *mpane) { p.OnQuit = "" })
 		enters := 0
-		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
+		x.wrap = func(h control) control { return popup{h, &enters} }
 		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
@@ -3538,30 +3322,30 @@ func TestStopEveryKind(t *testing.T) {
 	})
 	t.Run("opencode, a wait shorter than two polls, --force: the second Enter is sent before the give-up", func(t *testing.T) {
 		t.Parallel()
-		x, _ := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
+		x, _ := kind(t, "opencode", port.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
 		quit := false
-		x.wrap = func(h port.PaneControl) port.PaneControl { return slowAfterQuit{h, &quit} }
+		x.wrap = func(h control) control { return slowAfterQuit{h, &quit} }
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "opencode's quit typed")
-		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 1, "the second Enter, from the give-up")
+		eq(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p3 submit=true text=/exit", "opencode's quit typed")
+		eqInt(t, len(x.calls("SendKeys keys=[enter] pane=w1:p3")), 1, "the second Enter, from the give-up")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("leader opencode, herdr kind opencode in a claude lane, --force: proven by herdr's kind, SIGTERM, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "opencode"})
+		x, p := kind(t, "claude", port.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
 		// herdr sees opencode in the claude lane's pane
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "opencode" })
+		x.f.Set(p.ID, func(p *mpane) { p.Kind = "opencode" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "opencode's quit typed")
+		eq(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p3 submit=true text=/exit", "opencode's quit typed")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		contains(t, out, "terminated pj-l-01 (opencode pid 2, SIGTERM)", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
@@ -3569,62 +3353,62 @@ func TestStopEveryKind(t *testing.T) {
 	// the proof reads the kind herdr sees running, as the quit does, not the configured one.
 	t.Run("retyped lane: configured opus, herdr kind codex, leader codex, quit ignored, --force: SIGTERM, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "codex"})
+		x, p := kind(t, "claude", port.Process{PID: 2, Argv0: "codex"})
 		x.wait = shortWait
 		// the old codex worker still runs in the lane now typed opus
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "codex" })
+		x.f.Set(p.ID, func(p *mpane) { p.Kind = "codex" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/quit", "codex's quit typed")
+		eq(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p3 submit=true text=/quit", "codex's quit typed")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		contains(t, out, "terminated pj-l-01 (codex pid 2, SIGTERM): it did not exit in 60ms\n", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("retyped lane, leader matching no known kind, --force: refused, no signal", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "vim"})
+		x, p := kind(t, "claude", port.Process{PID: 2, Argv0: "vim"})
 		x.wait = shortWait
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "codex" })
+		x.f.Set(p.ID, func(p *mpane) { p.Kind = "codex" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if ok {
 			t.Fatal("must fail")
 		}
-		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/quit", "codex's quit typed")
+		eq(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p3 submit=true text=/quit", "codex's quit typed")
 		eqInt(t, len(x.kills), 0, "no signal")
 		eq(t, last(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "vim", not codex)`, "result")
 	})
 	t.Run("a kind with no quit in a pane configured as claude: proven by herdr's kind, SIGTERM at once, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "gemini"})
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.Kind = "gemini" })
+		x, p := kind(t, "claude", port.Process{PID: 2, Argv0: "gemini"})
+		x.f.Set(p.ID, func(p *mpane) { p.Kind = "gemini" })
 		x.onExit = func() { t.Error("no quit typed") }
 		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
-		eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed")
+		eqInt(t, len(x.calls("Write")), 0, "nothing typed")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		contains(t, out, "terminated pj-l-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	// a popup kind that gives up leaves no quit in its input for the next typed message.
 	for _, c := range []struct{ kind, argv0, clear string }{
-		{"opencode", "opencode", "pane.send_keys keys=[esc] pane_id=w1:p3\npane.send_keys keys=[ctrl+u] pane_id=w1:p3"},
+		{"opencode", "opencode", "SendKeys keys=[esc] pane=w1:p3\nSendKeys keys=[ctrl+u] pane=w1:p3"},
 	} {
 		t.Run(c.kind+", the popup stays, no --force: the input cleared, FAIL says so, no signal", func(t *testing.T) {
 			t.Parallel()
-			x, _ := kind(t, c.kind, herdr.Process{PID: 2, Argv0: c.argv0})
+			x, _ := kind(t, c.kind, port.Process{PID: 2, Argv0: c.argv0})
 			x.wait = shortWait
 			out, ok := x.stop("pj-l-01", "", false)
 			if ok {
 				t.Fatal("must fail")
 			}
-			keys := x.calls("pane.send_keys")
+			keys := x.calls("SendKeys")
 			eqInt(t, len(keys), 5, "the clear before the quit, the second Enter, the clear again: "+strings.Join(keys, ", "))
 			eq(t, strings.Join(keys[:2], "\n"), c.clear, "the clear keys before the quit")
-			eq(t, keys[2], "pane.send_keys keys=[enter] pane_id=w1:p3", "the second Enter next")
+			eq(t, keys[2], "SendKeys keys=[enter] pane=w1:p3", "the second Enter next")
 			eq(t, strings.Join(keys[3:], "\n"), c.clear, "the clear keys after the wait")
 			eqInt(t, len(x.kills), 0, "no signal")
 			eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
@@ -3638,51 +3422,51 @@ func TestStopEveryKind(t *testing.T) {
 	} {
 		t.Run(c.kind+", idle with text in the input: cleared before the quit, which then exits", func(t *testing.T) {
 			t.Parallel()
-			x, p := kind(t, c.kind, herdr.Process{PID: 2, Argv0: c.argv0})
-			x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.Input = "", "t" })
+			x, p := kind(t, c.kind, port.Process{PID: 2, Argv0: c.argv0})
+			x.f.Set(p.ID, func(p *mpane) { p.OnQuit, p.Input = "", "t" })
 			out, ok := x.stop("pj-l-01", "", false)
 			if !ok {
 				t.Fatal(out)
 			}
-			clr, quit := x.index("pane.send_keys keys=["+c.clear+"] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text="+c.quit)
+			clr, quit := x.index("SendKeys keys=["+c.clear+"] pane=w1:p3"), x.index("Write pane=w1:p3 submit=true text="+c.quit)
 			if clr < 0 || quit < 0 || clr > quit {
-				t.Errorf("the clear key, then the quit: %q", x.srv.Calls())
+				t.Errorf("the clear key, then the quit: %q", x.f.Calls())
 			}
 			if p.Input != "" || p.Kind != "" {
 				t.Errorf("input %q, kind %q: the quit must have run on an empty input", p.Input, p.Kind)
 			}
-			eqInt(t, len(x.calls("pane.send_input")), 1, "the quit typed once")
+			eqInt(t, len(x.calls("Write")), 1, "the quit typed once")
 			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		})
 	}
 	t.Run("claude, working, --force: Escape then ctrl+c only, no ctrl+u (unchanged)", func(t *testing.T) {
 		t.Parallel()
-		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
-		x.f.Set(p.ID, func(p *herdrtest.Pane) { p.OnQuit, p.Status = "", "working" })
+		x, p := kind(t, "claude", port.Process{PID: 2, Argv0: "claude"})
+		x.f.Set(p.ID, func(p *mpane) { p.OnQuit, p.Status = "", "working" })
 		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, strings.Join(x.calls("pane.send_keys"), "\n"),
-			"pane.send_keys keys=[esc] pane_id=w1:p3\npane.send_keys keys=[ctrl+c] pane_id=w1:p3", "the keys of a working agent")
+		eq(t, strings.Join(x.calls("SendKeys"), "\n"),
+			"SendKeys keys=[esc] pane=w1:p3\nSendKeys keys=[ctrl+c] pane=w1:p3", "the keys of a working agent")
 	})
 	t.Run("a kind with no quit: nothing typed, SIGTERM at once, STOPPED", func(t *testing.T) {
 		t.Parallel()
-		x, _ := kind(t, "gemini", herdr.Process{PID: 2, Argv0: "gemini"})
+		x, _ := kind(t, "gemini", port.Process{PID: 2, Argv0: "gemini"})
 		x.onExit = func() { t.Error("no quit typed") }
 		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
-		eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed")
-		eqInt(t, len(x.calls("pane.send_keys")), 0, "no clear key either: a kind without a clear sequence is unchanged")
+		eqInt(t, len(x.calls("Write")), 0, "nothing typed")
+		eqInt(t, len(x.calls("SendKeys")), 0, "no clear key either: a kind without a clear sequence is unchanged")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		contains(t, out, "terminated pj-l-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("a kind with no quit, leader not its program: refused, no signal", func(t *testing.T) {
 		t.Parallel()
-		x, _ := kind(t, "gemini", herdr.Process{PID: 2, Argv0: "node"})
+		x, _ := kind(t, "gemini", port.Process{PID: 2, Argv0: "node"})
 		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail")
@@ -3698,7 +3482,7 @@ func TestLaunchReportsIdentity(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	pane := x.shell("w1:p3", "pj-l-01", "")
-	x.f.Set(pane.ID, func(p *herdrtest.Pane) { p.Session = "original-task-session" })
+	x.f.Set(pane.ID, func(p *mpane) { p.Session = "original-task-session" })
 	s, err := x.launcher(&bytes.Buffer{}).Launch(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
 	if err != nil {
 		t.Fatalf("the start: %v", err)
@@ -3717,7 +3501,7 @@ func TestStartNamesItsSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		var stored string
-		x.wrap = func(h port.PaneControl) port.PaneControl {
+		x.wrap = func(h control) control {
 			return startProbe{h, func() {
 				s, _ := store.CurrentAt(x.p.Root, "pj-l-01")
 				stored = s.ID
@@ -3782,15 +3566,15 @@ func TestStartNamesItsSession(t *testing.T) {
 	})
 }
 
-// startProbe notes what the store holds when the agent's start reaches herdr.
+// startProbe notes what the store holds when the agent's start reaches the terminal.
 type startProbe struct {
-	port.PaneControl
+	control
 	atStart func()
 }
 
-func (p startProbe) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
+func (p startProbe) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
 	p.atStart()
-	return p.PaneControl.Start(ctx, name, kind, pane, say, args...)
+	return p.control.Start(ctx, s)
 }
 
 // a role with no configured model still gets its kind's launch defaults: Claude's memory off for
@@ -3869,7 +3653,7 @@ func TestFreshStartRolePrompt(t *testing.T) {
 			t.Parallel()
 			x := setup(t, testkit.Set("agents.roles", `{"lead":"`+c.typ+`","reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", c.agent, c.kind, "idle")
-			x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "sid-1" })
+			x.f.Set(a.ID, func(p *mpane) { p.Session = "sid-1" })
 			if c.resume {
 				x.sid(c.agent, "sid-1") // a Claude resume is its record's, not herdr's session
 			}

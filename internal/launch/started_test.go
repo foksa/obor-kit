@@ -13,9 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 )
 
@@ -41,7 +39,7 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 	t.Run("cli: fresh start whose rollout is found", func(t *testing.T) {
 		t.Parallel()
 		x := setupRunning(t, "luna")
-		x.wrap = func(h port.PaneControl) port.PaneControl {
+		x.wrap = func(h control) control {
 			return onStart{h, func() {
 				fresh := writeRollout(x, "cx-new", x.lane, time.Now())
 				x.hold(2, fresh)
@@ -61,7 +59,7 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 		t.Parallel()
 		x := setupRunning(t, "luna")
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-1" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "cx-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -90,7 +88,7 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 		x := setupRunning(t, "luna")
 		x.capture = true
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-1" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "cx-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -152,9 +150,8 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 	t.Run("a failed start reports nothing", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.poll = bound // herdr's immediate answer, not the start's poll, ends the attempt
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnStart = "blocked" })
+		x.f.Set("w1:p3", func(p *mpane) { p.OnStart = "blocked" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "go"})
 		if ok {
 			t.Fatalf("precondition: the start failed:\n%s", out)

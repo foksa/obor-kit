@@ -189,7 +189,8 @@ func withHerdr(t *testing.T, p *testkit.Project) *fx {
 	for _, p := range h.Panes {
 		p.Cwd = x.Root // in workspace w1, its id's
 	}
-	// A screen applies to every pane read, whatever pane it names (the fake's per-pane Screen is empty here).
+	// A screen applies to every pane read, whatever pane it names (the fake's per-pane Screen is empty here), after
+	// what the pane's shell printed (the env line's mark).
 	x.srv.Before(func(r herdrtest.Request) {
 		if x.screen == "" || r.Method != "pane.read" {
 			return
@@ -198,7 +199,11 @@ func withHerdr(t *testing.T, p *testkit.Project) *fx {
 			Pane string `json:"pane_id"`
 		}
 		if json.Unmarshal(r.Params, &p) == nil {
-			x.h.Set(p.Pane, func(p *herdrtest.Pane) { p.Screen = x.screen })
+			x.h.Set(p.Pane, func(p *herdrtest.Pane) {
+				if !strings.Contains(p.Screen, x.screen) {
+					p.Screen += x.screen
+				}
+			})
 		}
 	})
 	return x
@@ -759,7 +764,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
-		"pane.wait_for_output match={type=regex,value=obor-env-M|obor-env-M} pane_id=w1:n1 source=recent_unwrapped timeout_ms=20000",
+		"pane.read lines=60 pane_id=w1:n1 source=visible strip_ansi=true",
 		"pane.rename label=pj-l-01 pane_id=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	marks := regexp.MustCompile(`obor-env-"?[0-9a-z]+"?`)
@@ -968,7 +973,12 @@ func TestPaneNotReadyHints(t *testing.T) {
 	x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 	x.screen = "Trust this folder?"
 	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
-	hasNot(t, strings.Join(x.reqs(), "\n"), "pane.read", "a start herdr took: no screen read")
+	reqs := strings.Join(x.reqs(), "\n")
+	_, afterStart, started := strings.Cut(reqs, "agent.start ")
+	if !started {
+		t.Fatalf("precondition: the agent start ran: %s", reqs)
+	}
+	hasNot(t, afterStart, "pane.read", "a start herdr took: no screen read after it")
 }
 
 // bash setup.test.sh case_pane_refuses_an_unknown_lane_and_ambiguous_placement
