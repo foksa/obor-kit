@@ -62,7 +62,7 @@ func TestConfigReadAtEntries(t *testing.T) {
 	entries := map[string]bool{ // the functions that read the config for their call, through proj.cfgNow
 		"App.servedCfg": true, "App.taskDone": true, "App.sendCall": true, "App.watchCall": true, "App.pauseCall": true,
 		"App.idleCall": true, "App.reviewCall": true, "App.backup": true, "App.specSet": true, "App.resumeLine": true,
-		"App.startIntegrator": true, "App.reconcile": true, "proj.refreshKinds": true,
+		"App.reconcile": true, "proj.refreshKinds": true,
 	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {

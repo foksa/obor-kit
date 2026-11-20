@@ -875,7 +875,9 @@ func (r *concRig) pauseDrop(name string) (writing chan struct{}, release func())
 }
 
 // StartIntegrator is startIntegrator for the external tests.
-var StartIntegrator = (*App).startIntegrator
+func StartIntegrator(a *App, ctx context.Context, ag port.Launcher, root string, l port.Launch) (port.Started, error) {
+	return a.startIntegrator(ctx, withAppCfg(a, &Loop{Agents: ag}), root, l)
+}
 
 // JobTimer is the timer of task's integrator job in a's project at root: its job id ("": none), since when the
 // integrator is seen gone (zero: it runs) and the quiet time's baseline (zero: none).

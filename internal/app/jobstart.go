@@ -66,7 +66,7 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 		var trust *trustHold
 		ok := a.startJob(ctx, p, mt, event.Intent{Key: start, Class: event.ClassStart, Data: d}, key, data,
 			func(ctx context.Context, first string) (any, error) {
-				s, err := a.startIntegrator(ctx, fx.Agents, p.root, port.Launch{Prompt: first, Fresh: fresh, Force: force})
+				s, err := a.startIntegrator(ctx, fx, p.root, port.Launch{Prompt: first, Fresh: fresh, Force: force})
 				trust, err = trustHeld(s, err) // held (a fresh start): started, its first prompt taken once the dialog is answered
 				switch {
 				case err != nil:
