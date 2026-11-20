@@ -65,8 +65,13 @@ func SettingsUntrackedWith(root string, git func(dir string, args ...string) (st
 	if _, err := os.Stat(filepath.Join(root, PluginSettings)); err != nil {
 		return false
 	}
-	_, err := git(root, "ls-files", "--error-unmatch", "--", PluginSettings)
-	return err != nil
+	return !TrackedIn(root, PluginSettings, git)
+}
+
+// TrackedIn: git tracks path (a file, or a directory with tracked files) in the checkout root; git is the query.
+func TrackedIn(root, path string, git func(dir string, args ...string) (string, error)) bool {
+	_, err := git(root, "ls-files", "--error-unmatch", "--", path)
+	return err == nil
 }
 
 // LinkInto symlinks each entry of links (WorktreeLinks: paths relative to root, the main checkout) into the worktree
@@ -100,6 +105,46 @@ func LinkInto(root, dir string, links []string) (linked []string, err error) {
 		linked = append(linked, link)
 	}
 	return linked, errors.Join(errs...)
+}
+
+// RemoveTrackedLinks makes room for a checkout of target in the worktree dir: each untracked entry of dir that is
+// obor's link (isLink: a symlink to root's file of the same path) whose path target tracks is removed (the checkout
+// writes the tracked file there, and git refuses to overwrite an untracked one), and say gets one line each:
+// "removed link <path>: <target7> tracks it". Nothing else is touched: a regular file at such a path is the worktree's
+// and the checkout fails on it. git runs in dir (status, ls-tree, and rev-parse for the line's short sha); its error
+// is the caller's, nothing removed after it. The one remover before every checkout obor runs in a worktree it made
+// (lane.prepare, a lane's drop, the role worktrees' moves, the scratch's checkouts); LinkInto, which skips a path the
+// worktree has, leaves the tracked file that then is there.
+func RemoveTrackedLinks(root, dir, target string, git func(dir string, args ...string) (string, error), say func(line string)) error {
+	out, err := git(dir, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return err
+	}
+	short := ""
+	for _, entry := range strings.Split(out, "\x00") {
+		path, ok := strings.CutPrefix(entry, "?? ")
+		if !ok || !isLink(root, dir, path) {
+			continue
+		}
+		tracked, err := git(dir, "ls-tree", "--name-only", target, "--", path)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(tracked) == "" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, filepath.FromSlash(path))); err != nil {
+			return fmt.Errorf("cannot remove link %s: %v", filepath.Join(dir, path), err)
+		}
+		if short == "" {
+			short = target
+			if sha, err := git(dir, "rev-parse", "--verify", "--short=7", target+"^{commit}"); err == nil && strings.TrimSpace(sha) != "" {
+				short = strings.TrimSpace(sha)
+			}
+		}
+		say("removed link " + path + ": " + short + " tracks it")
+	}
+	return nil
 }
 
 // LaneDirt is the uncommitted work in the worktree dir (a lane): the path of each entry git status --porcelain

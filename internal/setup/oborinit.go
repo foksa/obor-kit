@@ -798,6 +798,10 @@ func (s *Setup) laneWorker(lane string) string {
 // from removing the links) and lanes.links is linked into the existing lanes; tracked or absent → nothing to do. A
 // role worktree gets the links where it is made (rolePane; the launcher at its agent's start).
 func (s *Setup) initPluginLinks() (state, what string, err error) {
+	tracked := func(path string) bool { return project.TrackedIn(s.root, path, s.git().Git) }
+	for _, w := range config.TrackedLinkWarnings(s.cfg.LaneLinks(), tracked) {
+		s.say("WARN %s", w)
+	}
 	if !project.SettingsUntrackedWith(s.root, s.git().Git) {
 		return "already", project.PluginSettings + " is tracked or absent: lanes get it from git", nil
 	}

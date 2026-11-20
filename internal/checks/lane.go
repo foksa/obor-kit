@@ -36,7 +36,7 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 		return port.Prepared{}, port.Refused{Line: "no lane dir " + in.Dir}
 	}
 	if !in.Redo {
-		if _, err := l.git(ctx, in.Dir, "checkout", "-q", "-B", in.Branch, in.Target); err != nil {
+		if err := l.checkout(ctx, in.Dir, in.Target, "-B", in.Branch, in.Target); err != nil {
 			return port.Prepared{}, fmt.Errorf("checkout -B %s %s in %s: %w%s", in.Branch, in.Target, in.Dir, err,
 				lockHint(in.Dir, err))
 		}
@@ -45,6 +45,23 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 		return port.Prepared{}, port.Refused{Line: err.Error()}
 	}
 	return port.Prepared{Base: in.Target}, nil
+}
+
+// checkout is git checkout -q args… in dir, which puts it on target: first the links of obor's that target tracks are
+// removed (project.RemoveTrackedLinks: git refuses to overwrite an untracked file, and a link is one), a line each to
+// l.Out.
+func (l Lane) checkout(ctx context.Context, dir, target string, args ...string) error {
+	say := func(line string) {
+		if l.Out != nil {
+			fmt.Fprintln(l.Out, line)
+		}
+	}
+	git := func(dir string, args ...string) (string, error) { return l.gitRaw(ctx, dir, args...) }
+	if err := project.RemoveTrackedLinks(l.Cfg.Root, dir, target, git, say); err != nil {
+		return err
+	}
+	_, err := l.git(ctx, dir, append([]string{"checkout", "-q"}, args...)...)
+	return err
 }
 
 // lockHint is a failed lane git call's hint for a lock that outlived the wait (gitLocked): git's exit 128 whose error
@@ -122,7 +139,7 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if commits != "" {
 		lines = append(lines, "discarded commits on "+in.Branch+":\n  "+strings.ReplaceAll(commits, "\n", "\n  "))
 	}
-	if _, err := l.git(ctx, in.Dir, "checkout", "-q", "--detach", in.Target); err != nil {
+	if err := l.checkout(ctx, in.Dir, in.Target, "--detach", in.Target); err != nil {
 		return "", fmt.Errorf("git checkout --detach %s in %s: %w", in.Target, in.Dir, err)
 	}
 	if exists {

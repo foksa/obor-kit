@@ -49,7 +49,8 @@ func configCmd(args []string) int {
 			fmt.Fprintln(out, s)
 		}
 	case validate:
-		warns, fails := cfg.Validate(config.ValidateOptions{Overlap: spec.Overlap})
+		tracked := func(path string) bool { return project.TrackedIn(cfg.Root, path, project.Git) }
+		warns, fails := cfg.Validate(config.ValidateOptions{Overlap: spec.Overlap, Tracked: tracked})
 		fails = append(unknown, fails...)
 		for _, line := range append(warns, fails...) {
 			fmt.Fprintln(out, line)

@@ -105,3 +105,28 @@ func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 		t.Error("L-01 does not get the tracked file from git")
 	}
 }
+
+// lanes.links keeps .claude/settings.json after the project commits it: init says the link is no longer needed
+// (one WARN line) and leaves the config as it is; before the commit it says nothing.
+func TestOborInitNotesALinkTheMainCheckoutTracks(t *testing.T) {
+	t.Parallel()
+	const warn = "WARN lanes.links .claude/settings.json is tracked: the link is no longer needed"
+	x := newGitInitFx(t, false)
+	if out := x.init(t); strings.Contains(out, "WARN lanes.links") {
+		t.Fatalf("untracked settings file: init warns of its link:\n%s", out)
+	}
+	cfg, err := config.Load(x.Root)
+	if err != nil || len(cfg.Data.Lanes.Links) != 1 {
+		t.Fatalf("precondition: lanes.links = %q (%v), want the settings link", cfg.Data.Lanes.Links, err)
+	}
+	x.Git(x.Root, "add", "-f", ".claude/settings.json")
+	x.Git(x.Root, "commit", "-q", "-m", "settings")
+	before := x.Read(".obor/config.json")
+	out := x.init(t)
+	if strings.Count(out, warn) != 1 {
+		t.Errorf("tracked settings file: want the line %q once, init printed:\n%s", warn, out)
+	}
+	if x.Read(".obor/config.json") != before {
+		t.Error("init edited the config for the owner")
+	}
+}

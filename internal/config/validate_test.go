@@ -793,3 +793,37 @@ func TestValidateHCRequiresNoSharedServer(t *testing.T) {
 		t.Errorf("validate on hc = %q\nwant %q", got, want)
 	}
 }
+
+// A lanes.links entry the main checkout tracks is noted (the file comes from git, the link is no longer needed); one
+// it does not track, and a run that cannot ask git, say nothing.
+func TestValidateTrackedLinks(t *testing.T) {
+	p := newPlainProject(t)
+	validate(t, p, set("lanes.links", []any{".claude/settings.json", ".env"}))
+	c, _, err := config.LoadForValidate(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.LaneLinks(); !reflect.DeepEqual(got, []string{".claude/settings.json", ".env"}) {
+		t.Fatalf("lanes.links = %q: the fixture does not hold the entries", got)
+	}
+	warnsOf := func(tracked func(string) bool) []string {
+		var got []string
+		warns, _ := c.Validate(config.ValidateOptions{Overlap: spec.Overlap, Tracked: tracked})
+		for _, w := range warns {
+			if strings.Contains(w, "lanes.links") {
+				got = append(got, w)
+			}
+		}
+		return got
+	}
+	want := []string{"WARN lanes.links .claude/settings.json is tracked: the link is no longer needed"}
+	if got := warnsOf(func(path string) bool { return path == ".claude/settings.json" }); !reflect.DeepEqual(got, want) {
+		t.Errorf("tracked .claude/settings.json: warns = %q, want %q", got, want)
+	}
+	if got := warnsOf(func(string) bool { return false }); len(got) != 0 {
+		t.Errorf("no entry tracked: warns = %q, want none", got)
+	}
+	if got := warnsOf(nil); len(got) != 0 {
+		t.Errorf("no git query: warns = %q, want none", got)
+	}
+}

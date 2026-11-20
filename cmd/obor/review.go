@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -147,6 +148,7 @@ func reviewCloseCmd(args []string) int {
 type reviewGit struct {
 	root   string
 	locked func(ctx context.Context, dir string, args ...string) (string, error)
+	out    io.Writer // Detach's progress lines (nil: none)
 }
 
 var _ port.Review = reviewGit{}
@@ -166,7 +168,7 @@ func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error)
 }
 
 // Detach puts the role worktree dir on sha, detached: added at it when dir is missing (project.AddWorktree),
-// else checked out there. A dir that is no worktree of this repo, or local changes in the way of the checkout: an
+// else checked out there (after the links of obor's that sha tracks are removed: project.RemoveTrackedLinks). A dir that is no worktree of this repo, or local changes in the way of the checkout: an
 // error, nothing forced. The checkout waits for a lock another git holds (locked: a publish's ref update meanwhile).
 func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
 	if g.locked == nil {
@@ -174,6 +176,15 @@ func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
 	}
 	added, err := project.AddWorktree(ctx, g.root, dir, sha)
 	if err != nil || added {
+		return err
+	}
+	say := func(line string) {
+		if g.out != nil {
+			fmt.Fprintln(g.out, line)
+		}
+	}
+	git := func(dir string, args ...string) (string, error) { return g.locked(ctx, dir, args...) }
+	if err := project.RemoveTrackedLinks(g.root, dir, sha, git, say); err != nil {
 		return err
 	}
 	_, err = g.locked(ctx, dir, "checkout", "-q", "--detach", sha)
