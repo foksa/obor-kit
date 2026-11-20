@@ -3,7 +3,6 @@ package herdrapp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -133,37 +132,10 @@ func (c *Client) EnsureSpace(ctx context.Context, name, folder string) (Space, e
 		First: Tab{ID: r.Tab, Name: "1", Terminal: r.Terminal}}, nil
 }
 
-// EnsureTab is the space's tab named name: the tab itself, else the space's one unnamed tab renamed (RenameTab), else
-// a new tab (NewTab, its terminal in folder). A second call finds the first's tab and runs no command.
-func (c *Client) EnsureTab(ctx context.Context, space, name, folder string) (Tab, error) {
-	if space == "" || name == "" {
-		return Tab{}, &Error{Op: "tab", Msg: "an ensured tab needs a space and a name"}
-	}
-	spaces, err := c.Spaces(ctx)
-	if err != nil {
-		return Tab{}, err
-	}
-	for _, s := range spaces {
-		if s.ID != space {
-			continue
-		}
-		for _, t := range s.Tabs {
-			if t.Name == name {
-				return t, nil
-			}
-		}
-		if len(s.Tabs) == 1 && !s.Tabs[0].Named {
-			return c.RenameTab(ctx, s.Tabs[0].ID, name)
-		}
-		return c.NewTab(ctx, space, name, folder)
-	}
-	return Tab{}, &Error{Op: "tab", Msg: fmt.Sprintf("space %s is not in the window", space)}
-}
-
 // NewTab is a new tab named name in the space (`tab.new {name, space, folder}`), though the space has one of that
 // name: a second `lanes` tab when the first is full. herdr-app starts the tab's first terminal in folder ("": the
 // app's default); the answer carries that terminal's address as the command printed it (Terminal; an answer without
-// it is an error). EnsureTab finds a tab; this makes one.
+// it is an error).
 func (c *Client) NewTab(ctx context.Context, space, name, folder string) (Tab, error) {
 	if space == "" || name == "" {
 		return Tab{}, &Error{Op: "tab", Msg: "a new tab needs a space and a name"}

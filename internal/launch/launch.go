@@ -47,7 +47,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -773,48 +772,18 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.roleWorktree(ctx, t); err != nil {
 		return err
 	}
-	// The line echoes one of two words: the success word only when the whole line (its cd, its exports)
-	// succeeded — a `; echo` after a cd that failed still printed it, and the agent started in the shell's old cwd with
-	// the old env — and its failure word when it failed, so a visible failure ends the wait at once instead
-	// of at the timeout.
-	okMark, badMark := envMark(), envMark()
-	if err := l.H.Write(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed, true); err != nil {
+	// The line's own success word or failure word says how it ended (project.RunEnvLine).
+	res, err := project.RunEnvLine(ctx, l.H, t.pane, envLine(t), l.poll(), l.wait())
+	switch {
+	case err != nil:
 		return project.Failf("terminal pane run %s (env) failed", t.pane)
-	}
-	// The pane's recent output read every Poll for either mark (the echoed words, which the typed line's quoted forms
-	// never match), within the env line's bound: the mark in it says which one the shell printed.
-	screen, ok := l.screenShows(ctx, t.pane, l.wait(), okMark.echoed, badMark.echoed)
-	if !ok {
+	case res == project.EnvLineNoMark:
 		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started; the env line may have failed: check the pane)",
 			t.pane, l.wait())
-	}
-	if strings.Contains(screen, badMark.echoed) {
+	case res == project.EnvLineFailed:
 		return l.giveUp(ctx, t, "the env line in %s failed (nothing started; check the pane)", t.pane)
 	}
 	return nil
-}
-
-// screenLines is how many of a pane's last lines of output a look for an echoed mark reads.
-const screenLines = 60
-
-// screenShows reads pane's recent output (not its visible screen, which can lag behind what the shell printed after
-// an agent exits) every Poll for at most d until one of words is in it, and returns that output; false when none
-// showed (output that cannot be read shows none).
-func (l *Launcher) screenShows(ctx context.Context, pane string, d time.Duration, words ...string) (string, bool) {
-	var screen string
-	shows := func() bool {
-		var err error
-		if screen, err = l.H.Recent(ctx, pane, screenLines); err != nil {
-			return false
-		}
-		for _, w := range words {
-			if strings.Contains(screen, w) {
-				return true
-			}
-		}
-		return false
-	}
-	return screen, l.until(ctx, d, shows)
 }
 
 // envOrOS is the launcher's env, the process's own when it has none.
@@ -871,21 +840,6 @@ func roleEnv(role string) string {
 		return r.EnvValue
 	}
 	return role
-}
-
-// mark is a word the env line echoes (its success word, or its failure word when the line failed): the
-// shell's prompt drawn after it is the shell back at its line editor. Before that, zsh runs the line with the tty in
-// cooked mode, where a start's command typed at once is echoed raw and cut at the tty's line limit (~1 KB on macOS: a
-// long --prompt left the shell at an open quote, live 2026-10-29), while herdr already counts the pane an available
-// shell. typed is the word as typed, quoted in its middle so no wrap of the typed line on the screen reads as the
-// echoed word.
-type mark struct{ typed, echoed string }
-
-var markSeq atomic.Int64
-
-func envMark() mark {
-	n := strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(markSeq.Add(1), 36)
-	return mark{typed: `obor-env-"` + n + `"`, echoed: "obor-env-" + n}
 }
 
 // build is t's one start, built before anything is stopped: the type's (a role without a type: the defaults

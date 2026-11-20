@@ -602,8 +602,9 @@ func (s *placeSpy) Place(ctx context.Context, p port.Placement) (string, error) 
 	return s.TerminalSetup.Place(ctx, p)
 }
 
-// A placement says Starts only when a start follows that types the env line itself (--start, and serve's PlaceLane):
-// a pane without --start is the terminal's to ready, so the pane's env and cwd are set once either way.
+// A placement says Starts only when a start follows that types the env line itself (--start): a pane without --start,
+// and serve's PlaceLane (its worker's start comes in a later pass), is the terminal's to ready, so the pane's cwd is
+// set once either way.
 func TestPlacementStartsOnlyWithAStart(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
@@ -632,7 +633,8 @@ func TestPlacementStartsOnlyWithAStart(t *testing.T) {
 	s.Dir = x.Root
 	spy := &placeSpy{TerminalSetup: s.T}
 	s.T = spy
-	if _, err := s.PlaceLane(context.Background(), "L-03"); err != nil || len(spy.got) != 1 || !spy.got[0].Starts {
-		t.Errorf("PlaceLane L-03 = %v, placed %+v; want one placement with Starts\n%s", err, spy.got, out)
+	if _, err := s.PlaceLane(context.Background(), "L-03"); err != nil || len(spy.got) != 1 || spy.got[0].Starts ||
+		spy.got[0].Cwd != x.LaneDir("L-03") {
+		t.Errorf("PlaceLane L-03 = %v, placed %+v; want one placement in the lane's cwd without Starts\n%s", err, spy.got, out)
 	}
 }
