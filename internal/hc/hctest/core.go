@@ -1,8 +1,9 @@
 // Package hctest is an in-memory hc core for the hc client's tests, herdrtest's counterpart: it holds terminal
 // records, answers the methods the client calls (hello, server.status, terminal.list, terminal.get, terminal.read,
-// events.subscribe; terminal.send, terminal.keys and terminal.label in shell.go, with a shell that runs the programs a
-// test names) on in-memory connections, and sends its subscribers events numbered by seq, heartbeats and missed, in
-// the JSON hc 0.1.21 sends (docs/research/hc-probes.md P2, P5, P6, P8).
+// events.subscribe; terminal.send, terminal.keys, terminal.label, terminal.run, terminal.keep and terminal.kill in
+// shell.go, with a shell that runs the programs a test names) on in-memory connections, and sends its subscribers
+// events numbered by seq, heartbeats and missed, in the JSON hc 0.1.21 sends (docs/research/hc-probes.md P2, P5, P6,
+// P8). AppTerminals bridges it to a herdrapptest window: the tabs the app makes start their terminal here.
 package hctest
 
 import (
@@ -398,6 +399,8 @@ func (c *Core) answer(k *conn, method string, raw json.RawMessage) (any, string,
 		return c.write(method, raw)
 	case "terminal.run":
 		return c.start(raw)
+	case "terminal.keep", "terminal.kill":
+		return c.keepOrKill(method, raw)
 	default:
 		return nil, "unknown_method", "no method " + method
 	}

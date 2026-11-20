@@ -17,6 +17,7 @@ type Record struct {
 	Reason  string            `json:"reason,omitempty"`
 	PID     int               `json:"pid,omitempty"` // the terminal's own program: the shell of a shell terminal
 	Cwd     string            `json:"cwd"`           // where it started (after a lost holder: its last cwd)
+	Keep    bool              `json:"keep"`          // restarts as a shell after a loss
 	Labels  map[string]string `json:"labels"`
 	// Reported: the program ever sent an OSC 7501 report (it stays true after the program exits).
 	Reported   bool        `json:"reported"`

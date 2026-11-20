@@ -241,17 +241,75 @@ func (c *Core) start(raw json.RawMessage) (any, string, string) {
 		return nil, "invalid_params", "hctest runs a shell only"
 	}
 	c.runs = append(c.runs, Run{Argv: p.Argv, Cwd: p.Cwd, Env: p.Env, Keep: p.Keep, Labels: p.Labels, NoParent: p.NoParent})
+	r := c.shellRecord(p.Cwd, p.Keep, p.Labels)
+	c.pending = append(c.pending, event{r.Address, "created", r})
+	return r, "", ""
+}
+
+// shellRecord adds a live login shell at the next address, under the core's lock, and returns its record.
+func (c *Core) shellRecord(cwd string, keep bool, labels map[string]string) hc.Record {
 	n := len(c.recs) + 1
 	for slices.ContainsFunc(c.recs, func(r hc.Record) bool { return r.Address == "t"+strconv.Itoa(n) }) {
 		n++
 	}
 	pid := 42000 + n
-	r := hc.Record{Address: "t" + strconv.Itoa(n), State: "live", PID: pid, Cwd: p.Cwd, Labels: maps.Clone(p.Labels),
-		Foreground: &hc.Foreground{PID: pid, Name: "zsh", Argv: []string{"/bin/zsh", "-l"}, Cwd: p.Cwd}}
+	r := hc.Record{Address: "t" + strconv.Itoa(n), State: "live", PID: pid, Cwd: cwd, Keep: keep, Labels: maps.Clone(labels),
+		Foreground: &hc.Foreground{PID: pid, Name: "zsh", Argv: []string{"/bin/zsh", "-l"}, Cwd: cwd}}
 	if r.Labels == nil {
 		r.Labels = map[string]string{}
 	}
 	c.recs = append(c.recs, r)
-	c.pending = append(c.pending, event{r.Address, "created", r})
-	return r, "", ""
+	return r
+}
+
+// AppTerminals is the bridge from a herdr-app window to this core (herdrapptest.App.StartTerminals): herdr-app's
+// space.new and tab.new start their tab's first terminal on the core, a live login shell in folder labelled
+// herdr.space and herdr.tab (P7), kept as keep says; it is not a terminal.run (Runs leaves it out). It returns the
+// terminal's address.
+func (c *Core) AppTerminals(keep bool) func(space, tab, folder string) string {
+	return func(space, tab, folder string) string {
+		c.mu.Lock()
+		r := c.shellRecord(folder, keep, map[string]string{"herdr.space": space, "herdr.tab": tab})
+		c.mu.Unlock()
+		c.Event(r.Address, "created", r)
+		return r.Address
+	}
+}
+
+// Live is the core's live terminals, in the order they were made.
+func (c *Core) Live() []hc.Record {
+	var out []hc.Record
+	for _, r := range c.records() {
+		if r.State == "live" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Kept is whether address is kept (terminal.run's keep, or terminal.keep since).
+func (c *Core) Kept(address string) bool { return c.record(address).Keep }
+
+// keepOrKill answers terminal.keep and terminal.kill, under the core's lock: kill ends the program as `killed`.
+func (c *Core) keepOrKill(method string, raw json.RawMessage) (any, string, string) {
+	var p struct {
+		Terminal string `json:"terminal"`
+		Keep     bool   `json:"keep"`
+	}
+	_ = json.Unmarshal(raw, &p)
+	i := slices.IndexFunc(c.recs, func(r hc.Record) bool { return r.Address == p.Terminal })
+	if i < 0 {
+		return nil, "not_found", "no terminal " + p.Terminal
+	}
+	r := &c.recs[i]
+	if method == "terminal.keep" {
+		r.Keep = p.Keep
+		return *r, "", ""
+	}
+	if r.State == "live" {
+		r.State, r.Reason, r.Status, r.Foreground = "finished", "killed", nil, nil
+		c.pending = append(c.pending, event{r.Address, "finished", map[string]any{"reason": "killed", "exit_code": nil,
+			"signal": nil, "finished_ms": nil}})
+	}
+	return map[string]any{"state": r.State}, "", ""
 }
