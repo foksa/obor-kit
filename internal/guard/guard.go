@@ -559,7 +559,7 @@ func (g *guard) recordBackground() {
 	if !g.background || strings.TrimSpace(g.cmd) == "" {
 		return
 	}
-	pane, _ := project.Pane(g.env) // none: a call outside a pane, recorded without one
+	pane, _ := project.PaneOf(g.cfg, g.env) // none: a call outside a pane, recorded without one
 	project.AppendBackground(g.root, project.BackgroundCall{At: time.Now().Unix(), Agent: project.SelfAgent(g.cfg, g.detected),
 		Pane: pane, Session: g.session, Description: g.description, Command: g.cmd})
 }

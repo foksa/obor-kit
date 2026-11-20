@@ -98,6 +98,9 @@ type Setup struct {
 	Install func() agents.InstallHost
 	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (0: 10 s).
 	ShellWait time.Duration
+	// Check is the terminal's own check (port.Terminal.Check): its line, or the refusal `obor setup check` fails with;
+	// nil: the terminal has none.
+	Check func(ctx context.Context) (string, error)
 
 	// host is the git seam (nil: realGit): a test of what setup decides gives it a fake.
 	host gitHost
@@ -123,7 +126,7 @@ func Usage() string {
 	names = append(names, "<custom role>")
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <L-NN> | pane <LANE> " + where + " [--start]" +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | agents | mcp [--model <name>] | show | rename --name N --prefix P"
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | agents | mcp [--model <name>] | show | check | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")
@@ -152,6 +155,8 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.renameCmd(ctx, args)
 	case "show":
 		err = s.show(args)
+	case "check":
+		err = s.check(ctx, args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either
 		err = s.oborInit(ctx, args)
 		if errors.Is(err, errUsage) {

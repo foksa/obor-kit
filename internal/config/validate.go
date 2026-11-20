@@ -386,10 +386,23 @@ func (v *validator) workflow() {
 	}
 }
 
-// terminal: project.terminal names a terminal obor has an adapter for.
+// terminal: project.terminal names a terminal obor has an adapter for; on hc every model of a kind with a shared
+// background server starts without it (HCRequiredArgs).
 func (v *validator) terminal() {
-	if k := v.d.Project.Terminal; k != "" && !slices.Contains(TerminalKinds, k) {
+	k := v.d.Project.Terminal
+	if k != "" && !slices.Contains(TerminalKinds, k) {
 		v.fail(".project.terminal", "must be one of "+strings.Join(TerminalKinds, ", ")+", got "+Compact(k))
+	}
+	if k != TerminalHC {
+		return
+	}
+	for _, name := range v.c.ModelNames() {
+		m, ok := v.c.Model(name)
+		if flag := HCRequiredArgs[m.Kind]; ok && flag != "" && !slices.Contains(m.Args, flag) {
+			v.fail(".agents.models"+key(name), fmt.Sprintf("a %s start on an hc project (project.terminal) needs %s: "+
+				"its shared background server runs the agent's commands outside hc's terminal, with another env and cwd",
+				m.Kind, flag))
+		}
 	}
 }
 

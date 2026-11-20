@@ -105,6 +105,9 @@ func statusWord(s string) string {
 // Panes is port.Panes over the core: every live terminal of it is a pane, its Group its obor.project label.
 type Panes struct {
 	C *Client
+	// Core, when set, is serve's hold on the core (env.go): each Subscribe first starts a core that is down and refuses
+	// one whose environment holds a HERDR_ or OBOR_ name. nil: a subscribe only dials.
+	Core *Core
 }
 
 var _ port.Panes = Panes{}

@@ -2,8 +2,9 @@
 
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
-// `make conformance [KIND=herdr|claude|codex|opencode|plugin|hc] [TIER=static|live] [TURN=1]` (plugin: the kind protocol
-// against a shell-script kind, static only; hc: the hc probes of live_hc.go, live only, run only when named). Each
+// `make conformance [KIND=herdr|claude|codex|opencode|plugin|hc] [TIER=static|live] [TURN=1] [TERMINAL=hc]` (plugin: the
+// kind protocol against a shell-script kind, static only; hc: the hc probes of live_hc.go, live only, run only when
+// named; TERMINAL=hc: the live tier's agent kinds start on hc instead of herdr, live_hcterm.go). Each
 // check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them.
 // The exit status is 1 when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no
 // TURN), SKIPs with why.
@@ -99,7 +100,11 @@ func main() {
 			static[k]()
 		}
 	case "live":
-		live(run, turn)
+		if os.Getenv("TERMINAL") == "hc" { // the kinds' starts on hc (live_hcterm.go); herdr otherwise
+			liveOnHC(run, turn)
+		} else {
+			live(run, turn)
+		}
 	default:
 		report("SKIP", "tier", "no tier "+tier+" (tiers: static, live)", "tests/conformance")
 	}

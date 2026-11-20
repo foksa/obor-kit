@@ -79,15 +79,15 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	forms := strings.Join(headlessForms(), ", ")
 	switch w.Role.Role {
 	case "worker":
-		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") are denied; "+runs+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
+		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") and the hc/herdr-app commands that drive terminals are denied; "+runs+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
 	case roles.Driver: // the owner's drive: no job pull, no report demand, no wrong-tab guard
-		fmt.Fprintln(out, "Hooks: git push is denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied, headless agent runs ("+forms+") are denied; "+runs+". Commit your work on the lane's branch; the owner lands it with obor land.")
+		fmt.Fprintln(out, "Hooks: git push is denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied, headless agent runs ("+forms+") and the hc/herdr-app commands that drive terminals are denied; "+runs+". Commit your work on the lane's branch; the owner lands it with obor land.")
 	case "lead":
 		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; "+runs+".")
 	case "integrator":
-		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied, protected files are denied; "+runs+".")
+		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern, headless agent runs ("+forms+") and the hc/herdr-app commands that drive terminals are denied, protected files are denied; "+runs+".")
 	default:
-		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; protected files are denied for non-lead roles; "+runs+".")
+		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern, headless agent runs ("+forms+") and the hc/herdr-app commands that drive terminals are denied; protected files are denied for non-lead roles; "+runs+".")
 	}
 	if line := roleText(cfg, w.Role.Role, project.KitRoot(env), repo.Top); line != "" {
 		fmt.Fprintln(out, line)
@@ -105,7 +105,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
 	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env)
-	pane, _ := project.Pane(env) // none: a session outside a pane, recorded without one
+	pane, _ := project.PaneOf(cfg, env) // none: a session outside a pane, recorded without one
 	began := Began{Root: cfg.Root, Session: store.Session{Agent: agent, Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: pane, Lane: w.Role.Lane, Source: "SessionStart hook"}}
 	if w.State != nil {

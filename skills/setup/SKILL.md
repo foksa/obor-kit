@@ -53,3 +53,17 @@ opencode registration on the machine, remove it by hand: the `mcp.servers.obor` 
 `~/.config/opencode/opencode.json` and the `plugins/obor.js` link there (`$XDG_CONFIG_HOME` respected); restart
 opencode agents after it.
 Optional: offer a bug-triage agent (`agents.roles.triage` = a model ref like `<model>[:<effort>]`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).
+
+## Terminals
+On any terminal: `project.terminal` names it (herdr, the default, or hc), obor serve reads it at its start (restart
+serve after changing it: `obor stop`, the key, `obor start`; serve then drops its records of the old terminal's panes
+and identifies them afresh), placement goes by the pane's kind as above, and `obor setup check` runs the terminal's
+own check (`OK check: …` or `FAIL …`).
+- **herdr:** workspaces, tabs and splits are herdr's; set `resume_agents_on_restore = false` under `[session]` in
+  herdr's config.toml (serve restores obor's panes itself). `obor setup check` has nothing of its own to check.
+- **hc** (herdr-core, experimental, hc ≥ 0.1.21): obor lays herdr-app out like herdr (a space for the project, tabs
+  `lead`, `lanes`, `roles`) and places each terminal by its labels. `obor setup check` reads hc's core environment and
+  fails when it holds a `HERDR_` or `OBOR_` name (a core started from an obor pane gives every terminal that pane's
+  identity): run `hc server restart --fresh` from a shell outside any pane. obor serve starts a core that is down from
+  a scrubbed environment and never restarts or stops one that runs. Codex runs with `--no-daemon` and OpenCode with
+  `--standalone` there (`obor config validate` refuses a model without them).

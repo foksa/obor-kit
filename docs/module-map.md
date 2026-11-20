@@ -196,8 +196,10 @@ process (`plugin.Local`).
   workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids, the name herdr runs an agent under) stays
   here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
   helper).
-- `hc`: the herdr-core (`hc`) socket client, the second terminal adapter (`docs/plan/herdr-core.md`; no project selects
-  it yet): `hello` and the version rule (`client.go`), a terminal record as a pane (labels `obor.project`/`obor.agent`
+- `hc`: the herdr-core (`hc`) socket client, the second terminal adapter (`docs/plan/herdr-core.md`; a project selects
+  it with `project.terminal: "hc"`, experimental): `hello` and the version rule (`client.go`), the core's environment
+  (`env.go`: `CheckEnv` refuses a core holding a `HERDR_`/`OBOR_` name, `Check` for `obor setup check`, `Core` for
+  serve's subscribe: a core that is down started from a scrubbed environment), a terminal record as a pane (labels `obor.project`/`obor.agent`
   as its group and label, the kind from its status's app, else the `obor.kind` label) and `port.Panes` (`panes.go`),
   one unfiltered `events.subscribe` and its endings (`stream.go`), `port.PaneControl`: its reads (`client.go`) and
   `control.go` (`Prompt`: a read, then `terminal.send`; `Write`, `SendKeys`, `RenamePane`, `Named` by label,
@@ -233,11 +235,11 @@ process (`plugin.Local`).
   `internal/hc` imports it, for the hc layout; `herdrapptest` is its fake (test helper).
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
-- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop (the worker's
+- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban, the `hc`/`herdr-app` terminal writes outside the lead), Stop (the worker's
   task_done, and every agent's live background run), StopFailure, SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
   starts agents through an `app.Starter` that `cmd/obor` injects, and asks the terminal for panes through
-  `port.TerminalSetup`, whose adapter lays them out); `obor init`
+  `port.TerminalSetup`, whose adapter lays them out; `obor setup check` runs the terminal's own check, `check.go`); `obor init`
   (`oborinit.go`: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`); `obor uninstall` (`uninstall.go`: those steps undone in reverse; serve, the agents and the main
   repo's git through `Setup.Down`, which `cmd/obor/uninstall.go` wires to the stop path, `service` and `checks.GitPruner`;
@@ -283,7 +285,7 @@ missed, and a shell that runs the programs a test names, with each send and key 
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters and the review git (`reviewGit`, `port.Review`) live here; `workflowOf`
 picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git); `terminal.go`
-builds the project's terminal (`port.Terminal`, herdr its one kind), and no other production file imports
+builds the project's terminal (`port.Terminal`: herdr, or hc with serve's hold on its core), and no other production file imports
 `internal/herdr` or `internal/hc` (`TestOneTerminalBuilder`). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,

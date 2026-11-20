@@ -186,7 +186,7 @@ func (s *sleeper) stop(ctx context.Context) int {
 	case err != nil:
 		return refuse("%v", err)
 	case own != "":
-		pane, _ := project.Pane(s.Env) // ownLane found the lane by it
+		pane, _ := project.PaneOf(s.Cfg, s.Env) // ownLane found the lane by it
 		return refuse("lane %s's agent runs in this pane (%s): obor stop would stop its own caller: run it from the "+
 			"owner's or the lead's pane", own, pane)
 	}
@@ -337,7 +337,7 @@ func untilLine(until int64) string {
 // lane's agent or its cwd in that lane. "": none, or no pane of the caller's. An error: herdr's panes not listed, so
 // the caller's pane is not known.
 func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) {
-	own, _ := project.Pane(s.Env) // none: the caller runs in no pane, so no lane's agent is its own
+	own, _ := project.PaneOf(s.Cfg, s.Env) // none: the caller runs in no pane, so no lane's agent is its own
 	lanes := map[string]bool{}
 	for _, b := range busy {
 		if b.Lane != "" {
@@ -420,7 +420,7 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 			"the terminal answers", err)
 	}
 	repo, _ := project.Find(s.Cwd)
-	ownPane, _ := project.Pane(s.Env)            // none: no pane of the caller's to spare
+	ownPane, _ := project.PaneOf(s.Cfg, s.Env)   // none: no pane of the caller's to spare
 	ownAgent := project.Self(repo, s.Cfg, s.Env) // derived
 	stopped := 0
 	for _, p := range panes {

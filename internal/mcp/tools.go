@@ -42,7 +42,7 @@ type (
 // empty required one is the tool's refusal); the verdicts key on the job job_next fetched last.
 func (s *server) register(srv *sdk.Server) {
 	jobNext := func(in jobNextIn) (wire.Req, error) {
-		pane, _ := project.Pane(s.env) // none: a call from no pane, which serve's own checks then answer
+		pane, _ := project.PaneOf(s.config(), s.env) // none: a call from no pane, which serve's own checks then answer
 		// The wake's job id: that job when it is open, else superseded{current}.
 		return &wire.JobNextReq{Job: in.Job, Lane: s.env.Get("OBOR_LANE"), Pane: pane}, nil
 	}

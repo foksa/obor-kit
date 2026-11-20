@@ -107,6 +107,20 @@ func (s *server) self(r *project.Repo) (name, missing string) {
 	return "", fmt.Sprintf("role %s (lane %q) names no agent in the config", role.Role, role.Lane)
 }
 
+// config is the config of the server's project as hooks load it (nil: no project, or one that does not load: the
+// defaults' terminal kind then names the pane variable).
+func (s *server) config() *config.Config {
+	r, err := project.Find(s.cwd)
+	if err != nil {
+		return nil
+	}
+	cfg, _, err := config.LoadHook(r.Root)
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
 // call is one tool call, the tool's name its app socket method: request builds the method's request from the
 // arguments, then the caller's identity is derived and the app asked. Every refusal — a bad argument, no project, no
 // identity, the app's own, serve being down — is the error, the tool's error text; never a broken server.

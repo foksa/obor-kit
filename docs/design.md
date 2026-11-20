@@ -765,9 +765,21 @@ verified; adopting leads hear of it by `obor send`. A project's serve picks a ne
 - Hooks: the `has` check and the no-binary rule ("Hooks").
 
 ## herdr integration (2026-10-09 — user direction)
-obor should be as simple and as integrated as possible: herdr (which maintains agent detection) is the source of
-agent state; obor does no Claude/Codex screen parsing of its own beyond what exists, and removes it as herdr grows the
-API. obor ships no herdr plugin: serve restores its panes itself ("After a herdr restart" above).
+obor should be as simple and as integrated as possible: the terminal's own status is the source of agent state
+(herdr's agent detection; on hc, the status each agent reports itself, OSC 7501, which hc relays); obor does no
+Claude/Codex screen parsing of its own beyond what exists, and removes it as the terminal grows the API. obor ships no
+herdr plugin: serve restores its panes itself ("After a herdr restart" above).
+- **The terminal is the project's** (`project.terminal`, read at serve's start): herdr, the default, or hc
+  (herdr-core, experimental: hc ≥ 0.1.21, its live tier does not gate). The pane variable is the kind's own
+  (`HERDR_PANE_ID`, `HC_TERMINAL_ID`), never the other kind's; an empty `OBOR_`/`HERDR_` name reads as unset. A kind
+  change drops serve's records of the old terminal (`terminal-instance`, `terminal-runs`; `terminal-kind` names the
+  kind they belong to), so the new terminal's panes are identified afresh.
+- **hc's core** gives every terminal its own environment, and any `hc` call starts a core with its caller's: serve
+  starts a core that is down from a scrubbed environment (no `HERDR_`, `OBOR_`, `HC_TERMINAL_` name) and never restarts
+  or stops one that runs; serve's connect and `obor setup check` refuse a core whose environment holds a `HERDR_` or
+  `OBOR_` name ("run `hc server restart --fresh` from a shell outside any pane"). Codex `--no-daemon` and OpenCode
+  `--standalone` are required there (`obor config validate`). In any agent's pane but the lead's the guard denies the
+  `hc` and `herdr-app` commands that create, end, type into or relabel terminals; reads stay allowed.
 
 ## Lines to the lead (2026-10-27 — owner decision)
 Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its Claude session, and delivers a brief to a role

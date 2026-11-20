@@ -44,6 +44,8 @@ type Core struct {
 	requests   []string
 	shell              // shell.go: what typing reaches
 	pending    []event // the events an answer made, sent once the answer went out (flush)
+
+	env map[string]string // exec.go: the core's environment machine.exec runs with
 }
 
 // New is a core of hc 0.1.21 with one holder and no terminals.
@@ -395,6 +397,8 @@ func (c *Core) answer(k *conn, method string, raw json.RawMessage) (any, string,
 	case "events.subscribe":
 		c.subs = append(c.subs, k) // with its seq: every later event reaches it
 		return map[string]any{"channel": nil, "seq": c.seq, "terminals": slices.Clone(c.recs)}, "", ""
+	case "machine.exec":
+		return c.exec(raw)
 	case "terminal.send", "terminal.keys", "terminal.label":
 		return c.write(method, raw)
 	case "terminal.run":

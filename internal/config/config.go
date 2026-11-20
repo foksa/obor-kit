@@ -238,10 +238,14 @@ func (c *Config) WorkflowKind() string {
 	return DefaultWorkflow
 }
 
-// The terminal kinds obor has an adapter for (internal/herdr).
-const DefaultTerminal = "herdr"
+// The terminal kinds obor has an adapter for: herdr (internal/herdr), the default, and herdr-core (internal/hc),
+// experimental: its live tier does not gate.
+const (
+	DefaultTerminal = "herdr"
+	TerminalHC      = "hc"
+)
 
-var TerminalKinds = []string{DefaultTerminal}
+var TerminalKinds = []string{DefaultTerminal, TerminalHC}
 
 // TerminalKind is project.terminal, else DefaultTerminal.
 func (c *Config) TerminalKind() string {

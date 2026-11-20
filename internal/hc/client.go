@@ -76,6 +76,10 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("hc %s: %s", e.Op, e.Msg)
 }
 
+// EnvNames are the environment variables that pick a caller's core, its socket (SocketPath), state and config: a serve
+// launchd starts gets the ones the caller has (cmd/obor/terminal.go), so it reaches and starts the same session.
+var EnvNames = []string{"HC_SOCKET", "HC_SESSION", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"}
+
 // SocketPath is the core's socket for env, as hc finds it: $HC_SOCKET, else $XDG_RUNTIME_DIR/herdr-core/<session>.sock,
 // else <state>/herdr-core/<session>/<session>.sock with <state> $XDG_STATE_HOME or ~/.local/state; the session is
 // $HC_SESSION, else default.
@@ -100,6 +104,10 @@ func SocketPath(env project.Env) string {
 	}
 	return filepath.Join(state, "herdr-core", session, session+".sock")
 }
+
+// New is the client of env's core (SocketPath), laying terminals out in the herdr-app window on PATH: the one cmd/obor's
+// terminal selector builds.
+func New(env project.Env) *Client { return &Client{Path: SocketPath(env), App: &herdrapp.Client{}} }
 
 // Client is an hc client over the core's socket at Path.
 type Client struct {

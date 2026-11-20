@@ -21,6 +21,19 @@ otherwise.
 - An abandoned task (or a finished review / smoke test) leaves its lane `done` / `working`, so dispatch refuses it
   (2026-10-11) → `obor drop <T-xx> "<why>"` (lead only; `--discard` for a dirty lane or unmerged commits), not by hand.
 
+## hc (herdr-core, `project.terminal: "hc"`)
+- Any `hc` call that needs a core starts one with the caller's environment, and every terminal gets the core's: one
+  call from an obor pane while no core runs gives every later terminal that pane's `HERDR_`/`OBOR_` names (2026-11-20)
+  → serve and `obor setup check` refuse such a core; run `hc server restart --fresh` from a shell outside any pane.
+  Serve starts a core that is down itself, from a scrubbed environment.
+- `hc run`, `kill`, `send`, `keys`, `label`, `attach`, `server …`, `update` and `herdr-app do` are denied in every
+  agent's pane but the lead's (2026-11-20) → the lead dispatches; reads (`hc ls`, `get`, `read`, `--help`, `herdr-app
+  ls`) are fine.
+- A send waits for a person's unfinished draft in that terminal, up to hc's `draft_wait` (60 s) → don't leave text
+  typed in an agent's terminal obor is about to prompt.
+- Codex's trust and update prompts report no status in hc (2026-11-20) → the start reads the screen for the trust
+  dialog as on herdr; answer an update prompt in the pane.
+
 ## Claude Code
 - Workers often run long checks as a background shell and go idle → the idle state proves nothing: the worker's
   `task_done` (obor serve's submission, `obor status --facts`), not the idle state, is the signal.

@@ -197,8 +197,10 @@ func TestValidate(t *testing.T) {
 		{name: "workflow unknown kind", edits: []edit{set("merge.workflow", "x")},
 			want: []string{`FAIL .merge.workflow: must be one of scratch-ff, got "x"`}},
 		{name: "terminal herdr", edits: []edit{set("project.terminal", "herdr")}},
+		// hc: every built-in codex and opencode model starts with its kind's flag (HCRequiredArgs), so none is refused.
+		{name: "terminal hc", edits: []edit{set("project.terminal", "hc")}},
 		{name: "terminal unknown kind", edits: []edit{set("project.terminal", "x")},
-			want: []string{`FAIL .project.terminal: must be one of herdr, got "x"`}},
+			want: []string{`FAIL .project.terminal: must be one of herdr, hc, got "x"`}},
 		{name: "slots.lane_cpus fine", edits: []edit{set("lanes.cpus", 1)}},
 		{name: "slots.lane_cpus zero", edits: []edit{set("lanes.cpus", 0)},
 			want: []string{"FAIL .lanes.cpus: must be a positive integer, got 0"}},
@@ -749,5 +751,45 @@ func TestReloadLineNamesLeadModelKind(t *testing.T) {
 	}
 	if !strings.Contains(line, "agents.models.<the lead's model>.kind") {
 		t.Errorf("the OK line does not name the lead model's kind among the keys a restart is for: %q", line)
+	}
+}
+
+// On an hc project a codex or opencode model whose start lacks the kind's flag (Codex --no-daemon, OpenCode
+// --standalone) is refused, one line per model; the same config on herdr passes. Not parallel: it takes the flags out of
+// config.KindBaseArgs for its run.
+func TestValidateHCRequiresNoSharedServer(t *testing.T) {
+	saved := map[string][]string{}
+	for kind, flag := range config.HCRequiredArgs {
+		saved[kind] = config.KindBaseArgs[kind]
+		var without []string
+		for _, a := range saved[kind] {
+			if a != flag {
+				without = append(without, a)
+			}
+		}
+		config.KindBaseArgs[kind] = without
+	}
+	t.Cleanup(func() {
+		for kind, args := range saved {
+			config.KindBaseArgs[kind] = args
+		}
+	})
+	p := newPlainProject(t)
+	if got := validate(t, p, set("project.terminal", "herdr")); got != nil {
+		t.Fatalf("precondition: the config without the flags on herdr validates %q, want OK", got)
+	}
+	got := validate(t, p, set("project.terminal", "hc"))
+	want := []string{}
+	for _, b := range config.BuiltinModels {
+		if flag := config.HCRequiredArgs[b.Kind]; flag != "" {
+			want = append(want, "FAIL .agents.models."+b.Name+": a "+b.Kind+" start on an hc project (project.terminal) needs "+
+				flag+": its shared background server runs the agent's commands outside hc's terminal, with another env and cwd")
+		}
+	}
+	if len(want) < 2 {
+		t.Fatalf("precondition: the built-in models hold %d codex/opencode models, want one of each at least", len(want))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("validate on hc = %q\nwant %q", got, want)
 	}
 }
