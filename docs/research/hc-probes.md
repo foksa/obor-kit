@@ -471,3 +471,9 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
   ACCEPT, `MERGED T-03 682416b`, 31 s dispatch to merge, no needs-you. Every pane already existed, so no hidden
   terminal was made and T-1368's placement at reconnect was not exercised (it needs a new pane while the app is
   closed: a lane added, or a role's first start). Pass for "obor runs with the window closed".
+- Step 11: `obor uninstall --purge` removed worktrees, task branches, the launchd job and `.obor/state`, kept the
+  committed files; but the six hc terminals stayed live (`zsh`, still labelled `obor.project=hc-trial`) and the
+  herdr-app space stayed: the close kills kept terminals, and keep replaces a killed program. T-1382.
+
+Trial result: steps 1-11 run; failures each a task (T-1374, T-1376-T-1380, T-1382; T-1375, T-1381 from it).
+Restore after a core stop, a core restart, the env guard, placement, dispatch-to-merge with the window closed: pass.
