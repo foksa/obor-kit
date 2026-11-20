@@ -83,37 +83,71 @@ func TestOpenRWAndRO(t *testing.T) {
 	}
 }
 
-// TestOpenRWRefusesNewerSchema: a database a newer obor wrote is refused with one line, not used.
-func TestOpenRWRefusesNewerSchema(t *testing.T) {
+// TestOpenRWChecksTheSchemaVersion: only schema 14 opens. 8, 9 and 13 are refused with the release that migrates
+// them and the file is left byte for byte as it was; 15 is refused as newer; a version that is not a number is
+// refused; 14 opens.
+func TestOpenRWChecksTheSchemaVersion(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, version, want string
 	}{
-		{"newer", strconv.Itoa(SchemaVersion + 1), "newer than this obor"},
-		{"older", "0", "older than this obor"},
+		{"schema 8", "8", "schema version 8 is older than this obor (14): upgrade through v0.24.0 first, " +
+			"then open it once with obor v0.40.7, which migrates it"},
+		{"schema 9", "9", "schema version 9 is older than this obor (14): open it once with obor v0.40.7 " +
+			"first, which migrates it"},
+		{"schema 13", "13", "schema version 13 is older than this obor (14): open it once with obor v0.40.7 " +
+			"first, which migrates it"},
+		{"newer", "15", "schema version 15 is newer than this obor (14): upgrade obor"},
+		{"non-numeric", "abc", `schema version "abc" is not a number`},
+		{"current", "14", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			path := newPath(t)
-			db, err := OpenRW(path)
+			raw, err := sql.Open("sqlite", "file:"+path)
 			if err != nil {
-				t.Fatalf("OpenRW: %v", err)
+				t.Fatal(err)
 			}
-			if _, err := db.Exec("UPDATE meta SET value = ? WHERE key = 'schema_version'", c.version); err != nil {
-				t.Fatalf("set schema_version: %v", err)
+			for _, q := range []string{"CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+				"INSERT INTO meta (key, value) VALUES ('schema_version', '" + c.version + "')"} {
+				if _, err := raw.Exec(q); err != nil {
+					t.Fatalf("%s: %v", q, err)
+				}
 			}
-			db.Close()
+			raw.Close()
+			before, err := os.ReadFile(path)
+			if err != nil || len(before) == 0 {
+				t.Fatalf("precondition: the schema-%q file (%d bytes, %v)", c.version, len(before), err)
+			}
 
-			db, err = OpenRW(path)
+			db, err := OpenRW(path)
+			if c.want == "" {
+				if err != nil {
+					t.Fatalf("OpenRW on schema %s: %v", c.version, err)
+				}
+				defer db.Close()
+				var version string
+				if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil ||
+					version != c.version {
+					t.Errorf("schema_version = %q, %v; want %s", version, err, c.version)
+				}
+				return
+			}
 			if err == nil {
 				db.Close()
-				t.Fatalf("OpenRW accepted schema version %s", c.version)
+				t.Fatalf("OpenRW accepted schema version %q", c.version)
 			}
-			if !strings.Contains(err.Error(), c.want) {
-				t.Errorf("error = %q, want %q", err, c.want)
+			if !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), "\n") {
+				t.Errorf("error = %q, want one line with %q", err, c.want)
 			}
-			if strings.Contains(err.Error(), "\n") {
-				t.Errorf("refusal is not one line: %q", err)
+			after, rerr := os.ReadFile(path)
+			if rerr != nil || string(after) != string(before) {
+				t.Errorf("the refused file changed (read error %v)", rerr)
+			}
+			for _, side := range []string{"-wal", "-shm"} {
+				if _, err := os.Stat(path + side); !os.IsNotExist(err) {
+					t.Errorf("the refusal left %s%s (%v)", filepath.Base(path), side, err)
+				}
 			}
 		})
 	}
@@ -326,210 +360,15 @@ func gunzip(t *testing.T, path string) string {
 	return dst
 }
 
-// TestOpenRWRefusalChangesNothing: a database OpenRW refuses (newer, older or non-numeric schema version) is left
-// exactly as it was: no table added, journal mode and bytes kept.
-func TestOpenRWRefusalChangesNothing(t *testing.T) {
+// The read indexes: a new store has them, and the timeline, session-fact and prompt queries plan with them
+// instead of scanning.
+func TestReadIndexesAreThePlan(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct{ name, version, want string }{
-		{"newer", "99", "newer than this obor"},
-		{"older", "1", "older than this obor"},
-		{"non-numeric", "abc", "is not a number"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			path := newPath(t)
-			raw, err := sql.Open("sqlite", "file:"+path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, q := range []string{"CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-				"INSERT INTO meta (key, value) VALUES ('schema_version', '" + c.version + "')"} {
-				if _, err := raw.Exec(q); err != nil {
-					t.Fatalf("%s: %v", q, err)
-				}
-			}
-			raw.Close()
-			before, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			db, err := OpenRW(path)
-			if err == nil {
-				db.Close()
-				t.Fatalf("OpenRW accepted schema version %q", c.version)
-			}
-			if !strings.Contains(err.Error(), c.want) {
-				t.Errorf("error = %q, want %q", err, c.want)
-			}
-			after, rerr := os.ReadFile(path)
-			if rerr != nil || string(after) != string(before) {
-				t.Errorf("the refused file changed (read error %v)", rerr)
-			}
-			ro, err := OpenRO(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer ro.Close()
-			var tables int
-			if err := ro.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table'").Scan(&tables); err != nil || tables != 1 {
-				t.Errorf("tables = %d, %v; want only meta", tables, err)
-			}
-			if mode := pragma(t, ro, "journal_mode"); mode == "wal" {
-				t.Errorf("journal_mode = %s, want it unchanged (delete)", mode)
-			}
-		})
-	}
-}
-
-// TestOpenRWRefusesPreV022: a store from before v0.22 (schema 5 with its queue table, and an older one) is
-// refused with one line naming its schema and v0.24.0, and the file is left byte for byte as it was.
-func TestOpenRWRefusesPreV022(t *testing.T) {
-	t.Parallel()
-	for _, version := range []string{"5", "2"} {
-		t.Run("schema "+version, func(t *testing.T) {
-			t.Parallel()
-			path := newPath(t)
-			raw, err := sql.Open("sqlite", "file:"+path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, q := range []string{
-				"CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-				"INSERT INTO meta (key, value) VALUES ('schema_version', '" + version + "')",
-				`CREATE TABLE events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT NOT NULL,
-					attempt INTEGER NOT NULL, step TEXT NOT NULL, kind TEXT NOT NULL, class TEXT NOT NULL, data TEXT)`,
-				"INSERT INTO events VALUES (1, '2026-10-24T11:00:00Z', 'T-1', 1, 'stalled', 'fact', '', NULL)",
-				"CREATE TABLE queue (id TEXT PRIMARY KEY, todo TEXT NOT NULL)",
-			} {
-				if _, err := raw.Exec(q); err != nil {
-					t.Fatalf("%s: %v", q, err)
-				}
-			}
-			raw.Close()
-			before, err := os.ReadFile(path)
-			if err != nil || len(before) == 0 {
-				t.Fatalf("precondition: the schema-%s file (%d bytes, %v)", version, len(before), err)
-			}
-
-			db, err := OpenRW(path)
-			if err == nil {
-				db.Close()
-				t.Fatalf("OpenRW accepted schema version %s", version)
-			}
-			want := "schema version " + version + " is older than this obor (" + strconv.Itoa(SchemaVersion) +
-				"): upgrade through v0.24.0 first"
-			if !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "\n") {
-				t.Errorf("error = %q, want one line with %q", err, want)
-			}
-			after, rerr := os.ReadFile(path)
-			if rerr != nil || string(after) != string(before) {
-				t.Errorf("the refused file changed (read error %v)", rerr)
-			}
-			for _, side := range []string{"-wal", "-shm"} {
-				if _, err := os.Stat(path + side); !os.IsNotExist(err) {
-					t.Errorf("the refusal left %s%s (%v)", filepath.Base(path), side, err)
-				}
-			}
-		})
-	}
-}
-
-// TestOpenRWRefusesSchema8: a schema-8 store (its lanes table has no type, its specs table no note) is refused
-// with one line naming its schema and v0.24.0, and the file is left byte for byte as it was.
-func TestOpenRWRefusesSchema8(t *testing.T) {
-	t.Parallel()
-	path := newPath(t)
-	raw, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		"CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-		"INSERT INTO meta (key, value) VALUES ('schema_version', '8')",
-		`CREATE TABLE events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT NOT NULL,
-			attempt INTEGER NOT NULL, step TEXT NOT NULL, kind TEXT NOT NULL, class TEXT NOT NULL, data TEXT)`,
-		"INSERT INTO events VALUES (1, '2026-10-24T11:00:00Z', 'T-1', 1, 'stalled', 'fact', '', NULL)",
-		`CREATE TABLE lanes (lane TEXT PRIMARY KEY, task TEXT NOT NULL, branch TEXT NOT NULL, agent TEXT NOT NULL,
-			base TEXT NOT NULL, head TEXT NOT NULL, dispatched_at INTEGER NOT NULL, finished INTEGER NOT NULL)`,
-		"INSERT INTO lanes VALUES ('L-01', 'T-1', 'task/T-1', 'pj-l-01', 'b', 'h', 5, 0)",
-		`CREATE TABLE specs (task TEXT PRIMARY KEY, text TEXT NOT NULL, rev INTEGER NOT NULL,
-			set_by TEXT NOT NULL, set_at TEXT NOT NULL)`,
-		"INSERT INTO specs VALUES ('T-1', '# T-1\n', 1, 'lead', '2026-10-27T09:00:00Z')",
-	} {
-		if _, err := raw.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	raw.Close()
-	before, err := os.ReadFile(path)
-	if err != nil || len(before) == 0 {
-		t.Fatalf("precondition: the schema-8 file (%d bytes, %v)", len(before), err)
-	}
-
-	db, err := OpenRW(path)
-	if err == nil {
-		db.Close()
-		t.Fatal("OpenRW accepted schema version 8")
-	}
-	want := "schema version 8 is older than this obor (" + strconv.Itoa(SchemaVersion) +
-		"): upgrade through v0.24.0 first"
-	if !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "\n") {
-		t.Errorf("error = %q, want one line with %q", err, want)
-	}
-	after, rerr := os.ReadFile(path)
-	if rerr != nil || string(after) != string(before) {
-		t.Errorf("the refused file changed (read error %v)", rerr)
-	}
-	for _, side := range []string{"-wal", "-shm"} {
-		if _, err := os.Stat(path + side); !os.IsNotExist(err) {
-			t.Errorf("the refusal left %s%s (%v)", filepath.Base(path), side, err)
-		}
-	}
-	// A reader still reads the old store (a newer CLI, serve not yet restarted): its lanes table has no type.
-	ro, err := OpenRO(path)
-	if err != nil {
-		t.Fatalf("OpenRO on schema 8: %v", err)
-	}
-	defer ro.Close()
-	rows, err := ReadLanes(ro)
-	wantRow := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Base: "b", Head: "h",
-		DispatchedAt: 5}
-	if err != nil || len(rows) != 1 || rows[0] != wantRow {
-		t.Errorf("ReadLanes on schema 8 = %+v, %v; want %+v", rows, err, wantRow)
-	}
-}
-
-// a schema-10 store (no read indexes) gets them on its next open, and the timeline, session-fact and prompt
-// queries plan with them instead of scanning.
-func TestOpenRWAddsTheReadIndexes(t *testing.T) {
-	t.Parallel()
-	path := newPath(t)
-	db, err := OpenRW(path)
+	db, err := OpenRW(newPath(t))
 	if err != nil {
 		t.Fatalf("OpenRW: %v", err)
 	}
-	for _, q := range []string{
-		"DROP INDEX events_task_seq",
-		"DROP INDEX prompts_job",
-		"UPDATE meta SET value = '10' WHERE key = 'schema_version'",
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("precondition: %s: %v", q, err)
-		}
-	}
-	db.Close()
-
-	db, err = OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW on schema 10: %v", err)
-	}
 	defer db.Close()
-	var version string
-	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil ||
-		version != strconv.Itoa(SchemaVersion) {
-		t.Errorf("schema_version = %q, %v; want %d after the migration", version, err, SchemaVersion)
-	}
 	for _, c := range []struct{ index, query string }{
 		{"events_task_seq",
 			"SELECT data FROM events WHERE task = 'session' AND kind = 'fact' AND step = 'session' ORDER BY seq"},
@@ -560,45 +399,17 @@ func TestOpenRWAddsTheReadIndexes(t *testing.T) {
 	}
 }
 
-// schema 14 adds no table, only the version: a store at 13 is opened and becomes 14 with its rows as they
-// were; a binary that knows 13 refuses a store at 14 (it may be pruned: an older fold reads a lone merged fact as
-// nothing).
+// SchemaVersion is 14, the pruned-log schema: a binary at 13 refuses a store at 14 (an older fold reads a lone
+// merged fact as nothing), and this binary refuses a store at 13 with the release that migrates it.
 func TestSchema14(t *testing.T) {
 	t.Parallel()
 	if SchemaVersion != 14 {
 		t.Fatalf("SchemaVersion %d, want 14", SchemaVersion)
 	}
-	path := newPath(t)
-	db, err := OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW: %v", err)
-	}
-	for _, q := range []string{
-		"INSERT INTO events (seq, ts, task, attempt, step, kind, class) VALUES (1, '2026-11-09T00:00:00Z', 'T-1', 1, 'merged', 'fact', '')",
-		"UPDATE meta SET value = '13' WHERE key = 'schema_version'",
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("precondition: %s: %v", q, err)
-		}
-	}
-	db.Close()
-	db, err = OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW on schema 13: %v", err)
-	}
-	defer db.Close()
-	var version string
-	var n int
-	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != "14" {
-		t.Errorf("schema_version = %q, %v; want 14", version, err)
-	}
-	if err := db.QueryRow("SELECT count(*) FROM events").Scan(&n); err != nil || n != 1 {
-		t.Errorf("events after the upgrade: %d, %v; want the one row", n, err)
-	}
 	if err := versionErr(14, 13); err == nil || !strings.Contains(err.Error(), "schema version 14 is newer than this obor (13)") {
 		t.Errorf("a binary at 13 on a store at 14: %v; want refused", err)
 	}
-	if err := versionErr(13, 14); err != nil {
-		t.Errorf("this binary on a store at 13: %v; want opened", err)
+	if err := versionErr(13, 14); err == nil || !strings.Contains(err.Error(), "obor v0.40.7") {
+		t.Errorf("this binary on a store at 13: %v; want refused with the release that migrates it", err)
 	}
 }

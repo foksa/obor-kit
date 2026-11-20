@@ -22,13 +22,9 @@ import (
 )
 
 const (
-	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
+	// SchemaVersion is the schema this binary knows, the only one OpenRW opens: the database is per project, and a
 	// obor that wrote it may be newer than this binary. 7: prompts; 8: the prompts table's own key; 9: the lane row's type; 10: the spec row's note; 11: the read indexes; 12: the lane row's blocked; 13: the lane row's landed; 14: serve's nightly prune of the events table (no DDL; a binary at 13 refuses a store that may be pruned, as it would fold a task's lone merged fact to nothing).
 	SchemaVersion = 14
-	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.22 (schema 2–8) is refused, and upgrades
-	// through v0.24.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
-	// IF NOT EXISTS, so the version is what a migration updates).
-	upgradeFrom = 9
 
 	writerBusyTimeout = 5 * time.Second        // serve waits for a reader's snapshot to end, it does not fail
 	readerBusyTimeout = 500 * time.Millisecond // a hook fails fast instead of holding its caller
@@ -38,8 +34,8 @@ const (
 
 // OpenRW opens path as serve's only writer: WAL (readers never wait on the writer), synchronous=FULL (an effect is
 // on disk before its result is recorded) and one connection (the driver is not safe for several goroutines on one
-// connection; the app serialises its writes). A new file (and its directory) gets the schema; a newer schema is
-// refused.
+// connection; the app serialises its writes). A new file (and its directory) gets the schema; a store at any other
+// schema version is refused.
 func OpenRW(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("store: %w", err)
@@ -163,7 +159,8 @@ func File(root string) string { return filepath.Join(root, ".obor", "state", "ob
 // schema is every table this binary knows. events is the event log (docs/state-model.md "The log"): one row per
 // record, seq its order, data the record's JSON (NULL: none). lanes is serve's lane projection (lanes.go); specs the
 // tasks' specs (specs.go); prompts the text of the prompts serve sent, by the seq of the fact it belongs to and its
-// own id (prompts.go). Every statement is IF NOT EXISTS: an older store gets the tables and indexes it lacks.
+// own id (prompts.go). Every statement is IF NOT EXISTS: a new database gets the tables and indexes, and a store at
+// SchemaVersion is opened with its own as they are.
 var schema = []string{
 	"CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 	`CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT NOT NULL,
@@ -185,23 +182,25 @@ var schema = []string{
 	"CREATE INDEX IF NOT EXISTS prompts_job ON prompts(job)",
 }
 
-// versionErr is a binary's refusal of a database at schema got, the binary knowing schema binary (nil: it opens it):
-// newer than the binary (a store an older obor must not fold: 14's pruned log), or older than upgradeFrom.
+// versionErr is a binary's refusal of a database at schema got, the binary knowing schema binary (nil: it opens
+// it): newer than the binary (a store an older obor must not fold: 14's pruned log), or older than the binary.
 func versionErr(got, binary int) error {
 	switch {
 	case got > binary:
 		return fmt.Errorf("store: schema version %d is newer than this obor (%d): upgrade obor", got, binary)
-	case got < upgradeFrom:
-		return fmt.Errorf("store: schema version %d is older than this obor (%d): upgrade through v0.24.0 first",
-			got, binary)
+	case got == binary:
+		return nil
+	case got < 9: // schemas 2–8 were migrated by v0.24.0, 9–13 by v0.40.7
+		return fmt.Errorf("store: schema version %d is older than this obor (%d): upgrade through v0.24.0 first, "+
+			"then open it once with obor v0.40.7, which migrates it", got, binary)
 	}
-	return nil
+	return fmt.Errorf("store: schema version %d is older than this obor (%d): open it once with obor v0.40.7 "+
+		"first, which migrates it", got, binary)
 }
 
 // initSchema checks an existing database's schema version before it changes anything (a refused database is left
-// exactly as it was: a version older than upgradeFrom or newer than SchemaVersion), then creates the tables and
-// indexes and records the version on a new database, all in one transaction. An accepted older database is migrated:
-// what it lacks is created and its version becomes SchemaVersion.
+// exactly as it was: a version other than SchemaVersion), then creates the tables and indexes and records the
+// version on a new database, all in one transaction. A store at SchemaVersion keeps its version and rows.
 func initSchema(db *sql.DB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
 	defer cancel()
@@ -223,9 +222,8 @@ func initSchema(db *sql.DB) error {
 		}
 		found = err == nil
 	}
-	got := SchemaVersion
 	if found {
-		got, err = strconv.Atoi(known)
+		got, err := strconv.Atoi(known)
 		if err != nil {
 			return fmt.Errorf("store: schema version %q is not a number", known)
 		}
@@ -238,66 +236,14 @@ func initSchema(db *sql.DB) error {
 			return fmt.Errorf("store: create schema: %w", err)
 		}
 	}
-	// Version 10 gave the spec row the note its set carried: an older specs table gets the column, empty (a
-	// rev set with no note has none).
-	if found && got < 10 {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('specs') WHERE name = 'note'").
-			Scan(&n); err != nil {
-			return fmt.Errorf("store: read specs: %w", err)
-		}
-		if n == 0 {
-			if _, err := tx.ExecContext(ctx, "ALTER TABLE specs ADD COLUMN note TEXT NOT NULL DEFAULT ''"); err != nil {
-				return fmt.Errorf("store: migrate specs: %w", err)
-			}
-		}
-	}
-	// Version 12 gave the lane row the worker's blocked report: an older lanes table gets the column, false
-	// (a question nobody reports is not blocked).
-	if found && got < 12 {
-		if err := addLaneColumn(ctx, tx, "blocked", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-			return err
-		}
-	}
-	// Version 13 gave the lane row its task's landed fact: an older lanes table gets the column, false until
-	// serve rewrites the table from its fold (it does on load); an older binary's reads name their columns and skip it.
-	if found && got < 13 {
-		if err := addLaneColumn(ctx, tx, "landed", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-			return err
-		}
-	}
-	// Version 14 changes no table: serve's nightly backup prunes ended tasks' records and old sessions, which
-	// a binary at 13 would fold wrong, so only the version moves.
-	switch {
-	case !found:
+	if !found {
 		if _, err := tx.ExecContext(ctx, "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
-			strconv.Itoa(SchemaVersion)); err != nil {
-			return fmt.Errorf("store: write schema version: %w", err)
-		}
-	case got < SchemaVersion: // migrated above: every table and index is there now
-		if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = 'schema_version'",
 			strconv.Itoa(SchemaVersion)); err != nil {
 			return fmt.Errorf("store: write schema version: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: %w", err)
-	}
-	return nil
-}
-
-// addLaneColumn adds col (with its type and default, decl) to an older lanes table that lacks it (a migration).
-func addLaneColumn(ctx context.Context, tx *sql.Tx, col, decl string) error {
-	var n int
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('lanes') WHERE name = ?", col).
-		Scan(&n); err != nil {
-		return fmt.Errorf("store: read lanes: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, "ALTER TABLE lanes ADD COLUMN "+col+" "+decl); err != nil {
-		return fmt.Errorf("store: migrate lanes: %w", err)
 	}
 	return nil
 }
