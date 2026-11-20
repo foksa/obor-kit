@@ -211,9 +211,10 @@ const StopTerminate = 10 * time.Second
 // StopBound is the most a stop may take: its idle wait, its quit wait and its terminate together.
 const StopBound = StopIdle + StopQuit + StopTerminate
 
-// Restorer restarts the labelled panes of a project that lost their program and run no agent (launch.Restorer): serve
-// calls it once a connect shows panes that lost their program (lost names them; internal/app/restore.go). It is
-// idempotent: a pane whose agent runs is left alone, and runs for one project are one at a time. It returns when the
+// Restorer restores the labelled panes of a project that lost their program (launch.Restorer): each at its shell, or
+// running an agent the terminal started on its own, comes back with obor's start or is left at its shell. Serve calls
+// it once a connect shows panes that lost their program (lost names them; internal/app/restore.go). It is
+// idempotent: a pane running an agent obor started since is left alone, and runs for one project are one at a time. It returns when the
 // run has ended (or ctx has).
 type Restorer interface {
 	RestoreProject(ctx context.Context, root string, lost Lost)
@@ -265,8 +266,9 @@ type TerminalSetup interface {
 	// Place makes a new pane for an agent where p says and returns its id; the layout is the adapter's. Its refusals
 	// and failures are the lines setup prints after FAIL.
 	Place(ctx context.Context, p Placement) (string, error)
-	// ResumeHint is the one line to add when the terminal would resume its own agents after a restart and obor
-	// restarts them itself ("" when the user's terminal config says it must not); obor never edits that config.
+	// ResumeHint is the optional line that saves a double start when the terminal resumes its own agents after a
+	// restart, which obor's restore then replaces ("" when the user's terminal config says it does not); obor never
+	// edits that config.
 	ResumeHint() string
 	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
 	// and relabels each pane of it whose label relabel maps to another label.

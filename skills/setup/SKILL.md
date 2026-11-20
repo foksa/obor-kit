@@ -59,8 +59,9 @@ On any terminal: `project.terminal` names it (herdr, the default, or hc), obor s
 serve after changing it: `obor stop`, the key, `obor start`; serve then drops its records of the old terminal's panes
 and identifies them afresh), placement goes by the pane's kind as above, and `obor setup check` runs the terminal's
 own check (`OK check: …` or `FAIL …`).
-- **herdr:** workspaces, tabs and splits are herdr's; set `resume_agents_on_restore = false` under `[session]` in
-  herdr's config.toml (serve restores obor's panes itself). `obor setup check` has nothing of its own to check.
+- **herdr:** workspaces, tabs and splits are herdr's; serve restores obor's panes itself after a herdr restart,
+  replacing an agent herdr resumed there; `resume_agents_on_restore = false` under `[session]` in herdr's config.toml
+  (optional, user-global) saves that double start. `obor setup check` has nothing of its own to check.
 - **hc** (herdr-core, experimental, hc ≥ 0.1.21): obor lays herdr-app out like herdr (a space for the project, tabs
   `lead`, `lanes`, `roles`) and places each terminal by its labels. `obor setup check` reads hc's core environment and
   fails when it holds a `HERDR_` or `OBOR_` name (a core started from an obor pane gives every terminal that pane's

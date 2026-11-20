@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -200,5 +201,47 @@ func TestStartReportFailureIsSaid(t *testing.T) {
 			t.Fatal(got)
 		}
 		lacks(t, got, "not reported", "a serve that is not listening is no warning")
+	})
+}
+
+// A start's success path records the pane it started the agent in and the pid leading that pane's foreground group
+// (launch.StartedFile: the restore's proof that obor started it); a start whose agent never came up records nothing.
+func TestStartRecordsThePaneAndPid(t *testing.T) {
+	t.Parallel()
+	t.Run("started: pane and pid recorded", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p3", "pj-l-01", "")
+		if _, err := os.Stat(launch.StartedFile(x.p.Root, "pj-l-01")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("precondition: no start record before the start: %v", err)
+		}
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+		if !ok {
+			t.Fatal(out)
+		}
+		pi, err := x.f.ProcessInfo(context.Background(), "w1:p3")
+		if err != nil || pi.AtShell() || pi.FgPGID == 0 {
+			t.Fatalf("precondition: the started agent leads the pane's foreground: %+v, %v", pi, err)
+		}
+		b, err := os.ReadFile(launch.StartedFile(x.p.Root, "pj-l-01"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(b), "w1:p3 "+strconv.Itoa(pi.FgPGID)+"\n"; got != want {
+			t.Errorf("start record %q, want %q", got, want)
+		}
+	})
+	t.Run("never up: nothing recorded", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.wait = 200 * time.Millisecond
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *mpane) { p.OnStart = "never" })
+		if out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true}); ok {
+			t.Fatalf("precondition: the start failed:\n%s", out)
+		}
+		if _, err := os.Stat(launch.StartedFile(x.p.Root, "pj-l-01")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a failed start wrote a start record: %v", err)
+		}
 	})
 }

@@ -1,7 +1,7 @@
 package main
 
 // restore.go: serve's restore wiring: the launch.Restorer serve runs once its terminal connection is back,
-// with obor restart's launch and, for a role agent, serve's open-work read.
+// with obor restart's launch and stop and, for a role agent, serve's open-work read.
 
 import (
 	"context"
@@ -27,6 +27,10 @@ func restorer(term port.Terminal, env project.Env, a *app.App) *launch.Restorer 
 		Restart: func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
 			l := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: w}
 			return l.Restart(ctx, req)
+		},
+		Stop: func(ctx context.Context, cfg *config.Config, agent, pane string, w io.Writer) (string, error) {
+			l := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: w}
+			return l.Stop(ctx, agent, pane, false)
 		}}
 }
 

@@ -14,8 +14,9 @@ otherwise.
   `~/.codex/sessions/**/rollout-*.jsonl`; Claude: ask for the full answer in one message or a file.
 - A split pane inherits the neighbour's cwd → pass `--cwd` (and `--env OBOR_ROLE=…`) to `herdr pane split`.
 - Agent names are global across workspaces → always use the project prefix (`<project.agent_prefix>-…`).
-- After a herdr restart, obor's startup hook restarts obor panes (`obor restart`, log `~/.obor/restore.log`); set
-  `resume_agents_on_restore = false` under `[session]` in herdr's config.toml, else herdr resumes them without obor's env.
+- After a herdr restart, obor serve restores obor panes (`obor restart`, log `~/.obor/restore.log`), replacing an
+  agent herdr resumed there without obor's env; `resume_agents_on_restore = false` under `[session]` in herdr's
+  config.toml (optional, user-global) saves that double start.
 - A pane labelled an obor agent without its env (herdr resume on, a hand start) → SessionStart warns "run obor restart
   <agent>" → `obor restart <agent>` from another pane.
 - An abandoned task (or a finished review / smoke test) leaves its lane `done` / `working`, so dispatch refuses it

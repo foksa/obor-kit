@@ -760,14 +760,16 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	}
 	// Locate (the pane list, the terminal's holder of the name), then the lane's agents (no other in its worktree)
 	// before anything is placed; the new pane's id is herdr's answer to the split, so its shell, once up, gets the env
-	// line with OBOR_PANE before the start.
+	// line with OBOR_PANE before the start; after it, the pane's process info for the start record (the restore's
+	// proof that obor started the agent there).
 	want := []string{"pane.list", "agent.get target=pj-l-01", "agent.list", "pane.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
 		"pane.read lines=60 pane_id=w1:n1 source=recent_unwrapped strip_ansi=true",
 		"pane.rename label=pj-l-01 pane_id=w1:n1",
-		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
+		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1",
+		"pane.process_info pane_id=w1:n1"}
 	marks := regexp.MustCompile(`obor-env-"?[0-9a-z]+"?`)
 	if got := marks.ReplaceAllString(named(strings.Join(x.reqs(), "\n")), "obor-env-M"); got != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
