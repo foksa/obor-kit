@@ -4,6 +4,9 @@ package setup
 // already does. Every step is idempotent, so a rerun after a fix is the repair path; the summary lists each step as
 // done, already or skipped (why).
 //
+//	terminal   the terminal's own check, first, on a terminal that has one (hc: the core's environment holds no
+//	           HERDR_ or OBOR_ name, else FAIL with hc.LeakLine, before any write); the kind is --terminal's (cmd/obor
+//	           passes the one it detected, else herdr) and a new config's project.terminal.
 //	herdr      herdr unreachable → FAIL, before any write (nothing later works without it); no claude on PATH →
 //	           FAIL (the lead runs it).
 //	git        no commit yet: only a directory holding nothing but .git (or init's own untouched files, a rerun)
@@ -69,7 +72,7 @@ import (
 )
 
 // InitUsage is obor init's usage line.
-const InitUsage = "usage: obor init [--name N] [--prefix P]"
+const InitUsage = "usage: obor init [--name N] [--prefix P] [--terminal herdr|hc]"
 
 // pluginTimeout bounds each claude plugin call.
 var pluginTimeout = 2 * time.Minute
@@ -78,16 +81,24 @@ var pluginTimeout = 2 * time.Minute
 type step struct{ name, state, what string }
 
 func (s *Setup) oborInit(ctx context.Context, args []string) error {
-	name, prefix, err := initArgs(args)
+	name, prefix, kind, err := initArgs(args)
 	if err != nil {
 		return err
+	}
+	s.terminal = kind
+	// terminal check: on a terminal with one (hc) the first step, before any write: a leaked core is a FAIL.
+	var termLine string
+	if s.Check != nil {
+		if termLine, err = s.Check(ctx); err != nil {
+			return project.Failf("terminal %s: %v", s.initTerminal(), err)
+		}
 	}
 	if r, err := s.git().Find(s.Dir); err == nil && project.Stopped(r.Root) {
 		return project.Failf("%s is stopped (obor stop): obor start wakes it", r.Root)
 	}
 	running, err := s.T.Agents(ctx)
 	if err != nil {
-		return project.Failf("the terminal (herdr) is not reachable (%v): start it, then obor init again", err)
+		return project.Failf("the terminal (%s) is not reachable (%v): start it, then obor init again", s.initTerminal(), err)
 	}
 	claude, err := project.LookPath(s.Env.Get("PATH"), agents.Default)
 	if err != nil {
@@ -129,6 +140,10 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	var steps []step
 	add := func(name, state, format string, a ...any) {
 		steps = append(steps, step{name, state, fmt.Sprintf(format, a...)})
+	}
+
+	if termLine != "" {
+		add("terminal", "done", "%s: %s", s.initTerminal(), termLine)
 	}
 
 	// project

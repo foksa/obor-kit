@@ -69,7 +69,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if x.Exists("docs/tasks") {
 		t.Error("init created docs/tasks")
 	}
-	has(t, out, "created .obor/config.json (name My Proj, prefix mp, no lanes)", "the config said")
+	has(t, out, "created .obor/config.json (name My Proj, prefix mp, terminal herdr, no lanes)", "the config said")
 
 	// role texts stay in the kit; the project gets short stubs (title, pointer, "This project" prompts).
 	texts, _ := filepath.Glob(filepath.Join(kit, "templates", "agents", "*.md"))

@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/hc"
 	"obor/internal/testkit"
 )
 
@@ -252,5 +254,90 @@ func TestOborInitRefusesAnUnloadableConfig(t *testing.T) {
 	}
 	if x.Read(".obor/config.json") != unloadable || x.Exists("BACKLOG.md") || x.claudeCalls() != "" {
 		t.Errorf("wrote or called claude before the FAIL:\n%s", out)
+	}
+}
+
+// A new config carries the terminal init was told (--terminal): hc's when it says hc, herdr's written out when it
+// says nothing or herdr; one that is not a terminal obor knows is the usage line, nothing written.
+func TestOborInitWritesTheTerminalKindIntoANewConfig(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--terminal", "hc"}, "hc"},
+		{[]string{"--terminal", "herdr"}, "herdr"},
+		{nil, "herdr"},
+	} {
+		x := newFakeGitInitFx(t, true)
+		if x.Exists(".obor/config.json") {
+			t.Fatalf("%v: a config before init", c.args)
+		}
+		x.init(t, c.args...)
+		cfg, err := config.Load(x.Root)
+		if err != nil {
+			t.Fatalf("%v: %v", c.args, err)
+		}
+		if got := cfg.Data.Project.Terminal; got != c.want || cfg.TerminalKind() != c.want {
+			t.Errorf("init %v: project.terminal %q, want %q written", c.args, got, c.want)
+		}
+	}
+	x := newFakeGitInitFx(t, true)
+	x.failing(t, "FAIL "+InitUsage, "obor-init", "--terminal", "zellij")
+	x.failing(t, "FAIL "+InitUsage, "obor-init", "--terminal")
+	if x.Exists(".obor/config.json") {
+		t.Error("a bad --terminal wrote a config")
+	}
+}
+
+// A config init finds keeps its terminal: --terminal does not rewrite it.
+func TestOborInitKeepsAnExistingConfigsTerminal(t *testing.T) {
+	t.Parallel()
+	x := newFakeGitInitFx(t, true)
+	x.init(t, "--terminal", "hc")
+	before := x.Read(".obor/config.json")
+	if !strings.Contains(before, `"terminal": "hc"`) {
+		t.Fatalf("precondition: the first init wrote no hc terminal:\n%s", before)
+	}
+	x.init(t, "--terminal", "herdr")
+	if got := x.Read(".obor/config.json"); !strings.Contains(got, `"terminal": "hc"`) {
+		t.Errorf("a rerun with --terminal herdr rewrote the config's terminal:\n%s", got)
+	}
+}
+
+// On a terminal with a check of its own (hc) it is init's first step: a leaked core is a FAIL with its line before
+// any file is written or claude is called; a clean one is a step of the summary. The terminal's name is in the
+// unreachable FAIL.
+func TestOborInitChecksTheTerminalFirstAndNamesItWhenUnreachable(t *testing.T) {
+	t.Parallel()
+	leak := "hc core env: " + hc.LeakLine + " (its environment holds OBOR_ROLE)"
+	x := newFakeGitInitFx(t, true)
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	s.Check = func(context.Context) (string, error) { return "", errors.New(leak) }
+	if rc := s.Run(context.Background(), []string{"obor-init", "--terminal", "hc"}); rc != 1 || last(out.String()) != "FAIL terminal hc: "+leak {
+		t.Fatalf("a leaked core: exit %d, last line %q", rc, last(out.String()))
+	}
+	if x.Exists(".obor/config.json") || x.Exists("BACKLOG.md") || x.claudeCalls() != "" {
+		t.Errorf("wrote or called claude after a leaked core:\n%s", out)
+	}
+
+	s, out = x.newSetup(t)
+	s.Dir = x.Root
+	s.Check = func(context.Context) (string, error) {
+		return "hc's core environment holds no HERDR_ or OBOR_ name", nil
+	}
+	if rc := s.Run(context.Background(), []string{"obor-init", "--terminal", "hc"}); rc != 0 {
+		t.Fatalf("a clean core: exit %d\n%s", rc, out)
+	}
+	if got := summary(out.String(), "terminal"); got != "done hc: hc's core environment holds no HERDR_ or OBOR_ name" {
+		t.Errorf("the terminal step %q", got)
+	}
+
+	y := newInitFx(t, true)
+	y.srv.Die()
+	out2, rc := y.run(t, "obor-init", "--terminal", "hc")
+	if rc != 1 || !strings.HasPrefix(last(out2), "FAIL the terminal (hc) is not reachable (") {
+		t.Errorf("hc down: exit %d, last line %q", rc, last(out2))
 	}
 }
