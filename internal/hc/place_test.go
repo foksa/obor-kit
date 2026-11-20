@@ -180,20 +180,25 @@ func TestPlaceInATab(t *testing.T) {
 	}
 }
 
-// Group is a tab of that name, found again by the next Group of it.
-func TestPlaceGroupMakesANamedTab(t *testing.T) {
+// Group is always a new tab of that name: a second Group of the same name is another tab, and `--new-tab lead` never
+// lands in the lead's tab.
+func TestPlaceGroupMakesANewNamedTab(t *testing.T) {
 	k := newPlaceKit(4)
-	k.place(t, port.KindLane, "", "")
-	id := k.place(t, port.KindLane, "", "review")
-	if got := k.tabOf(t, id); got != "review" {
+	lead := k.place(t, port.KindLead, "", "")
+	first := k.place(t, port.KindLane, "", "review")
+	second := k.place(t, port.KindLane, "", "review")
+	if got := k.tabOf(t, first); got != "review" {
 		t.Errorf("terminal in tab %q, want review", got)
 	}
-	if got := k.tabNames(); !slices.Equal(got, []string{"lanes", "review"}) {
-		t.Errorf("tabs = %q", got)
+	if k.core.Labels(first)[herdrapp.LabelTab] == k.core.Labels(second)[herdrapp.LabelTab] || k.tabOf(t, second) != "review" {
+		t.Errorf("two Places of Group review share a tab: %v %v", k.core.Labels(first), k.core.Labels(second))
 	}
-	k.place(t, port.KindLane, "", "review")
-	if got := k.tabNames(); !slices.Equal(got, []string{"lanes", "review"}) {
-		t.Errorf("a second Group review made a tab: %q", got)
+	if got := k.tabNames(); !slices.Equal(got, []string{"lead", "review", "review"}) {
+		t.Errorf("tabs = %q, want lead and two review tabs", got)
+	}
+	other := k.place(t, port.KindLane, "", "lead")
+	if k.core.Labels(other)[herdrapp.LabelTab] == k.core.Labels(lead)[herdrapp.LabelTab] {
+		t.Errorf("Group lead put a terminal in the lead's tab")
 	}
 }
 

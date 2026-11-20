@@ -154,7 +154,7 @@ func (cl *Client) spot(ctx context.Context, recs []Record, p port.Placement) (he
 	}
 	switch {
 	case p.Group != "":
-		tab, err := cl.App.EnsureTab(ctx, sp.ID, p.Group)
+		tab, err := cl.App.NewTab(ctx, sp.ID, p.Group)
 		return sp, tab, err
 	case p.In != "":
 		for _, t := range sp.Tabs {
