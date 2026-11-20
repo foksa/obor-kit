@@ -112,6 +112,13 @@ func (a *App) prune(ctx context.Context, p *proj, g port.Pruner, cfg *config.Con
 		}
 		return summary, nil
 	}
+	if !c.DryRun {
+		for _, l := range lines {
+			if strings.HasPrefix(l, "deleted ") || strings.HasPrefix(l, "removed ") || strings.HasPrefix(l, "pruned ") {
+				a.logf("prune of %s: %s", p.name, l)
+			}
+		}
+	}
 	return strings.Join(append(lines, summary), "\n"), nil
 }
 
@@ -157,15 +164,16 @@ func (a *App) pruneTrees(ctx context.Context, p *proj, g port.Pruner, cfg *confi
 	}
 	var lines []string
 	lanes := project.Physical(cfg.LanesDir())
-	gone := false
+	var gone []string
+	goneSHA := map[string]string{}
 	for _, t := range trees {
 		if project.Physical(filepath.Dir(t.Dir)) != lanes {
 			continue // not directly under lanes.dir: never touched
 		}
 		name := filepath.Base(t.Dir)
 		if t.Gone {
-			gone = true
-			lines = append(lines, pruneLine(c, "prune", "worktree "+t.Dir+" (its dir is gone)", ""))
+			gone = append(gone, t.Dir)
+			goneSHA[t.Dir] = t.SHA
 			continue
 		}
 		if !orphan(cfg, name) {
@@ -192,10 +200,17 @@ func (a *App) pruneTrees(ctx context.Context, p *proj, g port.Pruner, cfg *confi
 			did.Worktrees = append(did.Worktrees, event.PrunedRef{Name: t.Dir, SHA: t.SHA})
 		}
 	}
-	if gone && !c.DryRun {
-		if err := g.PruneTrees(ctx); err != nil {
-			lines = append(lines, fmt.Sprintf("git worktree prune failed: %v", err))
+	failed := map[string]error{}
+	if len(gone) > 0 && !c.DryRun {
+		failed = g.PruneTrees(ctx, gone)
+	}
+	for _, dir := range gone {
+		if err := failed[dir]; err != nil {
+			lines = append(lines, fmt.Sprintf("kept worktree %s: %v", dir, err))
+			continue
 		}
+		lines = append(lines, pruneLine(c, "prune", "worktree "+dir+" (its dir is gone)", short(goneSHA[dir])))
+		did.Worktrees = append(did.Worktrees, event.PrunedRef{Name: dir, SHA: goneSHA[dir]})
 	}
 	return lines
 }

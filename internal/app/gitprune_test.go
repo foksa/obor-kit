@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,14 +27,25 @@ type fakePruner struct {
 	refuse   map[string]error  // branch → git's refusal
 
 	deleted, removed []string
-	treePrunes       int
+	treePrunes       []string // dirs whose registration was dropped
+	treeFail         map[string]error
 }
 
 func (f *fakePruner) Branches(context.Context) ([]port.PruneBranch, error) { return f.branches, nil }
 func (f *fakePruner) CheckedOut(context.Context) (map[string]bool, error)  { return f.checked, nil }
 func (f *fakePruner) Trees(context.Context) ([]port.PruneTree, error)      { return f.trees, nil }
 func (f *fakePruner) Dirt(_ context.Context, dir string) (string, error)   { return f.dirt[dir], nil }
-func (f *fakePruner) PruneTrees(context.Context) error                     { f.treePrunes++; return nil }
+func (f *fakePruner) PruneTrees(_ context.Context, dirs []string) map[string]error {
+	failed := map[string]error{}
+	for _, d := range dirs {
+		if err := f.treeFail[d]; err != nil {
+			failed[d] = err
+			continue
+		}
+		f.treePrunes = append(f.treePrunes, d)
+	}
+	return failed
+}
 
 func (f *fakePruner) DeleteBranch(_ context.Context, b port.PruneBranch) error {
 	if err := f.refuse[b.Name]; err != nil {
@@ -147,7 +159,7 @@ func TestPruneDryRunListsAndDeletesNothing(t *testing.T) {
 	h.ended("T-1", event.StepMerged, 2*day)
 	h.ended("T-2", event.StepMerged, 3*day)
 	dry := h.prune(wire.PruneReq{DryRun: true})
-	if len(f.deleted)+len(f.removed) != 0 || f.treePrunes != 0 || len(prunedFacts(t, h)) != 0 {
+	if len(f.deleted)+len(f.removed) != 0 || len(f.treePrunes) != 0 || len(prunedFacts(t, h)) != 0 {
 		t.Errorf("dry run deleted %v, removed %v, recorded %v", f.deleted, f.removed, prunedFacts(t, h))
 	}
 	if !strings.Contains(dry, "would delete task/T-1 (was a000001)") || !strings.Contains(dry, "would remove worktree") {
@@ -178,7 +190,7 @@ func TestPruneNightlyTakesWeekOldMergesOnly(t *testing.T) {
 	h.ended("T-2", event.StepMerged, 6*day)
 	h.ended("T-3", event.StepDropped, 40*day)
 	reply := h.prune(wire.PruneReq{Nightly: true})
-	if !slices.Equal(f.deleted, []string{"task/T-1"}) || len(f.removed) != 0 || f.treePrunes != 0 {
+	if !slices.Equal(f.deleted, []string{"task/T-1"}) || len(f.removed) != 0 || len(f.treePrunes) != 0 {
 		t.Errorf("deleted %v, removed %v: want only task/T-1", f.deleted, f.removed)
 	}
 	if want := "prune: 1 branches (oldest merge 2026-10-16)"; reply != want {
@@ -221,7 +233,7 @@ func TestPruneWorktrees(t *testing.T) {
 		{Dir: filepath.Join(dir, "deep_dive"), SHA: "5555555eeee"},  // role not in agents.roles: removed
 		{Dir: filepath.Join(dir, "integrator"), SHA: "6666666ffff"}, // role in agents.roles: kept
 		{Dir: filepath.Join(filepath.Dir(dir), "elsewhere", "L-09"), SHA: "7777777gggg"},
-		{Dir: filepath.Join(dir, "L-08"), Gone: true},
+		{Dir: filepath.Join(dir, "L-08"), SHA: "8888888hhhh", Gone: true},
 	}
 	f.dirt = map[string]string{filepath.Join(dir, "L-04"): "dirty (2 paths, as a.go)"}
 	reply := h.prune(wire.PruneReq{})
@@ -229,14 +241,14 @@ func TestPruneWorktrees(t *testing.T) {
 	if !slices.Equal(f.removed, wantRemoved) {
 		t.Errorf("removed %v, want %v", f.removed, wantRemoved)
 	}
-	if f.treePrunes != 1 {
-		t.Errorf("git worktree prune ran %d times, want 1 (L-08's dir is gone)", f.treePrunes)
+	if want := []string{filepath.Join(dir, "L-08")}; !slices.Equal(f.treePrunes, want) {
+		t.Errorf("registrations dropped %v, want %v (L-08's dir is gone; elsewhere/L-09 is not asked for)", f.treePrunes, want)
 	}
 	for _, want := range []string{
 		"removed worktree " + filepath.Join(dir, "L-03") + " (was 1111111)",
 		"kept worktree " + filepath.Join(dir, "L-04") + ": dirty (2 paths, as a.go)",
-		"pruned worktree " + filepath.Join(dir, "L-08") + " (its dir is gone)",
-		"PRUNE deleted 0 branches, 2 worktrees",
+		"pruned worktree " + filepath.Join(dir, "L-08") + " (its dir is gone) (was 8888888)",
+		"PRUNE deleted 0 branches, 3 worktrees",
 	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply has no %q:\n%s", want, reply)
@@ -246,7 +258,7 @@ func TestPruneWorktrees(t *testing.T) {
 		t.Errorf("reply names a worktree that is nobody's to prune:\n%s", reply)
 	}
 	facts := prunedFacts(t, h)
-	if len(facts) != 1 || len(facts[0].Worktrees) != 2 || facts[0].Worktrees[0].SHA != "1111111aaaa" {
+	if len(facts) != 1 || len(facts[0].Worktrees) != 3 || facts[0].Worktrees[0].SHA != "1111111aaaa" {
 		t.Errorf("pruned facts %+v, want one listing both worktrees with their heads", facts)
 	}
 }
@@ -290,4 +302,75 @@ func prunedFacts(t *testing.T, h *harness) []event.Pruned {
 		}
 	}
 	return out
+}
+
+// A hand run logs each successful deletion (branch merged, branch --unmerged, worktree removed, registration pruned)
+// with its sha, and nothing it kept; a dry run logs none; the nightly's lines are as before.
+func TestPruneHandRunLogsEachDeletion(t *testing.T) {
+	t.Parallel()
+	setup := func() (*fakePruner, *harness, *bytes.Buffer) {
+		f := &fakePruner{treeFail: map[string]error{}}
+		f.branch("task/T-1")
+		f.branch("task/T-2")
+		f.branch("task/T-3")
+		h := pruneRig(t, f)
+		out := &bytes.Buffer{}
+		h.a.opt.Out = out
+		dir := lanesDirOf(t, h.root)
+		f.trees = []port.PruneTree{
+			{Dir: filepath.Join(dir, "L-03"), SHA: "1111111aaaa"},
+			{Dir: filepath.Join(dir, "L-04"), SHA: "2222222bbbb"},
+			{Dir: filepath.Join(dir, "L-08"), SHA: "8888888hhhh", Gone: true},
+		}
+		f.dirt = map[string]string{filepath.Join(dir, "L-04"): "dirty (2 paths, as a.go)"}
+		h.ended("T-1", event.StepMerged, 2*day)
+		h.ended("T-2", event.StepDropped, 40*day)
+		h.ended("T-3", event.StepMerged, 8*day)
+		return f, h, out
+	}
+	f, h, out := setup()
+	dry := h.prune(wire.PruneReq{DryRun: true, Unmerged: true})
+	if !strings.Contains(dry, "would delete task/T-2") || !strings.Contains(dry, "would remove worktree") {
+		t.Fatalf("precondition: the dry run lists no would-be deletions:\n%s", dry)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a dry run logged %q, want nothing", out.String())
+	}
+	f, h, out = setup()
+	reply := h.prune(wire.PruneReq{Unmerged: true})
+	if len(f.deleted) != 3 || len(f.removed) != 1 || len(f.treePrunes) != 1 {
+		t.Fatalf("precondition: deleted %v, removed %v, pruned %v", f.deleted, f.removed, f.treePrunes)
+	}
+	dir := lanesDirOf(t, h.root)
+	log := out.String()
+	for _, want := range []string{
+		"prune of pj: deleted task/T-1 (was a000001)",
+		"prune of pj: deleted task/T-2 (was a000002)",
+		"prune of pj: removed worktree " + filepath.Join(dir, "L-03") + " (was 1111111)",
+		"prune of pj: pruned worktree " + filepath.Join(dir, "L-08") + " (its dir is gone) (was 8888888)",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log has no %q:\n%s", want, log)
+		}
+	}
+	if strings.Contains(log, "kept") || strings.Contains(log, "PRUNE") || strings.Count(log, "\n") != 5 {
+		t.Errorf("log has more than the five deletion lines:\n%s", log)
+	}
+	if !strings.Contains(reply, "kept worktree "+filepath.Join(dir, "L-04")) {
+		t.Errorf("reply lost the kept line:\n%s", reply)
+	}
+	// a registration git cannot drop is kept in the reply, not logged, not in the fact
+	f, h, out = setup()
+	dir = lanesDirOf(t, h.root)
+	f.treeFail[filepath.Join(dir, "L-08")] = errors.New("it is locked")
+	reply = h.prune(wire.PruneReq{})
+	if !strings.Contains(reply, "kept worktree "+filepath.Join(dir, "L-08")+": it is locked") || strings.Contains(out.String(), "L-08") {
+		t.Errorf("a failed registration drop: reply\n%s\nlog\n%s", reply, out.String())
+	}
+	// nightly: its lines (branches only) are logged as before
+	f, h, out = setup()
+	h.prune(wire.PruneReq{Nightly: true})
+	if got := out.String(); got != "12:00:00 prune of pj: deleted task/T-3 (was a000003)\n" && !strings.Contains(got, "prune of pj: deleted task/T-3 (was a000003)\n") {
+		t.Errorf("nightly log %q", got)
+	}
 }

@@ -100,8 +100,8 @@ func TestGitPrunerOnARealRepo(t *testing.T) {
 	if _, err := os.Stat(lane2); !os.IsNotExist(err) {
 		t.Errorf("L-02's dir is still there: %v", err)
 	}
-	if err := g.PruneTrees(ctx); err != nil {
-		t.Fatal(err)
+	if failed := g.PruneTrees(ctx, []string{gone}); len(failed) != 0 {
+		t.Fatal(failed)
 	}
 	trees, _ = g.Trees(ctx)
 	var left []string
@@ -111,5 +111,41 @@ func TestGitPrunerOnARealRepo(t *testing.T) {
 	slices.Sort(left)
 	if !slices.Equal(left, []string{"L-01", "L-03"}) {
 		t.Errorf("worktrees left %v, want L-01 and L-03 (L-02 removed, L-04's registration pruned)", left)
+	}
+}
+
+// PruneTrees drops the registrations it is given and no other: a missing lane and a missing worktree outside the lanes
+// dir, only the lane's goes.
+func TestPruneTreesDropsOnlyTheSelectedRegistrations(t *testing.T) {
+	x := newFx(t)
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, ctx := GitPruner{Cfg: cfg}, context.Background()
+	lanes := filepath.Dir(x.lane2())
+	l05 := filepath.Join(lanes, "L-05")
+	personal := filepath.Join(filepath.Dir(lanes), "elsewhere", "personal")
+	x.Git(x.Root, "worktree", "add", "--detach", l05)
+	x.Git(x.Root, "worktree", "add", "--detach", personal)
+	moved := t.TempDir()
+	for _, d := range []string{l05, personal} {
+		if err := os.Rename(d, filepath.Join(moved, filepath.Base(d))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := func() string { return x.Git(x.Root, "worktree", "list", "--porcelain") }
+	if before := list(); !strings.Contains(before, l05) || !strings.Contains(before, personal) {
+		t.Fatalf("precondition: both registrations expected:\n%s", before)
+	}
+	if failed := g.PruneTrees(ctx, []string{l05}); len(failed) != 0 {
+		t.Fatal(failed)
+	}
+	after := list()
+	if strings.Contains(after, l05) || !strings.Contains(after, personal) {
+		t.Errorf("after pruning L-05 only:\n%s\nwant L-05 gone, elsewhere/personal still registered", after)
+	}
+	if failed := g.PruneTrees(ctx, []string{filepath.Join(lanes, "L-77")}); len(failed) != 1 {
+		t.Errorf("an unregistered dir: failures %v, want one", failed)
 	}
 }
