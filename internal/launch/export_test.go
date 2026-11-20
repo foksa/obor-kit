@@ -50,7 +50,7 @@ type Target struct {
 	Agent, Pane, Kind, Role, Lane, Type string
 	Sid, SidKind, Transcript            string
 	Live, LiveKind                      string
-	Dispatched                          bool
+	Dispatched, Placed                  bool
 }
 
 func (x Target) target() *target {
@@ -58,6 +58,7 @@ func (x Target) target() *target {
 		transcript: x.Transcript, dispatched: x.Dispatched}
 	t.info.Role, t.info.Lane, t.info.Type = x.Role, x.Lane, x.Type
 	t.entry = port.Pane{ID: x.Pane, Session: x.Live, Agent: x.LiveKind}
+	t.placed = x.Placed
 	return t
 }
 

@@ -104,7 +104,7 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 	if at == "" { // the scheduled run names its pane; else the labelled one, as the run's Locate finds it
 		at, _ = l.PaneOf(ctx, agent, "")
 	}
-	t, err := l.resolve(ctx, agent, pane, at, "")
+	t, err := l.resolve(ctx, agent, pane, at, "", false)
 	if err != nil {
 		return false, err
 	}

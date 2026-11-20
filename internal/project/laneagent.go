@@ -9,7 +9,7 @@ import (
 // LaneModel is the model ref the lane's open dispatch runs: the lane row's Type, its effort kept, when
 // the row holds a task (a lane is a pool, the task's dispatch picks the model: a configured lane's row
 // always names its dispatch's type). One read of the row, no git: a free lane whose row keeps its last task answers
-// that task's model, as dispatchType and setup.start do. No row, no task or no type: "", false.
+// that task's model, as launch's dispatchType and setup's start do. No row, no task or no type: "", false.
 func LaneModel(cfg *config.Config, lane string) (ref string, ok bool) {
 	row, ok, _ := store.ReadLaneAt(cfg.Root, lane)
 	if !ok {

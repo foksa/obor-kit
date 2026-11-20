@@ -137,3 +137,22 @@ func TestLaunchLeadWarnsQuarantinedCodex(t *testing.T) {
 		t.Errorf("the lead's restart, want the warning and %q:\n%s", fix, restarted)
 	}
 }
+
+// a NoStop start (obor setup role/worker --start) of a role with a quarantined codex is refused like a restart: only
+// the lead and the driver warn. The placement is not called.
+func TestLaunchNoStopRefusesQuarantinedCodex(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("agents.roles", `{"integrator":"opus","lead":"luna","reviewer":"luna"}`))
+	x.install = quarantineHost("darwin", 0x0181)
+	var pl placer
+	var out bytes.Buffer
+	_, err := x.launcher(&out).Launch(context.Background(), launch.Request{Agent: "pj-rev", Fresh: true, NoStop: true,
+		Place: pl.at(x, "w1:p7", "")})
+	var refused port.Refused
+	if !errors.As(err, &refused) || !strings.Contains(refused.Line, "xattr -dr com.apple.quarantine /c/0.167.0") {
+		t.Fatalf("NoStop start with a quarantined codex: %v, want a refusal naming the fix", err)
+	}
+	if pl.calls != 0 || x.startCall() != "" || len(x.calls("Write")) != 0 {
+		t.Errorf("placement called %d times, start %q, writes %q: want none", pl.calls, x.startCall(), x.calls("Write"))
+	}
+}

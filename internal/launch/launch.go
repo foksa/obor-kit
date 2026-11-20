@@ -1,5 +1,5 @@
-// Package launch starts, stops and restarts an obor agent in its labelled herdr pane (`obor restart`, and serve's
-// start of a worker): the one launch path.
+// Package launch starts, stops and restarts an obor agent in its labelled herdr pane (`obor restart`, serve's
+// start of a worker and obor setup's --start): the one launch path.
 //
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor)
 //	         (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
@@ -16,8 +16,9 @@
 //	         the caller places (port.Launch.Place, once the start is built: it takes the start's env). Refused: a
 //	         target other than the pane the agent runs in, an ambiguous agent, a pane serve gives to another agent or
 //	         labelled for another agent the config names, a second pane labelled <agent>, and with serve down a start
-//	         beside a live agent of the project no label accounts for. Never a known agent's pane whose cwd is outside
-//	         this project.
+//	         beside a live agent of the project no label accounts for. Never a known agent's pane found by its label
+//	         or identity whose cwd is outside this project; a NoStop start into the --pane the caller named takes it at its
+//	         shell whatever its cwd (it runs no agent and carries no other agent's label).
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
 //	         names itself: Claude); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
 //	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude
@@ -32,7 +33,7 @@
 //	         refuses as PaneBusy is retried like that within the same bound; past it, no start and a FAIL naming the
 //	         pane. RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
-//	         obor setup): the pane labelled <agent>, the terminal's agent start (port.AgentStarter), a look for a
+//	         obor setup's --start): the pane labelled <agent>, the terminal's agent start (port.AgentStarter), a look for a
 //	         startup dialog. The start ends when the terminal says its agent runs in the pane.
 //	Self     the caller's own pane (project.PaneOf): scheduled, see self.go.
 //
@@ -299,13 +300,14 @@ type target struct {
 	kind       string
 	env        map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
 	session    string            // the session id obor chose for the start (build; "": none)
+	placed     bool              // the pane was just placed for the start: no old agent ever ran in it
 }
 
 // resolve is who the agent is and its pane's facts (shared by Restart and Stop), pane the one Locate chose ("": none,
 // no pane is the agent's) for the caller's asked (--pane; "": none), with typ the launch's model type ("": none;
 // port.Launch.Type, a dispatch's); nothing is typed. An agent no config entry, lane cwd or recorded session knows is
 // started only in the pane the caller named.
-func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) (*target, error) {
+func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string, noStop bool) (*target, error) {
 	t, err := l.who(ctx, agent, asked, pane)
 	if err != nil {
 		return nil, err
@@ -324,8 +326,12 @@ func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) 
 			t.entry = p
 		}
 	}
-	if err := l.inProject(ctx, t); err != nil {
-		return nil, err
+	// A NoStop start into the pane the caller named (--pane) takes it at its shell whatever its cwd: Locate already
+	// refused a pane that runs an agent or carries another agent's label. A pane found by its label keeps inProject.
+	if !(noStop && asked != "" && pane == asked) {
+		if err := l.inProject(ctx, t); err != nil {
+			return nil, err
+		}
 	}
 	if err := l.model(t, typ); err != nil {
 		return nil, err
@@ -530,7 +536,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			err = l.model(t, req.Type)
 		}
 	} else {
-		t, err = l.resolve(ctx, req.Agent, req.Pane, loc.Pane, req.Type)
+		t, err = l.resolve(ctx, req.Agent, req.Pane, loc.Pane, req.Type, req.NoStop)
 	}
 	if err != nil {
 		return port.Started{}, err
@@ -775,8 +781,12 @@ func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) 
 		}
 		return nil, fail
 	case errors.As(err, &se) && port.PaneBusy(se.Err):
-		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
-			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t.agent, t.pane, st)))
+		why := "the pane is not an available shell: the old agent has not left it"
+		if t.placed {
+			why = "the pane is not an available shell"
+		}
+		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (%s; run %s again or start it by hand)",
+			t.pane, why, l.retry(t.agent, t.pane, st)))
 	case errors.As(err, &se):
 		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
 			t.pane, l.retry(t.agent, t.pane, st)))
@@ -796,7 +806,7 @@ func (l *Launcher) place(ctx context.Context, t *target, p *port.Placer) error {
 		return project.Failf("no pane placed for %s (the placement named none)", t.agent)
 	}
 	l.say("pane %s (placed)", pane)
-	t.pane, t.entry = pane, port.Pane{ID: pane}
+	t.pane, t.entry, t.placed = pane, port.Pane{ID: pane}, true
 	panes, err := l.H.Panes(ctx)
 	if err != nil {
 		return project.Failf("terminal pane list failed (is the terminal running?)")

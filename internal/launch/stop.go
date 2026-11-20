@@ -39,7 +39,7 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 		return "", err
 	}
 	defer end()
-	t, err := l.resolve(ctx, agent, pane, loc.Pane, "")
+	t, err := l.resolve(ctx, agent, pane, loc.Pane, "", false)
 	if err != nil {
 		return "", err
 	}
