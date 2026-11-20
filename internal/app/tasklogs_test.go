@@ -24,7 +24,7 @@ func logsHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	t.Helper()
 	h, out := newIdentHarness(t)
 	h.withLead()
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	h.connect()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
 	if !h.proj().merging {

@@ -22,7 +22,7 @@ func TestPromptFreshDelivered(t *testing.T) {
 		t.Fatalf("prompts %v clears %v result %s; want the work job once, cleared first, sent", f.jobs, f.clears,
 			h.result(event.StepWork))
 	}
-	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil } // job_next renders the worker prompt from its kit
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil } // job_next renders the worker prompt from its kit
 	if _, err := h.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: h.proj().root, Agent: "pj-l-01",
 		Role: "worker", CallID: "n1"}}); err != nil {
 		t.Fatal(err) // delivered
@@ -131,7 +131,7 @@ func TestPromptReplayResends(t *testing.T) {
 	if strings.Join(f.jobs, " ") != "T-1/1/work" || h.result(event.StepWork) != `"sent"` {
 		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.jobs, h.result(event.StepWork))
 	}
-	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	if _, err := h.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: h.proj().root, Agent: "pj-l-01",
 		Role: "worker", CallID: "n1"}}); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,9 @@ func TestPromptIntegratorJob(t *testing.T) {
 	t.Parallel()
 	h, s := seedSched(t, true)
 	f := &boxPrompter{box: map[string]string{"w1:p9": "[obor job T-2/1/review]"}}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(s), Agents: s, Prompter: f}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(s), Agents: s, Prompter: f}), nil
+	}
 	p := h.proj()
 	raw, _ := json.Marshal(promptData{Agent: "pj-int", Job: "T-2/1/review"})
 	r, err := p.log.Append(event.Record{Task: "T-2", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt,

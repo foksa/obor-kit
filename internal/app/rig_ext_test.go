@@ -2193,7 +2193,7 @@ func (r *loopRig) launch() {
 		Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
-		}, Loop: func(string) (*app.Loop, error) {
+		}, Loop: func(root string) (*app.Loop, error) {
 			r.mu.Lock()
 			err := r.loopErr
 			r.mu.Unlock()
@@ -2204,7 +2204,11 @@ func (r *loopRig) launch() {
 			if r.nightOf != nil {
 				night = r.nightOf()
 			}
-			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
+			cfg, err := config.Load(root)
+			if err != nil {
+				return nil, err
+			}
+			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
 				Inbox: r.inbox, Restart: r.restart, Config: r.config, PlaceLane: r.placeLane}
 			if r.disp != nil {
 				r.disp.loop(fx, panes)
@@ -3043,8 +3047,12 @@ func (r *loopRig) startWithAgents(agents port.Launcher) {
 		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Screen: c.Screen, Procs: quietProcs, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
-		}, Loop: func(string) (*app.Loop, error) {
-			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch), Agents: agents, Prompter: c}
+		}, Loop: func(root string) (*app.Loop, error) {
+			cfg, err := config.Load(root)
+			if err != nil {
+				return nil, err
+			}
+			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch), Agents: agents, Prompter: c}
 			r.disp.loop(fx, panes)
 			return fx, nil
 		}},

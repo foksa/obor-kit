@@ -73,7 +73,7 @@ func reviewerStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time)
 	if closed == 0 {
 		return 0, action{}, false
 	}
-	s, err := reviewConfig(p.root)
+	s, err := ReviewConfig(fx.Cfg)
 	if err != nil {
 		return 0, action{}, false
 	}
@@ -106,14 +106,14 @@ func stopAction(a *App, p *proj, fx *Loop, agent string) action {
 // (under mu): obor status, its --json and the view show them all as stopped. An agent two panes are
 // labelled with, or one serve cannot see while herdr is not connected, is unknown, not stopped; no labelled pane at all
 // leaves it "no pane".
-func (a *App) stoppedRoles(p *proj) []string {
+func (a *App) stoppedRoles(p *proj, cfg *config.Config) []string {
 	var out []string
 	for _, o := range a.obs {
 		agent := o.pane.Label
 		if agent == "" || o.pane.Agent != "" || a.projectOf(o.pane) != p {
 			continue // not a labelled pane at a shell of this project
 		}
-		if p.roleAgent(agent) && a.atShell(p, agent) {
+		if p.roleAgent(cfg, agent) && a.atShell(p, agent) {
 			out = append(out, agent)
 		}
 	}
@@ -145,8 +145,8 @@ func (p *proj) integratorBusy() bool {
 // shellPane is the pane labelled agent, a role agent a brief may start (roleAgentOf: never a worker, the lead or the
 // integrator), that runs no agent (its shell: the agent stopped, by serve or by the lead's obor restart --stop) while
 // no pane is identified as agent's (under mu; false: connected to no herdr, not such a role agent, or none).
-func (a *App) shellPane(p *proj, agent string) (port.Pane, bool) {
-	if !p.roleAgentOf(agent) {
+func (a *App) shellPane(p *proj, cfg *config.Config, agent string) (port.Pane, bool) {
+	if !p.roleAgentOf(cfg, agent) {
 		return port.Pane{}, false
 	}
 	return a.labelledShell(p, agent)
@@ -175,23 +175,22 @@ func (a *App) labelledShell(p *proj, agent string) (port.Pane, bool) {
 const startRoute = "start"
 
 // stoppedAt: agent's labelled pane is at its shell and a brief to it starts it fresh (shellPane; under mu).
-func (a *App) stoppedAt(p *proj, agent string) bool {
-	_, ok := a.shellPane(p, agent)
+func (a *App) stoppedAt(p *proj, cfg *config.Config, agent string) bool {
+	_, ok := a.shellPane(p, cfg, agent)
 	return ok
 }
 
 // roleAgentOf: agent is a role agent of p's config that a brief may start fresh: a role's, not the
 // lead, the integrator or a lane's worker (by the name rules launch resolves, the lane rows' agents included; under
-// mu). A config that does not load names none.
-func (p *proj) roleAgentOf(agent string) bool {
-	return agent != p.integrator && p.roleAgent(agent)
+// mu). A nil cfg (a config that does not load) names none.
+func (p *proj) roleAgentOf(cfg *config.Config, agent string) bool {
+	return agent != p.integrator && p.roleAgent(cfg, agent)
 }
 
 // roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's,
 // not the lead and not a lane's agent (a worker, a drive; under mu): the agents obor status may report stopped.
-func (p *proj) roleAgent(agent string) bool {
-	cfg, err := config.Load(p.root)
-	if err != nil {
+func (p *proj) roleAgent(cfg *config.Config, agent string) bool {
+	if cfg == nil {
 		return false
 	}
 	_, ok := p.roleOf(cfg, agent)
@@ -199,10 +198,9 @@ func (p *proj) roleAgent(agent string) bool {
 }
 
 // roleAgents is p's role agents on no lane with their roles, by name (roleOf): the agents serve's done reminder may
-// name. Under mu; a config that does not load names none.
-func (p *proj) roleAgents() map[string]string {
-	cfg, err := config.Load(p.root)
-	if err != nil {
+// name. Under mu; a nil cfg (a config that does not load) names none.
+func (p *proj) roleAgents(cfg *config.Config) map[string]string {
+	if cfg == nil {
 		return nil
 	}
 	out := map[string]string{}

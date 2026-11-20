@@ -56,11 +56,7 @@ func (a *App) pruneCall(ctx context.Context, c wire.PruneReq) (string, error) {
 	if fx.Prune == nil {
 		return "", fmt.Errorf("prune: no git pruner for %s", p.name)
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", fmt.Errorf("prune: %v", err)
-	}
-	return a.prune(ctx, p, fx.Prune, cfg, c)
+	return a.prune(ctx, p, fx.Prune, fx.Cfg, c)
 }
 
 // prune runs c on p through g. Its reply is a line per deletion (or per kept worktree) and the summary last; the

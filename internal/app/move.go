@@ -64,10 +64,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 	case busy != "":
 		return "", busyErr("dispatch", c.Task, busy)
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
+	cfg := fx.Cfg
 	for _, t := range c.Types {
 		if err := cfg.CheckModelRef(t); err != nil {
 			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)

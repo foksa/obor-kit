@@ -38,7 +38,7 @@ func (a *App) keepLive(p *proj, mt mtask) (port.Pane, bool) {
 // keptPane is the pane of mt's keep lane's live agent when its work job goes to that session, no agent.start (under
 // mu): mt is a keep lane's dispatch, the lane's agent is live (keepLive) and its recorded start runs mt's dispatch's
 // model (startFits). ok false: the dispatch starts the agent (a mismatched one is stopped first: keepStop).
-func (a *App) keptPane(p *proj, mt mtask) (port.Pane, bool) {
+func (a *App) keptPane(p *proj, mt mtask, cfg *config.Config) (port.Pane, bool) {
 	if !mt.disp.Keep {
 		return port.Pane{}, false
 	}
@@ -46,25 +46,24 @@ func (a *App) keptPane(p *proj, mt mtask) (port.Pane, bool) {
 	if !ok {
 		return port.Pane{}, false
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil || !p.startFits(cfg, mt.agent, pane, mt.disp.Type) {
+	if !p.startFits(cfg, mt.agent, pane, mt.disp.Type) {
 		return port.Pane{}, false
 	}
 	return pane, true
 }
 
 // kept: mt's work job goes to its keep lane's live agent (keptPane; under mu), no agent.start.
-func (a *App) kept(p *proj, mt mtask) bool {
-	_, ok := a.keptPane(p, mt)
+func (a *App) kept(p *proj, mt mtask, cfg *config.Config) bool {
+	_, ok := a.keptPane(p, mt, cfg)
 	return ok
 }
 
 // keepWaits: mt's keep lane dispatch, its work not sent yet, waits for the handoff rule (under mu): the lane's kept
 // agent (keptPane) is past handoff_tokens, so its job goes to a fresh session once the rule stopped this one (never
 // typed into a session past the threshold).
-func (a *App) keepWaits(p *proj, mt mtask) bool {
-	pane, ok := a.keptPane(p, mt)
-	return ok && a.pastHandoff(p, pane)
+func (a *App) keepWaits(p *proj, mt mtask, cfg *config.Config) bool {
+	pane, ok := a.keptPane(p, mt, cfg)
+	return ok && a.pastHandoff(p, cfg, pane)
 }
 
 // keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (dispatchData.Stop):
@@ -103,23 +102,9 @@ func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref s
 	return ok && typ != "" && typ == ran && effort == ranEffort && lt.Kind != "" && lt.Kind == row.Kind
 }
 
-// configRev is p's config revision now (config.Config.Rev): what a start records, and what a keep lane's reuse
-// compares. "": the config does not load (a start then records none, and no reuse is a fit).
-func (p *proj) configRev() string {
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return ""
-	}
-	return cfg.Rev()
-}
-
 // pastHandoff: the session of the agent in pane is larger than the project's handoff_tokens (under mu; 0: off). Its
 // transcript is the recorded session's, else the one herdr names; none readable is not past.
-func (a *App) pastHandoff(p *proj, pane port.Pane) bool {
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return false
-	}
+func (a *App) pastHandoff(p *proj, cfg *config.Config, pane port.Pane) bool {
 	limit := cfg.HandoffTokens()
 	if limit <= 0 {
 		return false
@@ -172,10 +157,7 @@ func handoffRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (i
 	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return 0, action{}, false
-	}
+	cfg := fx.Cfg
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !p.dispatching || p.paused(now) != nil {
@@ -191,7 +173,7 @@ func handoffRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (i
 			continue
 		}
 		w, _ := a.agentOf(p, port.Lane{Dir: l.Dir, Agent: agent})
-		if w.State != Identified || !Ready(w.Pane.Status) || !a.pastHandoff(p, w.Pane) {
+		if w.State != Identified || !Ready(w.Pane.Status) || !a.pastHandoff(p, cfg, w.Pane) {
 			continue
 		}
 		return key, action{call: func(ctx context.Context) error {

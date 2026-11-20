@@ -38,19 +38,19 @@ func wtAgents(cfg *config.Config) []wtAgent {
 	return out
 }
 
-// wtAgentsNow is the role worktree agents by the current config (config.Load, the load reconcile's names use),
-// kept in p.wtAgents: a role renamed, added or removed while serve runs counts at the next check; a config that does
-// not load keeps the last good set (under mu).
-func (p *proj) wtAgentsNow() []wtAgent {
-	if cfg, err := config.Load(p.root); err == nil {
+// wtAgentsNow is the role worktree agents by cfg, kept in p.wtAgents: a role renamed, added or removed while serve
+// runs counts at the next call that has the config; a nil cfg (a config that does not load) keeps the last good set
+// (under mu).
+func (p *proj) wtAgentsNow(cfg *config.Config) []wtAgent {
+	if cfg != nil {
 		p.wtAgents = wtAgents(cfg)
 	}
 	return p.wtAgents
 }
 
 // wtRole is the role of agent when it is a role worktree agent by the current config ("": none; under mu).
-func (p *proj) wtRole(agent string) string {
-	for _, w := range p.wtAgentsNow() {
+func (p *proj) wtRole(cfg *config.Config, agent string) string {
+	for _, w := range p.wtAgentsNow(cfg) {
 		if w.agent == agent {
 			return w.role
 		}
@@ -61,29 +61,21 @@ func (p *proj) wtRole(agent string) string {
 // briefMove moves role's worktree to the integration branch's head for a brief to its agent: only the
 // deep dive's, only while it is idle (roleIdle: no open brief, its pane idle or not running). An error names what
 // failed; the brief is then refused.
-func (a *App) briefMove(ctx context.Context, p *proj, role, agent string) error {
+func (a *App) briefMove(ctx context.Context, p *proj, fx *Loop, role, agent string) error {
 	a.mu.Lock()
 	idle := a.roleIdle(p, agent)
 	a.mu.Unlock()
 	if role != "deep_dive" || !idle {
 		return nil
 	}
-	cfg, err := config.Load(p.root)
+	if fx.Workflow == nil {
+		return fmt.Errorf("the merge loop has no workflow")
+	}
+	head, err := fx.Workflow.Head(ctx, fx.Cfg.MainBranch())
 	if err != nil {
 		return err
 	}
-	fx, err := a.opt.Loop(p.root)
-	if err == nil && fx.Workflow == nil {
-		err = fmt.Errorf("the merge loop has no workflow")
-	}
-	if err != nil {
-		return err
-	}
-	head, err := fx.Workflow.Head(ctx, cfg.MainBranch())
-	if err != nil {
-		return err
-	}
-	return fx.Workflow.Detach(ctx, cfg.RoleWorktree(role), head)
+	return fx.Workflow.Detach(ctx, fx.Cfg.RoleWorktree(role), head)
 }
 
 // Admission: a call that commits in the main checkout (config_set) passes one serve-owned point first.

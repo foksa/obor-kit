@@ -138,15 +138,6 @@ type ReviewSetup struct {
 	Agent, Worktree, Root, Reviews, Branch string
 }
 
-// reviewConfig is ReviewConfig of the project at root.
-func reviewConfig(root string) (ReviewSetup, error) {
-	cfg, err := config.Load(root)
-	if err != nil {
-		return ReviewSetup{}, err
-	}
-	return ReviewConfig(cfg)
-}
-
 // ReviewConfig is cfg's review setup (serve's review start and verify; obor review close); an error names what
 // is missing.
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
@@ -189,7 +180,11 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 	var cfgErr error
 	specs := map[string]error{}
 	if !c.Clear {
-		_, cfgErr = reviewConfig(p.root)
+		cfg, err := p.cfgNow() // the call's one read of the config
+		if err == nil {
+			_, err = ReviewConfig(cfg)
+		}
+		cfgErr = err
 		for _, task := range c.After {
 			_, ok, err := specOf(p, task)
 			if err == nil && !ok {
@@ -276,12 +271,15 @@ func (p *proj) reviewStatus(now time.Time) string {
 // or a file nothing can be read from: the lead's turn). Since is the stage's start: the review's start (reviewing),
 // the verify brief's (verifying), the first pending fix's dispatch (fixes), else the end of the review's own brief or a
 // verify's (the lead's turn). The file is the newest of the review's files once it is in the main checkout.
-func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
+func (a *App) reviewOpen(p *proj, cfg *config.Config) *wire.ReviewOpenStatus {
 	c := p.folded.rv.Cycle()
 	if c.Open() == "" {
 		return nil
 	}
-	s, _ := reviewConfig(p.root) // no reviewer configured: the stage reads without its brief and pane
+	var s ReviewSetup
+	if cfg != nil {
+		s, _ = ReviewConfig(cfg) // no reviewer configured: the stage reads without its brief and pane
+	}
 	ro := &wire.ReviewOpenStatus{ID: c.ID, Tasks: c.Covered, Agent: s.Agent}
 	round := review.Round{ID: c.ID, Covered: c.Covered}
 	if p.fixes.ID == c.ID {
@@ -397,7 +395,7 @@ func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
 	if fx.Workflow == nil {
 		return
 	}
-	_, err := reviewConfig(p.root)
+	_, err := ReviewConfig(fx.Cfg)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p.due = ""
@@ -422,7 +420,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	if !run {
 		return
 	}
-	setup, cfgErr := reviewConfig(p.root)
+	setup, cfgErr := ReviewConfig(fx.Cfg)
 	open, checked := "", ready && cfgErr == nil
 	if checked {
 		open = started.Open()
@@ -510,7 +508,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+event.StepReviewStarted))
 	}
-	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief, false, nil); !ok {
+	if _, ok := a.recordBrief(p, fx.Cfg, s.Agent, "obor", "", "", brief, false, nil); !ok {
 		lost = cmp.Or(lost, p.log.Err(), errors.New("the event log refused the brief"))
 	}
 	if lost != nil {

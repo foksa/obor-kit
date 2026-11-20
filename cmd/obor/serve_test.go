@@ -212,6 +212,9 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 		if !ok || wf.Review == nil || l.Specs == nil || l.Kit == "" {
 			t.Errorf("kind %q: Workflow %T, Specs %v, Kit %q; want scratch-ff with its review git", kind, l.Workflow, l.Specs, l.Kit)
 		}
+		if want, err := config.Load(p.Root); err != nil || l.Cfg == nil || l.Cfg.Rev() != want.Rev() {
+			t.Errorf("kind %q: Cfg %v (load of the project: %v); want the config the adapters were built from", kind, l.Cfg, err)
+		}
 	}
 	p.Config(testkit.Set("merge.workflow", "x"))
 	if _, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{}, noApp)(p.Root); err == nil ||

@@ -32,7 +32,7 @@ func TestReviewTextDiff(t *testing.T) {
 	} {
 		mt := *p.folded.loop["T-1"]
 		mt.cand = port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line", Diff: c.diff}
-		text, err := r.a.reviewText(p, mt, r.kit)
+		text, err := r.a.reviewText(p, mt, loadCfg(t, p.root), r.kit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func TestResolveJobNamesReplayMismatch(t *testing.T) {
 	}
 	mt := mtask{task: "T-05", lane: "L-01", attempt: 1, state: stConflict}
 	mt.line, mt.mismatch = g.Line, g.Mismatch
-	text, err := resolveText(&proj{root: roleRoot(t)}, mt, roleKit(t))
+	text, err := resolveText(mt, loadCfg(t, roleRoot(t)), roleKit(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestResolveJobForUnmergedPathsHasNoMismatchWording(t *testing.T) {
 		t.Fatalf("gateResult: %+v", g)
 	}
 	mt := mtask{task: "T-05", lane: "L-01", attempt: 1, state: stConflict, line: g.Line}
-	text, err := resolveText(&proj{root: roleRoot(t)}, mt, roleKit(t))
+	text, err := resolveText(mt, loadCfg(t, roleRoot(t)), roleKit(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func resolveFetched(t *testing.T, out gateOut) (string, string) {
 	a, p := blockProj(t, l.recs)
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj"}}`)
 	kit, _ := filepath.Abs("../..")
-	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Kit: kit}, nil }
+	a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{Kit: kit}), nil }
 	mt := p.folded.loop[blockTask]
 	if mt == nil || mt.state != stResolving || !mt.openJob() {
 		t.Fatalf("folded task %+v; want an open resolve job", mt)
@@ -558,12 +558,12 @@ func TestStartJobIntegrator(t *testing.T) {
 				_ = json.Unmarshal([]byte(raw), &early)
 			}
 			r.a.mu.Lock()
-			step := r.a.next(p, p.folded.loop["T-1"])
+			step := r.a.next(p, p.folded.loop["T-1"], cfgAt(p.root))
 			r.a.mu.Unlock()
 			if step == nil {
 				t.Fatal("no step")
 			}
-			if !step(context.Background(), &Loop{Agents: f, Prompter: f}) {
+			if !step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f})) {
 				t.Fatal("the job step failed")
 			}
 
@@ -659,7 +659,7 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 				_ = json.Unmarshal([]byte(raw), &early)
 				t.Logf("first prompt=%q; job_next during start=%s", l.Prompt, raw)
 			}
-			fx := &Loop{Agents: f, Prompter: f}
+			fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f})
 			mt := *p.folded.loop["T-1"]
 			if !r.a.job(context.Background(), p, fx, mt, kind) {
 				t.Fatal("job failed")
@@ -696,7 +696,7 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 			t.Fatalf("early worker fetch=%s", raw)
 		}
 	}
-	fx := &Loop{Agents: f, Prompter: f, Kit: r.kit}
+	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	mt := *p.folded.loop["T-2"]
 	d := startData{Agent: mt.agent, Pane: "w1:p2"}
 	if !r.a.startWorker(context.Background(), p, fx, mt, event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepStartWork}, d,

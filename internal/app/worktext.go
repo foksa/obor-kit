@@ -34,11 +34,7 @@ func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key,
 
 // workText is mt's worker prompt, from the project's config and the obor kit at kit as they are now: the prompt
 // template (its prompt_extra the dispatch's model's kind's), then the worker's role texts (one read of them instead of two turns).
-func workText(p *proj, mt mtask, kit string) (string, error) {
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
+func workText(cfg *config.Config, mt mtask, kit string) (string, error) {
 	typ, _ := config.ParseModelRef(mt.disp.Type) // the dispatch's type reference
 	lt, _ := cfg.Model(typ)
 	text, err := workerPrompt(cfg, kit, mt.task, lt)

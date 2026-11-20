@@ -78,7 +78,7 @@ func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time
 // lane, start the worker, send the work job, then watch it until it is delivered. A keep lane with a live agent
 // (keeplane.go) starts none: the work job's wake goes to that session, after the handoff rule stopped one past
 // handoff_tokens. Nothing without the dispatch adapters.
-func (a *App) nextDispatch(p *proj, mt mtask) step {
+func (a *App) nextDispatch(p *proj, mt mtask, cfg *config.Config) step {
 	if !p.dispatching {
 		return nil
 	}
@@ -90,10 +90,10 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, mt.refusedCause(), mt.refused) }
 	case mt.base == "":
 		return func(ctx context.Context, fx *Loop) bool { return a.prepare(ctx, p, fx, mt) }
-	case !mt.started && mt.disp.Keep && mt.work == "" && a.keepWaits(p, mt):
+	case !mt.started && mt.disp.Keep && mt.work == "" && a.keepWaits(p, mt, cfg):
 		return nil // the kept agent is past handoff_tokens: the handoff rule stops it, then it starts fresh
-	case !mt.started && !a.kept(p, mt):
-		return a.nextStart(p, mt)
+	case !mt.started && !a.kept(p, mt, cfg):
+		return a.nextStart(p, mt, cfg)
 	case mt.work == "": // started, or a keep lane's live agent: the wake typed into its session, no start
 		return func(ctx context.Context, fx *Loop) bool {
 			return a.sendWork(ctx, p, fx, mt, nth(event.StepWork, mt.works+1))
@@ -132,7 +132,7 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // lane for Gone: herdr's panes are read again (a cd or a rename in one gives no event) and the agent
 // starts if that finds one; still none: serve places a pane there (PlaceLane) and the next pass starts in it. A failed
 // read is no answer: nothing is recorded and the next pass reads again.
-func (a *App) nextStart(p *proj, mt mtask) step {
+func (a *App) nextStart(p *proj, mt mtask, cfg *config.Config) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
 	pending := false
@@ -141,9 +141,9 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 		pending = true
 	}
 	if !pending || a.obs[d.Pane] == nil {
-		o := a.placement(p, mt.disp.Dir, mt.agent)
+		o := a.placement(p, cfg, mt.disp.Dir, mt.agent)
 		if o == nil {
-			return a.waitPane(p, mt)
+			return a.waitPane(p, mt, cfg)
 		}
 		d.Pane, d.Ran, d.Session = o.pane.ID, o.pane.Agent != "", p.liveSession(mt.agent, o.pane)
 	}
@@ -162,7 +162,7 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 // pane placed (PlaceLane, obor setup pane <LANE>'s own placement) and the next pass starts in it. A failed placement is
 // needs-you{no pane in lane} with its error. serve stopping while the read runs is no answer either: the pass is the
 // last and nothing is recorded.
-func (a *App) waitPane(p *proj, mt mtask) step {
+func (a *App) waitPane(p *proj, mt mtask, cfg *config.Config) step {
 	now := a.opt.Now()
 	since, ok := p.nopane[mt.task]
 	if !ok {
@@ -185,15 +185,15 @@ func (a *App) waitPane(p *proj, mt mtask) step {
 		// has: its cwd is what changed, and its label where the snapshot's holds it back (labelled for another
 		// agent: a rename gives no event either); the next pass starts the agent in it.
 		a.mu.Lock()
-		o := a.paneIn(p, panes, mt.disp.Dir, mt.agent)
+		o := a.paneIn(p, cfg, panes, mt.disp.Dir, mt.agent)
 		usable := false
 		if o != nil && a.obs[o.ID] != nil { // not closed by the stream since the read: that wins
 			s := &a.obs[o.ID].pane
 			s.Cwd = o.Cwd
-			if otherAgent(p.root, s.Label, []string{mt.agent}) {
+			if otherAgent(cfg, s.Label, []string{mt.agent}) {
 				s.Label = o.Label
 			}
-			usable = a.placement(p, mt.disp.Dir, mt.agent) != nil
+			usable = a.placement(p, cfg, mt.disp.Dir, mt.agent) != nil
 		}
 		if o == nil || usable { // the read settled the wait: a pane the next pass starts in, or none to wait for
 			delete(p.nopane, mt.task)
@@ -227,12 +227,12 @@ func (a *App) placeLane(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 
 // placement is paneIn over the snapshot (under mu): the pane of p's group to start the lane at dir's agent in; nil:
 // none. A place to launch into (Launch stops what runs there), never an identity: who runs in a pane is whoIs's.
-func (a *App) placement(p *proj, dir string, names ...string) *seen {
+func (a *App) placement(p *proj, cfg *config.Config, dir string, names ...string) *seen {
 	panes := make([]port.Pane, 0, len(a.obs))
 	for _, o := range a.obs {
 		panes = append(panes, o.pane)
 	}
-	if pane := a.paneIn(p, panes, dir, names...); pane != nil {
+	if pane := a.paneIn(p, cfg, panes, dir, names...); pane != nil {
 		return a.obs[pane.ID]
 	}
 	return nil
@@ -246,11 +246,11 @@ func (a *App) placement(p *proj, dir string, names ...string) *seen {
 // it); a label the config does not know (an old alias) names nobody and does not hold the pane back. nil: none
 // (under mu). A place to launch into (Launch stops what runs there), never an identity: who runs in a pane is
 // whoIs's.
-func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *port.Pane {
+func (a *App) paneIn(p *proj, cfg *config.Config, panes []port.Pane, dir string, names ...string) *port.Pane {
 	var best *port.Pane
 	bestRank := 0
 	for i := range panes {
-		if !inDir(panes[i].Cwd, dir) || a.projectOf(panes[i]) != p || otherAgent(p.root, panes[i].Label, names) {
+		if !inDir(panes[i].Cwd, dir) || a.projectOf(panes[i]) != p || otherAgent(cfg, panes[i].Label, names) {
 			continue
 		}
 		r := 1
@@ -270,18 +270,11 @@ func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *p
 	return best
 }
 
-// otherAgent is whether label names an agent of root's project other than names (under mu), by the one label rule
+// otherAgent is whether label names an agent of cfg's project other than names (under mu), by the one label rule
 // (config.NamesOtherAgent, the one Locate reads too): a lane's or a role's name. A label the config
 // does not know — an old alias, a person's note — names nobody.
-func otherAgent(root, label string, names []string) bool {
-	if label == "" {
-		return false
-	}
-	cfg, err := config.Load(root)
-	if err != nil {
-		return false
-	}
-	return cfg.NamesOtherAgent(label, names...)
+func otherAgent(cfg *config.Config, label string, names []string) bool {
+	return label != "" && cfg.NamesOtherAgent(label, names...)
 }
 
 // startWorker runs agent.start (S): a fresh session of the lane's agent in its pane (Agents.Launch, force as the
@@ -341,7 +334,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 			return nil, err
 		}
 		return startOut{Line: s.Line, Agent: d.Agent, Pane: d.Pane, Terminal: s.Terminal, Kind: s.Kind, Session: s.Session,
-			Config: p.configRev()}, nil
+			Config: fx.Cfg.Rev()}, nil
 	})
 }
 

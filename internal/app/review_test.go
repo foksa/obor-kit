@@ -388,14 +388,14 @@ func TestReviewClaimIsInFlight(t *testing.T) {
 		r.a.record(r.p, event.Record{Task: "T-a", Attempt: 1, Step: step, Kind: event.KindResult}, nil)
 	}
 	r.a.mu.Lock()
-	n := r.p.idleNow()
+	n := r.p.idleNow(loadCfg(t, r.p.root))
 	r.a.mu.Unlock()
 	if !n.ok {
 		t.Fatalf("precondition: T-a merged with its after-merge steps done is not idle: %+v", n)
 	}
 	r.a.mu.Lock()
 	r.p.rv.what = "starting"
-	n = r.p.idleNow()
+	n = r.p.idleNow(loadCfg(t, r.p.root))
 	r.a.mu.Unlock()
 	if n.ok {
 		t.Error("idle while a pass starts the review request")
@@ -424,7 +424,7 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 	r := newReviewRig(t)
 	r.mergedAt("T-c", "ccccccc3")
 	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-5", Head: "ddddddd4", Tasks: []string{"T-a", "T-b"}})
-	s, err := reviewConfig(r.p.root)
+	s, err := ReviewConfig(loadCfg(t, r.p.root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func TestReviewOpenStages(t *testing.T) {
 	r.now = r.now.Add(5 * time.Minute)
 	written := r.now
 	lineStatus(r.a, "w:rev", "idle", r.now)
-	r.a.deliver(context.Background(), r.p, &Loop{Inbox: &inboxSpy{}}) // the finished line ends the brief
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Inbox: &inboxSpy{}})) // the finished line ends the brief
 	if r.p.out.Brief("pj-rev") != nil {
 		t.Fatal("precondition: the reviewer's brief is still open")
 	}

@@ -465,7 +465,7 @@ func TestBlockedNeedsYouCarriesTheQuestion(t *testing.T) {
 	h := ruleHarness(t)
 	h.panes.screen = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" })
-	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, &Loop{})
+	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, withAppCfg(h.a, &Loop{}))
 	_, lines := ruleLines(t, h)
 	if len(lines) != 1 {
 		t.Fatalf("needs-you lines = %q, want one", lines)

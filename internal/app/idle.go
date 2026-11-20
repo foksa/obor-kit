@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"strings"
 	"time"
 )
@@ -87,7 +88,7 @@ func (p *proj) foldIdle(r event.Record) {
 // review request's end (every end: a failed --after end, a --rm or a firing). A project that never merged or dropped
 // is idle as well, its last "no merge yet" and its end 0: the lead's rule and obor idle agree before the first end.
 // Not idle: why names the first condition that said no.
-func (p *proj) idleNow() idle {
+func (p *proj) idleNow(cfg *config.Config) idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
 	for _, task := range p.loopTasks() {
@@ -137,12 +138,12 @@ func (p *proj) idleNow() idle {
 		}
 		return idle{why: why}
 	}
-	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
+	for _, w := range p.wtAgentsNow(cfg) { // an open brief to the reviewer or the deep dive is work in flight
 		if p.out.Brief(w.agent) != nil {
 			return idle{why: w.agent + " holds a brief"}
 		}
 	}
-	end, _ := p.idleEnd()
+	end, _ := p.idleEnd(cfg)
 	return idle{last: last, end: end.seq, at: end.at, ok: true}
 }
 
@@ -173,7 +174,7 @@ func (p *proj) reviewIdleText() string {
 // idleEnd is the newest record that ended what the pipeline waited on (under mu): idleNow's key once nothing is in
 // flight, whether or not it is now; and the task whose record it is ("": a review request's or a brief's end, or
 // none). The prune keeps that task whole: its pruned replay would move the key back to its merged fact.
-func (p *proj) idleEnd() (idleEnd, string) {
+func (p *proj) idleEnd(cfg *config.Config) (idleEnd, string) {
 	var end idleEnd
 	by := ""
 	newer := func(e idleEnd, task string) {
@@ -191,7 +192,7 @@ func (p *proj) idleEnd() (idleEnd, string) {
 		}
 	}
 	newer(p.folded.reviewIdleEnd, "")
-	for _, w := range p.wtAgentsNow() {
+	for _, w := range p.wtAgentsNow(cfg) {
 		newer(p.folded.briefEnds[w.agent], "")
 	}
 	return end, by
@@ -200,24 +201,24 @@ func (p *proj) idleEnd() (idleEnd, string) {
 // idleOpen is the idle state the lead has not acknowledged (under mu): idleNow's answer, ok when nothing is in flight,
 // the project has a lead and no acknowledgement names its key. A state with no end yet (key 0, a project that never
 // merged) counts as acknowledged: no line goes out before the first end.
-func (p *proj) idleOpen() (idle, bool) {
-	n := p.idleNow()
+func (p *proj) idleOpen(cfg *config.Config) (idle, bool) {
+	n := p.idleNow(cfg)
 	return n, n.ok && p.out.Lead() != "" && p.folded.idleAck.Key != n.end
 }
 
 // idleRule is the idle line's rule: the line once per key while the state is open.
-func idleRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
+func idleRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()
-	n, ok := p.idleOpen()
+	n, ok := p.idleOpen(cfgOf(fx))
 	a.mu.Unlock()
 	return n.end, action{line: idleLine(n.last)}, ok
 }
 
 // idlePingRule is the ping's rule: idlePingAfter after the key's line, still open, the owner's notification and the
 // line again.
-func idlePingRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
+func idlePingRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
 	a.mu.Lock()
-	n, ok := p.idleOpen()
+	n, ok := p.idleOpen(cfgOf(fx))
 	lined, did := p.folded.did[event.Of{Kind: ruleIdle, Seq: n.end}]
 	a.mu.Unlock()
 	if !ok || !did || now.Sub(lined) < idlePingAfter {
@@ -264,8 +265,9 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 		return "", fmt.Errorf("idle: the lead or the owner answers it, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
 	why := oneLine(c.Why)
+	cfg, _ := p.cfgNow() // the call's one read of the config; one that does not load keeps the role worktree agents last known
 	a.mu.Lock()
-	n := p.idleNow()
+	n := p.idleNow(cfg)
 	shown := p.idleText(n)
 	a.mu.Unlock()
 	switch {

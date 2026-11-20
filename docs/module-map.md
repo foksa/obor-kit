@@ -109,6 +109,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `activity.go` | the agents' own activity, the watchdogs' evidence: transcripts' last write and last turn, child processes under a pane's agent | `agentFiles.Activity` |
 | `app.go` | types, options | `Ready` |
 | `block.go` | the merge loop's needs-you as a block on a task's phase | `mtask.block` |
+| `cfg.go` | where the core reads the project's config: `Loop.Cfg` for a pass and the verbs that take a Loop, `proj.cfgNow` at the other entries | `proj.cfgNow` |
 | `configset.go` | the owner's setup edit from obor web, through the `ConfigFile` port | `App.configCall` |
 | `cutwait.go` | a wait that is cut (uncounted waits, `cutWaits`, `cutEnd`) | `App.uncounted` |
 | `describe.go` | a record as the readers word it, decoded with the types serve writes it with; the view's one reader of record data | `Describe` |

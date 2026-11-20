@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"obor/internal/app/wire"
+	"obor/internal/config"
 )
 
 // The merge loop (docs/state-model.md rows 16–38, rules 3–5). A worker's task_done submits its task; submit
@@ -31,6 +32,10 @@ import (
 
 // Loop is what the merge loop drives in one project.
 type Loop struct {
+	// Cfg is the project's config as the adapters were built from it: the one a pass (or a socket verb that takes a
+	// Loop) runs on, so a merge that changes the config file mid-pass changes nothing in it. Every use in the core
+	// reads this value; a config that does not load builds no Loop.
+	Cfg *config.Config
 	// Workflow is the project's git workflow (port.Workflow: the merge slot, the lanes, the target, the
 	// review's git; workflow.kind picks it at serve start). Nil: a Loop without one (tests): nothing
 	// is gated, published, dispatched or reviewed.
@@ -648,7 +653,7 @@ func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 	}
 	for i := 0; i < maxSteps && ctx.Err() == nil; i++ {
 		a.mu.Lock()
-		step := a.next(p, p.folded.loop[task])
+		step := a.next(p, p.folded.loop[task], fx.Cfg)
 		a.mu.Unlock()
 		if step == nil || !step(ctx, fx) {
 			return
@@ -668,11 +673,11 @@ type step func(ctx context.Context, fx *Loop) bool
 // p.ended); the same check holds the task (p.held) until the step returns (a job sample's read excepted: sampleJob),
 // and a drop is refused meanwhile. Drop decides under the same lock (App.drop), so no effect starts after DROPPED, and
 // none is still starting when DROPPED is returned.
-func (a *App) next(p *proj, m *mtask) step {
+func (a *App) next(p *proj, m *mtask, cfg *config.Config) step {
 	if !m.needs.due() && p.taskCutWaits(m.task) {
 		return nil // a step of it waits after an uncounted attempt (a due needs-you is recorded all the same)
 	}
-	s := a.pick(p, m)
+	s := a.pick(p, m, cfg)
 	if s == nil {
 		return nil
 	}
@@ -725,7 +730,7 @@ func (mt mtask) stepName() string {
 
 // pick is mt's next step (under mu), nil when it waits: a block first — a due one is recorded (pickDue), a held one
 // waits for the owner — else its state's pick.
-func (a *App) pick(p *proj, m *mtask) step {
+func (a *App) pick(p *proj, m *mtask, cfg *config.Config) step {
 	switch {
 	case m.needs.due():
 		return a.pickDue(p, *m)
@@ -733,7 +738,7 @@ func (a *App) pick(p *proj, m *mtask) step {
 		return nil
 	}
 	if f := states[m.state].pick; f != nil {
-		return f(a, p, *m)
+		return f(a, p, *m, cfg)
 	}
 	return nil
 }

@@ -75,16 +75,16 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	s, err := reviewConfig(p.root)
+	fx, err := a.loopOf(p) // the call's one read of the config
+	if err != nil {
+		return "", fmt.Errorf("review close: %v", err)
+	}
+	s, err := ReviewConfig(fx.Cfg)
 	if err != nil {
 		return "", err
 	}
-	fx, err := a.loopOf(p)
-	if err == nil && fx.Workflow == nil {
-		err = errors.New("the merge loop has no workflow")
-	}
-	if err != nil {
-		return "", fmt.Errorf("review close: %v", err)
+	if fx.Workflow == nil {
+		return "", errors.New("review close: the merge loop has no workflow")
 	}
 	wait, cancel := context.WithTimeout(a.life, admitWait)
 	release, err := a.admit(wait, p) // a publish running ends first; none starts until the commit is in
@@ -123,7 +123,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 	a.mu.Lock()
 	open := p.folded.rv.Last()
 	a.mu.Unlock()
-	if err := a.closeCommitted(ctx, p, g, open); err != nil { // a commit whose fact a crash cut: never committed twice
+	if err := a.closeCommitted(ctx, p, g, s, open); err != nil { // a commit whose fact a crash cut: never committed twice
 		return "", fmt.Errorf("review close: is %s closed in git: %v: nothing changed", open.ID, err)
 	}
 	o, err := a.openReview(p, s, closeUnwrittenHint)
@@ -189,9 +189,11 @@ func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 		return
 	}
 	defer a.configMu.Unlock()
-	if err := a.closeCommitted(ctx, p, fx.Workflow, open); err != nil {
-		a.logf("%s: is %s closed in git: %v", p.name, open.ID, err)
-		return
+	if s, err := ReviewConfig(fx.Cfg); err == nil { // reviews not set up: no close to read
+		if err := a.closeCommitted(ctx, p, fx.Workflow, s, open); err != nil {
+			a.logf("%s: is %s closed in git: %v", p.name, open.ID, err)
+			return
+		}
 	}
 	a.mu.Lock()
 	p.closeRead = true
@@ -199,13 +201,9 @@ func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 }
 
 // closeCommitted records fact review.closed from open's own close commit when there is one (under configMu).
-func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open review.Last) error {
+func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, s ReviewSetup, open review.Last) error {
 	if open.Open() == "" {
 		return nil
-	}
-	s, err := reviewConfig(p.root)
-	if err != nil {
-		return nil // reviews are not set up: no close to read
 	}
 	ctx, cancel := context.WithTimeout(ctx, verifyGitWait)
 	defer cancel()

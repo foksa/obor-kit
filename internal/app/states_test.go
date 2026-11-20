@@ -37,7 +37,7 @@ func checkRow(t *testing.T, w rowWant) {
 	if !ok {
 		t.Fatalf("precondition: no row for state %q", mt.state)
 	}
-	if w.waits && (&App{}).pick(&proj{}, &mt) != nil || !w.waits && row.pick == nil {
+	if w.waits && (&App{}).pick(&proj{}, &mt, nil) != nil || !w.waits && row.pick == nil {
 		t.Errorf("%s: pick %v, want waits %v", mt.state, row.pick != nil, w.waits)
 	}
 	same(t, mt.stepName(), w.name, mt.state+": step name")
@@ -248,11 +248,11 @@ func TestStateWaitingRow2a(t *testing.T) {
 				p.folded.loop[task] = &mtask{task: task, attempt: 1, state: st}
 			}
 		}
-		if got := (&App{}).pick(p, &mt) != nil; got != c.step {
+		if got := (&App{}).pick(p, &mt, nil) != nil; got != c.step {
 			t.Errorf("%s: a step %v, want %v", c.name, got, c.step)
 		}
 		p.dispatching = false
-		if (&App{}).pick(p, &mt) != nil {
+		if (&App{}).pick(p, &mt, nil) != nil {
 			t.Errorf("%s: a step without the dispatch adapters", c.name)
 		}
 	}

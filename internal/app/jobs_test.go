@@ -24,7 +24,7 @@ func lostStep(r *concRig, p *proj) bool {
 	r.a.mu.Lock()
 	step := r.a.watchJob(p, *p.folded.loop["T-1"])
 	r.a.mu.Unlock()
-	return step != nil && step(context.Background(), &Loop{})
+	return step != nil && step(context.Background(), withAppCfg(r.a, &Loop{}))
 }
 
 func TestIntegratorJobLostOnlyOnProof(t *testing.T) {

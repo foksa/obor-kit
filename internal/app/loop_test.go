@@ -338,7 +338,7 @@ func TestReplayStateText(t *testing.T) {
 	if d := firstDiff(before, replayState(old, "pj-lead")); d != "" {
 		t.Errorf("an older obor's review.fix and review.verify.request changed the state: %s", d)
 	}
-	if _, ok := r.a.recordBrief(r.p, "pj-rev", "obor", "verify", "", "", false,
+	if _, ok := r.a.recordBrief(r.p, loadCfg(t, r.p.root), "pj-rev", "obor", "verify", "", "", false,
 		&verifyBrief{tasks: []string{"T-a"}, head: headSHA}); !ok {
 		t.Fatal("the verify brief was not recorded")
 	}
@@ -366,10 +366,10 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 		Task: "T-1", Lane: "L-01", SHA: "c-T-1", Target: "b", Base: "b0", Patch: "p1"}})
 
 	var calls atomic.Int32
-	r.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit,
+	r.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit,
 			// serve ends on the restart, as its exec does.
-			Restart: func(context.Context) error { calls.Add(1); r.cancel(); return nil }}, nil
+			Restart: func(context.Context) error { calls.Add(1); r.cancel(); return nil }}), nil
 	}
 	r.a.opt.Binary = func() bool { return true }
 	r.run()

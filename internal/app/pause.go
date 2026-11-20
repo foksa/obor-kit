@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"obor/internal/config"
 	"strings"
 	"time"
 )
@@ -104,7 +103,7 @@ func (a *App) pauseCall(c wire.PauseReq) (string, error) {
 	what := ""
 	if c.Model != "" && p != nil && !stored {
 		what = " " + c.Model
-		cfg, err := config.Load(p.root)
+		cfg, err := p.cfgNow()
 		if err != nil {
 			return "", fmt.Errorf("pause: %v", err)
 		}

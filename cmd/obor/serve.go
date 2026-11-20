@@ -201,7 +201,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		if err != nil {
 			return nil, err
 		}
-		l := &app.Loop{Workflow: wf, Agents: agents, Prompter: term.Control, Nightly: nightly(o), Disk: diskOf(repo.Root),
+		l := &app.Loop{Cfg: cfg, Workflow: wf, Agents: agents, Prompter: term.Control, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{root: repo.Root, kinds: cfg.Kinds()}}
 		// A lane with no pane at its worker's start: serve places one, as obor setup pane <LANE> does.
 		l.PlaceLane = func(ctx context.Context, lane string) (string, error) {

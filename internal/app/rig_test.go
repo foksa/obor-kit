@@ -50,7 +50,7 @@ func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev 
 		Candidate: port.Candidate{Task: "T-1", SHA: sha, Target: "base1", Patch: "same-diff"}})
 	p := h.a.p
 	mt := *p.folded.loop["T-1"]
-	if !h.a.job(ctx, p, &Loop{Agents: f, Prompter: f}, mt, nth(event.StepReview, mt.reviews+1)) {
+	if !h.a.job(ctx, p, withAppCfg(h.a, &Loop{Agents: f, Prompter: f}), mt, nth(event.StepReview, mt.reviews+1)) {
 		t.Fatal("precondition: the review job was not sent")
 	}
 	if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-int",
@@ -98,7 +98,9 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 		port.Pane{ID: "w1:rev", Group: "pj", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Group: "pj", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
+	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -184,8 +186,8 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 	if gated {
 		r.s.release = make(chan struct{})
 	}
-	r.fx = &Loop{Workflow: WorkflowOf(r.s, r.git), Agents: r.agents, Prompter: f}
-	h.a.opt.Loop = func(string) (*Loop, error) { return r.fx, nil }
+	r.fx = withCfg(h.root, &Loop{Workflow: WorkflowOf(r.s, r.git), Agents: r.agents, Prompter: f})
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, r.fx), nil }
 	return r
 }
 
@@ -226,7 +228,7 @@ func (r *admitRig) selectPublish() step {
 	r.h.t.Helper()
 	a := r.h.a
 	a.mu.Lock()
-	s := a.next(a.p, a.p.folded.loop["T-1"])
+	s := a.next(a.p, a.p.folded.loop["T-1"], cfgAt(a.p.root))
 	a.mu.Unlock()
 	if s == nil {
 		r.h.t.Fatal("precondition: no step selected for T-1")
@@ -242,8 +244,8 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	f := newConcFakes("")
-	fx := &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}
-	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
+	fx := withAppCfg(h.a, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f})
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
@@ -308,7 +310,7 @@ func busyAnswered(t *testing.T) *harness {
 	h := staleHerdr(t)
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	in := &kindSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: &linerSpy{}}))
 	if len(in.calls) != 0 || len(h.lines()) != 1 || len(h.a.Status().Project.Messages) != 1 {
 		t.Fatalf("precondition: posted %q, queued %q; want the answer waiting for the busy worker", in.calls, h.lines())
 	}
@@ -320,7 +322,7 @@ func askSeed(t *testing.T) (*harness, *proj) {
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
@@ -486,12 +488,12 @@ func newConcRig(t *testing.T) *concRig {
 		r.roots[name] = root
 		f := newConcFakes("")
 		r.fakes[name] = f
-		fx := &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit}
+		fx := withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit})
 		if name == "pj" {
 			fx.Specs = f
 		}
 		a := newTestApp(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
-		a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
+		a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 		loadRoot(t, a)
 		r.apps[name] = a
 	}
@@ -747,7 +749,7 @@ func (r *concRig) runStep(name, task string) {
 	fx := r.concLoop(name)
 	a.mu.Lock()
 	p := a.p
-	st := a.next(p, p.folded.loop[task])
+	st := a.next(p, p.folded.loop[task], cfgAt(p.root))
 	a.mu.Unlock()
 	if st == nil {
 		r.t.Fatalf("%s: no step for %s: state %s", name, task, r.state(name, task))
@@ -2086,7 +2088,7 @@ func (h *harness) stop(f *idAgents) (string, error) {
 	h.a.mu.Lock()
 	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
-	return h.a.stopWorker(context.Background(), p, &Loop{Agents: f}, mtask{task: "T-1", attempt: 1, lane: "L-01",
+	return h.a.stopWorker(context.Background(), p, withAppCfg(h.a, &Loop{Agents: f}), mtask{task: "T-1", attempt: 1, lane: "L-01",
 		agent: "pj-l-01"})
 }
 
@@ -2137,7 +2139,7 @@ func (h *harness) stopWith(ag port.Launcher) (string, error) {
 	h.a.mu.Lock()
 	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
-	return h.a.stopWorker(context.Background(), p, &Loop{Agents: ag}, mtask{task: "T-1", attempt: 1, lane: "L-01",
+	return h.a.stopWorker(context.Background(), p, withAppCfg(h.a, &Loop{Agents: ag}), mtask{task: "T-1", attempt: 1, lane: "L-01",
 		agent: "pj-l-01"})
 }
 
@@ -2174,7 +2176,7 @@ func (r *reviewRig) afterStepsDone(task string) {
 
 // idlePass is the merge loop's rule pass after its advance.
 func (r *reviewRig) idlePass() {
-	r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+	r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 }
 
 // idleSettled lets the idle window pass at the rig's clock: the first check starts (or keeps) it, the clock moves past
@@ -2190,7 +2192,7 @@ func (r *reviewRig) idleSettled() {
 func (r *reviewRig) idleOK() bool {
 	r.a.mu.Lock()
 	defer r.a.mu.Unlock()
-	return r.p.idleNow().ok
+	return r.p.idleNow(cfgAt(r.p.root)).ok
 }
 
 // idlePosts are the idle lines the log recorded to the lead, in order.
@@ -2235,7 +2237,7 @@ type lineStep func(t *testing.T, h *harness)
 func passOf(r rule, d time.Duration) lineStep {
 	return func(_ *testing.T, h *harness) {
 		h.now = h.now.Add(d)
-		h.a.rulePass(context.Background(), []rule{r}, &Loop{})
+		h.a.rulePass(context.Background(), []rule{r}, withAppCfg(h.a, &Loop{}))
 	}
 }
 
@@ -2308,7 +2310,7 @@ func lineRoot(t *testing.T) string {
 // lineApp loads root's log and connects to a snapshot with the lead and the reviewer pj-rev idle.
 func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	t.Helper()
-	a := newTestApp(Options{Now: func() time.Time { return *now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
+	a := newTestApp(Options{Now: func() time.Time { return *now }, Loop: func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }},
 		&fakePanes{}, &fakeLanes{})
 	p, err := a.load(root)
 	if err != nil {
@@ -2689,7 +2691,7 @@ func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness
 	kit, _ := filepath.Abs("../..")
 	f := &boxPrompter{box: map[string]string{}}
 	ag := &startAgents{h: h, sid: "new-session"}
-	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, PlaceLane: h.placeLane, Prompter: f, Kit: kit}, f, ag
+	return h, withAppCfg(h.a, &Loop{Workflow: WorkflowOf(s), Agents: ag, PlaceLane: h.placeLane, Prompter: f, Kit: kit}), f, ag
 }
 
 // placeLane is serve's lane placement on the harness (Loop.PlaceLane): the lane it was asked about, and a new pane's id
@@ -2707,7 +2709,7 @@ func (h *harness) step(t *testing.T, fx *Loop) bool {
 	t.Helper()
 	p := h.proj()
 	h.a.mu.Lock()
-	s := h.a.nextDispatch(p, *p.folded.loop["T-1"])
+	s := h.a.nextDispatch(p, *p.folded.loop["T-1"], loadCfg(t, p.root))
 	h.a.mu.Unlock()
 	return s != nil && s(context.Background(), fx)
 }
@@ -2770,8 +2772,8 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: "../.."}, nil
+	h.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: "../.."}), nil
 	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -2800,7 +2802,7 @@ func pickGreenStep(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 		p = reloadProj(t, h)
 	}
 	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
-	if s == nil || !s(context.Background(), &Loop{Agents: f, Prompter: f}) {
+	if s == nil || !s(context.Background(), withAppCfg(h.a, &Loop{Agents: f, Prompter: f})) {
 		t.Fatal("pickGreen: no step, or it failed")
 	}
 	return p.folded.loop["T-1"]
@@ -3046,7 +3048,9 @@ func (r *reviewRig) mergedAt(task, sha string) {
 
 // wire gives obor review's call the rig's git (its open-review check reads the merge loop's).
 func (r *reviewRig) wire() {
-	r.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}, nil }
+	r.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}), nil
+	}
 }
 
 // reload is a restart: the log replayed.
@@ -3065,7 +3069,7 @@ func (r *reviewRig) started() {
 	}
 	lineStatus(r.a, "w:rev", "working", r.now)
 	lineStatus(r.a, "w:rev", "idle", r.now)
-	r.a.deliver(context.Background(), r.p, &Loop{Inbox: &inboxSpy{}}) // records the finished line
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Inbox: &inboxSpy{}})) // records the finished line
 	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open")
 	}
@@ -3095,12 +3099,12 @@ func (r *reviewRig) refuseStep(step string) {
 
 // pass is one review pass.
 func (r *reviewRig) pass() {
-	r.a.reviewPass(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+	r.a.reviewPass(context.Background(), r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 }
 
 // tick is one "review due" count.
 func (r *reviewRig) tick() {
-	r.a.reviewDueTick(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+	r.a.reviewDueTick(context.Background(), r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 }
 
 // call is an obor review start request from the lead.
@@ -3264,7 +3268,7 @@ func fixRig(t *testing.T) *reviewRig {
 
 // verifyPass is one rule pass of the verify rule alone.
 func (r *reviewRig) verifyPass() {
-	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 }
 
 // cycle is RV-5's cycle as serve's close reads it (the test fails on an error).
@@ -3324,10 +3328,10 @@ func (r *reviewRig) finish() {
 	if r.p.out.Brief("pj-rev") == nil {
 		r.t.Fatal("precondition: the reviewer has no open brief to finish")
 	}
-	r.a.deliver(context.Background(), r.p, &Loop{Prompter: &linerSpy{}})
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
 	r.working(true)
 	r.working(false)
-	r.a.deliver(context.Background(), r.p, &Loop{Prompter: &linerSpy{}})
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
 	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open after its work")
 	}
@@ -3358,7 +3362,7 @@ func briefedVerify(t *testing.T) *reviewRig {
 	r.merged("T-a")
 	r.merged("T-b")
 	r.verifyPass()
-	r.a.deliver(context.Background(), r.p, &Loop{Prompter: &linerSpy{}})
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
 	r.working(true)
 	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.Brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
 		t.Fatalf("precondition: %d verify briefs, brief open %t, pending %q; want one open, T-a,T-b pending", n,
@@ -3397,7 +3401,7 @@ func ruleHarness(t *testing.T) *harness {
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	h.connect()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
 	if p := h.proj(); !p.merging || p.out.Lead() != "pj-lead" {
@@ -3536,7 +3540,9 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
+	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3870,7 +3876,7 @@ func (h *harness) selected() step {
 	h.t.Helper()
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	return h.a.next(h.a.p, h.a.p.folded.loop["T-1"])
+	return h.a.next(h.a.p, h.a.p.folded.loop["T-1"], cfgAt(h.a.p.root))
 }
 
 func (h *harness) freeLanes() {

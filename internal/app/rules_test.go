@@ -77,7 +77,7 @@ func TestRulePass(t *testing.T) {
 			sawNeeds := false
 			for _, ps := range c.passes {
 				h.now, fail = h.now.Add(ps.after), ps.fail
-				h.a.rulePass(context.Background(), []rule{r}, &Loop{})
+				h.a.rulePass(context.Background(), []rule{r}, withAppCfg(h.a, &Loop{}))
 				sawNeeds = sawNeeds || p.has(event.RuleTask, event.StepNeedsYou, "rule test failed 3 passes in a row (serve's log names the errors)")
 			}
 			ofs, _ := ruleLines(t, h)
@@ -107,7 +107,7 @@ func TestIdleRules(t *testing.T) {
 	pass := func(d time.Duration) step {
 		return func(_ *testing.T, h *harness) {
 			h.now = h.now.Add(d)
-			h.a.rulePass(context.Background(), rules, &Loop{})
+			h.a.rulePass(context.Background(), rules, withAppCfg(h.a, &Loop{}))
 		}
 	}
 	merged := func(task string) step { // task submitted and merged outside the app: no after-merge step left
@@ -249,7 +249,7 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 				t.Fatalf("precondition: pj-l-01's pane at its shell %v, want %v", shell, !c.runs)
 			}
 			spy := &agentsSpy{}
-			key, act, ok := workerStartRule(context.Background(), h.a, p, &Loop{Agents: spy}, h.now)
+			key, act, ok := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now)
 			if ok != (c.wake != "") {
 				t.Fatalf("condition %v, want %v", ok, c.wake != "")
 			}
@@ -274,7 +274,7 @@ func TestStopAlarmRule(t *testing.T) {
 	alarm := rule{name: ruleStopAlarm, when: stopAlarmRule}
 	pass := func(h *harness, d time.Duration) {
 		h.now = h.now.Add(d)
-		h.a.rulePass(context.Background(), []rule{alarm}, &Loop{})
+		h.a.rulePass(context.Background(), []rule{alarm}, withAppCfg(h.a, &Loop{}))
 	}
 	stopped := func(h *harness) {
 		stoppedBrief(h.proj(), "pj-rev", 1, 9, h.now.Add(-time.Hour))
@@ -497,7 +497,7 @@ func TestNeedsRuleToast(t *testing.T) {
 	needs := rule{name: ruleNeeds, when: needsRule}
 	pass := func(h *harness, d time.Duration) {
 		h.now = h.now.Add(d)
-		h.a.rulePass(context.Background(), []rule{needs}, &Loop{})
+		h.a.rulePass(context.Background(), []rule{needs}, withAppCfg(h.a, &Loop{}))
 	}
 	fact := func(t *testing.T, h *harness) {
 		addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Reason: "blocked"})
@@ -563,7 +563,7 @@ func TestOldNotifyRecordsReplay(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.withLead()
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	t.Cleanup(func() {
 		if p := h.a.p; p != nil {
 			p.log.Close()
@@ -586,7 +586,7 @@ func TestOldNotifyRecordsReplay(t *testing.T) {
 	if !p.merging || p.out.Lead() == "" || len(p.needsYou()) != 1 {
 		t.Fatalf("precondition: merging %v, lead %q, needs-yous %d", p.merging, p.out.Lead(), len(p.needsYou()))
 	}
-	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}, {name: ruleStopAlarm, when: stopAlarmRule}}, &Loop{})
+	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}, {name: ruleStopAlarm, when: stopAlarmRule}}, withAppCfg(h.a, &Loop{}))
 	if notes := h.panes.notes; len(notes) != 0 {
 		t.Errorf("notifications after the replay: %q, want none", notes)
 	}
@@ -615,8 +615,8 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	in := &countPoster{}
-	fx := &Loop{Inbox: in, Prompter: in}
-	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
+	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: in})
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
 	h.connect()
 	p := h.proj()

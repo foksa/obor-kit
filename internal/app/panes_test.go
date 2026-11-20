@@ -113,7 +113,7 @@ func TestRereadCanceledContextRecordsNothing(t *testing.T) {
 	cancel()
 	p := h.proj()
 	h.a.mu.Lock()
-	s := h.a.nextDispatch(p, *p.folded.loop["T-1"])
+	s := h.a.nextDispatch(p, *p.folded.loop["T-1"], loadCfg(t, p.root))
 	h.a.mu.Unlock()
 	if s == nil || s(ctx, fx) {
 		t.Fatal("a canceled re-read answered the pass")
@@ -156,7 +156,7 @@ func TestRereadCanceledAfterItsAnswerRecordsNothing(t *testing.T) {
 	h.panes.after = cancel // serve stops once the read has answered
 	p := h.proj()
 	h.a.mu.Lock()
-	s := h.a.nextDispatch(p, *p.folded.loop["T-1"])
+	s := h.a.nextDispatch(p, *p.folded.loop["T-1"], loadCfg(t, p.root))
 	h.a.mu.Unlock()
 	if s == nil {
 		t.Fatal("precondition: the wait's step")

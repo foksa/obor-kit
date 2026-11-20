@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"strings"
 )
 
@@ -16,10 +17,10 @@ import (
 // state: a block on one (mtask.needs, block.go), which pick, may and phase see first. A new state is one row here (and
 // one test, TestState<Name>Row<N>).
 type stateRow struct {
-	pick     func(a *App, p *proj, mt mtask) step // its next step (under mu); nil, or no pick: it waits
-	name     func(mt mtask) string                // the step pick selects, for a refused drop's reply (nil: "a step (<state>)")
-	verdicts []verdictRule                        // the integrator's verdicts on the job it has out, in the order a refusal names them
-	verbs    verb                                 // the task verbs it takes (mtask.may; each also needs proj.busy "")
+	pick     func(a *App, p *proj, mt mtask, cfg *config.Config) step // its next step on the pass's config (under mu); nil, or no pick: it waits
+	name     func(mt mtask) string                                    // the step pick selects, for a refused drop's reply (nil: "a step (<state>)")
+	verdicts []verdictRule                                            // the integrator's verdicts on the job it has out, in the order a refusal names them
+	verbs    verb                                                     // the task verbs it takes (mtask.may; each also needs proj.busy "")
 	resume   func(mt mtask, cause string) resumeRule
 	scratch  bool   // its merge is open in the scratch: no other task is gated (scratchHolder)
 	uses     string // its step needs the scratch: ScratchGating (a gate) or ScratchPublishing ("": none; scratchWait)
@@ -80,28 +81,28 @@ var states map[string]stateRow
 func init() {
 	states = map[string]stateRow{
 		// rows 16, 18, 34: submit the lane's commit, then gate it (a conflict open in the scratch: wait)
-		stSubmitted: {pick: (*App).pickGate, name: gateName, verbs: vDrop, landed: true, uses: wire.ScratchGating,
+		stSubmitted: {pick: plain((*App).pickGate), name: gateName, verbs: vDrop, landed: true, uses: wire.ScratchGating,
 			phase: wire.PhaseSubmitted},
 		// row 18b: the slot merged and compiled it; its lane test runs outside the scratch, one per lane
-		stCandidate: {pick: (*App).pickTest, name: func(mt mtask) string { return nth(event.StepTest, mt.tests+1) },
+		stCandidate: {pick: plain((*App).pickTest), name: func(mt mtask) string { return nth(event.StepTest, mt.tests+1) },
 			verbs: vDrop, landed: true, phase: wire.PhaseTesting},
 		// rows 19–20: an accept bound to the patch is kept, else a review job
-		stGreen: {pick: (*App).pickGreen, name: func(mt mtask) string { return nth(event.StepReview, mt.reviews+1) },
+		stGreen: {pick: plain((*App).pickGreen), name: func(mt mtask) string { return nth(event.StepReview, mt.reviews+1) },
 			verbs: vResume | vDrop, landed: true, phase: wire.PhaseReview},
 		// rows 19, 25–29, 31: the review job is out
-		stAwaiting: {pick: (*App).pickJob, name: jobName, verbs: vResume | vDrop, landed: true, phase: wire.PhaseReviewing,
+		stAwaiting: {pick: plain((*App).pickJob), name: jobName, verbs: vResume | vDrop, landed: true, phase: wire.PhaseReviewing,
 			verdicts: []verdictRule{
 				{wire.MethodAccept, func(mt *mtask, v verdictResult) { mt.accepted, mt.state = v.Patch, stAccepted }},
 				{wire.MethodSendback, foldSendback},
 				{wire.MethodReject, func(mt *mtask, v verdictResult) { mt.state, mt.line = stRejected, v.Note }},
 			}},
 		// rows 21–22: a sendback, or the owner after K
-		stRed: {pick: (*App).pickRed, verbs: vDrop, landed: true, phase: wire.PhaseGating},
+		stRed: {pick: plain((*App).pickRed), verbs: vDrop, landed: true, phase: wire.PhaseGating},
 		// rows 18, 23: a resolve job
-		stConflict: {pick: (*App).pickConflict, name: func(mt mtask) string { return nth(event.StepResolve, mt.resolves+1) },
+		stConflict: {pick: plain((*App).pickConflict), name: func(mt mtask) string { return nth(event.StepResolve, mt.resolves+1) },
 			verbs: vDrop, scratch: true, landed: true, phase: wire.PhaseReview},
 		// rows 23, 25, 30–31: the resolve job is out
-		stResolving: {pick: (*App).pickJob, name: jobName, verbs: vResume | vDrop, scratch: true, landed: true,
+		stResolving: {pick: plain((*App).pickJob), name: jobName, verbs: vResume | vDrop, scratch: true, landed: true,
 			phase: wire.PhaseReviewing, verdicts: []verdictRule{
 				{wire.MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
 				{wire.MethodReject, func(mt *mtask, v verdictResult) {
@@ -109,30 +110,30 @@ func init() {
 				}},
 			}},
 		// rows 30, 18: gate the merge the integrator committed in the scratch (it holds the scratch itself)
-		stResolved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, scratch: true, uses: wire.ScratchGating,
+		stResolved: {pick: plain((*App).pickGate), name: gateName, verbs: vDrop, scratch: true, uses: wire.ScratchGating,
 			phase: wire.PhaseGating},
 		// rows 20, 26, 33, 35: publish it
-		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
+		stAccepted: {pick: plain((*App).pickAccepted), name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
 			verbs: vDrop, uses: wire.ScratchPublishing, phase: wire.PhasePublish},
 		// rows 32, 18: merge and compile the candidate again on the new target (no test)
-		stMoved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, uses: wire.ScratchGating, phase: wire.PhaseGating},
+		stMoved: {pick: plain((*App).pickGate), name: gateName, verbs: vDrop, uses: wire.ScratchGating, phase: wire.PhaseGating},
 		// rows 33–34: the target holds the candidate
-		stPublished: {pick: (*App).pickPublished, verbs: vDrop, phase: wire.PhasePublish},
+		stPublished: {pick: plain((*App).pickPublished), verbs: vDrop, phase: wire.PhasePublish},
 		// The publish asked for the merge, not done yet: no step; each pass's Landed rule (drive) records it
 		// merged once the target holds it. Shown as a publish, as published is
 		stPending: {verbs: vDrop, landed: true, phase: wire.PhasePublish},
 		// rows 34, 37–38: the after-merge steps; a needs-you of one has no job to re-prompt
-		stMerged: {pick: (*App).pickMerged, ended: true, verbs: vResume, phase: wire.PhaseMerged,
+		stMerged: {pick: plain((*App).pickMerged), ended: true, verbs: vResume, phase: wire.PhaseMerged,
 			resume: func(mtask, string) resumeRule { return resumeRule{noReprompt: true} }},
 		// rows 29, 40: unpin, then the owner frees the lane (no resume of the reject's needs-you)
-		stRejected: {pick: (*App).pickRejected, ended: true, failed: true, verbs: vResume | vDrop,
+		stRejected: {pick: plain((*App).pickRejected), ended: true, failed: true, verbs: vResume | vDrop,
 			phase:  wire.PhaseRejected,
 			resume: func(_ mtask, cause string) resumeRule { return resumeRule{closed: cause == causeRejected} }},
 		// row 44: terminal
 		stDropped: {ended: true, failed: true, phase: wire.PhaseDropped},
 		// row 2a: waiting for the tasks its dispatch names to merge, then dispatched (row 2); a needs-you (one of them
 		// dropped or rejected) is retried: it waits again
-		stWaiting: {pick: (*App).pickWaiting, name: func(mtask) string { return "the dispatch" }, verbs: vResume | vDrop,
+		stWaiting: {pick: plain((*App).pickWaiting), name: func(mtask) string { return "the dispatch" }, verbs: vResume | vDrop,
 			phase: wire.PhaseWaiting,
 			resume: func(mtask, string) resumeRule {
 				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
@@ -145,7 +146,7 @@ func init() {
 			}},
 		// rows 6, 10–16, 21, 24: the fix job (a dispatched attempt: its task_done submits it); an undelivered fix job
 		// is sent anew by retry (row 40)
-		stWorking: {pick: (*App).pickWorking, name: func(mtask) string { return "the fix" }, landed: true, verbs: workVerbs,
+		stWorking: {pick: plain((*App).pickWorking), name: func(mtask) string { return "the fix" }, landed: true, verbs: workVerbs,
 			phase: wire.PhaseWorking,
 			resume: func(mt mtask, cause string) resumeRule {
 				if mt.work == "" && cause == causeUndelivered {
@@ -155,12 +156,12 @@ func init() {
 			}},
 		// The owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
 		// red gate, a sendback or a hold sent it back; no jobs, no watchdog; obor resume is a line to the drive agent
-		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }, verbs: vResume | vDrop | vLand,
+		stDriving: {pick: plain((*App).pickDriving), name: func(mtask) string { return "the drive" }, verbs: vResume | vDrop | vLand,
 			phase:  wire.PhaseDriving,
 			resume: func(_ mtask, cause string) resumeRule { return resumeRule{retry: cause == causeStop} }},
 		// obor drop decided on a task holding a lane: its worker's stop, lane.free, then dropped; a needs-you of
 		// one (a refused stop, a refused free) is retried, or the drop given again (--force, --discard)
-		stDropping: {pick: (*App).pickDropping, name: func(mtask) string { return "the drop" }, verbs: vResume | vDrop,
+		stDropping: {pick: plain((*App).pickDropping), name: func(mtask) string { return "the drop" }, verbs: vResume | vDrop,
 			failed: true, phase: wire.PhaseDropping,
 			resume: func(mtask, string) resumeRule {
 				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
@@ -340,4 +341,9 @@ func takes(st, method string) bool {
 		}
 	}
 	return false
+}
+
+// plain is a pick that reads no config.
+func plain(f func(*App, *proj, mtask) step) func(*App, *proj, mtask, *config.Config) step {
+	return func(a *App, p *proj, mt mtask, _ *config.Config) step { return f(a, p, mt) }
 }

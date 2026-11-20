@@ -371,7 +371,8 @@ func (a *App) resumeLine(p *proj, c wire.ResumeReq, mt mtask, act string) (strin
 			m.Reply = resumeReply(c.Task, wire.ResumeReprompt, causeStopped)
 		}
 	}
-	if note := a.unnamed(p, to, ""); note != "" && act != actLine && act != actIdle {
+	cfg, _ := p.cfgNow() // the note's: a config that does not load names no stopped role agent
+	if note := a.unnamed(p, cfg, to, ""); note != "" && act != actLine && act != actIdle {
 		m.Reply += " (" + note + ")"
 	}
 	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact}, m) {

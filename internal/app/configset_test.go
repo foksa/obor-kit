@@ -133,8 +133,8 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 	h.write(path, configJSON)
 	f := &fakeConfig{path: path}
 	sched := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Workflow: WorkflowOf(sched), Agents: sched, Prompter: sched, Config: f}, nil
+	h.a.opt.Loop = func(root string) (*Loop, error) {
+		return withCfg(root, &Loop{Workflow: WorkflowOf(sched), Agents: sched, Prompter: sched, Config: f}), nil
 	}
 	h.lanes.lanes[0].Task = "" // L-01 free
 	h.connect()
@@ -266,7 +266,7 @@ func TestConfigSetLanesWithTask(t *testing.T) {
 	busy := newHarness(t) // the lanes read puts T-1 on L-01
 	busy.write(filepath.Join(busy.root, ".obor", "config.json"), configJSON)
 	bf := &fakeConfig{path: filepath.Join(busy.root, ".obor", "config.json")}
-	busy.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Config: bf}, nil }
+	busy.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{Config: bf}), nil }
 	busy.connect()
 	if reply, err := busy.set("b1", "lanes.count", `0`); err == nil || !strings.Contains(err.Error(), "lane L-01 has task T-1") {
 		t.Errorf("lanes.count 0 while the lanes read puts T-1 on L-01: %q, %v; want refused", reply, err)

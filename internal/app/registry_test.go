@@ -30,7 +30,7 @@ func TestIdentStartByServe(t *testing.T) {
 
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
 	in, typed := &inboxSpy{}, &boxPrompter{box: map[string]string{}}
-	if !h.wake(&Loop{Inbox: in, Prompter: typed}) {
+	if !h.wake(withAppCfg(h.a, &Loop{Inbox: in, Prompter: typed})) {
 		t.Fatal("wake not sent")
 	}
 	if len(in.calls) != 1 || !strings.HasPrefix(in.calls[0], "pj-l-01: [obor job T-1/1/work]") || len(typed.jobs) != 0 {
@@ -50,7 +50,7 @@ func TestIdentRestartByLead(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 session", "where")
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) {
 		t.Errorf("typed %q, want the brief into w1:p1", l.calls)
 	}
@@ -154,7 +154,7 @@ func TestIdentStartedByHand(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "where")
 	h.brief("pj-l-01", "[obor pj-lead] review this")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] review this"}) || len(h.lines()) != 0 {
 		t.Errorf("typed %q, queued %q; want the brief delivered into w1:p1", l.calls, h.lines())
 	}
@@ -173,7 +173,7 @@ func TestIdentNameDropped(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), before, "after herdr dropped the name")
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) {
 		t.Errorf("typed %q, want the line addressed to w1:p1", l.calls)
 	}
@@ -189,7 +189,7 @@ func TestIdentTwoLabels(t *testing.T) {
 	h.connect()
 	eqs(t, h.where("pj-l-01"), "ambiguous w1:p1 w1:p3", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Prompter: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
+	if h.wake(withAppCfg(h.a, &Loop{Prompter: f})) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
 		t.Errorf("typed %q, %d intents; want nothing", f.jobs, h.count(event.KindIntent, event.StepWork))
 	}
 	st := h.a.Status()
@@ -247,7 +247,7 @@ func TestIdentMoveThenStop(t *testing.T) {
 	h.a.mu.Unlock()
 	f := &idAgents{}
 	mt := mtask{task: "T-1", attempt: 1, lane: "L-01", agent: "pj-l-01", after: slices.Index(afterSteps, event.StepStop)}
-	if !h.a.afterStep(context.Background(), p, &Loop{Agents: f}, mt) {
+	if !h.a.afterStep(context.Background(), p, withAppCfg(h.a, &Loop{Agents: f}), mt) {
 		t.Fatal("the stop step failed")
 	}
 	eqs(t, strings.Join(f.stops, ","), "pj-l-01 w1:p7", "Stop's agent and pane")
@@ -336,7 +336,7 @@ func TestIdentDuplicateLater(t *testing.T) {
 	}
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if len(l.calls) != 0 || len(h.lines()) != 1 {
 		t.Errorf("typed %q, queued %q; want the line held", l.calls, h.lines())
 	}
@@ -477,7 +477,7 @@ func TestIdentAmbiguityDuringWake(t *testing.T) {
 	h.add(h.twin())
 	eqs(t, h.where("pj-l-01"), "ambiguous w1:p1 w1:p3", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	fx := &Loop{Prompter: f}
+	fx := withAppCfg(h.a, &Loop{Prompter: f})
 	if h.wake(fx) || len(f.jobs) != 0 {
 		t.Fatalf("typed %q while ambiguous", f.jobs)
 	}
@@ -499,13 +499,13 @@ func TestIdentAmbiguityEnds(t *testing.T) {
 	h.connect()
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if len(l.calls) != 0 {
 		t.Fatalf("precondition: held while ambiguous, typed %q", l.calls)
 	}
 	h.remove("w1:p3", port.EventClosed)
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "where")
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) || len(h.lines()) != 0 {
 		t.Errorf("typed %q, queued %q; want the brief delivered into w1:p1", l.calls, h.lines())
 	}
@@ -519,12 +519,12 @@ func TestIdentNotConnected(t *testing.T) {
 	h.a.loadProject()
 	eqs(t, h.where("pj-l-01"), "unavailable not connected", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Prompter: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
+	if h.wake(withAppCfg(h.a, &Loop{Prompter: f})) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
 		t.Errorf("wake typed %q before the first snapshot", f.jobs)
 	}
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Prompter: l}))
 	if len(l.calls) != 0 || len(h.lines()) != 1 {
 		t.Errorf("typed %q, queued %q; want the line queued", l.calls, h.lines())
 	}
@@ -547,7 +547,7 @@ func TestIdentLeadTwoPanes(t *testing.T) {
 		t.Fatal("line not recorded")
 	}
 	in := &inboxSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: &linerSpy{}}))
 	if !slices.Equal(in.calls, []string{"pj-lead: [obor] hello"}) {
 		t.Errorf("posted %q, want the lead line posted", in.calls)
 	}
@@ -628,7 +628,7 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	h.a.connected = false
 	h.a.mu.Unlock()
 	f := &idAgents{}
-	if h.a.afterStep(context.Background(), p, &Loop{Agents: f}, *mt) || p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}) ||
+	if h.a.afterStep(context.Background(), p, withAppCfg(h.a, &Loop{Agents: f}), *mt) || p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}) ||
 		len(f.stops) != 0 {
 		t.Fatalf("disconnected: stops %q, result %v; want no stop, the step pending", f.stops,
 			p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}))
@@ -653,11 +653,11 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 			eqs(t, h.where("pj-l-01"), "identified w1:p1 session", "where")
 			h.a.opt.Inboxed = func(string) (string, bool) { return tc.rec, true }
 			in, typed, liner := &kindSpy{}, &boxPrompter{box: map[string]string{}}, &linerSpy{}
-			if !h.wake(&Loop{Inbox: in, Prompter: typed}) {
+			if !h.wake(withAppCfg(h.a, &Loop{Inbox: in, Prompter: typed})) {
 				t.Fatal("wake not sent")
 			}
 			h.brief("pj-l-01", "[obor pj-lead] verify")
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
+			h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: liner}))
 			if tc.want == "posted" {
 				if len(in.calls) != 2 || !strings.HasPrefix(in.calls[0], "claude pj-l-01: [obor job T-1/1/work]") ||
 					in.calls[1] != "claude pj-l-01: [obor pj-lead] verify" || len(typed.jobs) != 0 {
@@ -716,7 +716,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 				h.brief(tc.agent, "[obor] hello")
 			}
 			in, liner := &kindSpy{}, &linerSpy{}
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
+			h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: liner}))
 			if tc.want == "typed" {
 				if len(in.calls) != 0 || !slices.Equal(liner.calls, []string{"w1:p1: [obor] hello"}) || len(h.lines()) != 0 {
 					t.Errorf("posted %q, typed %q, queued %q; want the line typed into w1:p1", in.calls, liner.calls,
@@ -743,10 +743,10 @@ func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "where")
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	if o := h.a.placement(h.proj(), h.lane("L-01"), "pj-l-01"); o == nil || o.pane.ID != "w1:p1" {
+	if o := h.a.placement(h.proj(), loadCfg(h.t, h.root), h.lane("L-01"), "pj-l-01"); o == nil || o.pane.ID != "w1:p1" {
 		t.Errorf("placement for pj-l-01 = %v, want w1:p1", o)
 	}
-	if o := h.a.placement(h.proj(), h.lane("L-01"), "pj-l-02"); o == nil || o.pane.ID != "w1:p0" {
+	if o := h.a.placement(h.proj(), loadCfg(h.t, h.root), h.lane("L-01"), "pj-l-02"); o == nil || o.pane.ID != "w1:p0" {
 		t.Errorf("placement for an unidentified agent = %v, want the lowest-id agent pane w1:p0", o)
 	}
 }
@@ -945,7 +945,7 @@ func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
 	before := mt.after
 	h.a.mu.Unlock()
 	f := &verifyStopRace{err: errors.New("stop refused before action"), during: func() { h.add(h.twin()) }}
-	advanced := h.a.afterStep(context.Background(), p, &Loop{Agents: f}, *mt)
+	advanced := h.a.afterStep(context.Background(), p, withAppCfg(h.a, &Loop{Agents: f}), *mt)
 	if f.stops != 1 {
 		t.Fatalf("precondition: %d stops, want one", f.stops)
 	}
@@ -979,7 +979,7 @@ func TestIdentQueuedBriefMoveBeforeEffect(t *testing.T) {
 	h.queuedLeadThenBrief()
 	lines := &linerSpy{}
 	f := &verifyPost{during: func() { h.move("w1:p1", "w1:p7") }}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Prompter: lines})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: f, Prompter: lines}))
 	if !slices.Equal(f.posts, []string{"pj-lead: [obor] lead line"}) {
 		t.Fatalf("precondition: posted %q, want the lead line", f.posts)
 	}
@@ -1005,7 +1005,7 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 		tw.Agent = "codex"
 		h.add(tw)
 	}}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Prompter: lines})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: f, Prompter: lines}))
 	if !slices.Equal(f.posts, []string{"pj-lead: [obor] lead line"}) {
 		t.Fatalf("precondition: posted %q, want the lead line", f.posts)
 	}
@@ -1017,7 +1017,7 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 	}
 	h.remove("w1:p3", port.EventClosed)
 	f.during = func() {}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Prompter: lines})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: f, Prompter: lines}))
 	if !slices.Equal(lines.calls, []string{"w1:p1: [obor] verify"}) || len(h.lines()) != 0 {
 		t.Errorf("after the duplicate closed: typed %q, queued %q; want the brief typed into w1:p1", lines.calls,
 			h.lines())
@@ -1063,7 +1063,7 @@ func labelRig(t *testing.T, panes func(h *harness) []port.Pane, before ...func(h
 func placed(h *harness, dir string, names ...string) string {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	if o := h.a.placement(h.proj(), dir, names...); o != nil {
+	if o := h.a.placement(h.proj(), loadCfg(h.t, h.root), dir, names...); o != nil {
 		return o.pane.ID
 	}
 	return ""
