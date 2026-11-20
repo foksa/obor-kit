@@ -20,11 +20,14 @@ func shellCore() *hctest.Core {
 	return core
 }
 
-// contractTerminal is hc's adapter over shellCore: the terminal every contract row runs against. hc's read is one
+// contractTerminal is hc's adapter over shellCore, the herdr-app window bridged to it (its new tabs' terminals start
+// on the core): the terminal every contract row runs against. hc's read is one
 // text (Recent is Screen), so it has no stale view to make (Stale nil).
 func contractTerminal() testkit.Terminal {
-	c := shellCore().Client()
-	c.App = herdrapptest.New().Client()
+	core, win := shellCore(), herdrapptest.New()
+	win.StartTerminals(core.AppTerminals(false))
+	c := core.Client()
+	c.App = win.Client()
 	return testkit.Terminal{Control: c, Setup: c, Panes: hc.Panes{C: c}, Group: "proj", Cwd: "/proj"}
 }
 

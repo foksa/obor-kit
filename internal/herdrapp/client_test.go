@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,6 +119,9 @@ func TestEnsureSpaceCreates(t *testing.T) {
 	if got.ID != "sp1" || got.Name != "obor-kit" || got.Folder != folder || !got.Named {
 		t.Errorf("EnsureSpace = %+v, want the new space sp1", got)
 	}
+	if got.First.ID == "" || got.First.Terminal != "t1" {
+		t.Errorf("EnsureSpace's first tab = %+v, want space.new's tab and the terminal it printed (t1)", got.First)
+	}
 	if calls := doCalls(app); !reflect.DeepEqual(calls, []string{"space.new"}) {
 		t.Errorf("do calls = %v, want [space.new]", calls)
 	}
@@ -126,8 +130,8 @@ func TestEnsureSpaceCreates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.ID != got.ID {
-		t.Errorf("second EnsureSpace = %q, want %q", again.ID, got.ID)
+	if again.ID != got.ID || again.First.ID != "" {
+		t.Errorf("second EnsureSpace = %+v, want %q found, no first tab made", again, got.ID)
 	}
 	if calls := doCalls(app); len(calls) != 1 {
 		t.Errorf("do calls after the second EnsureSpace = %v, want one", calls)
@@ -369,7 +373,8 @@ func TestDrift(t *testing.T) {
 	}
 }
 
-// NewTab makes a tab though the space has one of that name (Made, its terminal's folder passed); RenameSpace renames the local space named old and says
+// NewTab makes a tab though the space has one of that name (its terminal's folder passed, the terminal the app
+// printed in the answer); RenameSpace renames the local space named old and says
 // false for a window with none.
 func TestNewTabAndRenameSpace(t *testing.T) {
 	app := herdrapptest.New()
@@ -383,8 +388,8 @@ func TestNewTabAndRenameSpace(t *testing.T) {
 		t.Errorf("tabs = %+v, want two lanes tabs", got)
 	}
 	calls := app.Calls()
-	if last := calls[len(calls)-1]; !tab.Made || len(last) < 3 || last[1] != "tab.new" || !strings.Contains(last[2], `"folder":"/p"`) {
-		t.Errorf("NewTab = %+v, last call %q; want Made and tab.new with folder /p", tab, last)
+	if last := calls[len(calls)-1]; tab.Terminal != "t1" || len(last) < 3 || last[1] != "tab.new" || !strings.Contains(last[2], `"folder":"/p"`) {
+		t.Errorf("NewTab = %+v, last call %q; want terminal t1 and tab.new with folder /p", tab, last)
 	}
 	if ok, err := c.RenameSpace(ctx, "none", "x"); ok || err != nil {
 		t.Errorf("RenameSpace of a space the window lacks = %v, %v; want false", ok, err)
@@ -395,5 +400,33 @@ func TestNewTabAndRenameSpace(t *testing.T) {
 	app.Down()
 	if _, err := c.NewTab(ctx, "spa1", "x", "/p"); !port.NotRunning(err) {
 		t.Errorf("NewTab with the window closed = %v, want NotRunning", err)
+	}
+}
+
+// space.new and tab.new answers that name no terminal are errors: the terminal the app started is known only by the
+// address it printed, never guessed.
+func TestNewTabAndSpaceNeedTheirTerminal(t *testing.T) {
+	var calls []string
+	c := &herdrapp.Client{Run: func(_ context.Context, args []string) (herdrapp.Reply, error) {
+		calls = append(calls, strings.Join(args, " "))
+		switch {
+		case args[0] == "--version":
+			return herdrapp.Reply{Stdout: "herdr-app " + herdrapp.MinVersion + "\n"}, nil
+		case args[0] == "ls":
+			return herdrapp.Reply{Stdout: `{"spaces":[]}` + "\n"}, nil
+		case len(args) > 1 && args[1] == "space.new":
+			return herdrapp.Reply{Stdout: `{"space":"sp1","tab":"tb1"}` + "\n"}, nil
+		}
+		return herdrapp.Reply{Stdout: `{"tab":"tb2"}` + "\n"}, nil
+	}}
+	ctx := context.Background()
+	if _, err := c.EnsureSpace(ctx, "p", "/work/p"); err == nil || !strings.Contains(err.Error(), "no tab or terminal") {
+		t.Errorf("EnsureSpace of an answer with no terminal = %v, want the error", err)
+	}
+	if _, err := c.NewTab(ctx, "sp1", "lanes", "/work/p"); err == nil || !strings.Contains(err.Error(), "no tab or terminal") {
+		t.Errorf("NewTab of an answer with no terminal = %v, want the error", err)
+	}
+	if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "do tab.new") }) {
+		t.Errorf("calls %q, want tab.new asked", calls)
 	}
 }

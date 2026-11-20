@@ -143,7 +143,9 @@ func (s *Setup) PlaceLane(ctx context.Context, lane string) (string, error) {
 		return "", project.Failf("terminal pane list failed (is the terminal running?)")
 	}
 	a := agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, lane: lane}
-	pane, err := s.T.Place(ctx, s.placement(a, where{}, nil))
+	p := s.placement(a, where{}, nil)
+	p.Starts = true // the start that wanted the pane types the env line and cd
+	pane, err := s.T.Place(ctx, p)
 	if err != nil {
 		return "", err
 	}
@@ -331,7 +333,9 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	pane := loc.Pane // the --pane target, else the agent's home (the pane labelled with its name at its shell)
 	fresh := pane == ""
 	if fresh {
-		if pane, err = s.T.Place(ctx, s.placement(a, w, env)); err != nil {
+		p := s.placement(a, w, env)
+		p.Starts = !a.noStart // the start below types the env line: the pane gets it once
+		if pane, err = s.T.Place(ctx, p); err != nil {
 			return err
 		}
 	} else {

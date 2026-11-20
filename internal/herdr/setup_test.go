@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,6 +118,47 @@ func TestPlaceLeadInAnOccupiedTabRefused(t *testing.T) {
 	pane, err := h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-02", In: "w1:t1", Project: pr})
 	if err != nil || f.Pane(pane) == nil || f.Pane(pane).Tab != "w1:t1" {
 		t.Errorf("lane Place into the same tab = %q, %v; want a split of w1:t1", pane, err)
+	}
+}
+
+// The lead by the default path (no --tab, no --new-tab) never splits into a tab that is there: a tab labelled lead
+// holding a person's shell (no label) gets a new tab beside it, the shell untouched.
+func TestPlaceLeadByDefaultTakesANewTab(t *testing.T) {
+	t.Parallel()
+	f := herdrtest.New()
+	f.Tab("w1:t5", 80, 24, "w1:p5")
+	f.Shell("w1:p5", "", "/proj") // a person's shell in the lead's tab
+	f.TabLabels = map[string]string{"w1:t5": "lead"}
+	f.Group("w1", "proj")
+	srv := herdrtest.Serve(t, f)
+	h := &herdr.Setup{Socket: srv.Client(), Env: func(string) (string, bool) { return "", false }}
+	pr := port.PlaceProject{Name: "proj", Root: "/proj", MaxPanes: 4,
+		Has: func(cwd string) bool { return strings.HasPrefix(cwd, "/proj") },
+		KindOf: func(l string) port.PaneKind {
+			if l == "pj-lead" {
+				return port.KindLead
+			}
+			return ""
+		}}
+	if p := f.Pane("w1:p5"); p == nil || p.Tab != "w1:t5" || p.Label != "" {
+		t.Fatalf("precondition: the person's shell = %+v, want an unlabelled pane in w1:t5", p)
+	}
+	pane, err := h.Place(ctx, port.Placement{Kind: port.KindLead, Cwd: "/proj", Project: pr})
+	if err != nil {
+		t.Fatalf("lead Place = %v", err)
+	}
+	if p := f.Pane(pane); p == nil || p.Tab == "w1:t5" {
+		t.Errorf("the lead's pane %s = %+v, want it in a new tab", pane, p)
+	}
+	var methods []string
+	for _, r := range srv.Requests() {
+		methods = append(methods, r.Method)
+	}
+	if !slices.Contains(methods, "tab.create") || slices.Contains(methods, "pane.split") {
+		t.Errorf("requests %q, want a tab.create and no pane.split", methods)
+	}
+	if p := f.Pane("w1:p5"); p == nil || p.Tab != "w1:t5" || p.Label != "" {
+		t.Errorf("the person's shell after the placement = %+v, want it untouched in w1:t5", p)
 	}
 }
 

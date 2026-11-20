@@ -844,8 +844,8 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 	return nil
 }
 
-// envLine is the shell line that sets the agent's env (and cwd) as obor setup does, built by the one builder
-// (agents.StartVars): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id) and the kind's vars exported,
+// envLine is the shell line that sets the agent's env (and cwd) as obor setup does, from the one builder of a start's
+// env (agents.StartVars) by the one builder of the line (project.EnvLine): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id) and the kind's vars exported,
 // every other var of the registry unset (a stale OBOR_AGENT; another kind's OBOR_OPENCODE_MODEL), so
 // nothing of an earlier start in the pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
 func envLine(t *target) string {
@@ -855,18 +855,14 @@ func envLine(t *target) string {
 		keep = []string{agents.RoleVar}
 	}
 	set, unset := agents.StartVars(role, t.info.Lane, t.pane, t.env, keep...)
-	line := "unset " + strings.Join(unset, " ")
-	if len(set) > 0 {
-		words := make([]string, len(set))
-		for i, v := range set {
-			words[i] = v.Name + "=" + project.ShellQuote(v.Value)
-		}
-		line += " && export " + strings.Join(words, " ")
+	env := make([]string, 0, len(unset)+len(set))
+	for _, v := range unset {
+		env = append(env, v+"=")
 	}
-	if t.info.Cwd != "" {
-		line = "cd " + project.ShellQuote(t.info.Cwd) + " && " + line
+	for _, v := range set { // StartVars sets no name empty: each is exported
+		env = append(env, v.Name+"="+v.Value)
 	}
-	return line
+	return project.EnvLine(t.info.Cwd, env)
 }
 
 // roleEnv is role's env value (OBOR_ROLE's) for a role obor knows, else role as it is ("": none).
