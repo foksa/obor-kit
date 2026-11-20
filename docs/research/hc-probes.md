@@ -442,3 +442,12 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
   project idle, as it does on herdr (needs-you there is serve's records only): T-1375.
 - Step 3: models confirmed and committed by the trial lead (integrator sonnet, reviewer codex terra:xhigh, 2 lanes).
   `obor send hc-trial` from obor-kit reached the trial lead's hc terminal ("posted to its session").
+- Step 4: `obor setup check` OK (core env holds no HERDR_/OBOR_ name); `hc ls`: one terminal per lane and role pane,
+  each in its worktree, under `hc-trial / lanes` and `hc-trial / roles`.
+- Step 5: lane.prepare failed once: `.claude/settings.json` was obor's link in every worktree, then committed by the
+  trial lead, and `checkout -B` refused to overwrite the untracked symlink. The links removed by hand left the
+  integrator's worktree (serve never moves it; still at the first commit) with no plugin settings, so its Claude had
+  no obor MCP and no `job_next`; serve retried the job at +5 min and would raise needs-you at +10 (as designed).
+  Both in T-1376. After the repair: worker start, `task_done`, gate GREEN, integrator ACCEPT, `MERGED T-01 be1793b`,
+  worker and integrator stopped. The "runs session X, not Y (the id obor chose)" line also shows on herdr: not hc.
+  Small: lane.prepare's failed fact recorded three times for one attempt; the publish result's candidate fields empty.
