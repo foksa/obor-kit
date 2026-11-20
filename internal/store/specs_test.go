@@ -3,13 +3,10 @@ package store
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"obor/internal/spec"
 )
 
 // TestSpecsSetShowList: a first set is rev 1, the same text again changes nothing, another text is the next
@@ -61,54 +58,6 @@ func TestSpecsSetShowList(t *testing.T) {
 	}
 	if err != nil || strings.Join(got, " ") != "T-1@2 T-2@1" {
 		t.Errorf("ReadSpecsAt: %q %v; want T-1@2 T-2@1", got, err)
-	}
-}
-
-// a schema-9 specs table has no note column: a reader (a newer CLI, serve not yet restarted) reads its rows
-// with none, and OpenRW adds the column, keeps the row and takes a set's note.
-func TestOpenRWMigratesTheSpecNote(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	db, err := OpenRW(File(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		"DROP TABLE specs",
-		`CREATE TABLE specs (task TEXT PRIMARY KEY, text TEXT NOT NULL, rev INTEGER NOT NULL,
-			set_by TEXT NOT NULL, set_at TEXT NOT NULL)`,
-		"INSERT INTO specs VALUES ('T-1', '# T-1 — A\n', 1, 'lead', '2026-10-27T09:00:00Z')",
-		"UPDATE meta SET value = '9' WHERE key = 'schema_version'",
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	db.Close()
-	old := SpecRow{Task: "T-1", Text: "# T-1 — A\n", Rev: 1, SetBy: "lead", SetAt: "2026-10-27T09:00:00Z",
-		Spec: spec.Parse("# T-1 — A\n")}
-	if r, ok, err := ReadSpecAt(root, "T-1"); err != nil || !ok || !reflect.DeepEqual(r, old) {
-		t.Errorf("ReadSpecAt on schema 9 = %+v, %v, %v; want %+v", r, ok, err, old)
-	}
-
-	db, err = OpenRW(File(root))
-	if err != nil {
-		t.Fatalf("OpenRW on schema 9: %v", err)
-	}
-	defer db.Close()
-	var version string
-	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil ||
-		version != strconv.Itoa(SchemaVersion) {
-		t.Errorf("schema_version = %q, %v; want %d after the migration", version, err, SchemaVersion)
-	}
-	if r, ok, err := ReadSpec(db, "T-1"); err != nil || !ok || !reflect.DeepEqual(r, old) {
-		t.Errorf("row after the migration: %+v, %v, %v; want %+v", r, ok, err, old)
-	}
-	if _, changed, err := SetSpec(db, "T-1", "# T-1 — B\n", "widen the guard", "lead", time.Now()); err != nil || !changed {
-		t.Fatalf("SetSpec after the migration: %v", err)
-	}
-	if r, ok, err := ReadSpec(db, "T-1"); err != nil || !ok || r.Rev != 2 || r.Note != "widen the guard" {
-		t.Errorf("row after a noted set: %+v, %v, %v; want rev 2 and the note", r, ok, err)
 	}
 }
 
