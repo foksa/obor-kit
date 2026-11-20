@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,20 +13,28 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
+	"obor/internal/launch"
+	"obor/internal/testkit"
 )
 
-// lostRestorer records each restore run's lost panes (port.Restorer).
+// lostRestorer records each restore run's lost panes (port.Restorer), then runs next's restore (nil: none).
 type lostRestorer struct {
 	mu   sync.Mutex
 	runs []port.Lost
+	next port.Restorer
 }
 
-func (f *lostRestorer) RestoreProject(_ context.Context, _ string, lost port.Lost) {
+func (f *lostRestorer) RestoreProject(ctx context.Context, root string, lost port.Lost) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.runs = append(f.runs, lost)
+	next := f.next
+	f.mu.Unlock()
+	if next != nil {
+		next.RestoreProject(ctx, root, lost)
+	}
 }
 
 func (f *lostRestorer) all() []port.Lost {
@@ -309,6 +318,162 @@ func TestServeKindChangeDropsTheOldTerminalsRecords(t *testing.T) {
 		r.start()
 		if n := strings.Count(r.out.String(), "its records were"); n != 0 {
 			t.Errorf("the next serve under hc dropped records again (%d lines):\n%s", n, r.out)
+		}
+	})
+}
+
+// trialRig is serve on hc for a testkit project (proj, prefix pj) whose one holder holds five kept terminals: t5 and t6
+// the workers of the free lanes L-01 and L-02 at their shells, t7 the integrator and t8 the reviewer at their shells
+// with no open work, t9 the lead in a Claude turn. Its restore is launch's Restorer over the same core: its restarts
+// are recorded (each succeeds), its lines go to the restore log.
+type trialRig struct {
+	*hcRig
+	env      func() string // the restore log
+	mu       sync.Mutex
+	restarts []string
+}
+
+// The trial terminals' first shells, and the lead's Claude.
+var trialPIDs = map[string]int{"t5": 32186, "t6": 32188, "t7": 32189, "t8": 32192, "t9": 32195}
+
+const trialClaude = 32250
+
+func newTrialRig(t *testing.T) *trialRig {
+	t.Helper()
+	p := testkit.NewPlain(t)
+	lanes := map[string]string{"L-01": p.PlainLane("L-01", ""), "L-02": p.PlainLane("L-02", "")}
+	p.Config(testkit.Set("agents.roles", map[string]any{"integrator": "", "reviewer": "opus"}))
+	r := &trialRig{hcRig: &hcRig{t: t, core: hctest.New(), root: p.Root, fr: &lostRestorer{}}}
+	pl := &launch.Restorer{Env: p.Env(), H: r.core.Client(),
+		LaneState: func(*config.Config, config.Lane) string { return port.LaneFree },
+		OpenWork:  func(string, string) (bool, error) { return false, nil }}
+	pl.Restart = func(_ context.Context, _ *config.Config, req launch.Request, _ io.Writer) (string, error) {
+		r.mu.Lock()
+		r.restarts = append(r.restarts, req.Agent+" "+req.Pane)
+		r.mu.Unlock()
+		return "RESTARTED " + req.Agent, nil
+	}
+	r.fr.next = pl
+	r.env = func() string { b, _ := os.ReadFile(launch.RestoreLog(pl.Env)); return string(b) }
+	for _, tm := range []struct{ addr, agent, cwd string }{
+		{"t5", "pj-l-01", lanes["L-01"]}, {"t6", "pj-l-02", lanes["L-02"]}, {"t7", "pj-int", p.Root},
+		{"t8", "pj-rev", p.Root}, {"t9", "pj-lead", p.Root},
+	} {
+		pid := trialPIDs[tm.addr]
+		r.core.Add(hc.Record{Address: tm.addr, PID: pid, Cwd: tm.cwd, Keep: true,
+			Labels:     map[string]string{hc.LabelProject: "proj", hc.LabelAgent: tm.agent},
+			Foreground: &hc.Foreground{PID: pid, Name: "zsh", Argv: []string{"/bin/zsh", "-l"}, Cwd: tm.cwd}})
+	}
+	r.core.Update("t9", func(rec *hc.Record) {
+		rec.Status, rec.Reported = &hc.Status{State: "working", App: "claude-code"}, true
+		rec.Foreground = &hc.Foreground{PID: trialClaude, Name: "2.1.329", Argv: []string{"claude"}, Cwd: p.Root}
+	})
+	return r
+}
+
+// lose is the holder's loss up to the restarts: the lead's Claude gone with it (its status cleared), then lost for
+// every terminal. Serve's precondition: no restore yet.
+func (r *trialRig) lose() {
+	r.t.Helper()
+	r.core.SetStatus("t9", nil)
+	r.waitFor("the lead gone from its pane", func() bool { return strings.Contains(r.out.String(), "agent pj-lead no longer identified") })
+	r.core.Lose("t5", "t6", "t7", "t8", "t9")
+	r.noRestore("lost, before any restarted")
+}
+
+// restarted gives addrs their fresh shells (pid+100) in one Restarted and waits for serve's connect after it.
+func (r *trialRig) restarted(addrs ...string) {
+	r.t.Helper()
+	pids := map[string]int{}
+	for _, a := range addrs {
+		pids[a] = trialPIDs[a] + 100
+	}
+	before := r.subscribes()
+	r.core.Restarted(pids)
+	r.settled(before)
+}
+
+// restoredOnce: one restore ran with all five terminals lost, it restarted the lead only, and the restore log skips
+// each other pane with its reason; RunsFile holds the new shells' pids.
+func (r *trialRig) restoredOnce(what string) {
+	r.t.Helper()
+	r.restored(what, "t5", "t6", "t7", "t8", "t9")
+	r.mu.Lock()
+	restarts := slices.Clone(r.restarts)
+	r.mu.Unlock()
+	if !slices.Equal(restarts, []string{"pj-lead t9"}) {
+		r.t.Errorf("%s: restarts %q, want the lead's in t9 only", what, restarts)
+	}
+	log := r.env()
+	for _, want := range []string{
+		" skip pj-l-01 (pane t5): lane L-01 is free", " skip pj-l-02 (pane t6): lane L-02 is free",
+		" skip pj-int (pane t7): no open work", " skip pj-rev (pane t8): no open work", " restore pj-lead (pane t9) in ",
+	} {
+		if !strings.Contains(log, want) {
+			r.t.Errorf("%s: %q not in the restore log:\n%s", what, want, log)
+		}
+	}
+	b, _ := os.ReadFile(app.RunsFile(r.root))
+	if want := `{"t5":"32286","t6":"32288","t7":"32289","t8":"32292","t9":"32295"}`; strings.TrimSpace(string(b)) != want {
+		r.t.Errorf("%s: runs recorded %s, want %s", what, b, want)
+	}
+}
+
+// One holder of five terminals lost (lost for each at once, then the restarts): one restore with all five lost
+// restarts the lead (its Claude gone before the reconnect) and skips the rest with their reasons, whether every
+// restart is in the reconnect's snapshot or they come over two reconnects (the first snapshot shows t8 and t9 with no
+// program yet: the restore waits for them, and records nothing meanwhile).
+func TestServeOnHCRestoresEveryPaneOfALostHolder(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		parts [][]string
+	}{
+		{"one reconnect", [][]string{{"t5", "t6", "t7", "t8", "t9"}}},
+		{"split over a reconnect", [][]string{{"t5", "t6", "t7"}, {"t8", "t9"}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			bubble(t, func(t *testing.T) {
+				r := newTrialRig(t)
+				r.start()
+				r.noRestore("the first connect")
+				r.lose()
+				for i, part := range c.parts {
+					r.restarted(part...)
+					if i == len(c.parts)-1 {
+						break
+					}
+					r.noRestore("t8 and t9 not restarted yet")
+					if !strings.Contains(r.out.String(), "t8, t9 not started yet: the restore waits for their fresh shells") {
+						t.Errorf("no line for the wait:\n%s", r.out)
+					}
+					if b, _ := os.ReadFile(app.RunsFile(r.root)); !strings.Contains(string(b), `"t5":"32186"`) {
+						t.Errorf("runs recorded while the restore waits = %s; want the old ones kept", b)
+					}
+				}
+				r.restoredOnce(c.name)
+			})
+		})
+	}
+}
+
+// A lost pane that ends instead of restarting (finished) ends the restore's wait for it: the event's step restores the
+// panes that did restart.
+func TestServeOnHCRestoresWhenAWaitedPaneFinishes(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newTrialRig(t)
+		r.start()
+		r.lose()
+		r.restarted("t5", "t6", "t7", "t9")
+		r.noRestore("t8 not restarted yet")
+		r.core.Finish("t8", "holder_lost")
+		r.restored("after t8 finished", "t5", "t6", "t7", "t9")
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if !slices.Equal(r.restarts, []string{"pj-lead t9"}) {
+			t.Errorf("restarts %q, want the lead's in t9 only", r.restarts)
 		}
 	})
 }

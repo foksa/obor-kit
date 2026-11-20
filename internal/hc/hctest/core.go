@@ -226,12 +226,33 @@ func (c *Core) Finish(address, reason string) {
 	c.Event(address, "finished", map[string]any{"reason": reason, "exit_code": nil, "signal": nil, "finished_ms": nil})
 }
 
-// Restart replaces address's program by a fresh shell of pid (a kept terminal after its holder was lost): lost with
-// reason holder_lost, then restarted with the record.
+// Restart replaces address's program by a fresh shell of pid (a kept terminal after its holder was lost): Lose, then
+// Restarted.
 func (c *Core) Restart(address string, pid int) {
-	c.Event(address, "lost", map[string]any{"reason": "holder_lost", "exit_code": nil, "signal": nil, "finished_ms": nil})
-	c.Update(address, func(r *hc.Record) { r.PID, r.Status, r.Foreground = pid, nil, nil })
-	c.Event(address, "restarted", c.record(address))
+	c.Lose(address)
+	c.Restarted(map[string]int{address: pid})
+}
+
+// Lose is the loss of the holder of the kept terminals addrs: lost with reason holder_lost for each at once, and each
+// one's program gone (its record names no pid, status or foreground) until its Restarted. A snapshot in between shows
+// the terminals live with no pid.
+func (c *Core) Lose(addrs ...string) {
+	for _, a := range addrs {
+		c.Update(a, func(r *hc.Record) { r.PID, r.Status, r.Foreground = 0, nil, nil })
+		c.Event(a, "lost", map[string]any{"reason": "holder_lost", "exit_code": nil, "signal": nil, "finished_ms": nil})
+	}
+}
+
+// Restarted gives each kept terminal of pids (address → pid) a fresh shell of its pid: every record first, then each
+// one's restarted event with its record, in address order. A subscriber's stream ends at the first of them, so its
+// next snapshot shows every shell this call started (a call per part splits the restart over reconnects).
+func (c *Core) Restarted(pids map[string]int) {
+	for _, a := range slices.Sorted(maps.Keys(pids)) {
+		c.Update(a, func(r *hc.Record) { r.PID, r.Status, r.Foreground = pids[a], nil, nil })
+	}
+	for _, a := range slices.Sorted(maps.Keys(pids)) {
+		c.Event(a, "restarted", c.record(a))
+	}
 }
 
 // Stop is `hc server stop`: lost with reason server_stop for each live kept terminal, then the core goes Down.

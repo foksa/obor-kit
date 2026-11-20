@@ -139,7 +139,7 @@ func (a *App) Serve(ctx context.Context) error {
 		a.connectRestore(ctx, &wg, st.Snapshot, call)
 		a.adoptHidden(ctx, &wg)
 		first, lost = false, false
-		a.run(ctx, st, tick.C)
+		a.run(ctx, &wg, st, tick.C)
 		st.Close()
 		a.mu.Lock()
 		a.connected = false
@@ -177,10 +177,10 @@ func (a *App) closeLog() {
 	}
 }
 
-// run handles one stream's events, the ticks and the refresher's scans (a decision on the table it read) until
-// the stream or ctx ends. The stream's snapshot is applied before: an event is never older than the snapshot it
-// follows.
-func (a *App) run(ctx context.Context, st *port.Stream, tick <-chan time.Time) {
+// run handles one stream's events (each followed by the step on the panes' runs that may start a restore, wg's:
+// observedRuns), the ticks and the refresher's scans (a decision on the table it read) until the stream or ctx ends.
+// The stream's snapshot is applied before: an event is never older than the snapshot it follows.
+func (a *App) run(ctx context.Context, wg *sync.WaitGroup, st *port.Stream, tick <-chan time.Time) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -190,6 +190,7 @@ func (a *App) run(ctx context.Context, st *port.Stream, tick <-chan time.Time) {
 				return
 			}
 			a.event(ctx, ev)
+			a.observedRuns(ctx, wg)
 		case <-tick:
 			a.loadProject()
 			a.check(ctx, true)
