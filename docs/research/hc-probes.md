@@ -427,3 +427,12 @@ SKIP HC-P10 an idle-CPU sample takes 15 minutes or more: run by hand, docs/resea
 PASS HC-P11 the default session is unchanged after the probes: core 0295b50c7057fa780e539fb313a24b5a pid 52026, live [t1:51393]; files map[core.json:7289b65b5a65b268 core.lock:c991234a064d1877 docs.json:ef996abd9208ddfd]; config dir false (docs/plan/herdr-core.md P11)
 conformance: 26 pass, 0 fail, 3 skip, 4 warn
 ```
+
+## Trial (docs/plan/hc-trial.md, owner + lead, 11-20)
+
+- Before: outside the obor-kit checkout `obor` runs the pinned release; v0.40.7 had no hc (`FAIL terminal.kind "hc":
+  obor knows herdr`). v0.41.0 shipped for the trial.
+- Step 1: init refuses a repo with no commit holding a config it did not write; the config is committed first.
+- Step 2: `obor init` on the hand-written config added agents, lanes, BACKLOG and docs but no
+  `project.agent_prefix`; `obor lead` then derived an empty lead name and matched an unlabelled hc terminal `t1`
+  (`pane t1 (from label)`, `FAIL bad agent name ""`), nothing touched. T-1374. Workaround: set the prefix by hand.
