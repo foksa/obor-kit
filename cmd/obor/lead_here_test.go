@@ -79,45 +79,30 @@ func TestLeadTakesTheCallersHerdrPane(t *testing.T) {
 }
 
 // The caller's pane stays as it is, and the lead gets a new lead tab whose line names workspace, tab and pane, when
-// the pane shares its tab, the caller is an agent (OBOR_ROLE), or its workspace holds another project's pane.
+// the caller is an agent (OBOR_ROLE): the one row proving the caller's env reaches the decision. The rule's other rows
+// (a shared tab, a program, a foreign workspace) are layout_test.go TestHome and herdr's TestTakeLeadAsksLayoutHome.
 func TestLeadNewTabWhenTheCallersPaneDoesNotQualify(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name, why, last string
-		edit            func(x *leadFx)
-	}{
-		{"a sibling in its tab", "pane w1:p1 shares its tab with 1 other pane(s)",
-			"OK pj-lead runs in workspace shell, tab lead (pane w1:n1)",
-			func(x *leadFx) { x.f.Tab("w1:tc", 80, 24, "w1:p2"); x.f.Shell("w1:p2", "", x.p.Root) }},
-		{"an agent's pane", "this pane is a worker's (OBOR_ROLE is set)",
-			"OK pj-lead runs in workspace shell, tab lead (pane w1:n1)",
-			func(x *leadFx) { x.env = append(x.env, "OBOR_ROLE=worker") }},
-		{"a foreign workspace", "its group holds pane w1:p9 of another project (/elsewhere)",
-			"OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)",
-			func(x *leadFx) { x.f.Tab("w1:t9", 80, 24, "w1:p9"); x.f.Shell("w1:p9", "", "/elsewhere") }},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			x := herdrCaller(t)
-			c.edit(x)
-			x.srv.Clear("pane.process_info") // the new tab's shell is at its prompt
-			out, rc := x.run(t)
-			if rc != 0 || lastLine(out) != c.last {
-				t.Fatalf("exit %d, want the last line %q:\n%s", rc, c.last, out)
-			}
-			if !strings.Contains(out, "this pane stays as it is: "+c.why) {
-				t.Errorf("no line saying why the pane stays (%s):\n%s", c.why, out)
-			}
-			if p := x.f.Pane("w1:p1"); p.Label != "" || x.f.TabLabels["w1:tc"] != "" {
-				t.Errorf("the caller's pane %+v, tab %q: want both untouched", p, x.f.TabLabels["w1:tc"])
-			}
-			m := x.methods()
-			if !slices.Contains(m, "tab.create") || slices.Contains(m, "tab.rename") || slices.Contains(m, "workspace.rename") {
-				t.Errorf("requests %q, want a tab.create and no rename of a tab or workspace", m)
-			}
-			if len(x.spawn) != 0 {
-				t.Errorf("detached runs %v, want none (the start runs in the new tab)", x.spawn)
-			}
-		})
+	const why, last = "this pane is a worker's (OBOR_ROLE is set)", "OK pj-lead runs in workspace shell, tab lead (pane w1:n1)"
+	x := herdrCaller(t)
+	x.env = append(x.env, "OBOR_ROLE=worker")
+	x.srv.Clear("pane.process_info") // the new tab's shell is at its prompt
+	out, rc := x.run(t)
+	if rc != 0 || lastLine(out) != last {
+		t.Fatalf("exit %d, want the last line %q:\n%s", rc, last, out)
+	}
+	if !strings.Contains(out, "this pane stays as it is: "+why) {
+		t.Errorf("no line saying why the pane stays (%s):\n%s", why, out)
+	}
+	if p := x.f.Pane("w1:p1"); p.Label != "" || x.f.TabLabels["w1:tc"] != "" {
+		t.Errorf("the caller's pane %+v, tab %q: want both untouched", p, x.f.TabLabels["w1:tc"])
+	}
+	m := x.methods()
+	if !slices.Contains(m, "tab.create") || slices.Contains(m, "tab.rename") || slices.Contains(m, "workspace.rename") {
+		t.Errorf("requests %q, want a tab.create and no rename of a tab or workspace", m)
+	}
+	if len(x.spawn) != 0 {
+		t.Errorf("detached runs %v, want none (the start runs in the new tab)", x.spawn)
 	}
 }
 
@@ -203,33 +188,9 @@ func TestLeadTakesTheCallersHCTerminal(t *testing.T) {
 	}
 }
 
-// An hc terminal whose foreground is another program than obor lead (an editor) stays as it is: the lead gets a new
-// lead tab, the caller's terminal and tab untouched.
-func TestLeadNewTabWhenTheCallersHCTerminalRunsAProgram(t *testing.T) {
-	t.Parallel()
-	k := newHCCaller(t)
-	k.core.SetForeground(k.addr, hc.Foreground{PID: 99999, Name: "vim", Argv: []string{"vim"}, Cwd: k.p.Root})
-	k.core.Program("claude", &hc.Status{State: "idle", App: "claude-code"})
-	out, rc := k.run(t)
-	if rc != 0 || !strings.HasPrefix(lastLine(out), "OK pj-lead runs in space proj, tab lead (pane ") {
-		t.Fatalf("exit %d, want the lead in a new tab:\n%s", rc, out)
-	}
-	if !strings.Contains(out, "this pane stays as it is: pane "+k.addr+" runs a program (vim)") {
-		t.Errorf("no line saying why the terminal stays:\n%s", out)
-	}
-	if l := k.core.Labels(k.addr); l[hc.LabelAgent] != "" || l[hc.LabelProject] != "" {
-		t.Errorf("terminal %s labels %v: want it untouched", k.addr, l)
-	}
-	if got := k.tabName("tb1"); got != "1" {
-		t.Errorf("tab tb1 named %q, want it untouched", got)
-	}
-	if len(k.spawn) != 0 {
-		t.Errorf("detached runs %v, want none", k.spawn)
-	}
-}
-
 // An hc terminal sharing its tab stays as it is: the lead gets a new lead tab in the project's space, the last line
-// naming space, tab and terminal.
+// naming space, tab and terminal. The one hc row of the new tab; the rule's rows are layout_test.go TestHome, the
+// program and other-space facts internal/setup's TestInitLeavesTheCallersSpaceWhenItDoesNotQualify.
 func TestLeadNewTabWhenTheCallersHCTerminalHasASibling(t *testing.T) {
 	t.Parallel()
 	k := newHCCaller(t)
@@ -252,29 +213,5 @@ func TestLeadNewTabWhenTheCallersHCTerminalHasASibling(t *testing.T) {
 	}
 	if len(k.spawn) != 0 {
 		t.Errorf("detached runs %v, want none", k.spawn)
-	}
-}
-
-// An hc terminal whose space is not the project's while another space already is (the project's tabs are there)
-// stays as it is: the lead gets a new lead tab in the project's space, and the caller's space keeps its name.
-func TestLeadNewTabWhenTheProjectsSpaceIsAnother(t *testing.T) {
-	t.Parallel()
-	k := newHCCaller(t)
-	k.app.AddSpace(herdrapptest.Space{ID: "sp2", Name: "proj", Folder: k.p.Root, Tabs: []herdrapptest.Tab{{ID: "tb2", Name: "roles"}}})
-	k.core.Program("claude", &hc.Status{State: "idle", App: "claude-code"})
-	out, rc := k.run(t)
-	if rc != 0 || !strings.HasPrefix(lastLine(out), "OK pj-lead runs in space proj, tab lead (pane ") {
-		t.Fatalf("exit %d, want the lead in a new tab:\n%s", rc, out)
-	}
-	if !strings.Contains(out, "this pane stays as it is: the proj group is another than this pane's (work)") {
-		t.Errorf("no line saying why the terminal stays:\n%s", out)
-	}
-	if l := k.core.Labels(k.addr); l[hc.LabelAgent] != "" {
-		t.Errorf("terminal %s labels %v: want it untouched", k.addr, l)
-	}
-	for _, s := range k.app.Spaces() {
-		if s.ID == "sp1" && (s.Name != "work" || s.Tabs[0].Name != "1") {
-			t.Errorf("the caller's space %+v: want it and its tab untouched", s)
-		}
 	}
 }
