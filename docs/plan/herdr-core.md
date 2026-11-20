@@ -29,7 +29,7 @@ is the core id plus the sorted holder instances (not the pid); "up" is foregroun
 a turn ends when the status leaves `working` (OpenCode never says `done`); `Prompt`'s bound exceeds hc's 60 s
 `draft_wait`; no ~1 KB env-line split on hc; `env: {"NAME": ""}` sets empty, never unsets. **Step 5 is dropped**
 (only Codex's trust and update prompts report nothing: the start's screen read covers the first, the second is an
-upstream ask). HD4 holds as decided. HD8 waits for P7 (the owner's steps in the probe note).
+upstream ask). HD4 holds as decided. **HD8 changed (owner 11-20, `docs/decisions.md`):** P7 passed, and obor lays out herdr-app like herdr (project space, named lead, lane and role tabs) through herdr-app's commands, placing terminals by `herdr.space`/`herdr.tab` labels: part of step 3's `Place`, `--tab`/`--new-tab` no longer refused on hc.
 
 ## Recommendation
 
