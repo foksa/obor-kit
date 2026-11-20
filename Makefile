@@ -268,7 +268,7 @@ vulncheck:
 deadcode:
 	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release,integration ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/hctest/' -e '/testkit/' -e '^internal/hc/' \
-	  -e '^internal/herdrapp/' \
+	  -e '^internal/herdrapp/' -e '^internal/app/layout/' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 

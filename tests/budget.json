@@ -32,6 +32,10 @@
       "full_s": 0.2,
       "git_procs": 0
     },
+    "obor/internal/app/layout": {
+      "full_s": 0.4,
+      "git_procs": 0
+    },
     "obor/internal/app/outbox": {
       "full_s": 0.2,
       "git_procs": 0
