@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/agents"
 )
 
 // CLIVersions runs each kind's CLI found on env's PATH with --version and keeps its first line. Stub
@@ -43,7 +45,7 @@ func TestCLIVersions(t *testing.T) {
 	}
 	// The answering stubs get a generous bound: macOS checks a new executable on its first run, which takes a while.
 	start := time.Now()
-	got := cliVersions(context.Background(), env,
+	got := cliVersions(context.Background(), env, agents.Kinds{},
 		[]string{"claude", "codex", "fails", "silent", "lengthy", "noexec", "missing"}, 20*time.Second)
 	t.Logf("seven kinds, five of them run for the first time: %s", time.Since(start))
 	want := map[string]string{"claude": "2.1.322 (Claude Code)", "codex": "codex-cli 0.167.0", "lengthy": long[:versionChars]}
@@ -55,7 +57,7 @@ func TestCLIVersions(t *testing.T) {
 	}
 
 	start = time.Now()
-	again := cliVersions(context.Background(), env, []string{"claude", "codex"}, 20*time.Second)
+	again := cliVersions(context.Background(), env, agents.Kinds{}, []string{"claude", "codex"}, 20*time.Second)
 	t.Logf("two answering stubs, run before: %s", time.Since(start))
 	if len(again) != 2 {
 		t.Errorf("two answering stubs: %q, want both", again)
@@ -65,7 +67,7 @@ func TestCLIVersions(t *testing.T) {
 	// a loaded machine).
 	const timeout = 300 * time.Millisecond
 	start = time.Now()
-	hung := cliVersions(context.Background(), env, []string{"slow"}, timeout)
+	hung := cliVersions(context.Background(), env, agents.Kinds{}, []string{"slow"}, timeout)
 	took := time.Since(start)
 	if len(hung) != 0 {
 		t.Errorf("a CLI that does not answer in its timeout: %q, want no entry", hung)

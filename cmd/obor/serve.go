@@ -189,7 +189,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		if err != nil {
 			return nil, err
 		}
-		if kinds.refresh(cfg, flushWriter{}) { // the registry's plugin kinds carry the new manifest
+		if kinds.refresh(cfg, flushWriter{}) { // a load now builds the plugin kinds with the new manifest
 			if cfg, err = config.Load(repo.Root); err != nil {
 				return nil, err
 			}
@@ -202,7 +202,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 			return nil, err
 		}
 		l := &app.Loop{Workflow: wf, Agents: agents, Prompter: term.Control, Nightly: nightly(o), Disk: diskOf(repo.Root),
-			Inbox: poster{repo.Root}}
+			Inbox: poster{root: repo.Root, kinds: cfg.Kinds()}}
 		// A lane with no pane at its worker's start: serve places one, as obor setup pane <LANE> does.
 		l.PlaceLane = func(ctx context.Context, lane string) (string, error) {
 			s := &setup.Setup{Kit: project.KitRoot(env), Dir: repo.Root, Env: env, T: term.Setup, Out: flushWriter{}}
@@ -212,7 +212,9 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
 		l.Prune = checks.GitPruner{Cfg: cfg}
 		l.Restart = serveRestarter(cfg, env, end)
-		l.Versions = func(ctx context.Context) map[string]string { return launch.CLIVersions(ctx, env, watchKinds(cfg)) }
+		l.Versions = func(ctx context.Context) map[string]string {
+			return launch.CLIVersions(ctx, env, cfg.Kinds(), watchKinds(cfg))
+		}
 		return l, nil
 	}
 }
@@ -227,7 +229,7 @@ type kindCache struct {
 }
 
 // refresh caches what cfg's plugin kinds lack, saying each cache written and each new failure on log; wrote says one
-// was written (a config load then registers the kinds with it).
+// was written (a config load then builds its plugin kinds with it).
 func (kc *kindCache) refresh(cfg *config.Config, log io.Writer) (wrote bool) {
 	kc.mu.Lock()
 	defer kc.mu.Unlock()

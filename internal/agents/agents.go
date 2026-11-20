@@ -2,8 +2,8 @@
 // functions over strings and bytes. No herdr, no sockets, no exec, no file I/O: the adapters (launch, setup, guard,
 // herdr, inbox) do that and ask the kind what differs. A compiled kind is one package (agents/claude, agents/codex)
 // that registers itself from its init; cmd/obor and testkit import all of them. A plugin kind is an executable answering
-// obor's kind protocol (agents/plugin, docs/agents/kind-protocol.md; OpenCode, kinds/opencode), registered by
-// the config that names it.
+// obor's kind protocol (agents/plugin, docs/agents/kind-protocol.md; OpenCode, kinds/opencode), built by the config
+// that names it: a project's kinds are a Kinds value (config.Config.Kinds), never the registry's.
 package agents
 
 import (
@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -34,7 +33,7 @@ type Kind interface {
 	NotReady(screen string) string
 	// Efforts are the effort values Start.Effort takes, from the CLI's own help; nil: this kind takes none.
 	Efforts() []string
-	// Vars are every variable a start's env may set: the kind's part of the registry (agents.Vars).
+	// Vars are every variable a start's env may set: the kind's part of the registry (Kinds.Vars).
 	Vars() []string
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
@@ -295,13 +294,12 @@ type ProjectChecker interface {
 	ProjectWarnings(dir string, read ReadFile) []string
 }
 
-// ProjectWarnings are every registered kind's ProjectChecker warnings on dir's files, kinds in name order; a kind in
-// described (a plugin kind obor config validate just described) answers in place of the registry's, whose
-// manifest may not be cached.
-func ProjectWarnings(dir string, read ReadFile, described map[string]Kind) []string {
+// ProjectWarnings are every kind's ProjectChecker warnings on dir's files, kinds in name order; a kind in described
+// (a plugin kind obor config validate just described) answers in place of s's, whose manifest may not be cached.
+func (s Kinds) ProjectWarnings(dir string, read ReadFile, described map[string]Kind) []string {
 	var out []string
-	for _, n := range Names() {
-		k := lookup(n)
+	for _, n := range s.Names() {
+		k := s.lookup(n)
 		if d := described[n]; d != nil {
 			k = d
 		}
@@ -334,8 +332,8 @@ type StartChecker interface {
 }
 
 // StartRefusal is the kind name's refusal of a start on machine h ("" when the start may go ahead, or no such kind).
-func StartRefusal(kind string, h InstallHost) string {
-	if c, ok := lookup(kind).(StartChecker); ok {
+func (s Kinds) StartRefusal(kind string, h InstallHost) string {
+	if c, ok := s.lookup(kind).(StartChecker); ok {
 		return c.StartRefusal(h)
 	}
 	return ""
@@ -503,13 +501,13 @@ const (
 
 var RetiredVars = []string{"OBOR_AGENT"}
 
-// Vars is the registry of every variable a start of any agent sets: the identity vars, the retired ones and
+// Vars is the registry of every variable a start of any of s's agents sets: the identity vars, the retired ones and
 // each kind's own (Kind.Vars), sorted. A start unsets every one it does not set, so no value of an earlier start in the
 // pane's shell survives into it, whatever the kinds.
-func Vars() []string {
+func (s Kinds) Vars() []string {
 	out := append([]string{RoleVar, LaneVar, PaneVar}, RetiredVars...)
-	for _, n := range Names() {
-		if k := lookup(n); k != nil {
+	for _, n := range s.Names() {
+		if k := s.lookup(n); k != nil {
 			out = append(out, k.Vars()...)
 		}
 	}
@@ -525,7 +523,7 @@ type EnvVar struct{ Name, Value string }
 // none), in that order (a kind's sorted); unset, every registry var (Vars) the
 // start does not set and keep does not name, sorted. keep is a var the caller leaves as the pane has it (an unknown
 // agent's OBOR_ROLE: obor cannot tell it).
-func StartVars(role, lane, pane string, kind map[string]string, keep ...string) (set []EnvVar, unset []string) {
+func (s Kinds) StartVars(role, lane, pane string, kind map[string]string, keep ...string) (set []EnvVar, unset []string) {
 	if role != "" {
 		set = append(set, EnvVar{RoleVar, role})
 	}
@@ -545,7 +543,7 @@ func StartVars(role, lane, pane string, kind map[string]string, keep ...string) 
 			set = append(set, EnvVar{k, v})
 		}
 	}
-	for _, v := range Vars() {
+	for _, v := range s.Vars() {
 		if !slices.Contains(keep, v) && !slices.ContainsFunc(set, func(e EnvVar) bool { return e.Name == v }) {
 			unset = append(unset, v)
 		}
@@ -553,40 +551,73 @@ func StartVars(role, lane, pane string, kind map[string]string, keep ...string) 
 	return set, unset
 }
 
-// The registry: the compiled kinds (Register, from their init) and the plugin kinds the loaded config names
-// (SetPlugins). A config load replaces the plugin kinds while serve's goroutines look kinds up: mu guards both.
-var (
-	mu      sync.RWMutex
-	kinds   = map[string]Kind{}
-	plugins = map[string]bool{} // the names in kinds that are plugin kinds
-)
+// The registry: the compiled kinds, each registered from its kind package's init (Register), never written after.
+// A plugin kind is a project's (Kinds).
+var kinds = map[string]Kind{}
 
 // Register adds k (a kind package's init); a second kind of one name panics.
 func Register(k Kind) {
-	mu.Lock()
-	defer mu.Unlock()
 	if _, dup := kinds[k.Name()]; dup {
 		panic("agents: kind " + k.Name() + " registered twice")
 	}
 	kinds[k.Name()] = k
 }
 
+// Kinds are the kinds one project runs: every compiled kind (the registry) and the plugin kinds its config names
+// (config.Config.Kinds). The zero Kinds holds the compiled kinds alone. A Kinds is never changed: a config load
+// builds a new one, so two projects' configs in one process each keep their own.
+type Kinds struct {
+	plugins map[string]Kind
+}
+
+// WithPlugins is the compiled kinds and ks. A plugin kind never replaces a compiled one (obor config validate refuses
+// the name): it is left out.
+func WithPlugins(ks []Kind) Kinds {
+	s := Kinds{plugins: map[string]Kind{}}
+	for _, k := range ks {
+		if _, compiled := kinds[k.Name()]; !compiled {
+			s.plugins[k.Name()] = k
+		}
+	}
+	return s
+}
+
 // Lookup is the kind of name; ok false: no such kind.
-func Lookup(name string) (Kind, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	k, ok := kinds[name]
+func (s Kinds) Lookup(name string) (Kind, bool) {
+	if k, ok := kinds[name]; ok {
+		return k, true
+	}
+	k, ok := s.plugins[name]
 	return k, ok
 }
 
 // lookup is Lookup's kind alone (nil: none).
-func lookup(name string) Kind {
-	k, _ := Lookup(name)
+func (s Kinds) lookup(name string) Kind {
+	k, _ := s.Lookup(name)
 	return k
 }
 
+// IsPlugin: name is one of s's plugin kinds (no compiled kind).
+func (s Kinds) IsPlugin(name string) bool {
+	_, ok := s.plugins[name]
+	return ok
+}
+
+// Names are s's kinds, sorted.
+func (s Kinds) Names() []string {
+	out := make([]string, 0, len(kinds)+len(s.plugins))
+	for n := range kinds {
+		out = append(out, n)
+	}
+	for n := range s.plugins {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // PluginLoader builds the kinds a project's config names as executables (kinds.<name>.command); the plugin
-// package (internal/agents/plugin) sets Plugins from its init, so the config (which cannot import it) registers them.
+// package (internal/agents/plugin) sets Plugins from its init, so the config (which cannot import it) builds them.
 type PluginLoader interface {
 	// Kind is the kind name answering obor's kind protocol as command, its manifest the one obor setup agents cached in
 	// stateDir: no process runs (hooks and the guard load the config).
@@ -598,30 +629,6 @@ type PluginLoader interface {
 
 // Plugins is the binary's PluginLoader; nil: this binary runs no plugin kinds.
 var Plugins PluginLoader
-
-// SetPlugins makes ks the plugin kinds (a config load: the kinds its kinds.<name>.command name), replacing the last
-// load's. A plugin kind never replaces a compiled one (obor config validate refuses the name): it is left out.
-func SetPlugins(ks []Kind) {
-	mu.Lock()
-	defer mu.Unlock()
-	for n := range plugins {
-		delete(kinds, n)
-	}
-	clear(plugins)
-	for _, k := range ks {
-		if _, compiled := kinds[k.Name()]; !compiled {
-			kinds[k.Name()] = k
-			plugins[k.Name()] = true
-		}
-	}
-}
-
-// IsPlugin: name is a plugin kind of the loaded config (no compiled kind).
-func IsPlugin(name string) bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return plugins[name]
-}
 
 // Uncached is a plugin kind that may have no manifest at hand: Uncached is why (nil: it has one). Without one
 // its Headless is empty, so the guard denies its program outright rather than let a headless run through.
@@ -724,9 +731,9 @@ func InstallOf(k Kind, kit string, env func(string) string) (Install, error) {
 
 // ByProgram is the kind whose Headless.Programs (default: its Name()) holds program, an executable's base name; ok
 // false: no kind runs as program.
-func ByProgram(program string) (Kind, bool) {
-	for _, n := range Names() {
-		if k := lookup(n); k != nil && slices.Contains(Programs(k), program) {
+func (s Kinds) ByProgram(program string) (Kind, bool) {
+	for _, n := range s.Names() {
+		if k := s.lookup(n); k != nil && slices.Contains(Programs(k), program) {
 			return k, true
 		}
 	}
@@ -735,32 +742,32 @@ func ByProgram(program string) (Kind, bool) {
 
 // Skills: the kind named name takes a plugin's slash command as its first prompt (its Caps.Skills); an unknown kind
 // does not.
-func Skills(name string) bool {
-	k, ok := Lookup(name)
+func (s Kinds) Skills(name string) bool {
+	k, ok := s.Lookup(name)
 	return ok && k.Caps().Skills
 }
 
 // Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not; an unknown kind
 // does not either.
-func Resumes(name string) bool {
-	k, ok := Lookup(name)
+func (s Kinds) Resumes(name string) bool {
+	k, ok := s.Lookup(name)
 	return ok && k.Caps().Resume
 }
 
 // NamedSession: the kind named name starts a session obor names itself (its Caps.NamedSession); an unknown
 // kind's sessions are not obor's.
-func NamedSession(name string) bool {
-	k, ok := Lookup(name)
+func (s Kinds) NamedSession(name string) bool {
+	k, ok := s.Lookup(name)
 	return ok && k.Caps().NamedSession
 }
 
 // CheckEffort is why the kind named kind cannot start with effort ("" takes any kind): an unknown kind, a kind that
 // takes no effort, or a value not among its Efforts (obor spec set, dispatch and config validate refuse it).
-func CheckEffort(kind, effort string) error {
+func (s Kinds) CheckEffort(kind, effort string) error {
 	if effort == "" {
 		return nil
 	}
-	k, ok := Lookup(kind)
+	k, ok := s.Lookup(kind)
 	if !ok {
 		return fmt.Errorf("kind %s has no bridge, so no effort", kind)
 	}
@@ -774,15 +781,15 @@ type ArgsChecker interface {
 }
 
 // CheckEffortArgs is CheckEffort and, for a kind that checks its args too (ArgsChecker), why args cannot carry effort.
-func CheckEffortArgs(kind string, args []string, effort string) error {
-	if err := CheckEffort(kind, effort); err != nil || effort == "" {
+func (s Kinds) CheckEffortArgs(kind string, args []string, effort string) error {
+	if err := s.CheckEffort(kind, effort); err != nil || effort == "" {
 		return err
 	}
-	return CheckEffortOf(lookup(kind), args, effort)
+	return CheckEffortOf(s.lookup(kind), args, effort)
 }
 
 // CheckEffortOf is CheckEffortArgs for a kind at hand (obor config validate's plugin kind as its describe just
-// answered), not the registry's.
+// answered), not a Kinds' kind of its name.
 func CheckEffortOf(k Kind, args []string, effort string) error {
 	if effort == "" {
 		return nil
@@ -803,8 +810,8 @@ type ModelEditor interface {
 }
 
 // ModelArgs is args of kind with model as their model (ModelEditor); an error for a kind whose model is no arg.
-func ModelArgs(kind string, args []string, model string) ([]string, error) {
-	e, ok := lookup(kind).(ModelEditor)
+func (s Kinds) ModelArgs(kind string, args []string, model string) ([]string, error) {
+	e, ok := s.lookup(kind).(ModelEditor)
 	if !ok {
 		return nil, fmt.Errorf("kind %s names no model in its args", kind)
 	}
@@ -867,18 +874,6 @@ func Programs(k Kind) []string {
 		return p
 	}
 	return []string{k.Name()}
-}
-
-// Names are the registered kinds, sorted.
-func Names() []string {
-	mu.RLock()
-	defer mu.RUnlock()
-	out := make([]string, 0, len(kinds))
-	for n := range kinds {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // resetEpoch is a limit message's reset as Unix seconds after a '|' (Claude Code's "… usage limit reached|<epoch>").

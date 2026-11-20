@@ -792,7 +792,7 @@ func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 	}
 
 	const line = "[obor pj-lead] bug B-03: retest"
-	if began, err := (poster{p.Root}).Post(context.Background(), agents.Default, "pj-triage", line); !began || err != nil {
+	if began, err := (poster{p.Root, testkit.Kinds()}).Post(context.Background(), agents.Default, "pj-triage", line); !began || err != nil {
 		t.Fatalf("brief to pj-triage: began %v, %v; want posted to its inbox", began, err)
 	}
 	select {

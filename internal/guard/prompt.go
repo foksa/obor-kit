@@ -111,7 +111,7 @@ func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path strin
 		return ""
 	}
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
-		path = project.TranscriptOf(cfg.Root, sid, env)
+		path = project.TranscriptOf(cfg.Root, sid, env, cfg.Kinds())
 	}
 	ctx, _, _, ok := project.ContextTokens(path)
 	if !ok || int64(ctx) <= limit {

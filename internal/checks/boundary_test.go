@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/agents"
+	"obor/internal/testkit"
 )
 
 // The import boundaries of docs/module-map.md: every obor package has a layer, and a package imports only
@@ -42,7 +42,7 @@ var layerOf = map[string]string{
 	"internal/run": base, "internal/version": base, "internal/store": base, "internal/selfexec": base,
 	"internal/help": base, "internal/background": base,
 	// a plugin kind runs its command as a process group (project.Group) and caches its manifest: no bridge
-	// (data and pure functions); the config registers it through agents.Plugins, setup caches it
+	// (data and pure functions); the config builds it through agents.Plugins, setup caches it
 	"internal/agents/plugin": base,
 
 	"internal/agents": bridge,
@@ -323,17 +323,17 @@ var kindLiteralFree = []string{"internal/agents/", "kinds/", "internal/herdr/her
 	"internal/config/models.go"}
 
 // TestNoKindLiterals: per-kind behaviour lives in the bridges (docs/module-map.md "bridge"), so no Go file
-// outside them, the fakes and tests holds a registered kind's name as a string literal: an adapter asks agents.Lookup
-// instead. The kinds are agents.Names() (a new kind is checked with no edit here; the test binary
-// registers every kind through testkit). Comments and longer strings ("codex exec") do not count.
+// outside them, the fakes and tests holds a kind's name as a string literal: an adapter asks the project's kinds
+// (config.Config.Kind) instead. The kinds are testkit.Kinds' (a new kind is checked with no edit here: the compiled
+// ones and the kit's plugin kinds). Comments and longer strings ("codex exec") do not count.
 func TestNoKindLiterals(t *testing.T) {
 	root := filepath.Join("..", "..")
 	kinds := map[string]bool{}
-	for _, n := range agents.Names() {
+	for _, n := range testkit.Kinds().Names() {
 		kinds[n] = true
 	}
 	if !kinds["claude"] || len(kinds) < 3 {
-		t.Fatalf("precondition: every kind registered, got %v", agents.Names())
+		t.Fatalf("precondition: every kind, got %v", testkit.Kinds().Names())
 	}
 	scanned := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -370,7 +370,7 @@ func TestNoKindLiterals(t *testing.T) {
 				break
 			}
 			if v, err := strconv.Unquote(lit); tok == token.STRING && err == nil && kinds[v] {
-				t.Errorf("%s: the kind literal %s outside internal/agents: ask agents.Lookup", fset.Position(pos), lit)
+				t.Errorf("%s: the kind literal %s outside internal/agents: ask the config's kinds", fset.Position(pos), lit)
 			}
 		}
 		return nil

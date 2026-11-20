@@ -95,7 +95,7 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 		return
 	}
 	defer hl.stop()
-	cl := &hc.Client{Path: hl.sock}
+	cl := &hc.Client{Path: hl.sock, Kinds: l.kinds()}
 	if err := cl.CheckEnv(context.Background()); err != nil {
 		report("FAIL", "HC-T0", kind+": the scratch core's environment: "+err.Error(), at("internal/hc/env.go", "func (cl *Client) CheckEnv"))
 		return
@@ -179,13 +179,13 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 // hcLaunch is a worker's start of kind's smallest built-in model (hcModels) as obor's launch builds it, with the scratch kit's
 // stub as obor and the kind's update check off.
 func hcLaunch(l *lab, kind string) (agents.Launch, agents.Kind, error) {
-	k, ok := agents.Lookup(kind)
-	if !ok {
-		return agents.Launch{}, nil, fmt.Errorf("no kind %s", kind)
-	}
 	cfg, err := config.Load(l.main)
 	if err != nil {
-		return agents.Launch{}, k, err
+		return agents.Launch{}, nil, err
+	}
+	k, ok := cfg.Kind(kind)
+	if !ok {
+		return agents.Launch{}, nil, fmt.Errorf("no kind %s", kind)
 	}
 	m, ok := cfg.Model(hcModels[kind])
 	if !ok {

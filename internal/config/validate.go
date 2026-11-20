@@ -80,8 +80,8 @@ func (v *validator) pluginKind(k string) {
 	switch {
 	case agents.Plugins == nil:
 		v.fail(path, "this obor binary runs no plugin kinds")
-	case !agents.IsPlugin(k):
-		if _, compiled := agents.Lookup(k); compiled {
+	case !v.c.kinds.IsPlugin(k):
+		if _, compiled := v.c.Kind(k); compiled {
 			v.fail(path, k+" is a compiled kind: a plugin kind takes a name of its own")
 			return
 		}
@@ -100,13 +100,13 @@ func (v *validator) pluginKind(k string) {
 }
 
 // projectFiles: the notes each agent kind has on the project's committed CLI config in the main checkout (
-// agents.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure. A plugin
-// kind pluginKind described answers as described (the registry's has no manifest before a cache).
+// agents.Kinds.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure. A plugin
+// kind pluginKind described answers as described (the config's has no manifest before a cache).
 func (v *validator) projectFiles() {
 	if v.c.Root == "" {
 		return
 	}
-	for _, w := range agents.ProjectWarnings(v.c.Root, os.ReadFile, v.described) {
+	for _, w := range v.c.kinds.ProjectWarnings(v.c.Root, os.ReadFile, v.described) {
 		v.warns = append(v.warns, "WARN "+w)
 	}
 }
@@ -118,8 +118,8 @@ func (v *validator) overrideFiles() {
 	if v.c.Root == "" {
 		return
 	}
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range v.c.kinds.Names() {
+		k, _ := v.c.Kind(name)
 		if d := v.described[name]; d != nil {
 			k = d
 		}
@@ -238,20 +238,20 @@ func (v *validator) lanes() {
 // LaneNameRE is a lane's name as LaneName writes it: L-01 … L-99, L-100 ….
 var LaneNameRE = regexp.MustCompile(`^L-(0[1-9]|[1-9][0-9]+)$`)
 
-// models: every agents.models entry and agents.kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
+// models: every agents.models entry and agents.kinds key names a kind with a bridge (Config.Kind), no kinds args carry a bare
 // `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
 // positionals); each role names a known model with an effort its kind takes.
 func (v *validator) models() {
 	bridged := func(path, kind string) {
-		if _, ok := agents.Lookup(kind); !ok {
-			v.fail(path, Compact(kind)+" is not a supported kind: use one of "+strings.Join(agents.Names(), ", "))
+		if _, ok := v.c.Kind(kind); !ok {
+			v.fail(path, Compact(kind)+" is not a supported kind: use one of "+strings.Join(v.c.kinds.Names(), ", "))
 		}
 	}
 	a := v.d.Agents
 	for _, k := range a.Models.Keys {
 		e := a.Models.M[k]
 		if _, isBuiltin := BuiltinModelNamed(k); e.Kind == "" && !isBuiltin {
-			v.fail(".agents.models"+key(k)+".kind", "required ("+strings.Join(agents.Names(), ", ")+")")
+			v.fail(".agents.models"+key(k)+".kind", "required ("+strings.Join(v.c.kinds.Names(), ", ")+")")
 			continue
 		}
 		if e.Kind != "" {
@@ -691,7 +691,7 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	for _, name := range c.ModelNames() { // a kind's own default model may refuse requests, and effort needs one
 		m, _ := c.Model(name)
-		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
+		if kd, known := c.Kind(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
 			out = append(out, "WARN agents.models."+name+": "+m.Kind+" model without a model id (the kind's own default "+
 				"may not work, and an effort needs one): set its \"id\"")
 		}

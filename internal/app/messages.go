@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/store"
 )
 
@@ -411,9 +410,9 @@ const freshStart = "fresh"
 
 // posted: a running agent of kind (herdr's, its pane's) gets serve's lines and job wakes posted to its session's inbox
 // (its bridge's Deliver posts, agents.Caps.Inbox), not typed into its pane.
-func posted(kind string) bool {
-	k, ok := agents.Lookup(kind)
-	return ok && k.Caps().Inbox
+func (p *proj) posted(kind string) bool {
+	k := p.kind(kind)
+	return k != nil && k.Caps().Inbox
 }
 
 // inboxed: agent's session inbox is recorded (Options.Inboxed; nil: assumed, the post says otherwise).

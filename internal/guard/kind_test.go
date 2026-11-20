@@ -17,7 +17,7 @@ func (xKind) Headless() agents.Headless {
 }
 
 func init() {
-	k, ok := agents.Lookup(agents.Default)
+	k, ok := agents.Kinds{}.Lookup(agents.Default)
 	if !ok {
 		panic("guard tests: no " + agents.Default + " kind registered")
 	}
@@ -28,7 +28,7 @@ func init() {
 // names: x-agent -p is denied (bare, by path, wrapped, nested), xkind -p is no agent run.
 func TestHeadlessByProgramNotName(t *testing.T) {
 	t.Parallel()
-	if k, ok := agents.Lookup("xkind"); !ok || agents.Programs(k)[0] != "x-agent" {
+	if k, ok := (agents.Kinds{}).Lookup("xkind"); !ok || agents.Programs(k)[0] != "x-agent" {
 		t.Fatalf("precondition: xkind registered with program x-agent")
 	}
 	f := fixture(t)

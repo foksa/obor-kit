@@ -72,13 +72,14 @@ func (a *App) roleDonePanes(p *proj) []roleDonePane {
 func (a *App) doneRoles(now time.Time) map[string]time.Time {
 	a.mu.Lock()
 	var cands []roleDonePane
-	if p := a.p; p != nil {
+	p := a.p
+	if p != nil {
 		cands = a.roleDonePanes(p)
 	}
 	a.mu.Unlock()
 	out := map[string]time.Time{}
 	for _, c := range cands {
-		last, known := a.activity.Activity(c.pane)
+		last, known := a.activity.Activity(p.kind(c.pane.Agent), c.pane)
 		if known && now.Sub(last) >= roleDoneAfter {
 			out[c.agent] = last
 		}

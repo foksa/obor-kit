@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/store"
 )
 
@@ -154,6 +155,9 @@ type App struct {
 // and the live state below it.
 type proj struct {
 	root, name string
+	// kinds are the project's agent kinds (config.Config.Kinds) as its config last loaded: at load, then on each
+	// tick's check (refreshKinds); a load that fails keeps the last good ones. Read with kindsNow, any goroutine.
+	kinds atomic.Pointer[agents.Kinds]
 	// terminal is the project's terminal kind (config.TerminalKind): its name among the tools the version pass reads.
 	terminal string
 	log      *event.Log

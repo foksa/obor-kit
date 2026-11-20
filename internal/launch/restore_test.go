@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
@@ -437,54 +436,6 @@ func TestRestoreProjectOnlyItsProject(t *testing.T) {
 		if strings.HasPrefix(c, other.Root+" ") {
 			t.Errorf("serve's run restarted the other project's pane: %q", c)
 		}
-	}
-}
-
-// namedKind is a plugin kind the registry holds by its name alone.
-type namedKind struct {
-	agents.Kind
-	name string
-}
-
-func (k namedKind) Name() string { return k.name }
-
-// loader is a PluginLoader whose kinds answer nothing but their names.
-type loader struct{}
-
-func (loader) Kind(name, _, _ string) agents.Kind { return namedKind{name: name} }
-
-func (loader) Check(name, _ string) (agents.Kind, error) { return namedKind{name: name}, nil }
-
-// A config load registers the project's plugin kinds as the process's (agents.SetPlugins), so a restore that loaded
-// another project's config would leave that project's kinds in serve's registry. The run reads its own project's
-// config alone: a labelled pane of another obor project is known by its cwd's repository before any config is loaded.
-// Not parallel: it owns the registry.
-func TestRestoreLoadsOnlyItsOwnProjectsConfig(t *testing.T) {
-	was := agents.Plugins
-	agents.Plugins = loader{}
-	t.Cleanup(func() {
-		agents.Plugins = was
-		agents.SetPlugins(nil)
-	})
-	f := newRfx(t)
-	f.p.Config(testkit.Set("agents.kinds.akind.plugin", "obor-kind-akind"))
-	other := testkit.NewPlain(t)
-	other.Config(testkit.Set("agents.kinds.bkind.plugin", "obor-kind-bkind"))
-	// The precondition: a load of the other project's config registers its kind, and a load of this one's replaces it.
-	if _, err := config.Load(other.Root); err != nil || !agents.IsPlugin("bkind") {
-		t.Fatalf("precondition: loading the other project's config registers its kind: %v, bkind %v", err, agents.IsPlugin("bkind"))
-	}
-	if _, err := config.Load(f.p.Root); err != nil || agents.IsPlugin("bkind") || !agents.IsPlugin("akind") {
-		t.Fatalf("precondition: loading this project's config replaces the kinds: %v, akind %v, bkind %v", err,
-			agents.IsPlugin("akind"), agents.IsPlugin("bkind"))
-	}
-	f.shell("w1:p1", f.p.Root, "pj-lead")
-	f.shell("w2:p1", other.Root, "pj-lead") // after this project's pane: a load for it would be the last one
-	f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
-	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh")
-	if agents.IsPlugin("bkind") || !agents.IsPlugin("akind") {
-		t.Errorf("after the run the registry holds akind %v, bkind %v; want this project's kind alone",
-			agents.IsPlugin("akind"), agents.IsPlugin("bkind"))
 	}
 }
 

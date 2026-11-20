@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/spec"
 )
@@ -527,7 +526,7 @@ func unbridged(cfg *config.Config, typ string) string {
 	if !ok {
 		return ""
 	}
-	if _, ok := agents.Lookup(lt.Kind); !ok {
+	if _, ok := cfg.Kind(lt.Kind); !ok {
 		return Dash(lt.Kind)
 	}
 	return ""

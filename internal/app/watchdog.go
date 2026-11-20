@@ -32,6 +32,7 @@ func (a *App) check(ctx context.Context, full bool) {
 	if p != nil {
 		if full {
 			a.scan(ctx, p)
+			p.refreshKinds()
 		}
 		a.decideLanes(ctx, p)
 	}
@@ -70,9 +71,9 @@ func (a *App) decideLanes(ctx context.Context, p *proj) {
 	a.mu.Unlock()
 	ev := map[string]*evidence{}
 	for _, o := range ask {
-		e := a.evidence(ctx, o)
-		if turnsRead(o.Agent) {
-			e.turn, e.turned = a.activity.Turn(o, transcripts[o.ID])
+		e := a.evidence(ctx, p, o)
+		if p.turnsRead(o.Agent) {
+			e.turn, e.turned = a.activity.Turn(p.kind(o.Agent), o, transcripts[o.ID])
 		}
 		ev[o.ID] = e
 	}
@@ -127,14 +128,14 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 			w.quietSince, w.seenWrite = time.Time{}, time.Time{}
 			// The needs-you is due at once (judge), its question read from the pane: ask only while there is none
 			// to record, or for the turn that ends a stopped worker.
-			if !p.has(task, event.StepNeedsYou, "blocked") || p.stops(task) && turnsRead(pane.Agent) {
+			if !p.has(task, event.StepNeedsYou, "blocked") || p.stops(task) && p.turnsRead(pane.Agent) {
 				ask = append(ask, pane)
 			}
 			continue
 		default:
 			w.quietSince, w.seenWrite = time.Time{}, time.Time{}
 		}
-		if p.stops(task) && turnsRead(pane.Agent) {
+		if p.stops(task) && p.turnsRead(pane.Agent) {
 			ask = append(ask, pane)
 		}
 	}
@@ -340,7 +341,7 @@ func (a *App) question(ctx context.Context, pane string) string {
 // evidence asks for pane's activity (outside mu): the child-process check is a process check and the pane's process
 // info from the terminal; its transcript is the observed pane's. A blocked pane asks a person: its question is its
 // screen's last lines, not its activity.
-func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
+func (a *App) evidence(ctx context.Context, p *proj, pane port.Pane) *evidence {
 	e := &evidence{}
 	if pane.Status == "blocked" {
 		e.question = a.question(ctx, pane.ID)
@@ -351,7 +352,7 @@ func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 		e.busy = false
 		a.logf("process info of %s: %v (activity unknown)", pane.ID, e.err)
 	}
-	e.last, e.known = a.activity.Activity(pane)
+	e.last, e.known = a.activity.Activity(p.kind(pane.Agent), pane)
 	return e
 }
 

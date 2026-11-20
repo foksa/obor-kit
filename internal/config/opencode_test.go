@@ -19,7 +19,7 @@ func TestOpencodeModelEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !agents.IsPlugin("opencode") {
+	if !c.Kinds().IsPlugin("opencode") {
 		t.Fatal("precondition: opencode is a plugin kind of the loaded config")
 	}
 	ds, _ := c.Model("deepseek")

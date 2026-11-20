@@ -76,7 +76,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	deadline := time.Now().Add(bound)
 	kill := min(port.StopTerminate, bound/2)
 	left := func() time.Duration { return max(time.Until(deadline)-kill, 0) }
-	recipe := recipeOf(running)
+	recipe := l.recipeOf(running)
 	restored := false // AfterEscape ran: the interrupted prompt is already cleared
 	if status := t.entry.Status; t.entry.Busy() {
 		if !force && !escape {
@@ -195,10 +195,10 @@ func needsForce(format string, a ...any) error {
 	return forceFail{project.Fail(fmt.Sprintf(format, a...))}
 }
 
-// recipeOf is kind's quit recipe (agents.Kind.Stop); none (no quit: terminated, proven, without the wait) for a kind
-// herdr runs that obor has no bridge for.
-func recipeOf(kind string) agents.Stop {
-	if k, ok := agents.Lookup(kind); ok {
+// recipeOf is kind's quit recipe (agents.Kind.Stop, the project's kind); none (no quit: terminated, proven, without
+// the wait) for a kind herdr runs that obor has no bridge for.
+func (l *Launcher) recipeOf(kind string) agents.Stop {
+	if k, ok := l.Cfg.Kind(kind); ok {
 		return k.Stop()
 	}
 	return agents.Stop{}
@@ -206,14 +206,14 @@ func recipeOf(kind string) agents.Stop {
 
 // leads: leader (herdr's canonical executable) is the program an agent of kind leads its process group as: the
 // kind's Stop.Program or its Name() (a kind with no bridge: its name).
-func leads(kind, leader string) bool {
-	r := recipeOf(kind)
+func (l *Launcher) leads(kind, leader string) bool {
+	r := l.recipeOf(kind)
 	return leader != "" && (leader == kind || leader == r.Program)
 }
 
 // programs names what leads accepts for kind, for a refusal: the kind, or the kind and its Stop.Program when one is set.
-func programs(kind string) string {
-	if r := recipeOf(kind); r.Program != "" && r.Program != kind {
+func (l *Launcher) programs(kind string) string {
+	if r := l.recipeOf(kind); r.Program != "" && r.Program != kind {
 		return r.Program + " or " + kind
 	}
 	return kind
@@ -307,8 +307,8 @@ func (l *Launcher) same(before, now group, leaderGone bool, kind string) string 
 		return fmt.Sprintf("the agent (pid %d) is still in the group", before.pgid)
 	case leaderGone:
 		return ""
-	case !leads(kind, now.leader):
-		return fmt.Sprintf("the group's leader (pid %d) is %q, not %s", before.pgid, now.leader, programs(kind))
+	case !l.leads(kind, now.leader):
+		return fmt.Sprintf("the group's leader (pid %d) is %q, not %s", before.pgid, now.leader, l.programs(kind))
 	case now.leader != before.leader || !now.listed(before.pgid):
 		return fmt.Sprintf("the group's leader (pid %d) is %q, not %s", before.pgid, now.leader, before.leader)
 	case !l.alive(before.pgid):

@@ -90,12 +90,12 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 		return err
 	}
 	bad := false
-	for _, name := range agents.Names() {
+	for _, name := range s.cfg.Kinds().Names() {
 		if used != nil && !used[name] {
 			s.say("mcp %s: not used (no model of a level, role or agent of this project runs it)", name)
 			continue
 		}
-		k, _ := agents.Lookup(name)
+		k, _ := s.cfg.Kind(name)
 		if c, ok := k.(agents.InstallChecker); ok { // the CLI's install: a warning, never a failure
 			for _, w := range c.InstallWarnings(s.installHost()) {
 				s.say("WARN %s: %s", name, w)
@@ -194,9 +194,9 @@ func (s *Setup) mcpLane(name string) error {
 		return project.Failf("mcp model %s: the model has no kind", name)
 	}
 	bad := false
-	k, known := agents.Lookup(lt.Kind)
+	k, known := s.cfg.Kind(lt.Kind)
 	if !known {
-		s.say("WARN mcp model %s (%s): not registered: obor registers its server for %s", name, lt.Kind, kindList())
+		s.say("WARN mcp model %s (%s): not registered: obor registers its server for %s", name, lt.Kind, kindList(s.cfg.Kinds()))
 		return project.Failf("mcp model %s", name)
 	}
 	in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
@@ -255,9 +255,9 @@ func (s *Setup) mcpLane(name string) error {
 	return nil
 }
 
-// kindList is the kinds obor has a bridge for, "a, b and c".
-func kindList() string {
-	n := agents.Names()
+// kindList is the kinds of kinds (obor has a bridge for each), "a, b and c".
+func kindList(kinds agents.Kinds) string {
+	n := kinds.Names()
 	if len(n) < 2 {
 		return strings.Join(n, "")
 	}

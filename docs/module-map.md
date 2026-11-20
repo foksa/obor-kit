@@ -48,10 +48,11 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
 - `version`: build version line.
 - `agents/plugin`: a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind
-  protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` registers the
+  protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` builds the
   kinds its `kinds.<name>.command` name through `agents.Plugins` (it cannot import this package) on every load, each with
   the manifest obor serve, `obor init` or `obor setup agents` cached (`plugin.Ensure`, `plugin.Cache`,
-  `.obor/state/kinds/<name>.json`): no process runs at load.
+  `.obor/state/kinds/<name>.json`): no process runs at load. The loaded config holds them (`cfg.Kinds()`,
+  `cfg.Kind(name)`); a load changes no package state (boundary test).
   Base, not bridge: it runs processes and writes the cache. `Local`: a kind answered in process by its own Go
   handler instead of its command (testkit's OpenCode; empty in obor).
 - `help`: the one list of obor commands (`help.Commands`: name, usage, description, group), printed by
@@ -83,12 +84,13 @@ transcript, a named session: `NamedSession`, obor chooses the id of a fresh star
 turns come from: `terminal`, `hooks`, `transcript`). A kind starts as `agents.Split` (a compiled kind:
 `Start(Start) []string`, the fresh/resume argv, MCP registration and first prompt, `Start.Read` the adapter's file read;
 `StartEnv`, a start's own env) or `agents.Whole` (a plugin kind's one start call: its argv, env and files together;
-a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds register from their init; a
-config load replaces the plugin kinds (`SetPlugins`; OpenCode's the kit's binary, `kinds/opencode`); a start is
+a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds alone, each registered from its init; a
+project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode's the kit's
+binary, `kinds/opencode`), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
 built once at the launch boundary from the complete `agents.Start` (`agents.StartOf`), and a plugin kind's start and
 install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
-take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Registry: `agents.Lookup`, `Names`,
-`Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
+take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A project's kinds:
+`Kinds.Lookup`, `Names`, `IsPlugin`, `Vars`/`StartVars`; `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
 `config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges and the kind binaries (boundary test).
 Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `kinds.<name>.command`.
 

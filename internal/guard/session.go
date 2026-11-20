@@ -43,7 +43,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	kind := sessionKind(cfg, agent, ev.Cwd)
 	if err != nil { // say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
-		record(repo.Root, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env)
+		record(repo.Root, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env, cfg.Kinds())
 		return Began{}, false
 	}
 	if len(unknown) > 0 {
@@ -76,7 +76,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 			strings.Join(w.Protected, ", "), w.State.Task, w.Rev)
 	}
 	runs := loadRuns(len(cfg.DenyCommands()))
-	forms := strings.Join(headlessForms(), ", ")
+	forms := strings.Join(headlessForms(cfg.Kinds()), ", ")
 	switch w.Role.Role {
 	case "worker":
 		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") and the hc/herdr-app commands that drive terminals are denied; "+runs+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
@@ -97,14 +97,14 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	// loaded: obor status warns when it is missing (dispatch does not wait for one). It lives in the main checkout's
 	// state dir, so it never dirties the lane worktree. No hook event carries the agent's version, so it
 	// is the kind's VersionVar when the environment sets one, else "". A native-hooks session writes none.
-	if k, ok := agents.Lookup(laneKind(cfg, w.Role.Lane)); w.Role.Lane != "" && ok && k.Caps().Hooks == agents.HooksPlugin {
+	if k, ok := cfg.Kind(laneKind(cfg, w.Role.Lane)); w.Role.Lane != "" && ok && k.Caps().Hooks == agents.HooksPlugin {
 		version := ""
 		if v := k.Caps().VersionVar; v != "" {
 			version = env.Get(v)
 		}
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
-	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env)
+	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env, cfg.Kinds())
 	pane, _ := project.PaneOf(cfg, env) // none: a session outside a pane, recorded without one
 	began := Began{Root: cfg.Root, Session: store.Session{Agent: agent, Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: pane, Lane: w.Role.Lane, Source: "SessionStart hook"}}
@@ -189,15 +189,16 @@ func laneKind(cfg *config.Config, lane string) string {
 
 // record writes this session's inbox under its slot in the project at root (every agent,
 // role-free; none for a session that derives no agent name or holds no slot; obor serve posts the lead's lines
-// there, nothing is typed), as the bridge of the kind whose environment this is builds it (Kind.InboxRecord); a
+// there, nothing is typed), as the bridge of the kind (of kinds, the project's) whose environment this is builds it
+// (Kind.InboxRecord); a
 // session with none (messaging off, no inbox kind) removes a stale record. The session itself is recorded by serve
 // alone (the session request), never in a file.
-func record(root, agent, slot, sessionID string, env project.Env) {
+func record(root, agent, slot, sessionID string, env project.Env, kinds agents.Kinds) {
 	if !recordable(agent) || slot == "" {
 		return
 	}
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range kinds.Names() {
+		k, _ := kinds.Lookup(name)
 		var in project.Inbox
 		if b := k.InboxRecord(env.Get); b != nil && json.Unmarshal(b, &in) == nil && in.Socket != "" {
 			in.Session = sessionID
@@ -222,12 +223,12 @@ func loadRuns(n int) string {
 	return fmt.Sprintf("%d deny rules from guards.deny_commands", n)
 }
 
-// headlessForms are the headless runs the guard denies, one per kind (agents.Kind.Headless): its first program with its
-// first subcommand, else its print flag.
-func headlessForms() []string {
+// headlessForms are the headless runs the guard denies, one per kind of kinds (agents.Kind.Headless): its first program
+// with its first subcommand, else its print flag.
+func headlessForms(kinds agents.Kinds) []string {
 	var out []string
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range kinds.Names() {
+		k, _ := kinds.Lookup(name)
 		switch h, prog := k.Headless(), agents.Programs(k)[0]; {
 		case len(h.Subcommands) > 0:
 			out = append(out, prog+" "+h.Subcommands[0])

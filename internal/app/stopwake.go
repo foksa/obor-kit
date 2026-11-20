@@ -185,7 +185,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 	a.mu.Lock()
 	for agent, b := range p.out.Briefs() {
 		w := a.whereIs(p, agent)
-		if agent == p.out.Lead() || w.State != Identified || !turnsRead(w.Pane.Agent) {
+		if agent == p.out.Lead() || w.State != Identified || !p.turnsRead(w.Pane.Agent) {
 			continue
 		}
 		if s := b.Stop(); (s != nil && s.Turn != "") || (s == nil && (b.Followed() || (b.Worked() && Ready(w.Pane.Status)))) {
@@ -195,7 +195,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 	a.mu.Unlock()
 	sort.Slice(reads, func(i, j int) bool { return reads[i].agent < reads[j].agent })
 	for _, rd := range reads {
-		t, ok := a.activity.Turn(rd.pane, rd.transcript)
+		t, ok := a.activity.Turn(p.kind(rd.pane.Agent), rd.pane, rd.transcript)
 		if !ok {
 			continue
 		}

@@ -24,7 +24,7 @@ import (
 // Codex's trust dialog; launch reads the screen for it), port.TimedOut when the shell still holds the foreground at
 // the bound. hc holds no agent names, so no start is refused as port.NameHeld.
 func (cl *Client) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
-	k, ok := agents.Lookup(s.Kind)
+	k, ok := cl.Kinds.Lookup(s.Kind)
 	if !ok {
 		return port.Pane{}, &Error{Op: "terminal.send", Msg: "no agent kind " + s.Kind}
 	}
@@ -91,7 +91,7 @@ func (cl *Client) up(ctx context.Context, s port.AgentStart) (port.Pane, error) 
 		}
 		if err == nil {
 			last = r
-			if p, done, err := started(r, s); done {
+			if p, done, err := started(cl.Kinds, r, s); done {
 				return p, err
 			}
 		}
@@ -112,11 +112,11 @@ func (cl *Client) up(ctx context.Context, s port.AgentStart) (port.Pane, error) 
 // started is what r says of s's start: done with the agent's pane once it is up (a program holds the foreground and
 // reports a status naming s.Kind, ready, or working on a first prompt), done with a NotReady error when it reports
 // blocked; not done while no program reports a status there.
-func started(r Record, s port.AgentStart) (port.Pane, bool, error) {
+func started(kinds agents.Kinds, r Record, s port.AgentStart) (port.Pane, bool, error) {
 	if !r.programRuns() || r.Status == nil {
 		return port.Pane{}, false, nil
 	}
-	p := r.pane()
+	p := r.pane(kinds)
 	p.Group = ""
 	switch {
 	case r.Status.State == "blocked":

@@ -201,20 +201,21 @@ func LaneAgent(lane, prefix string) string {
 	return prefix + "-" + strings.ToLower(lane)
 }
 
-// StartPrompt is the first prompt of a fresh start of kind in this role: only a kind that takes a plugin's slash
-// command as its first prompt (agents.Caps.Skills) gets the role's Prompt; another kind starts without one.
-func (r Role) StartPrompt(kind string) string {
-	if !agents.Skills(kind) {
+// StartPrompt is the first prompt of a fresh start of kind k in this role: only a kind that takes a plugin's slash
+// command as its first prompt (agents.Caps.Skills) gets the role's Prompt; another kind (or none, nil) starts
+// without one.
+func (r Role) StartPrompt(k agents.Kind) string {
+	if k == nil || !k.Caps().Skills {
 		return ""
 	}
 	return r.Prompt
 }
 
 // HandoffPrompt is StartPrompt's handoff form, for a fresh session that continues from a Handoff: the role's Prompt
-// with the argument `handoff` (the lead's `/obor:lead handoff`); "" where StartPrompt is (no skills for kind, no
+// with the argument `handoff` (the lead's `/obor:lead handoff`); "" where StartPrompt is (no skills for k, no
 // Prompt in the role).
-func (r Role) HandoffPrompt(kind string) string {
-	p := r.StartPrompt(kind)
+func (r Role) HandoffPrompt(k agents.Kind) string {
+	p := r.StartPrompt(k)
 	if p == "" {
 		return ""
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -278,7 +279,7 @@ func TestSessionOneOwner(t *testing.T) {
 			t.Errorf("CurrentAt B: %+v, want none", s)
 		}
 		eqs(t, store.TranscriptAt(h2.root, "zzzz0001"), own, "TranscriptAt: the owner's")
-		eqs(t, project.TranscriptOf(h2.root, "zzzz0001", func(string) (string, bool) { return "", false }), own, "TranscriptOf: the owner's")
+		eqs(t, project.TranscriptOf(h2.root, "zzzz0001", func(string) (string, bool) { return "", false }, agents.Kinds{}), own, "TranscriptOf: the owner's")
 	})
 
 	t.Run("registry failure: two starts, one rollout", func(t *testing.T) {

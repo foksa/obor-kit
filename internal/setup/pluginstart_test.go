@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/launch"
@@ -67,9 +66,6 @@ var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-
 // the session obor names), and applies that one reply's argv, env and file together: setup's first start (a new pane)
 // and a reused pane, a restart fresh and resumed, and setup's MCP model inspection. The generated file holds the
 // kit's `<kit>/bin/obor mcp` after each (the partial starts once wrote `/bin/obor mcp` over it).
-//
-// Not parallel: a config load replaces the registry's plugin kinds (agents.SetPlugins), so a parallel test's load
-// would drop this one's mid-launch.
 func TestPluginKindStartsOnce(t *testing.T) {
 	dir := t.TempDir()
 	cmd, logFile := filepath.Join(dir, "obor-kind-stub"), filepath.Join(dir, "requests")
@@ -82,7 +78,6 @@ func TestPluginKindStartsOnce(t *testing.T) {
 	if _, err := plugin.Cache("stub", cmd, state); err != nil { // obor setup agents' cache
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { agents.SetPlugins(nil) })
 	lanes := map[string]string{}
 	for _, l := range []string{"L-01", "L-02", "L-03"} {
 		x.lane(t, l)
@@ -95,8 +90,8 @@ func TestPluginKindStartsOnce(t *testing.T) {
 	for _, l := range cfg.Lanes() {
 		lanes[l.Name] = l.Dir
 	}
-	if !agents.IsPlugin("stub") {
-		t.Fatal("precondition: the config registers kind stub as a plugin kind")
+	if !cfg.Kinds().IsPlugin("stub") {
+		t.Fatal("precondition: the config has kind stub as a plugin kind")
 	}
 	file := filepath.Join(state, "stub.json")
 	settings := map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
@@ -215,8 +210,6 @@ func equalSettings(got, want map[string]any) bool {
 // that manifest's override file reaches that same start (the cached manifest named none); a start after it makes no
 // describe call. A changed command whose manifest names a file that does not parse: that first start is refused,
 // naming the file, with no start call.
-//
-// Not parallel: a config load replaces the registry's plugin kinds (agents.SetPlugins).
 func TestPluginKindStartReadsTheOverrideFilesOfTheManifestItStartsWith(t *testing.T) {
 	dir := t.TempDir()
 	cmd, describe := filepath.Join(dir, "obor-kind-stub"), filepath.Join(dir, "describe")
@@ -247,13 +240,12 @@ func TestPluginKindStartReadsTheOverrideFilesOfTheManifestItStartsWith(t *testin
 	if _, err := plugin.Cache("stub", cmd, filepath.Join(x.Root, ".obor", "state")); err != nil { // obor setup agents' cache
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { agents.SetPlugins(nil) })
 	cfg, err := config.Load(x.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !agents.IsPlugin("stub") {
-		t.Fatal("precondition: the config registers kind stub as a plugin kind")
+	if !cfg.Kinds().IsPlugin("stub") {
+		t.Fatal("precondition: the config has kind stub as a plugin kind")
 	}
 	const theme, themeFile = `{"theme": "dark"}`, ".obor/stub/stub_override.json"
 	x.Write(themeFile, theme)

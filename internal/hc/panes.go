@@ -49,11 +49,12 @@ type Foreground struct {
 // pane is r as the core sees it. Group and Label are the obor.project and obor.agent labels; Cwd the foreground's
 // (it follows a cd), else the record's; Run the terminal's own program's pid (a fresh shell after a lost holder or a
 // stop and start has another). The agent is what the program reported: its kind the one whose agents report
-// status.app (kindOf; never foreground.name, which is Claude's version), else the obor.kind label obor's start set,
+// status.app (kindOf, of kinds: the project's; never foreground.name, which is Claude's version), else the obor.kind
+// label obor's start set,
 // its status hc's word, with `error` as idle (the turn ended, the agent takes a prompt again; its msg is logged where
 // a wait reads it). With no status, a program other than the terminal's own in the foreground is unknown; the
 // terminal's own program (its shell) is no agent.
-func (r Record) pane() port.Pane {
+func (r Record) pane(kinds agents.Kinds) port.Pane {
 	p := port.Pane{ID: r.Address, Terminal: r.Address, Group: r.Labels[LabelProject], Label: r.Labels[LabelAgent], Cwd: r.Cwd}
 	if r.PID != 0 {
 		p.Run = strconv.Itoa(r.PID)
@@ -63,7 +64,7 @@ func (r Record) pane() port.Pane {
 	}
 	switch {
 	case r.Status != nil:
-		p.Agent = cmp.Or(kindOf(r.Status.App), r.Labels[LabelKind])
+		p.Agent = cmp.Or(kindOf(kinds, r.Status.App), r.Labels[LabelKind])
 		p.Status = statusWord(r.Status.State)
 	case r.programRuns():
 		p.Status = "unknown"
@@ -76,14 +77,14 @@ func (r Record) programRuns() bool {
 	return r.Foreground != nil && r.Foreground.PID != r.PID
 }
 
-// kindOf is the kind whose agents report app as their name in a status (agents.Caps.App, else the kind's name); ""
-// when no kind does.
-func kindOf(app string) string {
+// kindOf is the kind of kinds whose agents report app as their name in a status (agents.Caps.App, else the kind's
+// name); "" when no kind does.
+func kindOf(kinds agents.Kinds, app string) string {
 	if app == "" {
 		return ""
 	}
-	for _, n := range agents.Names() {
-		k, ok := agents.Lookup(n)
+	for _, n := range kinds.Names() {
+		k, ok := kinds.Lookup(n)
 		if !ok {
 			continue
 		}
@@ -130,11 +131,11 @@ type serverStatus struct {
 // snapshot is the port's snapshot of recs (finished terminals left out), with the core's version, its id as the
 // instance (a restart, an update and a stop keep it) and note. Each pane's Run is its program's pid (PaneRuns): what
 // tells serve's restore which panes lost their program.
-func snapshot(h hello, st serverStatus, recs []Record) port.Snapshot {
+func snapshot(kinds agents.Kinds, h hello, st serverStatus, recs []Record) port.Snapshot {
 	out := port.Snapshot{Version: h.Version, Instance: st.Core.ID, Note: note(h), PaneRuns: true}
 	for _, r := range recs {
 		if r.State == "live" {
-			out.Panes = append(out.Panes, r.pane())
+			out.Panes = append(out.Panes, r.pane(kinds))
 		}
 	}
 	return out
@@ -154,7 +155,7 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 		if err := s.call(ctx, "terminal.list", nil, &l); err != nil {
 			return err
 		}
-		out = snapshot(s.hello, st, l.Terminals)
+		out = snapshot(p.C.Kinds, s.hello, st, l.Terminals)
 		return nil
 	})
 	return out, err

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	_ "obor/internal/testkit" // every agent kind registered, as cmd/obor registers them
+	"obor/internal/testkit" // every agent kind, as a config's Kinds holds them
 )
 
 // shellRecord is terminal.get of a kept shell terminal labelled obor.project=cap obor.agent=w1 after a `cd sub`, as
@@ -68,7 +68,7 @@ func TestRecordPane(t *testing.T) {
 		if err := json.Unmarshal([]byte(c.json), &r); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if got := r.pane(); got != c.want {
+		if got := r.pane(testkit.Kinds()); got != c.want {
 			t.Errorf("%s: pane = %+v\nwant %+v", c.name, got, c.want)
 		}
 	}
@@ -80,7 +80,7 @@ func TestRecordPane(t *testing.T) {
 func TestKindOf(t *testing.T) {
 	for app, want := range map[string]string{"claude-code": "claude", "codex": "codex", "opencode": "opencode",
 		"claude": "", "2.1.329": "", "vim": "", "": ""} {
-		if got := kindOf(app); got != want {
+		if got := kindOf(testkit.Kinds(), app); got != want {
 			t.Errorf("kindOf(%q) = %q, want %q", app, got, want)
 		}
 	}

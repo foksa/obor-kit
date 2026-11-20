@@ -19,11 +19,11 @@ import (
 )
 
 // TranscriptOf is the transcript file of an agent session id: the one the project at root recorded for it (serve's
-// session facts; root "": none read), else as the kinds keep them (agents.Kind.Transcript, in agents.Names
+// session facts; root "": none read), else as the project's kinds keep them (agents.Kind.Transcript, in Kinds.Names
 // order: $CLAUDE_CONFIG_DIR (~/.claude)/projects/*/<sid>.jsonl, $CODEX_HOME
 // (~/.codex)/sessions/*/*/*/rollout-*-<sid>.jsonl); "" when none, or when sid is no uuid-like word (it is matched
 // inside a file name).
-func TranscriptOf(root, sid string, env Env) string {
+func TranscriptOf(root, sid string, env Env, kinds agents.Kinds) string {
 	if len(sid) < 8 || !sidRe.MatchString(sid) {
 		return ""
 	}
@@ -34,8 +34,8 @@ func TranscriptOf(root, sid string, env Env) string {
 			}
 		}
 	}
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range kinds.Names() {
+		k, _ := kinds.Lookup(name)
 		if !k.Caps().Transcript {
 			continue
 		}

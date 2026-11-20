@@ -60,7 +60,7 @@ type Launch struct {
 }
 
 // Placer is Launch.Place: Place places a new pane for the agent, env NAME=VALUE for its shell ("NAME=": set empty,
-// the start's env as agents.StartVars builds it), and returns the pane's id. A pointer in Launch, so a Launch stays
+// the start's env as agents.Kinds.StartVars builds it), and returns the pane's id. A pointer in Launch, so a Launch stays
 // comparable.
 type Placer struct {
 	Place func(ctx context.Context, env []string) (pane string, err error)

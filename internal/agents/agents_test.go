@@ -11,24 +11,40 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/testkit" // OpenCode, a plugin kind answering in process
+	"obor/internal/testkit" // OpenCode, a plugin kind answering in process
 )
 
-// the registry is the one list of kinds (sorted), Default is one of them, an unknown kind is no kind (Cursor's
-// rows went), and a second registration of a name panics.
+// kinds are a project's kinds as its config holds them: the compiled ones and OpenCode, the kit's plugin kind.
+var kinds = testkit.Kinds()
+
+// the registry holds the compiled kinds alone (the zero Kinds); a Kinds adds its plugin kinds to them, one list
+// (sorted), never in place of a compiled one of the same name; Default is one of them, an unknown kind is no kind
+// (Cursor's rows went), and a second registration of a name panics.
 func TestRegistry(t *testing.T) {
-	if got := agents.Names(); !slices.Equal(got, []string{"claude", "codex", "opencode"}) {
+	if got := (agents.Kinds{}).Names(); !slices.Equal(got, []string{"claude", "codex"}) {
+		t.Errorf("the compiled kinds = %q", got)
+	}
+	if got := kinds.Names(); !slices.Equal(got, []string{"claude", "codex", "opencode"}) {
 		t.Errorf("Names = %q", got)
 	}
-	if k, ok := agents.Lookup(agents.Default); !ok || k.Name() != agents.Default {
+	oc, ok := kinds.Lookup("opencode")
+	if !ok || !kinds.IsPlugin("opencode") || kinds.IsPlugin("claude") || (agents.Kinds{}).IsPlugin("opencode") {
+		t.Fatalf("opencode: %v, a plugin kind %v; claude a plugin kind %v", ok, kinds.IsPlugin("opencode"), kinds.IsPlugin("claude"))
+	}
+	compiled, _ := agents.Kinds{}.Lookup("claude")
+	shadow := agents.WithPlugins([]agents.Kind{namedKind{oc, "claude"}, oc})
+	if k, _ := shadow.Lookup("claude"); k != compiled || shadow.IsPlugin("claude") || !shadow.IsPlugin("opencode") {
+		t.Errorf("a plugin kind named claude: Lookup %v (want the compiled kind), a plugin kind %v", k, shadow.IsPlugin("claude"))
+	}
+	if k, ok := kinds.Lookup(agents.Default); !ok || k.Name() != agents.Default {
 		t.Errorf("Default %s is no registered kind", agents.Default)
 	}
 	for _, name := range []string{"cursor", "gemini", ""} {
-		if _, ok := agents.Lookup(name); ok {
+		if _, ok := kinds.Lookup(name); ok {
 			t.Errorf("Lookup(%q) ok", name)
 		}
 	}
-	k, _ := agents.Lookup("codex")
+	k, _ := kinds.Lookup("codex")
 	defer func() {
 		if recover() == nil {
 			t.Error("a second codex registered")
@@ -37,20 +53,28 @@ func TestRegistry(t *testing.T) {
 	agents.Register(k)
 }
 
+// namedKind is k under another name.
+type namedKind struct {
+	agents.Kind
+	name string
+}
+
+func (k namedKind) Name() string { return k.name }
+
 // A kind's programs default to its name; ByProgram finds a kind by an
 // executable's base name and no kind by another word.
 func TestByProgram(t *testing.T) {
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range kinds.Names() {
+		k, _ := kinds.Lookup(name)
 		if got := agents.Programs(k); !slices.Equal(got, []string{name}) {
 			t.Errorf("Programs(%s) = %q, want its name", name, got)
 		}
-		if b, ok := agents.ByProgram(name); !ok || b.Name() != name {
+		if b, ok := kinds.ByProgram(name); !ok || b.Name() != name {
 			t.Errorf("ByProgram(%q) = %v, %v", name, b, ok)
 		}
 	}
 	for _, w := range []string{"git", "/usr/bin/claude", ""} {
-		if _, ok := agents.ByProgram(w); ok {
+		if _, ok := kinds.ByProgram(w); ok {
 			t.Errorf("ByProgram(%q) ok", w)
 		}
 	}
@@ -63,7 +87,7 @@ func TestResumes(t *testing.T) {
 		kind string
 		want bool
 	}{{"claude", true}, {"codex", true}, {"opencode", false}, {"", false}, {"cursor", false}} {
-		if got := agents.Resumes(c.kind); got != c.want {
+		if got := kinds.Resumes(c.kind); got != c.want {
 			t.Errorf("Resumes(%q) = %v, want %v", c.kind, got, c.want)
 		}
 	}
@@ -101,7 +125,7 @@ func TestSkills(t *testing.T) {
 		kind string
 		want bool
 	}{{"claude", true}, {"codex", false}, {"opencode", false}, {"", false}} {
-		if got := agents.Skills(c.kind); got != c.want {
+		if got := kinds.Skills(c.kind); got != c.want {
 			t.Errorf("Skills(%q) = %v, want %v", c.kind, got, c.want)
 		}
 	}
@@ -121,7 +145,7 @@ func TestCheckEffort(t *testing.T) {
 		{"codex", "max", ""}, {"codex", "ultra", ""}, {"codex", "minimal", "not one of codex's (low, medium, high, xhigh, max, ultra)"},
 		{"opencode", "max", ""}, {"cursor", "high", "has no bridge"}, {"cursor", "", ""}, {"claude", "", ""},
 	} {
-		err := agents.CheckEffort(c.kind, c.effort)
+		err := kinds.CheckEffort(c.kind, c.effort)
 		if c.refusal == "" && err != nil || c.refusal != "" && (err == nil || !strings.Contains(err.Error(), c.refusal)) {
 			t.Errorf("CheckEffort(%s, %q) = %v, want %q", c.kind, c.effort, err, c.refusal)
 		}
@@ -148,15 +172,15 @@ func TestModelArgs(t *testing.T) {
 		{"codex", "gpt-7", []string{"-s", "workspace-write", "--model=gpt-6"}, []string{"-s", "workspace-write", "--model=gpt-7"}},
 		{"codex", "gpt-7", []string{"-a", "never"}, []string{"-a", "never", "-m", "gpt-7"}},
 	} {
-		got, err := agents.ModelArgs(c.kind, c.args, c.val)
+		got, err := kinds.ModelArgs(c.kind, c.args, c.val)
 		if err != nil || !slices.Equal(got, c.want) {
 			t.Errorf("%s model %q of %q: %q, %v; want %q", c.kind, c.val, c.args, got, err, c.want)
 		}
 	}
-	if _, err := agents.ModelArgs("cursor", nil, "m"); err == nil {
+	if _, err := kinds.ModelArgs("cursor", nil, "m"); err == nil {
 		t.Error("a kind with no bridge names no model: want an error")
 	}
-	if _, err := agents.ModelArgs("opencode", nil, "m"); err == nil { // config appends --model <id>
+	if _, err := kinds.ModelArgs("opencode", nil, "m"); err == nil { // config appends --model <id>
 		t.Error("a plugin kind names no model in its args: want an error")
 	}
 }
@@ -164,7 +188,7 @@ func TestModelArgs(t *testing.T) {
 // the registry of the env vars obor sets for an agent is one list: the identity vars, the retired OBOR_AGENT and
 // every kind's own (Kind.Vars), and a kind's start sets none outside it.
 func TestVarsRegistry(t *testing.T) {
-	vars := agents.Vars()
+	vars := kinds.Vars()
 	for _, v := range []string{"OBOR_ROLE", "OBOR_LANE", "OBOR_AGENT", "OBOR_OPENCODE_MODEL", "OPENCODE_CONFIG", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"} {
 		if !slices.Contains(vars, v) {
 			t.Errorf("Vars %q lacks %s", vars, v)
@@ -174,8 +198,8 @@ func TestVarsRegistry(t *testing.T) {
 		t.Errorf("Vars %q: want sorted, each once", vars)
 	}
 	write := func(name string, _ []byte) (string, error) { return "/state/" + name, nil }
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range kinds.Names() {
+		k, _ := kinds.Lookup(name)
 		for _, v := range k.Vars() {
 			if !slices.Contains(vars, v) {
 				t.Errorf("%s's var %s is not in the registry", name, v)
@@ -235,7 +259,7 @@ func TestStartVars(t *testing.T) {
 		{"no role: unset", "", "", "", nil, nil, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_PANE OBOR_ROLE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"no role, OBOR_ROLE kept", "", "", "", nil, []string{"OBOR_ROLE"}, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_PANE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 	} {
-		set, unset := agents.StartVars(c.role, c.lane, c.pane, c.kind, c.keep...)
+		set, unset := kinds.StartVars(c.role, c.lane, c.pane, c.kind, c.keep...)
 		if got := names(set); got != c.set {
 			t.Errorf("%s: set %q, want %q", c.name, got, c.set)
 		}

@@ -32,7 +32,7 @@ const (
 // mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L5's quit.
 // With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
 func opencodeLive(l *lab, turn bool) {
-	k := kindOf("opencode")
+	k := l.kindOf("opencode")
 	xdg := map[string]string{}
 	for _, d := range []string{"CONFIG", "DATA", "STATE", "CACHE"} {
 		dir := filepath.Join(l.root, "xdg", strings.ToLower(d))

@@ -8,12 +8,13 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
 	"obor/internal/app/port"
+	"obor/internal/testkit"
 )
 
 // StartArgs is a kind's start over launch args, as a launch's build runs it (a compiled kind's agents.StartOf second
 // pass, a plugin kind's one start; the prompt one line), for the external tests' case table.
 func StartArgs(kind, kit string, args []string, prompt string) []string {
-	k, _ := agents.Lookup(kind)
+	k, _ := testkit.Kinds().Lookup(kind)
 	in := agents.Start{Kit: kit, Args: args, Prompt: oneLine(prompt), Read: os.ReadFile}
 	if s, ok := k.(agents.Split); ok {
 		return s.Start(in)
@@ -25,7 +26,7 @@ func StartArgs(kind, kit string, args []string, prompt string) []string {
 
 // MCPArgs is the --mcp-config pair a fresh start of kind adds for kit's obor server (nil: none), as its argv shows it.
 func MCPArgs(kind, kit string, args []string) []string {
-	k, ok := agents.Lookup(kind)
+	k, ok := testkit.Kinds().Lookup(kind)
 	if !ok {
 		return nil
 	}

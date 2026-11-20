@@ -520,10 +520,10 @@ const pluginSettle = 2 * time.Minute
 // check in from yet (pluginSettle after the dispatch and after its last agent.start, starts) is no answer either.
 func pluginMissing(p *checks.LaneTable, s port.Lane, starts map[string]int64) bool {
 	kind := project.RunningKind(p.Cfg, config.AgentInfo{Type: s.Type})
-	if k, known := agents.Lookup(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json
+	if k, known := p.Cfg.Kind(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json
 		return !config.PluginEnabledIn(s.Dir)
 	}
-	if k, known := agents.Lookup(kind); !known || k.Caps().Hooks != agents.HooksPlugin {
+	if k, known := p.Cfg.Kind(kind); !known || k.Caps().Hooks != agents.HooksPlugin {
 		return false
 	}
 	rows, _ := p.Rows()

@@ -65,8 +65,8 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 	if cfg, err = config.Load(root); err != nil {
 		t.Fatal(err)
 	}
-	if k, ok := agents.Lookup(kind.Name); !ok || !agents.IsPlugin(kind.Name) || k.Caps().Hooks != agents.HooksPlugin {
-		t.Fatalf("precondition: opencode is the cached plugin kind (%v, %v)", ok, agents.IsPlugin(kind.Name))
+	if k, ok := cfg.Kind(kind.Name); !ok || !cfg.Kinds().IsPlugin(kind.Name) || k.Caps().Hooks != agents.HooksPlugin {
+		t.Fatalf("precondition: opencode is the cached plugin kind (%v, %v)", ok, cfg.Kinds().IsPlugin(kind.Name))
 	}
 	if err := os.Remove(rec); err != nil {
 		t.Fatalf("precondition: setup's describe was recorded: %v", err)

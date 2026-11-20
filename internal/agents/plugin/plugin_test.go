@@ -324,9 +324,8 @@ func TestManifestFromCache(t *testing.T) {
 	if h := k.Headless(); !h.PrintFlag || h.Subcommands[0] != "exec" || agents.Programs(k)[0] != "stub" {
 		t.Errorf("Headless = %+v", h)
 	}
-	agents.SetPlugins([]agents.Kind{k})
-	t.Cleanup(func() { agents.SetPlugins(nil) })
-	if err := agents.CheckEffort("stub", "max"); err == nil || agents.CheckEffort("stub", "high") != nil {
+	kinds := agents.WithPlugins([]agents.Kind{k})
+	if err := kinds.CheckEffort("stub", "max"); err == nil || kinds.CheckEffort("stub", "high") != nil {
 		t.Errorf("effort max: %v, want refused (efforts low, high), high taken", err)
 	}
 	if _, err := os.Stat(ran); err == nil {

@@ -30,9 +30,9 @@ const (
 	opencodeGo = "kinds/opencode/kind/kind.go" // a plugin kind's binary
 )
 
-// kindOf is the registered agents.Kind name (the driver under test).
+// kindOf is the compiled agents.Kind name (the driver under test; a plugin kind is a lab's: lab.kindOf).
 func kindOf(name string) agents.Kind {
-	k, ok := agents.Lookup(name)
+	k, ok := agents.Kinds{}.Lookup(name)
 	if !ok {
 		panic("conformance: no agent kind " + name)
 	}

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/roles"
 )
 
@@ -437,6 +438,7 @@ type Config struct {
 	local      []byte   // .obor/local.json's bytes (nil: none), for Edit's override check
 	unknownErr error    // LoadReader's warning when read dropped an unknown key
 	unknownIn  []string // the unknown keys config.json itself has (the others are local.json's), for LoadForValidate
+	kinds      agents.Kinds
 }
 
 // Rev is the revision of the config as it runs (Rev of its effective JSON: config.json with .obor/local.json merged
@@ -581,7 +583,7 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 		return nil, nil, fmt.Errorf("obor: %s: %s", filepath.Join(root, ".obor", name), msg)
 	}
 	c.Data.derive(filepath.Base(root))
-	c.registerPlugins()
+	c.kinds = c.buildKinds()
 	b, err := json.Marshal(c.Data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("obor: cannot build the effective config: %w", err)

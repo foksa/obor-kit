@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/hc"
@@ -22,24 +23,25 @@ import (
 
 // terminalKind is one terminal kind's row, the one table of what differs by kind (terminals): PaneVar the variable its
 // terminal sets in every pane (config.TerminalPaneVars), Env the variables a caller's serve needs to reach it, Group
-// what it calls a pane's group, Build its adapter for env.
+// what it calls a pane's group, Build its adapter for env and the project's agent kinds (config.Config.Kinds).
 type terminalKind struct {
 	Name    string
 	PaneVar string
 	Env     []string
 	Group   string
-	Build   func(env project.Env) port.Terminal
+	Build   func(env project.Env, kinds agents.Kinds) port.Terminal
 }
 
 var terminals = []terminalKind{
 	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Env: herdr.EnvNames,
-		Group: "workspace", Build: func(env project.Env) port.Terminal {
+		Group: "workspace", Build: func(env project.Env, _ agents.Kinds) port.Terminal {
 			s := &herdr.Socket{Path: herdr.SocketPath(env)}
 			return port.Terminal{Panes: herdr.Panes{S: s}, Control: s, Setup: &herdr.Setup{Socket: s, Env: env}}
 		}},
 	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Env: hc.EnvNames, Group: "space",
-		Build: func(env project.Env) port.Terminal {
+		Build: func(env project.Env, kinds agents.Kinds) port.Terminal {
 			cl := hc.New(env)
+			cl.Kinds = kinds
 			return port.Terminal{Panes: hc.Panes{C: cl}, Control: cl, Setup: cl, Check: cl.Check}
 		}},
 }
@@ -62,7 +64,7 @@ func terminal(cfg *config.Config, env project.Env) (port.Terminal, error) {
 	if !ok {
 		return port.Terminal{}, fmt.Errorf("terminal.kind %q: obor knows %s", cfg.TerminalKind(), strings.Join(config.TerminalKinds, ", "))
 	}
-	return k.Build(env), nil
+	return k.Build(env, cfg.Kinds()), nil
 }
 
 // serveTerminal is t as serve watches it: on hc, each subscribe first starts a core that is down from serve's own

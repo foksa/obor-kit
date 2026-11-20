@@ -17,7 +17,7 @@ import (
 // The models: the config names a model with its effort, `<model>[:<effort>]` (a model ref), in difficulty
 // levels, roles, agents and a spec's Model: line. A model is a built-in one (BuiltinModels) or models.<name>, which
 // adds one or overrides a built-in; what starts it is its kind's base args (KindBaseArgs), its model id as the kind
-// takes it (agents.ModelArgs), then kinds.<kind>.args. The effort is the kind's own flag (agents.Start.Effort).
+// takes it (agents.Kinds.ModelArgs), then kinds.<kind>.args. The effort is the kind's own flag (agents.Start.Effort).
 
 // BuiltinModel is one entry of the built-in model table: its name, its kind and the model id the kind starts it with.
 type BuiltinModel struct{ Name, Kind, ID string }
@@ -57,8 +57,9 @@ type KindEntry struct {
 	Plugin  string   `json:"plugin,omitempty"`
 }
 
-// Kind is agents.kinds.<name> (the zero entry when the config does not name it): its args and its work jobs' note.
-func (c *Config) Kind(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
+// KindEntry is agents.kinds.<name> (the zero entry when the config does not name it): its args and its work jobs'
+// note.
+func (c *Config) KindEntry(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
 
 // KitKinds are the plugin kinds the kit ships, by name: the binary each runs as, beside obor's own (KitKind).
 // A config naming no agents.kinds.<name>.plugin for one runs the kit's binary; setting the line overrides it.
@@ -122,19 +123,30 @@ func (c *Config) PluginKinds() []string {
 // StateDir is the project's state dir (project.StateDir: config cannot import project).
 func (c *Config) StateDir() string { return filepath.Join(c.Root, ".obor", "state") }
 
-// registerPlugins makes this config's plugin kinds (PluginKinds) the registry's (agents.SetPlugins), each
-// with the manifest obor setup agents cached: no process runs (every load, hooks included). A binary without the
-// plugin package registers none.
-func (c *Config) registerPlugins() {
+// buildKinds are the compiled kinds and this config's plugin kinds (PluginKinds), each with the manifest obor setup
+// agents cached: no process runs (every load, hooks included). A binary without the plugin package has none.
+func (c *Config) buildKinds() agents.Kinds {
 	if agents.Plugins == nil {
-		return
+		return agents.Kinds{}
 	}
 	var ks []agents.Kind
 	for _, name := range c.PluginKinds() {
 		ks = append(ks, agents.Plugins.Kind(name, c.KindCommand(name), c.StateDir()))
 	}
-	agents.SetPlugins(ks)
+	return agents.WithPlugins(ks)
 }
+
+// Kinds are the kinds this config runs: the compiled ones and its plugin kinds, built once at its load. A Config not
+// loaded (a literal, or nil: no config) holds the compiled kinds alone.
+func (c *Config) Kinds() agents.Kinds {
+	if c == nil {
+		return agents.Kinds{}
+	}
+	return c.kinds
+}
+
+// Kind is the kind name of this config (Kinds): a compiled kind, or one of its plugin kinds; ok false: no such kind.
+func (c *Config) Kind(name string) (agents.Kind, bool) { return c.Kinds().Lookup(name) }
 
 // ModelEntry is agents.models.<name>: a model the built-in table lacks, or a built-in one overridden. Kind may be left
 // out for a built-in name (its built-in kind); ID is the model id the kind takes, "" starts the kind without a model
@@ -151,6 +163,7 @@ type Model struct {
 	Name, Kind, ID string
 	Args           []string
 	PromptExtra    string
+	kinds          agents.Kinds // the kinds of the config that resolved it (Config.Model; a literal: the compiled ones)
 }
 
 // ParseModelRef splits a model ref `<model>[:<effort>]`: the model's name and the effort ("": the kind's default).
@@ -179,7 +192,7 @@ func BuiltinModelNamed(name string) (BuiltinModel, bool) {
 // Model resolves name: models.<name> (over the built-in of that name), else the built-in; ok false: neither.
 func (c *Config) Model(name string) (Model, bool) {
 	b, isBuiltin := BuiltinModelNamed(name)
-	m := Model{Name: name, Kind: b.Kind, ID: b.ID}
+	m := Model{Name: name, Kind: b.Kind, ID: b.ID, kinds: c.kinds}
 	if e, ok := c.Data.Agents.Models.M[name]; ok {
 		m.ID = e.ID
 		if e.Kind != "" {
@@ -190,7 +203,7 @@ func (c *Config) Model(name string) (Model, bool) {
 	}
 	args := append([]string(nil), KindBaseArgs[m.Kind]...)
 	if m.ID != "" {
-		if with, err := agents.ModelArgs(m.Kind, args, m.ID); err == nil {
+		if with, err := c.kinds.ModelArgs(m.Kind, args, m.ID); err == nil {
 			args = with
 		} else {
 			args = append(args, "--model", m.ID)
@@ -234,11 +247,11 @@ func (c *Config) ModelDetail(ref string) string {
 	return " (" + detail + ")"
 }
 
-// CheckModelRef is why ref names no model of this config, or an effort its kind does not take (agents.CheckEffort:
+// CheckModelRef is why ref names no model of this config, or an effort its kind does not take (agents.Kinds.CheckEffort:
 // a plugin kind's cached manifest); nil when it is fine.
 func (c *Config) CheckModelRef(ref string) error { return c.checkModelRef(ref, nil) }
 
-// checkModelRef is CheckModelRef with the kinds of described in place of the registry's (obor config validate: the
+// checkModelRef is CheckModelRef with the kinds of described in place of the config's (obor config validate: the
 // plugin kinds as their describe just answered, not their cached manifests).
 func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) error {
 	name, effort := ParseModelRef(ref)
@@ -249,7 +262,7 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 	if strings.HasSuffix(ref, ":") {
 		return fmt.Errorf("%s names no effort after the colon", Compact(ref))
 	}
-	check := func() error { return agents.CheckEffortArgs(m.Kind, m.Args, effort) }
+	check := func() error { return c.kinds.CheckEffortArgs(m.Kind, m.Args, effort) }
 	if k, ok := described[m.Kind]; ok {
 		check = func() error { return agents.CheckEffortOf(k, m.Args, effort) }
 	}
@@ -264,14 +277,14 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 // takes none, or the project has none. An error: a file there that cannot be read, or one that does not parse
 // (agents.ParseOverride); it names the file, and no agent of the kind starts on it.
 func (c *Config) Overrides(kind string) (map[string]string, error) {
-	k, ok := agents.Lookup(kind)
+	k, ok := c.Kind(kind)
 	if !ok {
 		return nil, nil
 	}
 	return c.OverridesOf(k)
 }
 
-// OverridesOf is Overrides of the kind k as given: the files k names, not the registry's kind of its name (a start's
+// OverridesOf is Overrides of the kind k as given: the files k names, not the config's kind of its name (a start's
 // kind, agents.AsNow).
 func (c *Config) OverridesOf(k agents.Kind) (map[string]string, error) {
 	if c.Root == "" {
@@ -308,10 +321,10 @@ func (c *Config) OverridesOf(k agents.Kind) (map[string]string, error) {
 // (Config.Overrides; none: the kind's defaults alone); a lead's start carries neither (the user's settings as they
 // are). role is the agent's
 // (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the
-// start unsets (agents.StartVars): an earlier OpenCode start's model never carries into another kind's.
+// start unsets (agents.Kinds.StartVars): an earlier OpenCode start's model never carries into another kind's.
 // An error: the start cannot carry the effort, or a kind's start failed.
 func (m Model) Launch(role string, overrides map[string]string, in agents.Start) (agents.Launch, error) {
-	k, ok := agents.Lookup(m.Kind)
+	k, ok := m.kinds.Lookup(m.Kind)
 	if !ok {
 		return agents.Launch{Args: append([]string(nil), m.Args...)}, nil
 	}
@@ -319,7 +332,7 @@ func (m Model) Launch(role string, overrides map[string]string, in agents.Start)
 }
 
 // LaunchOf is Launch as the kind k builds it, k the model's kind as the start has it (agents.AsNow), not the
-// registry's.
+// config's.
 func (m Model) LaunchOf(k agents.Kind, role string, overrides map[string]string, in agents.Start) (agents.Launch, error) {
 	in.Args, in.Settings, in.StrictMCP, in.TrimUser, in.Overrides = m.Args, nil, roles.LaneBound(role), role != "lead", nil
 	if in.TrimUser {

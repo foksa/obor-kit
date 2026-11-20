@@ -14,7 +14,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// every start path types its env line through the one builder (agents.StartVars): run in a real sh after a
+// every start path types its env line through the one builder (agents.Kinds.StartVars): run in a real sh after a
 // shell that exports a stale value of every registry var (another role, another lane, another kind's model and config,
 // the retired OBOR_AGENT, another pane's OBOR_PANE), the line leaves the new start's values and none of the stale ones:
 // OBOR_PANE is the pane the start runs in. A user's own

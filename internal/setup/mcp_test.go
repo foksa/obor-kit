@@ -24,8 +24,10 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	x.Config(claudeOnly)
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	if _, ok := agents.Lookup("opencode"); !ok {
-		t.Fatal("precondition: opencode is a registered kind")
+	if cfg, err := config.Load(x.Root); err != nil {
+		t.Fatal(err)
+	} else if _, ok := cfg.Kind("opencode"); !ok {
+		t.Fatal("precondition: opencode is a kind of the project's config")
 	}
 	if _, err := os.Stat(filepath.Join(conf, "opencode", "opencode.json")); err == nil {
 		t.Fatal("precondition: no opencode config")
@@ -142,10 +144,9 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 
 // TestSetupAgentsPluginKind: obor setup agents describes a plugin kind the config names, caches its manifest in
 // the state dir and installs what its install call returns; an install that fails is a FAIL naming the kind and the
-// call. Not parallel: the load registers the plugin kind in the process's registry.
+// call.
 func TestSetupAgentsPluginKind(t *testing.T) {
 	x := newFx(t, testkit.Set("agents.kinds.mine", map[string]any{"plugin": "obor-kind-mine"}))
-	t.Cleanup(func() { agents.SetPlugins(nil) }) // the parallel tests after this one load no config
 	cmd := filepath.Join(x.Root, "obor-kind-mine")
 	manifest := `{"version":1,"name":"mine","status":"terminal"}`
 	script := "#!/bin/sh\ncat >/dev/null\ncase $1 in describe) echo '" + manifest + "';;\n" +
