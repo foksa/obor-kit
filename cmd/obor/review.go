@@ -144,9 +144,11 @@ func reviewCloseCmd(args []string) int {
 }
 
 // reviewGit is port.Review on the project's main checkout: git -C <root>. locked runs Detach's checkout as serve's
-// own git calls run (checks.Scratch.Locked: a lock another git holds is waited for); nil: Detach fails.
+// own git calls run (checks.Scratch.Locked: a lock another git holds is waited for); nil: Detach fails. cfg is the
+// project's config, whose links Detach keeps (project.CheckoutWorktree); nil: Detach fails.
 type reviewGit struct {
 	root   string
+	cfg    *config.Config
 	locked func(ctx context.Context, dir string, args ...string) (string, error)
 	out    io.Writer // Detach's progress lines (nil: none)
 }
@@ -168,11 +170,15 @@ func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error)
 }
 
 // Detach puts the role worktree dir on sha, detached: added at it when dir is missing (project.AddWorktree),
-// else checked out there (after the links of obor's that sha tracks are removed: project.RemoveTrackedLinks). A dir that is no worktree of this repo, or local changes in the way of the checkout: an
-// error, nothing forced. The checkout waits for a lock another git holds (locked: a publish's ref update meanwhile).
+// else checked out there (project.CheckoutWorktree: obor's links kept around the checkout). A dir that is no worktree
+// of this repo, or local changes in the way of the checkout: an error, nothing forced. The checkout waits for a lock
+// another git holds (locked: a publish's ref update meanwhile).
 func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
 	if g.locked == nil {
 		return fmt.Errorf("the review git of %s has no locked git runner", g.root)
+	}
+	if g.cfg == nil {
+		return fmt.Errorf("the review git of %s has no config", g.root)
 	}
 	added, err := project.AddWorktree(ctx, g.root, dir, sha)
 	if err != nil || added {
@@ -184,11 +190,10 @@ func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
 		}
 	}
 	git := func(dir string, args ...string) (string, error) { return g.locked(ctx, dir, args...) }
-	if err := project.RemoveTrackedLinks(g.root, dir, sha, git, say); err != nil {
+	return project.CheckoutWorktree(g.cfg, dir, sha, git, say, func() error {
+		_, err := g.locked(ctx, dir, "checkout", "-q", "--detach", sha)
 		return err
-	}
-	_, err = g.locked(ctx, dir, "checkout", "-q", "--detach", sha)
-	return err
+	})
 }
 
 func (g reviewGit) git(ctx context.Context, args ...string) (string, error) {

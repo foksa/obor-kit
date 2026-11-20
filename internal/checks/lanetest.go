@@ -22,7 +22,8 @@ const restoreWait = 30 * time.Second
 //  1. The lane's dir from the config; uncommitted changes there are an error (the step runs again on a later pass;
 //     the lane is not touched). Its branch is the one checked out, or in.Branch when the lane is detached already (a
 //     test cut before its restore).
-//  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay), lanes.links.
+//  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay; obor's links the candidate tracks give
+//     way to the tracked file, the others are in place: project.CheckoutWorktree).
 //  3. The changed files in.Target..in.SHA (OBOR_CHANGED_FILES), classified; lane_setup; the class's checks and the
 //     guard (runChecks, as the gate runs them), holding a pool slot (prio worker, never the merge
 //     marker: slots.max bounds how many lanes test at once), the lane's CPU budget in their environment. A red whose
@@ -70,7 +71,6 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 			out, err = port.TestOutcome{}, rerr
 		}
 	}()
-	linkLaneLinks(s.Cfg, s.Cfg.Root, dir)
 
 	r := newRunner(ctx, &s.Options, dir, in.Task)
 	r.changedFile = "lane-changed-files-" + in.Lane
@@ -107,7 +107,7 @@ func testHalt(r *runner, h *halt) (*port.TestOutcome, error) {
 // restore puts the lane back where the worker left it after its test, under a ctx of its own (restoreWait) when
 // serve's ended: what the checks changed is discarded (reset --hard, clean -fd: the lane was clean when the test began,
 // so a change there is the checks'; ignored files, build outputs, and obor's links stay), then the lane's branch is
-// checked out.
+// checked out (with the links it lacks put back: project.CheckoutWorktree).
 func (s Scratch) restore(ctx context.Context, dir, branch string) error {
 	if ctx.Err() != nil {
 		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreWait)

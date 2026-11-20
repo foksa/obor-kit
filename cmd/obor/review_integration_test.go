@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/testkit"
 )
 
@@ -60,7 +61,7 @@ func TestReviewGit(t *testing.T) {
 func TestReviewGitDetach(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	g := reviewGit{root: p.Root, locked: checks.Scratch{Options: checks.Options{Environ: os.Environ()}}.Locked}
+	g := reviewGit{root: p.Root, cfg: reviewCfg(t, p), locked: checks.Scratch{Options: checks.Options{Environ: os.Environ()}}.Locked}
 	ctx := context.Background()
 	first := p.Git(p.Root, "rev-parse", "HEAD")
 	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "second")
@@ -119,7 +120,7 @@ func TestReviewGitDetachRemovesALinkTheShaTracks(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	var out strings.Builder
-	g := reviewGit{root: p.Root, locked: checks.Scratch{Options: checks.Options{Environ: os.Environ()}}.Locked, out: &out}
+	g := reviewGit{root: p.Root, cfg: reviewCfg(t, p), locked: checks.Scratch{Options: checks.Options{Environ: os.Environ()}}.Locked, out: &out}
 	ctx := context.Background()
 	wt := p.LaneDir("reviewer")
 	if err := g.Detach(ctx, wt, p.Git(p.Root, "rev-parse", "HEAD")); err != nil {
@@ -167,4 +168,15 @@ func TestReviewGitDetachRemovesALinkTheShaTracks(t *testing.T) {
 	if b, _ := os.ReadFile(link); string(b) != "the role's own\n" || out.Len() != 0 {
 		t.Errorf("file %q, progress %q: want the role's file kept and no line", b, out.String())
 	}
+}
+
+// reviewCfg is p's config, as serve gives the review git.
+func reviewCfg(t *testing.T, p *testkit.Project) *config.Config {
+	t.Helper()
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
 }

@@ -47,9 +47,8 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 	return port.Prepared{Base: in.Target}, nil
 }
 
-// checkout is git checkout -q args… in dir, which puts it on target: first the links of obor's that target tracks are
-// removed (project.RemoveTrackedLinks: git refuses to overwrite an untracked file, and a link is one), a line each to
-// l.Out.
+// checkout is git checkout -q args… in dir, which puts it on target, with obor's links kept around it
+// (project.CheckoutWorktree: the ones target tracks removed first, the missing ones made after), a line each to l.Out.
 func (l Lane) checkout(ctx context.Context, dir, target string, args ...string) error {
 	say := func(line string) {
 		if l.Out != nil {
@@ -57,11 +56,10 @@ func (l Lane) checkout(ctx context.Context, dir, target string, args ...string) 
 		}
 	}
 	git := func(dir string, args ...string) (string, error) { return l.gitRaw(ctx, dir, args...) }
-	if err := project.RemoveTrackedLinks(l.Cfg.Root, dir, target, git, say); err != nil {
+	return project.CheckoutWorktree(l.Cfg, dir, target, git, say, func() error {
+		_, err := l.git(ctx, dir, append([]string{"checkout", "-q"}, args...)...)
 		return err
-	}
-	_, err := l.git(ctx, dir, append([]string{"checkout", "-q"}, args...)...)
-	return err
+	})
 }
 
 // lockHint is a failed lane git call's hint for a lock that outlived the wait (gitLocked): git's exit 128 whose error

@@ -296,19 +296,19 @@ func (g realGit) Detach(dir, sha string) error { return g.checkout(dir, sha, "--
 
 func (g realGit) Switch(dir, branch string) error { return g.checkout(dir, branch, branch) }
 
-// checkout is git checkout -q args… in dir, which puts it on target: first the links of obor's that target tracks are
-// removed (project.RemoveTrackedLinks), a line each to the scratch's Out.
+// checkout is git checkout -q args… in dir, which puts it on target, with obor's links kept around it
+// (project.CheckoutWorktree: the ones target tracks removed first, the missing ones made after), a line each to the
+// scratch's Out.
 func (g realGit) checkout(dir, target string, args ...string) error {
 	say := func(line string) {
 		if g.s.Out != nil {
 			fmt.Fprintln(g.s.Out, line)
 		}
 	}
-	if err := project.RemoveTrackedLinks(g.root(), dir, target, g.s.call, say); err != nil {
+	return project.CheckoutWorktree(g.s.Cfg, dir, target, g.s.call, say, func() error {
+		_, err := g.s.call(dir, append([]string{"checkout", "-q"}, args...)...)
 		return err
-	}
-	_, err := g.s.call(dir, append([]string{"checkout", "-q"}, args...)...)
-	return err
+	})
 }
 
 func (g realGit) AddWorktree(dir, rev string) error {
