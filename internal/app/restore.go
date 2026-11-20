@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,11 +25,16 @@ import (
 // before it is applied; the panes it shows lost go to the restore (Options.Restore, port.Restorer: launch.Restorer's
 // RestoreProject, port.Lost names them). How a pane is shown lost depends on the adapter (port.Snapshot.PaneRuns):
 //
-// Per pane (PaneRuns, hc): a pane whose Run differs from the Run serve last saw for it lost its program (a lost holder's
-// fresh shell, a stop and start's). Serve last saw it in the panes it observes (the last snapshot and the events
-// since), and at its first connect in RunsFile, the project's panes' runs serve keeps there whenever they change. A
-// pane serve has no run for, or one whose Run is "", shows nothing. A connection that closed with every program kept
-// (a core restart or update, a stalled reader hc dropped) and another project's lost panes restore nothing here.
+// Per pane (PaneRuns, hc): a pane whose Run differs from the run serve recorded for it lost its program (a lost holder's
+// fresh shell, a stop and start's), whichever connect's snapshot or event shows it first. The record (rst.runs, kept in
+// RunsFile for serve's next first connect, which reads it) changes in one step only (runsStep, under mu): the step
+// that compares the panes with it decides their restore and records their runs together, so no run is recorded that
+// was not compared. A pane serve has no run for shows nothing. A pane whose Run is "" while a run is recorded for it is
+// between programs (hc lost its holder and has not started its fresh shell yet): the record keeps its old run, and
+// while one is, a step that finds lost panes decides nothing and records nothing, so the restore waits for every pane
+// of the lost holder and the step after the last one's shell (its restarted's reconnect) or end (finished) restores
+// them all in one run. A connection that closed with every program kept (a core restart or update, a stalled reader hc
+// dropped) and another project's lost panes restore nothing here.
 //
 // Every pane (no PaneRuns, herdr): the adapter cannot tell which panes lost their program, so the evidence is the
 // terminal's restart and every labelled pane is lost. After a lost connection (what the adapter reports as
@@ -52,12 +58,12 @@ import (
 // agent runs is left alone, and a project's runs are one at a time under its restore lock), so a reconnect's run and
 // the one it queued each restart a pane at most once.
 //
-// While a restore is pending or running, a briefed agent that is gone ends no brief (deliver): its pane may be one
-// the restore restarts, and the restore keeps its pane only while its brief is open (OpenWork). Pending starts under
-// the lock that applies the snapshot the restore follows (connect), so no pass sees its panes at their shells before
-// it, and holds until the run starts; the hold ends when the last run ends (its one more run included). After it a
-// restored agent finishes as any agent does, and a pane whose restart failed, still at its shell, ends its brief as
-// gone at the next pass.
+// While a restore is pending or running, or waits for a pane between programs, a briefed agent that is gone ends no
+// brief (deliver): its pane may be one the restore restarts, and the restore keeps its pane only while its brief is open
+// (OpenWork). Pending starts under the lock that applies the snapshot the restore follows (connect, or the event's
+// step), so no pass sees its panes at their shells before it, and holds until the run starts; the hold ends when the
+// last run ends (its one more run included). After it a restored agent finishes as any agent does, and a pane whose
+// restart failed, still at its shell, ends its brief as gone at the next pass.
 
 // restoreState is the restore's single flight and the panes' runs serve recorded (under App.mu).
 type restoreState struct {
@@ -69,12 +75,17 @@ type restoreState struct {
 	woke bool
 	// runs is the project's panes' runs as RunsFile holds them (pane id → Run; nil before the first connect read it).
 	runs map[string]string
+	// waiting is the project's panes between programs (Run "", a run recorded) at the last step: the restore waits for
+	// them.
+	waiting []string
 }
 
-// restoreCall is a connect's restore: why it runs ("": none) and the panes it restores.
+// restoreCall is a connect's restore: why it runs ("": none) and the panes it restores, and the panes' runs its step
+// recorded (nil: unchanged), written to RunsFile once the snapshot is applied.
 type restoreCall struct {
 	why  string
 	lost port.Lost
+	runs map[string]string
 }
 
 // InstanceFile is where serve keeps the instance of the terminal it last connected to:
@@ -223,8 +234,8 @@ func (a *App) restoreWhy(snap port.Snapshot, first, lost bool) restoreCall {
 	return every(firstRestore(was, snap.Instance, last, woke))
 }
 
-// runsLost is the restore of snap's panes of the project whose Run differs from the one serve last saw (PaneRuns): the
-// panes it observes, at serve's first connect RunsFile's record (which it reads into rst.runs then).
+// runsLost is the restore of snap's panes of the project whose Run differs from the one serve recorded (PaneRuns;
+// runsStep), at serve's first connect RunsFile's record (which it reads into rst.runs then).
 func (a *App) runsLost(snap port.Snapshot, first bool) restoreCall {
 	var recorded map[string]string
 	if first {
@@ -235,55 +246,97 @@ func (a *App) runsLost(snap port.Snapshot, first bool) restoreCall {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	was := a.servedRuns()
 	if first {
-		a.rst.runs, was = recorded, recorded
-		if a.rst.woke {
-			return restoreCall{}
-		}
+		a.rst.runs = recorded
 	}
-	var ids []string
-	for _, p := range snap.Panes {
-		if r := was[p.ID]; a.projectOf(p) != nil && r != "" && p.Run != "" && p.Run != r {
-			ids = append(ids, p.ID)
-		}
-	}
+	ids, runs := a.runsStep(snap.Panes, !first || !a.rst.woke)
 	if len(ids) == 0 {
-		return restoreCall{}
+		return restoreCall{runs: runs}
 	}
-	why := "the terminal replaced the program of " + strings.Join(ids, ", ")
+	why := replaced(ids)
 	if first {
 		why += " while serve was down"
 	}
-	return restoreCall{why: why, lost: port.Lost{Panes: ids}}
+	return restoreCall{why: why, lost: port.Lost{Panes: ids}, runs: runs}
 }
 
-// servedRuns is the Run of each pane of the project serve observes that names one (under mu).
-func (a *App) servedRuns() map[string]string {
-	runs := map[string]string{}
-	for id, o := range a.obs {
-		if o.pane.Run != "" && a.projectOf(o.pane) != nil {
-			runs[id] = o.pane.Run
+// replaced is why a restore of the panes ids runs.
+func replaced(ids []string) string {
+	return "the terminal replaced the program of " + strings.Join(ids, ", ")
+}
+
+// runsStep is the one step that compares the project's panes among panes (a snapshot about to be applied, or the
+// panes serve observes) with the runs recorded (rst.runs) and records theirs (under mu; nothing before the first
+// connect read the record): the panes that lost their program (restore false: none, obor stop's pause), and the
+// runs to write to RunsFile (nil: unchanged). While a pane is between programs and a pane is lost, it decides and
+// records nothing: the restore waits for the lost holder's every pane (the rule above).
+func (a *App) runsStep(panes []port.Pane, restore bool) (lost []string, record map[string]string) {
+	was := a.rst.runs
+	if was == nil {
+		return nil, nil
+	}
+	next := map[string]string{}
+	var gap []string
+	for _, p := range panes {
+		if a.projectOf(p) == nil {
+			continue
+		}
+		switch r := was[p.ID]; {
+		case p.Run == "":
+			if r != "" {
+				next[p.ID] = r
+				gap = append(gap, p.ID)
+			}
+		case r != "" && p.Run != r:
+			next[p.ID] = p.Run
+			lost = append(lost, p.ID)
+		default:
+			next[p.ID] = p.Run
 		}
 	}
-	return runs
+	if !restore {
+		lost = nil
+	}
+	if len(gap) > 0 && len(lost) > 0 {
+		if !slices.Equal(gap, a.rst.waiting) {
+			a.logf("terminal: %s; %s not started yet: the restore waits for their fresh shells",
+				replaced(lost), strings.Join(gap, ", "))
+		}
+		a.rst.waiting = gap
+		return nil, nil
+	}
+	a.rst.waiting = gap
+	if maps.Equal(next, was) {
+		return lost, nil
+	}
+	a.rst.runs = next
+	return lost, next
 }
 
-// changedRuns is the project's panes' runs when they differ from what RunsFile holds (rst.runs, which it then holds),
-// nil otherwise (under mu): the caller writes them (writeRuns). Nothing before the first connect read the file.
-func (a *App) changedRuns() map[string]string {
-	if a.rst.runs == nil {
-		return nil
+// observedRuns is runsStep over the panes serve observes, after each event: a pane whose run an event changed, or the
+// fresh shell or end of the last pane the restore waited for, starts the restore; a pane created or gone is recorded.
+func (a *App) observedRuns(ctx context.Context, wg *sync.WaitGroup) {
+	if a.opt.Restore == nil || a.opt.Root == "" {
+		return
 	}
-	runs := a.servedRuns()
-	if maps.Equal(runs, a.rst.runs) {
-		return nil
+	a.mu.Lock()
+	panes := make([]port.Pane, 0, len(a.obs))
+	for _, o := range a.obs {
+		panes = append(panes, o.pane)
 	}
-	a.rst.runs = runs
-	return runs
+	slices.SortFunc(panes, func(x, y port.Pane) int { return strings.Compare(x.ID, y.ID) })
+	ids, runs := a.runsStep(panes, true)
+	if len(ids) > 0 {
+		a.rst.pending = true
+	}
+	a.mu.Unlock()
+	a.writeRuns(runs)
+	if len(ids) > 0 {
+		a.restore(ctx, wg, restoreCall{why: replaced(ids), lost: port.Lost{Panes: ids}})
+	}
 }
 
-// writeRuns records runs (changedRuns; nil: nothing changed) in RunsFile.
+// writeRuns records runs (runsStep's; nil: nothing changed) in RunsFile.
 func (a *App) writeRuns(runs map[string]string) {
 	if runs == nil || a.opt.Root == "" {
 		return
@@ -295,7 +348,7 @@ func (a *App) writeRuns(runs map[string]string) {
 }
 
 // connectRestore starts the restore call names (why "": none; restoreWhy) once the stream's snapshot is applied, and
-// records the panes' runs when they changed, and the terminal's instance: under the new name when it changed, and when
+// records the panes' runs its step recorded, and the terminal's instance: under the new name when it changed, and when
 // it was read from the legacy file, whose name the sweep retires (so an upgraded project keeps its record after that
 // pass).
 func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.Snapshot, call restoreCall) {
@@ -305,10 +358,7 @@ func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.
 	if call.why != "" {
 		a.restore(ctx, wg, call)
 	}
-	a.mu.Lock()
-	runs := a.changedRuns()
-	a.mu.Unlock()
-	a.writeRuns(runs)
+	a.writeRuns(call.runs)
 	cur := snap.Instance
 	was, legacy, _ := recordedInstance(a.opt.Root) // an error reads as no instance recorded
 	if cur == "" || cur == was && !legacy {
@@ -391,11 +441,12 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, call restoreCall)
 				return
 			}
 			if !lost.All {
-				why = "the terminal replaced the program of " + strings.Join(lost.Panes, ", ")
+				why = replaced(lost.Panes)
 			}
 		}
 	}()
 }
 
-// restoring: a restore is pending or running (under mu): a gone agent ends no brief meanwhile (the rule above).
-func (a *App) restoring() bool { return a.rst.pending || a.rst.running }
+// restoring: a restore is pending or running, or waits for a pane between programs (under mu): a gone agent ends no
+// brief meanwhile (the rule above).
+func (a *App) restoring() bool { return a.rst.pending || a.rst.running || len(a.rst.waiting) > 0 }
