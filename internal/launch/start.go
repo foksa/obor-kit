@@ -31,6 +31,9 @@ type Start struct {
 	// Again is the command that starts this agent again as it was started (port.Launch.Again: a drive's
 	// `obor drive <T-xx>`, which keeps its prompt); "": `obor restart <Agent>`. A hint that names the start again uses it.
 	Again string
+	// Fresh is the request's intent (port.Launch.Fresh): a new session, whatever is recorded. The retry a failed start
+	// names (retry) is a --fresh restart then; a resume's is one only when no session is recorded.
+	Fresh bool
 	Lane  string // the agent's lane: a session a fresh start reports is recorded with it
 	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal refused as PaneBusy:
 	// one bound for both, from the start's beginning; 0: neither, a pane the caller knows is its shell.
@@ -107,7 +110,6 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if s.Session != "" {
 		l.recordSession(ctx, s)
 	}
-	hasSession := l.hasSession(s.Agent)
 	shown := strings.Join(s.Args, " ")
 	if shown == "" {
 		shown = "none"
@@ -151,7 +153,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Trust: port.Accepted(err) && s.Resume == "",
 			Hint: agents.TrustHint(s.Kind, s.Agent, s.Pane)}
 	}
-	if hint, retry := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
+	if hint, retry := notReady(screen, s.Kind, s.Pane, l.retry(s.Agent, s.Pane, s)); hint != "" {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint, Retry: retry}
 	}
 	if port.NotReady(err) {
@@ -233,10 +235,11 @@ func (l *Launcher) hasSession(agent string) bool {
 	return ok
 }
 
-// retry is the command that starts t's agent again: again when the start has one (a drive's), else a restart with
-// --fresh when no session is recorded, on its pane.
-func (l *Launcher) retry(t *target, again string) string {
-	return project.RestartCmd(again, t.agent, l.hasSession(t.agent), t.pane)
+// retry is the command that starts agent again in pane, for every hint of a failed start s (generic, busy, no shell, a
+// Codex self-update): s.Again when the start has one (a drive's), else a restart on its pane, --fresh when the request
+// was fresh (s.Fresh) or no session is recorded to resume.
+func (l *Launcher) retry(agent, pane string, s Start) string {
+	return project.RestartCmd(s.Again, agent, s.Fresh || !l.hasSession(agent), pane)
 }
 
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.
@@ -246,12 +249,11 @@ func sameSid(live, sid string) bool {
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start, a screen with no trust
 // dialog (start's own case): what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none
-// shows. The hint names the command that starts the agent again (project.RestartCmd, which retry says the hint
-// carries).
-func notReady(screen, kind, name, pane, again string, hasSession bool) (hint string, retry bool) {
+// shows. The hint names again, the command that starts the agent again (retry).
+func notReady(screen, kind, pane, again string) (hint string, retry bool) {
 	if k, ok := agents.Lookup(kind); ok {
 		if why := k.NotReady(screen); why != "" {
-			return kind + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane), true
+			return kind + " " + why + " in pane " + pane + ": start it again with " + again, true
 		}
 	}
 	return "", false

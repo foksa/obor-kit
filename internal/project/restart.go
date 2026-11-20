@@ -19,14 +19,14 @@ func RetryHinted(err error) bool {
 }
 
 // RestartCmd is the command that starts agent again: own when the start has one (a drive's `obor drive <T-xx>`, which
-// keeps its prompt), else `obor restart <agent>`. With no recorded session the restart adds --fresh, which a plain
-// restart needs to start a new session; pane adds --pane ("" leaves it out: a drive places its own pane).
-func RestartCmd(own, agent string, hasSession bool, pane string) string {
+// keeps its prompt), else `obor restart <agent>`. A fresh start's restart adds --fresh (a plain restart resumes the
+// recorded session, or fails with none); pane adds --pane ("" leaves it out: a drive places its own pane).
+func RestartCmd(own, agent string, fresh bool, pane string) string {
 	if own != "" {
 		return own
 	}
 	cmd := "obor restart " + agent
-	if !hasSession {
+	if fresh {
 		cmd += " --fresh"
 	}
 	if pane != "" {

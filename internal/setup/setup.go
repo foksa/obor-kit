@@ -108,11 +108,13 @@ type Setup struct {
 
 // Launcher is what setup asks of the agent launcher (launch.Launcher): an agent's start is the one start
 // (port.Launcher.Launch, given setup's placement); a pane with no agent (no --start) is setup's own, decided by Locate
-// (where the agent runs, its home, the --pane target; held under the agent's restart lock until its release) and
+// (where the agent runs, its home, the --pane target; held under the agent's restart lock until its release), LaneFree
+// (the lane's one occupancy decision, Launch's too) and
 // its env line typed by SetEnv.
 type Launcher interface {
 	port.Launcher
 	Locate(ctx context.Context, agent, pane string, adds bool) (port.Located, func(), error)
+	LaneFree(ctx context.Context, agent, lane, cwd string) error
 	SetEnv(ctx context.Context, pane string, e port.AgentEnv) error
 }
 

@@ -502,7 +502,7 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 // own pane). A fresh start held by a trust dialog returns both too, with a *port.TrustDialog (its pane: Started's):
 // started, its first prompt taken once a person answers the dialog. A resumed one is a failed start (NotReady).
 // req.Place places the pane of an agent that has none (called once, the start goes there). req.NoStop refuses rather
-// than stop: its agent already running (a *port.Running), another agent in its lane (laneFree), another program in
+// than stop: its agent already running (a *port.Running), another agent in its lane (LaneFree), another program in
 // its pane (otherProgram).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
@@ -548,7 +548,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		}
 	}
 	if req.NoStop {
-		if err := l.laneFree(ctx, t); err != nil {
+		if err := l.LaneFree(ctx, t.agent, t.info.Lane, t.info.Cwd); err != nil {
 			return port.Started{}, err
 		}
 	}
@@ -604,7 +604,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	// pane just placed (its shell may still be coming up): a pane at a shell, or one running a person's program, is
 	// setEnv's to refuse.
 	st := Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Session: t.session, Prompt: first.prompt, Again: req.Again, Lane: t.info.Lane, Shell: l.shellWait(),
+		Resume: sid, Session: t.session, Prompt: first.prompt, Again: req.Again, Fresh: req.Fresh, Lane: t.info.Lane, Shell: l.shellWait(),
 		Await: t.entry.Agent != "" || placing,
 		Env:   func(ctx context.Context) error { return l.setEnv(ctx, t) },
 		Whose: AgentEnv{Agent: t.agent, Role: t.info.Role, Lane: t.info.Lane, Cwd: t.info.Cwd, Vars: t.env}}
@@ -766,7 +766,7 @@ func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) 
 		return &port.TrustDialog{Hint: se.Hint}, nil
 	case errors.As(err, &se) && se.NoShell:
 		return nil, project.RetryHint(l.giveUp(ctx, t, "pane %s is not an available shell after %s: start the agent there with %s",
-			t.pane, l.shellWait(), l.retry(t, st.Again)))
+			t.pane, l.shellWait(), l.retry(t.agent, t.pane, st)))
 	case errors.As(err, &se) && se.NotReady:
 		fail := l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
 		if se.Retry {
@@ -775,10 +775,10 @@ func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) 
 		return nil, fail
 	case errors.As(err, &se) && port.PaneBusy(se.Err):
 		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
-			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t, st.Again)))
+			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t.agent, t.pane, st)))
 	case errors.As(err, &se):
 		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
-			t.pane, l.retry(t, st.Again)))
+			t.pane, l.retry(t.agent, t.pane, st)))
 	}
 	return nil, err
 }
@@ -824,12 +824,13 @@ func paneEnv(t *target) []string {
 	return env
 }
 
-// laneFree refuses a NoStop start of lane agent t while another agent runs in its lane worktree (one agent in a lane):
-// called once Locate found t's agent not running, so every agent there is another. The refusal names the occupant to
-// stop by its label when the config names that agent, else (a person's label, a pane nobody labelled) the pane to quit
-// it in. Nothing is touched.
-func (l *Launcher) laneFree(ctx context.Context, t *target) error {
-	if t.info.Lane == "" || t.info.Cwd == "" {
+// LaneFree refuses a start of agent in its lane (cwd the lane's worktree) while another agent runs there (one agent in
+// a lane): the one decision of Launch's NoStop start and of obor setup's pane with no start, over one read of the
+// terminal's panes. Called once Locate found agent not running, so every agent there is another. The refusal names the
+// occupant to stop by its label when the config names that agent, else (a person's label, a pane nobody labelled) the
+// pane to quit it in. A start with no lane or no cwd has nothing to refuse. Nothing is touched.
+func (l *Launcher) LaneFree(ctx context.Context, agent, lane, cwd string) error {
+	if lane == "" || cwd == "" {
 		return nil
 	}
 	panes, err := l.H.Panes(ctx)
@@ -837,14 +838,14 @@ func (l *Launcher) laneFree(ctx context.Context, t *target) error {
 		return project.Failf("terminal agent list failed (is the terminal running?)")
 	}
 	for _, p := range panes {
-		if p.Agent == "" || p.Cwd != t.info.Cwd {
+		if p.Agent == "" || p.Cwd != cwd {
 			continue
 		}
 		who := cmp.Or(p.Label, p.Agent) // its pane's label, else (a pane nobody labelled) its kind
-		if l.Cfg.NamesOtherAgent(p.Label, t.agent) {
-			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, t.info.Lane, p.ID, p.Label)
+		if l.Cfg.NamesOtherAgent(p.Label, agent) {
+			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, lane, p.ID, p.Label)
 		}
-		return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, t.info.Lane, p.ID, p.ID)
+		return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, lane, p.ID, p.ID)
 	}
 	return nil
 }
