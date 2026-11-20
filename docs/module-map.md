@@ -99,45 +99,83 @@ the kind: the manifest, `start` (the args without `--model`, `--prompt`; `OBOR_O
 reset), `project-warnings`. It imports `agents` only (`Pin`, `ResetIn`); testkit registers its handler in
 process (`plugin.Local`).
 
-**core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
-  run, the serve flock), `restore.go` (the restore of the project's panes after a lost terminal connection came
-  back, through the `Restorer` port, and at serve's first connect when herdr restarted while serve was down:
-  the instance it last connected to in `.obor/state/terminal-instance`), `openwork.go` (whether a role agent has work
-  open, the restore's question before it restarts the agent's pane), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
-  `activity.go` (the agents' own activity, the watchdogs' evidence: their transcripts' last write and last turn, and the child
-  processes under a pane's agent), `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
-  per pane event), `toast.go` (the owner's herdr toast, a rule action's best-effort after), `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
-  `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
-  unpin, fix), `jobstart.go` (job start, texts), `fetch.go` (jobs by fetch: the wake, the first fetch's delivered fact,
-  the job a call names), `finish.go` (`awaitsTaskDone`: whose attempt is its worker's and no task_done yet;
-  `inLoop`: what the merge loop holds), `worktext.go` (the work job's wake: its text, the send to the worker and the
-  watch on its delivery), `settle.go`; `registry.go` (agent identity: `reconcile` collects the proofs
-  the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name);
-  `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune), `prune.go` (the nightly prune of ended tasks' records and old sessions, 30 days on: which tasks; the
-  rows' SQL is `event.PruneTasks` and `store.PruneSessions`; `mtask.ended` is the end both it and the logs' removal
-  read), `logs.go` (a task's step logs go when it ends, and at load for every task the replayed log
-  folds as ended: merged with its after-merge steps done, or dropped), `dispatch.go`,
-  `waiting.go` (a dispatch that waits for the tasks it names (`--after`) or for a lane: fold, pick, dispatch),
-  `lanepick.go` (the lane a dispatch takes and the replies that say why none was free), `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended), `mergewatch.go`,
-  `review.go` (a review request: `obor review start` records it and the merge loop fires the reviewer's start),
-  `reviewclose.go` (a review's close is a call to serve, which commits it and records `review.closed`),
-  `reviewonmerge.go` (the Review: on merge rule: a hard or risky task's spec asks for a review at its merge),
-  `reviewverify.go` (a review's fix round and its verify, briefed in the reviewer's session),
-  `rules.go` (the rule pass: rule-tier steps), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `stopstep.go` (a task worker's stop as a step of the merge loop, for a move or a drop), `move.go` (`obor dispatch --model` on a working task: a redo dispatch on the same lane and worktree), `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens), `nightly.go`,
-  `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port),
-  `verbs.go` (`leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs`),
-  `feed.go` (the socket's `events` request: the event feed after a seq, streamed with `--follow`),
-  `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop), `sessions.go` (the agents' recorded sessions),
-  `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
-  `roleworktree.go` (role worktrees: serve moves the reviewer's and the deep dive's to the head it hands them),
-  `block.go` (the merge loop's needs-you as a block on a task's phase), `disk.go` (low disk: free space below
-  diskLow is a needs-you that holds the gate and the nightly), `versions.go` (the versions of the tools obor
-  drives: the periodic read, fact `version`, the rule that lines the lead on a change), `fold.go` (`foldStart`: a start's result into the
-  identity table: agent, pane, kind, session, model), `follow.go` (serve follows a new obor binary and takes the
-  self-restart path, preferring an idle moment), `scheduler.go` (the scheduler's rule for serve's worktree: pass
-  order, who holds the scratch, what a step waits),
-  `effects.go` (`JobID`), `describe.go` (`Describe`: a record as the readers word it, decoded with the types serve
-  writes it with; the view's one reader of record data): one concern each.
+**core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
+on a file missing from this table or a listed file that is gone); the entry is the function to read first:
+
+| file | concern | entry function |
+|---|---|---|
+| `activity.go` | the agents' own activity, the watchdogs' evidence: transcripts' last write and last turn, child processes under a pane's agent | `agentFiles.Activity` |
+| `app.go` | types, options | `Ready` |
+| `block.go` | the merge loop's needs-you as a block on a task's phase | `mtask.block` |
+| `configset.go` | the owner's setup edit from obor web, through the `ConfigFile` port | `App.configCall` |
+| `cutwait.go` | a wait that is cut (uncounted waits, `cutWaits`, `cutEnd`) | `App.uncounted` |
+| `describe.go` | a record as the readers word it, decoded with the types serve writes it with; the view's one reader of record data | `Describe` |
+| `disk.go` | low disk: free space below diskLow is a needs-you that holds the gate and the nightly | `App.diskTick` |
+| `dispatch.go` | `obor dispatch`: the lane and task a dispatch takes | `App.dispatchCall` |
+| `drive.go` | the owner's drive and land: `obor drive`, `obor land`, the driving state | `App.driveCall` |
+| `effects.go` | `JobID` | `JobID` |
+| `exit.go` | the socket's exit request: serve ends gracefully, `obor stop` | `App.exitCall` |
+| `feed.go` | the socket's `events` request: the event feed after a seq, streamed with `--follow` | `App.feed` |
+| `fetch.go` | jobs by fetch: the wake, the first fetch's delivered fact, the job a call names | `App.jobNext` |
+| `finish.go` | `awaitsTaskDone` (whose attempt is its worker's and no task_done yet), `inLoop` (what the merge loop holds) | `mtask.awaitsTaskDone` |
+| `fold.go` | a start's result into the identity table: agent, pane, kind, session, model | `proj.foldStart` |
+| `follow.go` | serve follows a new obor binary and takes the self-restart path, preferring an idle moment | `App.followTicks` |
+| `gitprune.go` | `obor prune`: branches and worktrees of ended tasks | `App.pruneCall` |
+| `idle.go` | the idle rules and `obor idle` | `proj.foldIdle` |
+| `jobs.go` | the watch on an open job and its timer | `App.watchJob` |
+| `jobstart.go` | job start, texts | `App.job` |
+| `keeplane.go` | a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens | `App.keepLive` |
+| `lanepick.go` | the lane a dispatch takes and the replies that say why none was free | `App.held` |
+| `lanerows.go` | the `lanes` table projection | `proj.foldLanes` |
+| `lanescan.go` | the lane table as a cached observation: scanned on the tick and by a refresher, never per pane event | `App.scan` |
+| `log.go` | serve's side of the backup | `App.backup` |
+| `logs.go` | a task's step logs go when it ends, and at load for every task the replayed log folds as ended | `App.endTaskLogs` |
+| `loop.go` | the merge loop: wake, advance, record, do, drive, the picks | `App.wake` |
+| `mergewatch.go` | the merge watch: what a set of tasks' merge is waiting on | `proj.foldWatch` |
+| `messages.go` | the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` | `proj.foldMsg` |
+| `move.go` | `obor dispatch --model` on a working task: a redo dispatch on the same lane and worktree | `App.moveTask` |
+| `mtask.go` | the merge loop's state fold | `proj.foldLoop` |
+| `nightly.go` | the nightly run | `App.nightly` |
+| `openwork.go` | whether a role agent has work open, the restore's question before it restarts the agent's pane | `App.OpenWork` |
+| `panes.go` | herdr events to projects | `App.connect` |
+| `pause.go` | the pause of a model or of all work, the rate-limit evidence | `proj.foldPause` |
+| `preview.go` | `obor merge preview`: whether a lane's work merges cleanly now | `App.mergePreview` |
+| `project.go` | load, log, fold | `App.load` |
+| `prompt.go` | the send of a prompt to an agent and its delivery | `App.send` |
+| `prompts.go` | the `prompts` table's writes and prune | `App.prompt` |
+| `prune.go` | the nightly prune of ended tasks' records and old sessions, 30 days on (`mtask.ended` is the end both it and the logs' removal read) | `App.pruneLog` |
+| `registry.go` | agent identity: `reconcile` collects the proofs the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name | `App.whereIs` |
+| `restore.go` | the restore of the project's panes after a lost terminal connection came back, through the `Restorer` port, and at serve's first connect when herdr restarted while serve was down | `App.dropOtherKind` |
+| `resume.go` | `obor resume` | `App.resume` |
+| `review.go` | a review request: `obor review start` records it and the merge loop fires the reviewer's start | `proj.foldReview` |
+| `reviewclose.go` | a review's close is a call to serve, which commits it and records `review.closed` | `App.reviewCloseCall` |
+| `reviewonmerge.go` | the Review: on merge rule: a hard or risky task's spec asks for a review at its merge | `reviewOnMergeRule` |
+| `reviewverify.go` | a review's fix round and its verify, briefed in the reviewer's session | `verifyRule` |
+| `roledone.go` | a role agent that is done: the `role.done` fact, its line and the stop hint | `roleDone` |
+| `rolestop.go` | the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop | `integratorStopRule` |
+| `roleworktree.go` | role worktrees: serve moves the reviewer's and the deep dive's to the head it hands them | `App.briefMove` |
+| `rules.go` | the rule pass: rule-tier steps | `App.rulePass` |
+| `scheduler.go` | the scheduler's rule for serve's worktree: pass order, who holds the scratch, what a step waits | `proj.passOrder` |
+| `serve.go` | New, Serve, run, the serve flock | `Serve` |
+| `sessions.go` | the agents' recorded sessions | `App.sessionCall` |
+| `settle.go` | settling a task's open records when it ends | `App.settleEnded` |
+| `specs.go` | the specs table: `obor spec set` and the readers | `App.specSet` |
+| `states.go` | the state table | `init` |
+| `status.go` | the status snapshot and `Listen`: the socket's server half | `App.Status` |
+| `steps.go` | scratch/after steps, submit, gate, publish, unpin, fix | `App.scratchStep` |
+| `stopped.go` | the agents' stop report (`stopped` call): a worker's and a role's stop | `App.stoppedCall` |
+| `stopstep.go` | a task worker's stop as a step of the merge loop, for a move or a drop | `mtask.foldStop` |
+| `stopwake.go` | the wake of a stopped agent at its rate limit's reset | `App.stopWakes` |
+| `toast.go` | the owner's herdr toast, a rule action's best-effort after | `App.toast` |
+| `trust.go` | a pane's trust prompt: the needs-you it raises and its answer | `trustHeld` |
+| `verbs.go` | `leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs` | `leadOr` |
+| `verdict.go` | a job's verdict call and its fold | `App.verdict` |
+| `versions.go` | the versions of the tools obor drives: the periodic read, fact `version`, the rule that lines the lead on a change | `App.versionTick` |
+| `waiting.go` | a dispatch that waits for the tasks it names (`--after`) or for a lane: fold, pick, dispatch | `App.waitTask` |
+| `watchdog.go` | the watchdogs over panes and lanes | `App.check` |
+| `workerstart.go` | the worker start rule: a lane's worker started again while its job is outstanding | `workerStartRule` |
+| `worktext.go` | the work job's wake: its text, the send to the worker and the watch on its delivery | `App.sendWork` |
+
 - `app/port` (core, a leaf below `app`): the ports and the types they exchange, with no logic: the terminal's `Pane`
   (terminal-neutral: its `Group`, no tab or workspace), `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`;
   `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`); and the
