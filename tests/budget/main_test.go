@@ -668,3 +668,52 @@ func goStub(t *testing.T, cases map[string]string) string {
 	}
 	return goBin
 }
+
+// two records → the WARN for the package whose test lines grew more than its production lines, and only that one;
+// the line carries the test lines, the count and the change, and it is no breach.
+func TestTrendWarnsGrownPackageOnly(t *testing.T) {
+	prev := Record{Date: "2026-11-20", Packages: map[string]Size{
+		"grown":  {ProdLines: 100, TestLines: 200, Tests: 10},
+		"paired": {ProdLines: 100, TestLines: 200, Tests: 10},
+		"shrunk": {ProdLines: 100, TestLines: 200, Tests: 10},
+		"same":   {ProdLines: 100, TestLines: 200, Tests: 10},
+	}}
+	cur := Record{Date: "2026-11-21", Packages: map[string]Size{
+		"grown":  {ProdLines: 110, TestLines: 300, Tests: 14},
+		"paired": {ProdLines: 150, TestLines: 250, Tests: 12}, // tests +50, production +50: not more
+		"shrunk": {ProdLines: 100, TestLines: 150, Tests: 8},
+		"same":   {ProdLines: 100, TestLines: 200, Tests: 10},
+		"new":    {ProdLines: 10, TestLines: 900, Tests: 30}, // no earlier record
+	}}
+	got := trend(prev, cur, []string{"grown", "paired", "shrunk", "same", "new"})
+	want := []string{"WARN budget: grown test lines 300 (+100 since 2026-11-20), tests 14 (+4), production lines +10"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("trend = %q; want %q", got, want)
+	}
+	if breached(got) {
+		t.Errorf("a trend line failed the run: %q", got)
+	}
+	if lines := trend(Record{}, cur, []string{"grown"}); len(lines) != 0 {
+		t.Errorf("the first night (no record) printed %q; want none", lines)
+	}
+}
+
+// measureSize counts the production and test lines and the Test functions of a package directory.
+func TestMeasureSize(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.go", "package a\n\nfunc A() {}\n")
+	write("a_test.go", "package a\n\nfunc TestA(t *testing.T) {}\nfunc helper() {}\nfunc TestB(t *testing.T) {}\n")
+	write("notes.txt", "x\ny\n")
+	got, err := measureSize(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Size{ProdLines: 3, TestLines: 5, Tests: 2}); got != want {
+		t.Errorf("measureSize = %+v; want %+v", got, want)
+	}
+}

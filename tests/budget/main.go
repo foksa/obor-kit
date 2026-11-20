@@ -21,6 +21,11 @@
 // `budget OK: N packages` — `(K over their time cap)` when K packages warned — after its warning lines, and exits 0;
 // a breach exits 1 (the nightly records it as a red non-gating line).
 //
+// Each run also records every package's size (production lines, test lines, test count, wall time) in
+// .obor/state/budget-record.json (`-record <file>` names another) and prints a WARN per package whose test lines grew
+// more than its production lines since the record before it (the test plan's TP-11: the ratio per package, not one
+// number for the tree). That line never fails the run and has no cap.
+//
 // `-missing` is the budget's own listing: it compares the packages with tests with tests/budget.json, runs no tests and
 // prints the command that seeds a package without an entry, or the entry whose package is gone (a step of
 // make check-affected, so the lane that adds a package fails there instead of at the next nightly).
@@ -48,6 +53,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Budget is one package's caps: the wall seconds of its run (go test's package Elapsed) and the git processes it starts.
@@ -69,6 +75,131 @@ type Run struct {
 	Failed  []string // top-level tests that failed
 	Git     int      // git processes the run started
 	note    string   // why the run failed when Passed is false (the build output's last line)
+}
+
+// Size is one package's record of a night: its production and test lines (non-test and _test.go files in the package
+// directory), its test count (Test functions) and its wall time.
+type Size struct {
+	ProdLines int     `json:"prod_lines"`
+	TestLines int     `json:"test_lines"`
+	Tests     int     `json:"tests"`
+	FullS     float64 `json:"full_s"`
+}
+
+// Record is a night's sizes, the file the next night compares with.
+type Record struct {
+	Date     string          `json:"date"`
+	Packages map[string]Size `json:"packages"`
+}
+
+// trend is the WARN lines for the packages whose test lines grew more than their production lines since prev: one
+// per package, in pkgs' order, with the test lines, the test count and what changed. A package prev lacks has nothing to
+// compare with and prints nothing. It never fails the run.
+func trend(prev, cur Record, pkgs []string) []string {
+	var lines []string
+	for _, pkg := range pkgs {
+		p, ok1 := prev.Packages[pkg]
+		c, ok2 := cur.Packages[pkg]
+		if !ok1 || !ok2 {
+			continue
+		}
+		dTest, dProd := c.TestLines-p.TestLines, c.ProdLines-p.ProdLines
+		if dTest <= 0 || dTest <= dProd {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("WARN budget: %s test lines %d (%+d since %s), tests %d (%+d), production lines %+d",
+			pkg, c.TestLines, dTest, prev.Date, c.Tests, c.Tests-p.Tests, dProd))
+	}
+	return lines
+}
+
+// measureSize counts dir's lines and Test functions: _test.go files are tests, the other .go files production.
+func measureSize(dir string) (Size, error) {
+	var s Size
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return s, err
+	}
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return s, err
+		}
+		n := bytes.Count(b, []byte("\n"))
+		if len(b) > 0 && b[len(b)-1] != '\n' {
+			n++
+		}
+		if !strings.HasSuffix(e.Name(), "_test.go") {
+			s.ProdLines += n
+			continue
+		}
+		s.TestLines += n
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "func Test") {
+				s.Tests++
+			}
+		}
+	}
+	return s, nil
+}
+
+// packageDirs maps the import paths of pkgs to their directories (go list, tags included).
+func packageDirs(root, goBin string, env []string, pkgs []string) (map[string]string, error) {
+	args := append([]string{"list", "-tags", "integration", "-f", "{{.ImportPath}} {{.Dir}}"}, pkgs...)
+	cmd := exec.Command(goBin, args...)
+	cmd.Dir = root
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("go list: %v: %s", err, firstLine(string(out)))
+	}
+	dirs := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if pkg, dir, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+			dirs[pkg] = dir
+		}
+	}
+	return dirs, nil
+}
+
+// loadRecord reads the record file; a missing or unreadable one is an empty record (the first night has no line).
+func loadRecord(path string) Record {
+	var r Record
+	b, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(b, &r) != nil {
+		return Record{}
+	}
+	return r
+}
+
+// saveRecord writes the record through a temp file and a rename.
+func saveRecord(path string, r Record) error {
+	b, err := marshal(r)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".budget-record-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // minWallS is the floor of a package's wall-time cap: go test's Elapsed moves by 0.1 s from run to run, so a
@@ -545,6 +676,7 @@ func main() {
 func run() int {
 	seedFlag := flag.Bool("seed", false, "write tests/budget.json measured now (x1.5); with package arguments only those")
 	missingFlag := flag.Bool("missing", false, "print packages with tests and no tests/budget.json entry, and entries whose package is gone; runs no tests")
+	recordPath := flag.String("record", "", "the nightly record of package sizes (default .obor/state/budget-record.json under the module root)")
 	verbose := flag.Bool("v", false, "print each package's measurement to stderr")
 	flag.Parse()
 
@@ -628,6 +760,27 @@ func run() int {
 	lines, n, warned := check(budget, pkgs, runs, r.leftovers())
 	for _, line := range lines {
 		fmt.Println(line)
+	}
+	// The size record is a report: a failure to read or write it is a note, never a breach.
+	if *recordPath == "" {
+		*recordPath = filepath.Join(root, ".obor", "state", "budget-record.json")
+	}
+	cur := Record{Date: time.Now().Format("2006-01-02"), Packages: map[string]Size{}}
+	if dirs, err := packageDirs(root, goBin, r.env(), pkgs); err != nil {
+		fmt.Fprintln(os.Stderr, "budget: sizes not recorded:", err)
+	} else {
+		for _, pkg := range pkgs {
+			if s, err := measureSize(dirs[pkg]); err == nil {
+				s.FullS = runs[pkg].Elapsed
+				cur.Packages[pkg] = s
+			}
+		}
+		for _, line := range trend(loadRecord(*recordPath), cur, pkgs) {
+			fmt.Println(line)
+		}
+		if err := saveRecord(*recordPath, cur); err != nil {
+			fmt.Fprintln(os.Stderr, "budget: record not written:", err)
+		}
 	}
 	if breached(lines) {
 		return 1
