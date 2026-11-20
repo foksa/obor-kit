@@ -103,3 +103,41 @@ func countKills(k *placeKit) int {
 	}
 	return n
 }
+
+// A terminal Ours refuses (the caller's) is not killed, not listed, and keeps its tab and space; the project's others
+// close, with the tab only they held. A dry run lists the same terminals and kills nothing.
+func TestCloseProjectSparesTheTerminalOursRefuses(t *testing.T) {
+	k := newPlaceKit(4)
+	own := k.place(t, port.KindLane, "", "")
+	other := k.place(t, port.KindRole, "", "")
+	if k.tabOf(t, own) == k.tabOf(t, other) {
+		t.Fatalf("precondition: the caller's terminal and the other share the tab %s", k.tabOf(t, own))
+	}
+	ownTab := k.tabOf(t, own)
+	ours := func(p port.Pane) bool { return p.ID != own }
+
+	lines, err := k.c.CloseProject(ctx, port.CloseProject{Name: "proj", Ours: ours, Dry: true})
+	got := strings.Join(lines, "\n")
+	if err != nil || !strings.Contains(got, "terminal "+other) || strings.Contains(got, "terminal "+own) ||
+		strings.Contains(got, "space") {
+		t.Fatalf("dry run: %q, %v: want the other terminal only, no space", got, err)
+	}
+	if countKills(k) != 0 || len(k.app.Spaces()[0].Tabs) != 2 {
+		t.Fatalf("a dry run closed something: kills %d, spaces %+v", countKills(k), k.app.Spaces())
+	}
+
+	lines, err = k.c.CloseProject(ctx, port.CloseProject{Name: "proj", Ours: ours})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(lines, "\n"); strings.Contains(got, "terminal "+own) || !strings.Contains(got, "terminal "+other) {
+		t.Errorf("lines %q: want the other terminal, not the caller's", got)
+	}
+	if live := k.live(); countKills(k) != 1 || !slices.Contains(live, own) || slices.Contains(live, other) {
+		t.Errorf("kills %d, live %v: want the other killed and the caller's (%s) alive", countKills(k), live, own)
+	}
+	spaces := k.app.Spaces()
+	if len(spaces) != 1 || len(spaces[0].Tabs) != 1 || spaces[0].Tabs[0].Name != ownTab {
+		t.Errorf("spaces %+v, want the project's space with the caller's tab %s only", spaces, ownTab)
+	}
+}

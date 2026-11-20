@@ -176,6 +176,40 @@ func TestPruneDryRunListsAndDeletesNothing(t *testing.T) {
 	}
 }
 
+// A structured dry run answers the branches serve takes (merged) and the task branches it keeps (unmerged), each with
+// its full tip sha, as JSON and not lines: nothing is deleted; a branch checked out and one outside task/ are in neither.
+func TestPruneStructuredReplyListsMergedAndUnmerged(t *testing.T) {
+	t.Parallel()
+	f := &fakePruner{checked: map[string]bool{"task/T-3": true}}
+	for _, b := range []string{"task/T-1", "task/T-2", "task/T-3", "task/T-5", "keep/T-1"} {
+		f.branch(b)
+	}
+	h := pruneRig(t, f)
+	h.ended("T-1", event.StepMerged, 1*day)
+	h.setLane("T-2", true)                  // open
+	h.ended("T-3", event.StepMerged, 1*day) // merged, but checked out: in neither list
+	reply := h.prune(wire.PruneReq{DryRun: true, Structured: true})
+	got, err := wire.ParsePruneReply(reply)
+	if err != nil {
+		t.Fatalf("reply %q: %v", reply, err)
+	}
+	full := func(name string) wire.PruneRef {
+		i := slices.IndexFunc(f.branches, func(b port.PruneBranch) bool { return b.Name == name })
+		if i < 0 || len(f.branches[i].SHA) != 40 {
+			t.Fatalf("precondition: no branch %s with a full sha in %v", name, f.branches)
+		}
+		return wire.PruneRef{Name: name, SHA: f.branches[i].SHA}
+	}
+	want := wire.PruneReply{Merged: []wire.PruneRef{full("task/T-1")},
+		Unmerged: []wire.PruneRef{full("task/T-2"), full("task/T-5")}}
+	if !slices.Equal(got.Merged, want.Merged) || !slices.Equal(got.Unmerged, want.Unmerged) {
+		t.Errorf("reply %+v, want %+v", got, want)
+	}
+	if strings.Contains(reply, "PRUNE") || len(f.deleted) != 0 {
+		t.Errorf("reply %q is not data only, or deleted %v", reply, f.deleted)
+	}
+}
+
 // The nightly takes the branches of tasks merged over 7 days ago only: 8 days goes, 6 days stays; never a worktree
 // (an extra clean lane stays) and never a dropped task's branch. Its reply is the one non-gating line.
 func TestPruneNightlyTakesWeekOldMergesOnly(t *testing.T) {

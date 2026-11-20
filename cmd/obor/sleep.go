@@ -124,7 +124,7 @@ func (s *sleeper) name() string { return s.Cfg.ProjectName() }
 // answers for the project (else: start serve first); (2) serve paused by stop's own untimed pause, so nothing new is
 // dispatched (a pause in force already is replaced, and recorded); (3) the tasks in progress, asked of serve: refused,
 // or with --force kept open (the agents stop; the tasks continue at obor start) — never the lane whose agent runs in
-// the caller's own pane (project.Pane); (4) herdr's panes listed (an error refuses) and every agent obor
+// the caller's own pane (project.PaneOf); (4) herdr's panes listed (an error refuses) and every agent obor
 // started in the project stopped but the caller's own;
 // (5) serve ended (launchd's agent uninstalled; one in a pane or run by hand asked to exit over its socket) and
 // confirmed down (its socket and lock gone); (6) the project unregistered and the marker written, with the replaced
@@ -333,7 +333,7 @@ func untilLine(until int64) string {
 	return time.Unix(until, 0).Format("2006-01-02 15:04")
 }
 
-// ownLane is the lane among busy whose agent runs in the caller's own pane (project.Pane): its label is that
+// ownLane is the lane among busy whose agent runs in the caller's own pane (project.PaneOf): its label is that
 // lane's agent or its cwd in that lane. "": none, or no pane of the caller's. An error: herdr's panes not listed, so
 // the caller's pane is not known.
 func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) {

@@ -493,7 +493,7 @@ const Pin = "OBOR_NO_SELF_HOST"
 var EnvVars = []string{RoleVar, LaneVar, PaneVar, "OBOR_STATE_HOME"}
 
 // RoleVar, LaneVar and PaneVar are an agent's identity in its env (the role's env value, its lane, its terminal pane:
-// project.Pane resolves it); RetiredVars are variables an older obor exported that no start sets any more
+// project.PaneOf resolves it); RetiredVars are variables an older obor exported that no start sets any more
 // (OBOR_AGENT, a name is derived, project.Self): every start unsets them.
 const (
 	RoleVar = "OBOR_ROLE"

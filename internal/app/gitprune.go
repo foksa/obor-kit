@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
@@ -62,12 +63,14 @@ func (a *App) pruneCall(ctx context.Context, c wire.PruneReq) (string, error) {
 }
 
 // prune runs c on p through g. Its reply is a line per deletion (or per kept worktree) and the summary last; the
-// nightly's is the summary only (its line in the nightly's result), the lines going to serve's log.
+// nightly's is the summary only (its line in the nightly's result), the lines going to serve's log; c.Structured: the
+// reply is a wire.PruneReply's JSON, the branches it takes and the task branches it keeps.
 func (a *App) prune(ctx context.Context, p *proj, g port.Pruner, cfg *config.Config, c wire.PruneReq) (string, error) {
 	now := a.opt.Now()
 	var lines []string
 	var did event.Pruned
 	var oldest time.Time
+	reply := wire.PruneReply{Merged: []wire.PruneRef{}, Unmerged: []wire.PruneRef{}}
 	branches, err := g.Branches(ctx)
 	if err != nil {
 		return "", fmt.Errorf("prune: %v", err)
@@ -83,17 +86,20 @@ func (a *App) prune(ctx context.Context, p *proj, g port.Pruner, cfg *config.Con
 		}
 		at, ok := a.prunable(p, task, c, now)
 		if !ok {
+			reply.Unmerged = append(reply.Unmerged, wire.PruneRef{Name: b.Name, SHA: b.SHA})
 			continue
 		}
 		if c.DryRun {
 			lines = append(lines, fmt.Sprintf("would delete %s (was %s)", b.Name, short(b.SHA)))
 		} else if err := g.DeleteBranch(ctx, b); err != nil {
 			lines = append(lines, fmt.Sprintf("kept %s: %v", b.Name, err))
+			reply.Unmerged = append(reply.Unmerged, wire.PruneRef{Name: b.Name, SHA: b.SHA})
 			continue
 		} else {
 			lines = append(lines, fmt.Sprintf("deleted %s (was %s)", b.Name, short(b.SHA)))
 		}
 		did.Branches = append(did.Branches, event.PrunedRef{Name: b.Name, SHA: b.SHA})
+		reply.Merged = append(reply.Merged, wire.PruneRef{Name: b.Name, SHA: b.SHA})
 		if oldest.IsZero() || at.Before(oldest) {
 			oldest = at
 		}
@@ -104,6 +110,10 @@ func (a *App) prune(ctx context.Context, p *proj, g port.Pruner, cfg *config.Con
 	did.Unmerged, did.Nightly = c.Unmerged, c.Nightly
 	if !c.DryRun && len(did.Branches)+len(did.Worktrees) > 0 {
 		a.record(p, event.Record{Task: event.PruneTask, Step: event.StepPruned, Kind: event.KindFact}, did)
+	}
+	if c.Structured {
+		b, err := json.Marshal(reply)
+		return string(b), err
 	}
 	summary := pruneSummary(c, len(did.Branches), len(did.Worktrees), oldest)
 	if c.Nightly {

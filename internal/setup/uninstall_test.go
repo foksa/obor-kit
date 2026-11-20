@@ -2,6 +2,8 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -15,24 +17,20 @@ import (
 	"obor/internal/project"
 )
 
-// uninstallGit is the fake git of obor init's tests with the reads and writes obor uninstall adds on branches and
-// obor's refs: how many commits a branch holds that main lacks, and the refs under refs/obor/.
+// uninstallGit is the fake git of obor init's tests with the reads and writes obor uninstall adds on obor's refs: the
+// refs under refs/obor/. A branch's ancestry is never read (serve's reply decides which are merged): rev-list fails.
 type uninstallGit struct {
 	*fakeGit
-	mu    sync.Mutex
-	ahead map[string]string // branch → rev-list --count (default "0")
-	refs  map[string]string // refs/obor/… → sha
+	mu   sync.Mutex
+	refs map[string]string // refs/obor/… → sha
 }
 
 func (g *uninstallGit) Git(dir string, args ...string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	switch {
-	case len(args) == 4 && args[0] == "rev-list" && args[1] == "--count":
-		if n, ok := g.ahead[args[2]]; ok {
-			return n + "\n", nil
-		}
-		return "0\n", nil
+	case len(args) > 0 && args[0] == "rev-list":
+		return "", fmt.Errorf("git %s: uninstall reads no ancestry", strings.Join(args, " "))
 	case len(args) == 3 && args[0] == "for-each-ref" && args[2] == "refs/obor/":
 		var lines []string
 		for r, sha := range g.refs {
@@ -125,7 +123,8 @@ type fakeDown struct {
 	mu          sync.Mutex
 	open        string
 	known       bool
-	merged      []string
+	merged      []string // the task branches serve's structured prune reply lists as merged
+	mergedErr   error    // serve's prune reply is not read
 	agents      []string // "stop", "stop force" or "dry", one per call
 	serve       []string
 	agentsState string // the state the next calls answer ("": done once, then already)
@@ -135,8 +134,12 @@ type fakeDown struct {
 func (d *fakeDown) teardown() *Teardown {
 	return &Teardown{
 		Open: func(context.Context, *config.Config) (string, bool) { return d.open, d.known },
-		Merged: func(context.Context, *config.Config) ([]string, error) {
-			return d.merged, nil
+		Merged: func(context.Context, *config.Config) ([]port.PruneBranch, error) {
+			var out []port.PruneBranch
+			for _, name := range d.merged {
+				out = append(out, port.PruneBranch{Name: name, SHA: strings.Repeat("c", 40)})
+			}
+			return out, d.mergedErr
 		},
 		Agents: func(_ context.Context, _ *config.Config, force, dry bool) (string, string, error) {
 			d.mu.Lock()
@@ -184,7 +187,7 @@ type uninstallFx struct {
 func newUninstallFx(t *testing.T) *uninstallFx {
 	t.Helper()
 	x := newFakeGitInitFx(t, true)
-	g := &uninstallGit{fakeGit: x.fake, ahead: map[string]string{}, refs: map[string]string{}}
+	g := &uninstallGit{fakeGit: x.fake, refs: map[string]string{}}
 	x.host = g
 	x.init(t)
 	u := &uninstallFx{initFx: x, git: g}
@@ -400,16 +403,16 @@ func TestUninstallRefusesADirtyWorktree(t *testing.T) {
 	}
 }
 
-// A task branch with commits no merge took refuses; --discard deletes it with its tip; a merged one never refuses.
-func TestUninstallRefusesAnUnmergedBranch(t *testing.T) {
+// A task branch serve's reply does not list as merged refuses, whatever git's ancestry says (it is never read: the fake
+// git fails a rev-list); --discard deletes it with its tip; a listed one never refuses.
+func TestUninstallRefusesABranchServeDoesNotListAsMerged(t *testing.T) {
 	t.Parallel()
 	u := newUninstallFx(t)
 	u.branch("task/T-1")
 	u.branch("task/T-2")
 	u.down.merged = []string{"task/T-1"}
-	u.git.ahead["task/T-2"] = "3"
 	out, rc := u.uninstall(t)
-	if rc != 1 || !strings.Contains(out, "branch task/T-2 (ccccccc): 3 commits no merge took") ||
+	if rc != 1 || !strings.Contains(out, "branch task/T-2 (ccccccc): serve's prune does not list it as merged") ||
 		strings.Contains(out, "branch task/T-1") {
 		t.Fatalf("exit %d\n%s", rc, out)
 	}
@@ -421,6 +424,22 @@ func TestUninstallRefusesAnUnmergedBranch(t *testing.T) {
 		t.Fatalf("--discard: exit %d, deleted %v\n%s", rc, u.down.pr.deleted, out)
 	}
 	has(t, out, "deleted task/T-2 (was ccccccc)", "the discarded branch's line")
+}
+
+// A reply serve's prune cannot give (an older serve, a failed call) leaves every branch unknown: refused, naming why.
+func TestUninstallRefusesEveryBranchWhenTheReplyIsNotRead(t *testing.T) {
+	t.Parallel()
+	u := newUninstallFx(t)
+	u.branch("task/T-1")
+	u.down.mergedErr = errors.New("prune: reply is not structured")
+	out, rc := u.uninstall(t)
+	if rc != 1 || !strings.Contains(out, "branch task/T-1 (ccccccc): serve's prune could not say if it is merged "+
+		"(prune: reply is not structured)") {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if len(u.down.pr.deleted) != 0 {
+		t.Errorf("deleted %v", u.down.pr.deleted)
+	}
 }
 
 // A branch checked out in the main checkout stays, listed; a worktree directory that is gone loses its registration.
@@ -563,5 +582,156 @@ func TestUninstallRefusesAWorkerAndABadFlag(t *testing.T) {
 	}
 	if len(u.down.agents) != 0 {
 		t.Error("a worker's uninstall stopped agents")
+	}
+}
+
+// changed is what a refused or dry uninstall must leave alone, as a comparable string: the worktrees, the panes, the
+// hooks, the project list, the store file, and what serve and the agents were asked.
+func (u *uninstallFx) changed() string {
+	hooks, _ := u.fake.Git(u.Root, "config", "--local", "--get", "core.hooksPath")
+	return fmt.Sprint(u.worktrees(), len(u.h.Panes), hooks, project.Projects(u.Env(u.env...)), u.Exists(".obor/state/store.db"),
+		u.down.agents, u.down.serve, u.down.pr.deleted, u.down.pr.removed, u.git.refs)
+}
+
+const serveDownFail = "FAIL serve is not running, so open tasks cannot be checked: obor start, then obor uninstall " +
+	"(or --force to go ahead)"
+
+// Serve not answering leaves the open tasks unknown: refused with the way out, nothing changed, --dry-run and --purge
+// included; --force goes on.
+func TestUninstallRefusesWhenServeCannotSayWhatIsOpen(t *testing.T) {
+	t.Parallel()
+	u := newUninstallFx(t)
+	u.Write(".obor/state/store.db", "rows")
+	u.down.known = false
+	u.down.open = "T-7 (L-01, working)" // what a serve that answered would say: never read while it does not
+	before := u.changed()
+	if len(u.worktrees()) < 2 || !u.Exists(".obor/state/store.db") {
+		t.Fatalf("precondition: nothing set up to lose: %s", before)
+	}
+	for _, args := range [][]string{nil, {"--dry-run"}, {"--purge"}, {"--discard"}, {"--dry-run", "--purge"}} {
+		out, rc := u.uninstall(t, args...)
+		if rc != 1 || !strings.Contains(out, serveDownFail) || strings.Contains(out, "obor uninstall:") {
+			t.Fatalf("%v: exit %d\n%s", args, rc, out)
+		}
+		if got := u.changed(); got != before {
+			t.Fatalf("%v changed something:\nbefore %s\nafter  %s", args, before, got)
+		}
+	}
+
+	out, rc := u.uninstall(t, "--force")
+	if rc != 0 || !slices.Equal(u.down.agents, []string{"stop force"}) || len(u.worktrees()) != 0 {
+		t.Fatalf("--force: exit %d, agents %v, worktrees %v\n%s", rc, u.down.agents, u.worktrees(), out)
+	}
+	has(t, out, "OK uninstall proj;", "the run's last line")
+}
+
+// With serve down a branch is never known merged: refused without --discard (serve's reply is not asked for), so --force
+// alone keeps the work.
+func TestUninstallForceWithServeDownKeepsUnknownBranches(t *testing.T) {
+	t.Parallel()
+	u := newUninstallFx(t)
+	u.branch("task/T-1")
+	u.down.known = false
+	u.down.merged = []string{"task/T-1"} // not asked: serve does not answer
+	out, rc := u.uninstall(t, "--force")
+	if rc != 1 || !strings.Contains(out, "branch task/T-1 (ccccccc): serve's prune could not say if it is merged "+
+		"(serve is not running)") {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if len(u.down.pr.deleted) != 0 || len(u.worktrees()) < 2 {
+		t.Errorf("a refusal changed something: %+v", u.down)
+	}
+	if _, rc = u.uninstall(t, "--force", "--discard"); rc != 0 || !slices.Equal(u.down.pr.deleted, []string{"task/T-1"}) {
+		t.Errorf("--force --discard: exit %d, deleted %v", rc, u.down.pr.deleted)
+	}
+}
+
+// A project already uninstalled has nothing to lose: with serve down every step is already, and --purge, which would
+// remove the store, is refused unless --force.
+func TestUninstallOfAnUninstalledProjectNeedsNoServe(t *testing.T) {
+	t.Parallel()
+	u := newUninstallFx(t)
+	if out, rc := u.uninstall(t); rc != 0 {
+		t.Fatalf("first run: exit %d\n%s", rc, out)
+	}
+	u.down.known = false
+	for _, args := range [][]string{nil, {"--dry-run"}} {
+		out, rc := u.uninstall(t, args...)
+		if rc != 0 {
+			t.Fatalf("%v: exit %d\n%s", args, rc, out)
+		}
+		for step, state := range states(out) {
+			want := "already"
+			if step == "config" || step == "state" {
+				want = "kept"
+			}
+			if state != want {
+				t.Errorf("%v: %s is %q, want %s\n%s", args, step, state, want, out)
+			}
+		}
+	}
+	u.Write(".obor/state/store.db", "rows")
+	before := u.changed()
+	out, rc := u.uninstall(t, "--purge")
+	if rc != 1 || !strings.Contains(out, serveDownFail) || u.changed() != before {
+		t.Fatalf("--purge: exit %d\n%s", rc, out)
+	}
+	if out, rc = u.uninstall(t, "--purge", "--force"); rc != 0 || u.Exists(".obor/state/store.db") {
+		t.Errorf("--purge --force: exit %d, store exists %v\n%s", rc, u.Exists(".obor/state/store.db"), out)
+	}
+}
+
+// setTerminal is project.terminal of the kept config.
+func (u *uninstallFx) setTerminal(t *testing.T, kind string) {
+	t.Helper()
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(u.Read(".obor/config.json")), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg["project"].(map[string]any)["terminal"] = kind
+	b, _ := json.Marshal(cfg)
+	u.Write(".obor/config.json", string(b))
+}
+
+// The caller's pane is the terminal kind's own: on an hc project a shell with only HC_TERMINAL_ID is spared (the dry run
+// says so, a real run leaves it open); on a herdr project that variable names nobody.
+func TestUninstallSparesTheCallersPaneByTheKindsOwnVariable(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		kind, env string
+		spared    bool
+	}{
+		{"hc", "HC_TERMINAL_ID=", true},
+		{"hc", "OBOR_PANE=", true},
+		{"herdr", "HERDR_PANE_ID=", true},
+		{"herdr", "HC_TERMINAL_ID=", false},
+	} {
+		t.Run(c.kind+" "+c.env, func(t *testing.T) {
+			u := newUninstallFx(t)
+			u.setTerminal(t, c.kind)
+			var own string
+			for _, p := range u.h.Panes {
+				if p.Label != "" {
+					own = p.ID
+				}
+			}
+			if own == "" {
+				t.Fatal("precondition: obor init labelled no pane")
+			}
+			u.env = append(u.env, c.env+own)
+			out, rc := u.uninstall(t, "--dry-run")
+			if rc != 0 {
+				t.Fatalf("dry run: exit %d\n%s", rc, out)
+			}
+			if got := strings.Contains(out, "pane "+own+" runs this command"); got != c.spared {
+				t.Errorf("dry run says spared = %v, want %v\n%s", got, c.spared, out)
+			}
+			if _, rc := u.uninstall(t); rc != 0 {
+				t.Fatalf("exit %d", rc)
+			}
+			if got := u.h.Pane(own) != nil; got != c.spared {
+				t.Errorf("caller's pane open = %v, want %v", got, c.spared)
+			}
+		})
 	}
 }

@@ -96,7 +96,7 @@ func TestOborInitRerunAfterAnInterruptedInit(t *testing.T) {
 }
 
 // obor uninstall on a real repository after obor init: the main checkout is the only worktree left, the task branch
-// no merge needs is deleted, core.hooksPath is unset, and git status is as clean as it was before (nothing tracked is
+// serve lists as merged is deleted, core.hooksPath is unset, and git status is as clean as it was before (nothing tracked is
 // touched); the config stays and the second run changes nothing.
 func TestUninstallAfterInitLeavesAPlainRepository(t *testing.T) {
 	t.Parallel()
@@ -105,7 +105,7 @@ func TestUninstallAfterInitLeavesAPlainRepository(t *testing.T) {
 	x.init(t)
 	x.Git(dir, "add", "-A")
 	x.Git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "after init", "--no-verify")
-	x.Git(dir, "branch", "task/T-9") // at main's head: no commit of its own
+	x.Git(dir, "branch", "task/T-9")
 	if got := strings.Count(x.Git(dir, "worktree", "list"), "\n"); got < 2 {
 		t.Fatalf("precondition: %d worktrees after obor init, want the main checkout and the lanes", got+1)
 	}
@@ -113,7 +113,7 @@ func TestUninstallAfterInitLeavesAPlainRepository(t *testing.T) {
 		t.Fatalf("precondition: status %q, hooks path %q", x.Git(dir, "status", "--porcelain"),
 			x.Git(dir, "config", "--local", "--get", "core.hooksPath"))
 	}
-	down := &fakeDown{known: true}
+	down := &fakeDown{known: true, merged: []string{"task/T-9"}}
 	run := func() (string, int) {
 		s, out := x.newSetup(t)
 		s.Dir = dir

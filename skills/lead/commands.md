@@ -270,15 +270,19 @@ prints one line per step: `agents`, `serve`, `panes`, `worktrees`, `branches`, `
 `projects`, `stopped`, `config`, `state`, each `done`, `already`, `skipped` or `kept: <why>`. A second run reports
 `already` for each step it has nothing left to do for. `--dry-run` prints the same list and changes nothing.
 
-- Refusals come first and change nothing: a task in progress (`--force` goes on and stops the agents; the tasks stay
-  in the store), a lane or role worktree that is dirty or holds commits no branch holds, and a `task/*` branch with
-  commits the main checkout lacks that serve's prune does not take (listed; `--discard` removes those too). A worker's
-  run is refused.
+- Refusals come first and change nothing, `--dry-run` included: serve not answering while the project is still set up
+  (a serve job, a worktree under `lanes.dir`, obor's git hooks) or with `--purge`, because the open tasks cannot be
+  known (`FAIL serve is not running, so open tasks cannot be checked: obor start, then obor uninstall`; `--force` goes
+  on, and a project already uninstalled needs no serve); a task in progress (`--force` goes on and stops the agents;
+  the tasks stay in the store); a lane or role worktree that is dirty; and a `task/*` branch that serve's prune does
+  not list as merged (listed; `--discard` removes those too; with serve down, which `--force` allows, every one).
+  A worker's run is refused.
 - Order: the project's agents and serve stop (as `obor stop` does, with no marker and no pause left behind) and serve's
   launchd agent is uninstalled, `obor.web` with the machine's last serve agent; the project's panes close in the
   terminal (herdr: the panes labelled with the project's agents, the tabs go with their last pane; hc: the terminals
   labelled `obor.project`, then herdr-app's tabs they leave empty and its project space) — never another project's
-  pane, nor the pane the command runs in; every worktree directly under `lanes.dir` (lanes, role worktrees, `merge`,
+  pane, nor the pane the command runs in (OBOR_PANE, else the terminal kind's own variable: herdr's pane id, hc's
+  terminal id), which stays in its tab and space; every worktree directly under `lanes.dir` (lanes, role worktrees, `merge`,
   `merge-nightly`) is removed, and the registration of one whose directory is gone; the `task/*` branches serve's prune
   takes (with `--discard` the rest) and the refs under `refs/obor/` are deleted, each line with the tip sha it had;
   `core.hooksPath` is unset (one that is not obor's stays); the project-scope plugin is uninstalled when

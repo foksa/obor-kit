@@ -79,8 +79,8 @@ var goldenRequests = []requestLine{
 		`{"method":"config_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","changes":[{"key":"k","value":{"a":1}}],"base":"r1","source":"web"}}`, []droppedKey{dropTask}},
 	{&BackupReq{Envelope: env},
 		`{"method":"backup","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":""}}`, []droppedKey{dropTask}},
-	{&PruneReq{Envelope: env, DryRun: true, Unmerged: true, Nightly: true},
-		`{"method":"prune","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","dry_run":true,"unmerged":true,"nightly":true}}`, []droppedKey{dropTask}},
+	{&PruneReq{Envelope: env, DryRun: true, Unmerged: true, Nightly: true, Structured: true},
+		`{"method":"prune","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","dry_run":true,"unmerged":true,"nightly":true,"structured":true}}`, []droppedKey{dropTask}},
 	{&SendReq{Envelope: env, Text: "hi", From: "other"},
 		`{"method":"send","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"hi","from":"other"}}`, []droppedKey{dropTask}},
 	{&BriefReq{Envelope: env, Text: "brief", To: "lead", Prompt: "go", Fresh: true},
@@ -118,7 +118,7 @@ var goldenRequests = []requestLine{
 }
 
 // callerRequests is the same oracle for the requests a real caller builds with the fields it sets: the MCP
-// tools' (Pane, from project.Pane, on every tool call, and Lane from OBOR_LANE) and the web's
+// tools' (Pane, from project.PaneOf, on every tool call, and Lane from OBOR_LANE) and the web's
 // (Source "web" on every page's call). These rows are separate from goldenRequests because those lines stay exactly as
 // captured; a caller that sets "pane" or "source" is a different line, not an edit to them.
 //
