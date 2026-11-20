@@ -30,6 +30,7 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 		"  simple → deepseek (opencode opencode-go/deepseek-v4.1-flash) | sonnet (claude sonnet) | haiku (claude haiku)",
 		"lanes: 2 (L-01, L-02; each runs the model its dispatch picks)",
 		"roles: lead opus:high (claude opus, effort high), integrator opus (claude opus), reviewer terra:xhigh (codex gpt-6.1-terra, effort xhigh), deep_dive opus:max (claude opus, effort max)",
+		"merge.check: not set (the first task sets the stack up: merge.check, lanes.setup, lanes.ready; until then every gate stops on \"missing command\")",
 		"confirmed: no",
 		"starting point: the lead goes through it with you at its first session",
 		"",
@@ -39,6 +40,20 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 	}
 	if x.Read(".obor/config.json") != before {
 		t.Error("obor setup show changed the config (it is read-only)")
+	}
+}
+
+// obor setup show says when merge.check is unset and says nothing of it when it is set.
+func TestSetupShowSaysWhenMergeCheckIsUnset(t *testing.T) {
+	t.Parallel()
+	const line = "merge.check: not set (the first task sets the stack up"
+	unset := newFx(t, testkit.Set("merge.check", nil))
+	if out := unset.ok(t, "show"); !strings.Contains(out, line) {
+		t.Errorf("merge.check unset: no %q line:\n%s", line, out)
+	}
+	set := newFx(t, testkit.Set("merge.check", "make check"))
+	if out := set.ok(t, "show"); strings.Contains(out, "merge.check") {
+		t.Errorf("merge.check set: the table mentions it:\n%s", out)
 	}
 }
 

@@ -31,12 +31,14 @@ The start checks, both ways:
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
 2. `obor status` (serve up? lanes, needs-you, the full check, the pause, the lines not delivered yet).
 3. Models, effort and lanes: if `obor setup show` says `confirmed: no` (or the config has no `agents.confirmed`), this is
-   the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
-   effort, how many lanes, the lead's, integrator's and reviewer's models. Write the answers into `.obor/config.json`
-   (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked), then set
-   `agents.confirmed: true` and commit. A key this obor does not know (`lanes.types`, say) is dropped with a WARN by
-   every command and serve (its setting does not apply), and `obor config validate` fails naming it: delete or fix it.
-   Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
+   the project's first session: show that table to the owner and ask one question, "Keep these models and N lanes?"
+   (N is the table's lane count), options `Keep (Recommended)` / `Change`. Keep: set `agents.confirmed: true` and
+   commit. Change: edit what the owner says (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs
+   `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked), then the same. A key this obor does not know
+   (`lanes.types`, say) is dropped with a WARN by every command and serve, and `obor config validate` fails naming it:
+   delete or fix it. Never change a model setting without the owner's answer; `obor init` wrote what it found, not what
+   they chose. If the table says `merge.check: not set`, say so after it: the first task sets the stack up (see
+   `commands.md`, "What init no longer says").
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`.
 

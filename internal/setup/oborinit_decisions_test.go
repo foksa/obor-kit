@@ -76,35 +76,28 @@ func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
 	}
 }
 
-// obor init's output ends with the setup table, after the OK line; no deepseek (OpenCode is not opted in).
-func TestOborInitEndsWithTheSetupTable(t *testing.T) {
+// obor init's output on a new project ends with the OK line saying where the lead starts: no setup table, no
+// merge.check/merge.compile/--no-verify prose, no "next:" (the lead shows the table and asks).
+func TestOborInitSummaryHasNoTableAndEndsWithTheLeadLine(t *testing.T) {
 	t.Parallel()
 	x := newFakeGitInitFx(t, true)
 	out := x.init(t)
-	tail := strings.Join([]string{
-		"",
-		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch its first free model):",
-		"  hard   → opus:high (claude opus, effort high)",
-		"  medium → sonnet (claude sonnet)",
-		"  simple → sonnet (claude sonnet) | haiku (claude haiku)",
-		"lanes: 2 (L-01, L-02; each runs the model its dispatch picks)",
-		"roles: lead opus:high (claude opus, effort high), integrator opus (claude opus), reviewer sol:high (codex gpt-6.1-sol, effort high)",
-		"confirmed: no",
-		"starting point: the lead goes through it with you at its first session",
-		"",
-	}, "\n")
-	if !strings.HasSuffix(out, tail) {
-		t.Errorf("obor init's output does not end with the setup table:\n%s", out)
+	const last = "OK init proj (prefix proj): the lead starts in its own lead tab\n"
+	if !strings.HasSuffix(out, last) {
+		t.Errorf("the output does not end with %q:\n%s", last, out)
 	}
-	if i, j := strings.Index(out, "OK init "), strings.Index(out, "models and effort"); i < 0 || j < i {
-		t.Errorf("the OK line does not come before the table:\n%s", out)
+	if i := strings.Index(out, "obor init proj:\n"); i < 0 || !strings.Contains(out[i:], "  serve ") {
+		t.Errorf("the step lines are gone:\n%s", out)
+	}
+	for _, gone := range []string{"models and effort", "\nlanes: ", "\nroles: ", "\nconfirmed:", "starting point", "merge.check is what",
+		"merge.compile", "--no-verify", "change any of it", "next:", "waiting on"} {
+		hasNot(t, out, gone, "the trimmed summary")
 	}
 }
 
 // One run sets the whole project up: config (name, prefix), L-01 opus and L-02 sonnet with worktrees, the lead and the
 // integrator opus and (codex on PATH) the example's Codex reviewer, the plugin installed from the kit's marketplace,
-// four agents in their tabs, serve installed; the summary says each step done, then
-// next: obor lead.
+// four agents in their tabs, serve installed; the summary says each step done.
 func TestOborInitSetsUpTheProject(t *testing.T) {
 	t.Parallel()
 	x := newFakeGitInitFx(t, true)
@@ -112,10 +105,8 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Fatal("precondition: no config")
 	}
 	out := x.init(t)
-	const ok = "OK init proj (prefix proj); next: first task for the lead: set up the stack and `merge.check` " +
-		"(lanes.setup, lanes.ready); until then every gate stops on \"missing command\""
-	if !strings.Contains(out, ok+"\n") {
-		t.Errorf("no OK line %q in\n%s", ok, out)
+	if !strings.HasSuffix(out, "OK init proj (prefix proj): the lead starts in its own lead tab\n") {
+		t.Errorf("no OK line in\n%s", out)
 	}
 	cfg, err := config.Load(x.Root)
 	if err != nil {
@@ -229,14 +220,12 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Errorf("commands with no build files: %q", summary(out, "commands"))
 	}
 	has(t, out, "detected: claude, codex on PATH; no build files", "detected line")
-	has(t, out, "change any of it in .obor/config.json", "the file to change")
 	has(t, out, "nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, "+
 		"docs/agents/", "the files to commit named")
 	has(t, out, "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false", "herdr hint")
 	if n := strings.Count(out, "resume_agents_on_restore"); n != 1 {
 		t.Errorf("the herdr hint %d times (once, in the summary)", n)
 	}
-	hasNot(t, out, "waiting on", "no trust dialog")
 }
 
 // init commits only in a directory that held nothing but .git; with anything else and no commit it FAILs before
@@ -846,15 +835,8 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	if stateOf(out, "commands") != "done" {
 		t.Errorf("commands step %q", summary(out, "commands"))
 	}
-	if !strings.Contains(out, "OK init proj (prefix proj); next: obor lead\n") {
-		t.Errorf("a detected stack's next line is not the OK line:\n%s", out)
-	}
-	// the summary says what merge.check is for, so an adopter keeps it to a few minutes.
-	has(t, out, "merge.check is what every merge must pass, keep it to a few minutes; slower tests go in "+
-		"check_milestone (the nightly), and obor nightly off if CI on main already does that", "the check line")
-	// obor's commits pass --no-verify, so the summary says an adopter's hooks never run on them.
-	has(t, out, "obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put "+
-		"formatting and secret scans in merge.check", "the hooks line")
+	hasNot(t, out, "merge.check is what", "the check prose is the lead's")
+	hasNot(t, out, "--no-verify", "the hooks prose is the lead's")
 	has(t, out, "go.mod", "detected line")
 	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"merge", "check"}, "make mine")
 	x.Write(".obor/config.json", string(doc))
@@ -887,8 +869,7 @@ func TestOborInitSuggestsTypecheckForCompile(t *testing.T) {
 	if c := cfg.Data.Merge.Check; c.Cmd != "npm run typecheck && npm run test" {
 		t.Errorf("merge.check = %+v", c)
 	}
-	has(t, out, "set merge.compile to `npm run typecheck` to make moved re-gates faster, if it type-checks what "+
-		"merge.check covers", "the compile suggestion")
+	hasNot(t, out, "set merge.compile to", "the compile suggestion is the lead's")
 	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"merge", "compile"}, "tsc --noEmit")
 	if err != nil {
 		t.Fatal(err)

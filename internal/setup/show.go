@@ -1,7 +1,7 @@
 package setup
 
 // `obor setup show`: the project's models, effort and lanes as obor init left them, and whether the owner
-// confirmed them. The lead prints it at its first session and asks the owner about it; obor init ends with it too.
+// confirmed them. The lead prints it at its first session and asks the owner about it.
 
 import (
 	"strconv"
@@ -27,8 +27,7 @@ func (s *Setup) show(args []string) error {
 }
 
 // printTable is the setup table: one line per difficulty level, the lanes, the roles, and the owner's answer so far.
-// obor init ends with it, so a new project's models, effort and lanes are visible instead of living silently in the
-// config.
+// A project with no merge.check says so: the first task sets the stack up.
 func (s *Setup) printTable() {
 	paused := s.modelPauses()
 	s.say("models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch its first free model):")
@@ -37,6 +36,9 @@ func (s *Setup) printTable() {
 	}
 	s.say("lanes: %s", s.lanesLine())
 	s.say("roles: %s", s.rolesLine())
+	if s.cfg.Data.Merge.Check.Cmd == "" {
+		s.say("merge.check: not set (the first task sets the stack up: merge.check, lanes.setup, lanes.ready; until then every gate stops on \"missing command\")")
+	}
 	if s.cfg.SetupConfirmed() {
 		s.say("confirmed: yes")
 	} else {

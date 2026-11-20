@@ -174,16 +174,14 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	add("projects", doneOr(changed), "%s in %s", s.cfg.Name(), project.ProjectsFile(s.Env))
 
 	// commands
-	set, warns, suggest, err := s.initCommands()
+	set, warns, _, err := s.initCommands()
 	if err != nil {
 		return err
 	}
-	var skippedCommands bool
 	switch {
 	case len(set) > 0:
 		add("commands", "done", "%s", strings.Join(set, "; "))
 	case !s.anyCommand():
-		skippedCommands = true
 		add("commands", "skipped", "none detected (no Makefile check:, go.mod or package.json): set merge.check, "+
 			"lanes.setup, lanes.ready and lanes.links in .obor/config.json")
 	default:
@@ -283,8 +281,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 
 	// panes
-	waiting, err := s.initPanes(ctx, add)
-	if err != nil {
+	if err := s.initPanes(ctx, add); err != nil {
 		return err
 	}
 
@@ -308,22 +305,6 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	for _, w := range warns {
 		s.say("warning: %s", w)
 	}
-	s.say("merge.check is what every merge must pass, keep it to a few minutes; slower tests go in check_milestone " +
-		"(the nightly), and obor nightly off if CI on main already does that")
-	s.say("merge.compile is what a candidate re-runs when its target moved after its lane test (a typecheck or build, " +
-		"no tests); without it that candidate re-runs merge.check")
-	if suggest != "" {
-		s.say("set merge.compile to `%s` to make moved re-gates faster, if it type-checks what merge.check covers", suggest)
-	}
-	// obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
-	// never run on them.
-	s.say("obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put formatting " +
-		"and secret scans in merge.check")
-	s.say("change any of it in .obor/config.json (then obor init again, or obor setup lane / pane / role)")
-	if len(waiting) > 0 {
-		s.say("waiting on a \"Trust this folder?\" dialog: %s: press Enter in each, then obor init again",
-			strings.Join(waiting, ", "))
-	}
 	for _, h := range hints {
 		s.say("%s", h)
 	}
@@ -333,14 +314,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		s.say("nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, %s/",
 			s.cfg.AgentsDir())
 	}
-	next := "obor lead"
-	if skippedCommands {
-		next = "first task for the lead: set up the stack and `merge.check` (lanes.setup, lanes.ready); until then " +
-			"every gate stops on \"missing command\""
-	}
-	s.say("OK init %s (prefix %s); next: %s", s.cfg.Name(), s.cfg.Prefix(), next)
-	s.say("")
-	s.printTable()
+	s.say("OK init %s (prefix %s): the lead starts in its own lead tab", s.cfg.Name(), s.cfg.Prefix())
 	return nil
 }
 
@@ -776,16 +750,11 @@ func exitText(err error) string {
 // --- panes ------------------------------------------------------------------------------------------------------
 
 // initPanes labels the panes of the configured lanes (the first two), the integrator and the reviewer and starts no
-// agent (each skipped when it runs): one summary line each through add, and the agents a trust dialog holds
-// ("name (pane id)").
-func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) ([]string, error) {
-	var waiting []string
+// agent (each skipped when it runs): one summary line each through add.
+func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) error {
 	place := func(what, agent string, f func(w where) error, w where) error {
 		err := f(w)
 		switch {
-		case err != nil && strings.HasPrefix(err.Error(), "agent not ready"):
-			waiting = append(waiting, agent+" (pane "+s.placed+")")
-			add(what, "waiting", "%s in pane %s: %v", agent, s.placed, err)
 		case err != nil:
 			return err
 		case s.running:
@@ -812,15 +781,15 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 			break
 		}
 		if err := place(name, s.laneWorker(name), lane(name), where{}); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, name := range []string{"integrator", "reviewer"} {
 		if err := place(name, s.cfg.AgentName(name, ""), role(name), where{}); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return waiting, nil
+	return nil
 }
 
 // laneWorker is the lane's worker agent name (derived).
