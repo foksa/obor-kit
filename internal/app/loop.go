@@ -64,6 +64,8 @@ type Loop struct {
 	Restart func(ctx context.Context) error
 	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go; nil: none).
 	Config ConfigFile
+	// Prune is the main repo's git for obor prune (gitprune.go; nil: no prune).
+	Prune port.Pruner
 }
 
 // K is how often a task is sent back before the owner decides (rule 3).

@@ -36,3 +36,9 @@ func Backup(ctx context.Context, sock, root string, now time.Time) (string, erro
 	}
 	return "BACKUP " + path, nil
 }
+
+// Prune is the nightly's branch prune of root's project, through the serve at sock (it owns the fold and the git
+// writes; there is no direct path): the line `prune: N branches (oldest merge <date>)`.
+func Prune(ctx context.Context, sock, root string) (string, error) {
+	return Verdict(ctx, sock, &PruneReq{Envelope: Envelope{Root: root}, Nightly: true})
+}

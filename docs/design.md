@@ -651,7 +651,8 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   it). A failing guard → RED (never falls back). These checks run in the task's lane (see "Where tests run").
 - `obor nightly`: `check` + `check_milestone`, each skipped when unset, in its own nightly worktree
   (`<lanes.dir>/merge-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
-  backs the store up and runs `nightly.also_run` in order, after the gates (each a `commands.<name>` that is no
+  backs the store up, asks serve to prune the branches of tasks merged over 7 days ago (a non-gating line,
+  `prune: N branches (oldest merge <date>)`; never `--unmerged`, never worktrees) and runs `nightly.also_run` in order, after the gates (each a `commands.<name>` that is no
   gating command; non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
   and every `WARN`/`SKIP`/`FAIL` line it printed below it); writes `state/last-full-check`
   (`<sha> <epoch> GREEN|RED <summary>`); prints `NIGHTLY GREEN …` / `NIGHTLY RED …` last. `nightly.at` is its
@@ -660,6 +661,17 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   (serve's `config_set`: one commit on main; counts from serve's next pass, no restart; a run in progress is not
   stopped). Serve records the outcome (`docs/state-model.md` row 45); `obor status` prints the next run (`nightly
   check at HH:MM (in …)`, or `nightly: off (obor nightly on HH:MM)`) and the last full check and its age.
+
+## Pruning task branches and worktrees (`obor prune [--dry-run] [--unmerged]`)
+A call to serve, which owns the fold and the main repo's git writes. A branch goes only when serve's fold records its
+task as merged (or landed outside the app), never by ancestry: the gate merges a candidate commit, so a merged task's
+branch is not an ancestor of the target. `--unmerged` adds the branches of tasks dropped over 14 days ago. Never:
+a branch outside `task/`, a task still open or waiting, a task the fold does not know, a branch checked out in any
+worktree. A worktree goes only when it sits directly under `lanes.dir`, is a lane beyond `lanes.count` or the worktree
+of a role not in `agents.roles`, holds no task and is clean (dirty, or holding commits no branch or tag has: listed and
+kept); a registered worktree whose dir is gone is `git worktree prune`'s. Every deletion prints and logs its tip sha
+(`deleted task/T-982 (was 1a2b3c4)`; `git branch task/T-982 1a2b3c4` brings it back while git has the commit); a run
+that deleted something records one fact `pruned` listing them. `--dry-run` prints the same list and deletes nothing.
 
 ## Check tiers (v2.6, 2026-10-08 — user decision via axis-alies)
 Long property gates and soak runs stay out of per-task merge checks: fixing what they find later is cheaper than

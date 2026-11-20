@@ -39,6 +39,7 @@ const (
 	MethodSpecSet     = "spec_set"     // SpecSetReq
 	MethodConfig      = "config_set"   // ConfigSetReq
 	MethodBackup      = "backup"       // BackupReq
+	MethodPrune       = "prune"        // PruneReq
 	MethodSend        = "send"         // SendReq
 	MethodBrief       = "brief"        // BriefReq
 	MethodStopped     = "stopped"      // StoppedReq

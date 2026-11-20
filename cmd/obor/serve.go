@@ -205,6 +205,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		}
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
+		l.Prune = checks.GitPruner{Cfg: cfg}
 		l.Restart = serveRestarter(cfg, env, end)
 		l.Versions = func(ctx context.Context) map[string]string { return launch.CLIVersions(ctx, env, watchKinds(cfg)) }
 		return l, nil

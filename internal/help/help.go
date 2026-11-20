@@ -69,6 +69,8 @@ var Commands = []Command{
 		"the event log after a seq, one line per record (--follow: new ones as serve writes them; --json: an integration's JSON lines)", "project"},
 	{"flakes", "obor flakes", "the tests that failed and then passed on a retry in the last 7 days (merge.flake_regex's names)", "project"},
 	{"nightly", "obor nightly [on HH:MM | off]", "run the nightly checks now, or schedule or unschedule them", "project"},
+	{"prune", "obor prune [--dry-run] [--unmerged]",
+		"delete the task branches of merged tasks (--unmerged: of tasks dropped over 14 days ago) and the clean worktrees of lanes and roles the config no longer names; each line has the tip sha it had; --dry-run lists only", "project"},
 	{"version", "obor version", "this binary's version and where it came from", "project"},
 	{"help", "obor help", "this list", "project"},
 	{"init", "obor init [--name N] [--prefix P]",

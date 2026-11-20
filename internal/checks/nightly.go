@@ -115,6 +115,10 @@ func (s *session) nightly() *Result {
 	// The nightly sweep: after the backup, both the serve path and the direct one; a removal it could not
 	// make is a line, never a failure. Its backup step runs only when the backup above succeeded.
 	details = append(details, project.Sweep(s.Cfg, time.Now(), backedUp)...)
+	// The branch prune of tasks merged over a week ago: serve's (the fold says what merged), so none while it is down.
+	if line := pruneLine(ctx, sock, s.Cfg.Root); line != "" {
+		results = append(results, line)
+	}
 	// merge.nightly_commands: after the gating checks and the backup, in order, each non-gating.
 	for _, name := range s.Cfg.MergeNightlyCommands() {
 		o, ok, h := s.run(name)
@@ -189,6 +193,19 @@ func backupOutcome(reply string, err error) (line, failure string, backedUp bool
 		return "backup " + filepath.Base(strings.TrimPrefix(reply, "BACKUP ")), "", true
 	}
 	return "", "", false
+}
+
+// pruneLine is the nightly's non-gating prune step: serve's line (`prune: N branches (oldest merge <date>)`), a WARN
+// line when the call failed, and nothing when no serve is listening.
+func pruneLine(ctx context.Context, sock, root string) string {
+	if _, err := os.Stat(sock); err != nil {
+		return ""
+	}
+	line, err := wire.Prune(ctx, sock, root)
+	if err != nil {
+		return "WARN prune (non-gating): " + err.Error()
+	}
+	return line
 }
 
 // lastLine is text's last non-blank line, trimmed ("" when it printed none).

@@ -104,6 +104,7 @@ const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
 	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
+	pruneDeadline       = 90 * time.Second // obor prune: one git call per branch, over a thousand the first time
 )
 
 // callDeadline is method's deadline: OBOR_CALL_DEADLINE when it is set to a positive number of seconds, else the table
@@ -119,6 +120,8 @@ func callDeadline(method string) time.Duration {
 		return turnDeadline
 	case MethodStopped:
 		return stopFailureDeadline
+	case MethodPrune:
+		return pruneDeadline
 	}
 	return verdictDeadline
 }

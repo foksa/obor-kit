@@ -107,7 +107,7 @@ Summary section): `git log -1 --format=%B <merge sha>`.
 
 ## obor nightly on|off
 `nightly.at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
-on, serve runs `obor nightly` (check, check_milestone, the store backup, then the config's
+on, serve runs `obor nightly` (check, check_milestone, the store backup, the branch prune, then the config's
 `nightly.also_run` — e.g. a cache trim, each non-gating) every night at
 that time, whatever merged since; off, never.
 - `obor nightly on HH:MM` — `NIGHTLY ON at HH:MM` (`… already` when it was; nothing committed). A time that is not
@@ -126,6 +126,20 @@ again.
 Serve writes it as a setup edit (one commit on main, your `[obor] config: nightly.at …` line) and reads it from
 the next pass: no serve restart. `obor status` shows `nightly check at HH:MM (in …)`, or `nightly: off (obor nightly
 on HH:MM)`.
+
+## obor prune
+`obor prune [--dry-run] [--unmerged]` deletes what is finished and obor's: the `task/T-*` branches of tasks serve's
+fold records as merged (never by git ancestry), and the clean worktrees under `lanes.dir` of lanes beyond
+`lanes.count` or roles not in `agents.roles`; `git worktree prune` for registered worktrees whose dir is gone.
+`--unmerged` adds the branches of tasks dropped over 14 days ago. It never touches an open or waiting task's branch, a
+branch checked out in a worktree, a branch outside `task/` (`keep/*`, `audit/*`), a task serve does not know, a dirty
+worktree (listed, kept) or a worktree outside `lanes.dir`.
+- Each deletion is a line with the tip it had: `deleted task/T-982 (was 1a2b3c4)`; `git branch task/T-982 1a2b3c4`
+  brings it back while git still has the commit. The last line is `PRUNE deleted N branches, M worktrees`.
+- `--dry-run` prints the same lines (`would delete …`) and deletes nothing.
+- A run that deleted something records one fact `pruned` with every deletion and its sha.
+- The nightly runs the branch part for tasks merged over 7 days ago (never `--unmerged`, never worktrees): its line is
+  `prune: N branches (oldest merge <date>)`, non-gating.
 
 ## obor send and obor projects
 Every obor project on this machine is known by its config name: `obor serve` (at its start) and `obor init` write the
