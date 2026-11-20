@@ -235,8 +235,8 @@ on a file missing from this table or a listed file that is gone); the entry is t
 - `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `port.Panes`,
   `port.PaneControl` (a pane read by its id, the two ways to type: `Write` into a pane, `Prompt` to its agent) with
   `port.Prompter`, `port.AgentStarter` (`start.go`: herdr's agent start, its name-taken retry and the evidence rule on
-  `launch_pending`), and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
-  workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids, the name herdr runs an agent under) stays
+  `launch_pending`), and `port.TerminalSetup` as `Setup` (`setup.go`: setup's placements carried out in tabs,
+  workspaces and splits (`Place` reads herdr's tabs into `app/layout`'s types and does what its answer says), herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids, the name herdr runs an agent under) stays
   here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
   helper).
 - `hc`: the herdr-core (`hc`) socket client, the second terminal adapter (`docs/plan/herdr-core.md`; a project selects
