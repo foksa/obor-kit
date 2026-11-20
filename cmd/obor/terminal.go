@@ -23,23 +23,24 @@ import (
 
 // terminalKind is one terminal kind's row, the one table of what differs by kind (terminals): PaneVar the variable its
 // terminal sets in every pane (config.TerminalPaneVars), Env the variables a caller's serve needs to reach it, Group
-// what it calls a pane's group, Build its adapter for env and the project's agent kinds (config.Config.Kinds).
+// what it calls a pane's group, Build its adapter for env and a function of the project's agent kinds
+// (config.Config.Kinds), which the adapter calls at each use.
 type terminalKind struct {
 	Name    string
 	PaneVar string
 	Env     []string
 	Group   string
-	Build   func(env project.Env, kinds agents.Kinds) port.Terminal
+	Build   func(env project.Env, kinds func() agents.Kinds) port.Terminal
 }
 
 var terminals = []terminalKind{
 	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Env: herdr.EnvNames,
-		Group: "workspace", Build: func(env project.Env, _ agents.Kinds) port.Terminal {
+		Group: "workspace", Build: func(env project.Env, _ func() agents.Kinds) port.Terminal {
 			s := &herdr.Socket{Path: herdr.SocketPath(env)}
 			return port.Terminal{Panes: herdr.Panes{S: s}, Control: s, Setup: &herdr.Setup{Socket: s, Env: env}}
 		}},
 	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Env: hc.EnvNames, Group: "space",
-		Build: func(env project.Env, kinds agents.Kinds) port.Terminal {
+		Build: func(env project.Env, kinds func() agents.Kinds) port.Terminal {
 			cl := hc.New(env)
 			cl.Kinds = kinds
 			return port.Terminal{Panes: hc.Panes{C: cl}, Control: cl, Setup: cl, Check: cl.Check}
@@ -60,11 +61,17 @@ func kindOf(cfg *config.Config) (terminalKind, bool) {
 // serve types, and setup's placements. cfg names the kind (project.terminal; nil: config.DefaultTerminal), env finds its
 // socket. A kind obor does not know is an error naming the ones it does.
 func terminal(cfg *config.Config, env project.Env) (port.Terminal, error) {
+	kinds := cfg.Kinds() // a command's terminal lives as long as the command: the kinds of the config it ran with
+	return terminalOn(cfg, env, func() agents.Kinds { return kinds })
+}
+
+// terminalOn is terminal with kinds as the adapter's kinds: serve's, which follow its last pass's config (kindCache).
+func terminalOn(cfg *config.Config, env project.Env, kinds func() agents.Kinds) (port.Terminal, error) {
 	k, ok := kindOf(cfg)
 	if !ok {
 		return port.Terminal{}, fmt.Errorf("terminal.kind %q: obor knows %s", cfg.TerminalKind(), strings.Join(config.TerminalKinds, ", "))
 	}
-	return k.Build(env, cfg.Kinds()), nil
+	return k.Build(env, kinds), nil
 }
 
 // serveTerminal is t as serve watches it: on hc, each subscribe first starts a core that is down from serve's own

@@ -3799,3 +3799,32 @@ func TestFreshStartRolePrompt(t *testing.T) {
 		})
 	}
 }
+
+// startSpy keeps the agent start the terminal was asked for.
+type startSpy struct {
+	control
+	got *port.AgentStart
+}
+
+func (s startSpy) Start(ctx context.Context, a port.AgentStart) (port.Pane, error) {
+	*s.got = a
+	return s.control.Start(ctx, a)
+}
+
+// A start hands the terminal the kind's program from the launching config (port.AgentStart.Program): an adapter that
+// types the command line looks no kind up.
+func TestStartCarriesTheKindsProgram(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.sid("pj-l-01", "sid-1")
+	x.shell("w1:p3", "pj-l-01", "")
+	var got port.AgentStart
+	x.wrap = func(h control) control { return startSpy{h, &got} }
+	if out, ok := x.restart(launch.Request{Agent: "pj-l-01"}); !ok {
+		t.Fatal(out)
+	}
+	if got.Pane != "w1:p3" || got.Kind != "claude" {
+		t.Fatalf("start = %+v; want the claude start in w1:p3", got)
+	}
+	eq(t, got.Program, "claude", "the start's program")
+}

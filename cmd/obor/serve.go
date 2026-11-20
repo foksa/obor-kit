@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/app"
 	"obor/internal/app/event"
@@ -97,6 +98,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	if cfgErr == nil {
 		kinds.refresh(cfg, flushWriter{})
 	}
+	kinds.use(cfg.Kinds())
 	// The machine's list of obor projects by name: obor send and obor projects read it. A failure is one line,
 	// not the end of serve: naming a project is a convenience, serving it is not.
 	if _, err := project.Register(root, env); err != nil {
@@ -107,7 +109,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	if cfgErr == nil {
 		webAtServeStart(ctx, serviceOf(cfg, env), webOf(cfg, env), os.Getpid(), flushWriter{})
 	}
-	term, err := terminal(cfg, env)
+	term, err := terminalOn(cfg, env, kinds.now)
 	if err != nil {
 		errf("FAIL obor serve: %v", err)
 		return 1
@@ -194,6 +196,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 				return nil, err
 			}
 		}
+		kinds.use(cfg.Kinds())
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
 		agents := serveLauncher(cfg, env, term.Control, io.Discard, self())
 		agents.Diag, agents.Background, agents.Log = flushWriter{}, func(search func()) { go search() }, flushWriter{}
@@ -223,9 +226,24 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 // (plugin.Ensure) at serve's start and again once its command changed (another path, a rebuilt binary), so the guard,
 // the starts, obor setup mcp and obor config validate read it with no hand step; hooks still never run a plugin. A
 // failure is said once per kind until it changes or heals: the guard denies that kind's program meanwhile.
+//
+// It also holds the kinds of the last pass's config (use, now): the one value the terminal adapter reads its kinds
+// through (hc's status-to-kind mapping), so a kind added to the config counts from the next pass on.
 type kindCache struct {
 	mu   sync.Mutex
 	said map[string]string // kind → the failure last said
+	cur  atomic.Pointer[agents.Kinds]
+}
+
+// use makes k the kinds now returns: mergeLoop's, each pass, from the config it loaded.
+func (kc *kindCache) use(k agents.Kinds) { kc.cur.Store(&k) }
+
+// now are the kinds of the last pass's config (use); the compiled kinds before the first.
+func (kc *kindCache) now() agents.Kinds {
+	if k := kc.cur.Load(); k != nil {
+		return *k
+	}
+	return agents.Kinds{}
 }
 
 // refresh caches what cfg's plugin kinds lack, saying each cache written and each new failure on log; wrote says one

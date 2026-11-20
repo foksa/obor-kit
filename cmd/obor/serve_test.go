@@ -16,6 +16,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/hc"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
@@ -220,6 +221,29 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 	if _, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{}, noApp)(p.Root); err == nil ||
 		!strings.Contains(err.Error(), "serve knows scratch-ff") {
 		t.Errorf("kind x: %v; want refused naming the known kinds", err)
+	}
+}
+
+// hc's adapter on serve reads its kinds through serve's cache: a pass of the merge loop points them at the config it
+// loaded, so a plugin kind the config holds that the terminal was built before counts from that pass on.
+func TestServeTerminalKindsFollowTheLastPass(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	kinds := &kindCache{}
+	hcCfg := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalHC}}}
+	term, err := terminalOn(hcCfg, p.Env(), kinds.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl := term.Control.(*hc.Client)
+	if _, ok := cl.Kinds().Lookup("opencode"); ok {
+		t.Fatal("precondition: the terminal's kinds hold opencode before any pass")
+	}
+	if _, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, kinds, noApp)(p.Root); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cl.Kinds().Lookup("opencode"); !ok {
+		t.Errorf("the terminal's kinds %v after a pass, want the config's, opencode among them", cl.Kinds().Names())
 	}
 }
 

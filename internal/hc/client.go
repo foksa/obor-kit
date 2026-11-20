@@ -120,8 +120,18 @@ type Client struct {
 	// Conn, when set, opens each connection in place of dialing Path: a core served in memory (hctest.Core), whose
 	// connections a testing/synctest bubble can wait on. Production leaves it nil.
 	Conn func(ctx context.Context) (net.Conn, error)
-	// Kinds are the project's agent kinds (config.Config.Kinds): a status's app names one of them, a start runs one.
-	Kinds agents.Kinds
+	// Kinds are the project's agent kinds (config.Config.Kinds), read at each use: a status's app names one of them. The
+	// caller points it at its latest config's kinds (serve: its last pass's), so a plugin kind added since the client
+	// was built counts at the next status read; nil: the compiled kinds. A start reads none: port.AgentStart.Program.
+	Kinds func() agents.Kinds
+}
+
+// kinds are the kinds now (Client.Kinds).
+func (cl *Client) kinds() agents.Kinds {
+	if cl.Kinds == nil {
+		return agents.Kinds{}
+	}
+	return cl.Kinds()
 }
 
 func (cl *Client) timeout() time.Duration {
@@ -321,7 +331,7 @@ func (cl *Client) Pane(ctx context.Context, pane string) (port.Pane, error) {
 	if err != nil {
 		return port.Pane{}, err
 	}
-	p := r.pane(cl.Kinds)
+	p := r.pane(cl.kinds())
 	p.Group = ""
 	return p, nil
 }
@@ -349,7 +359,7 @@ func (cl *Client) Panes(ctx context.Context) ([]port.Pane, error) {
 	out := []port.Pane{}
 	for _, rec := range r.Terminals {
 		if rec.State == "live" {
-			p := rec.pane(cl.Kinds)
+			p := rec.pane(cl.kinds())
 			p.Group = ""
 			out = append(out, p)
 		}

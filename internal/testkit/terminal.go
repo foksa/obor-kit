@@ -260,7 +260,7 @@ func start(ctx context.Context, t Terminal, name, pane string) error {
 	if !ok {
 		return fmt.Errorf("the terminal's PaneControl is no AgentStarter")
 	}
-	_, err := st.Start(ctx, port.AgentStart{Pane: pane, Label: name, Kind: "claude"})
+	_, err := st.Start(ctx, port.AgentStart{Pane: pane, Label: name, Kind: "claude", Program: "claude"})
 	return err
 }
 

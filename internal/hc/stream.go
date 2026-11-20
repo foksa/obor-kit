@@ -63,7 +63,7 @@ func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 		return nil, &Error{Op: "events.subscribe", Msg: "no seq in the answer"}
 	}
 	_ = s.c.SetDeadline(time.Time{})
-	str := &stream{ctx: ctx, cancel: cancel, s: s, kinds: p.C.Kinds, seq: *sub.Seq, recs: map[string]Record{},
+	str := &stream{ctx: ctx, cancel: cancel, s: s, kinds: p.C.kinds, seq: *sub.Seq, recs: map[string]Record{},
 		lines: make(chan []byte, 64), out: make(chan port.Event)}
 	for _, r := range sub.Terminals {
 		if r.State == "live" {
@@ -72,7 +72,7 @@ func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 	}
 	go str.read()
 	go str.run()
-	return &port.Stream{Snapshot: snapshot(p.C.Kinds, s.hello, st, sub.Terminals), C: str.out, Err: str.Err, Close: str.Close}, nil
+	return &port.Stream{Snapshot: snapshot(p.C.kinds(), s.hello, st, sub.Terminals), C: str.out, Err: str.Err, Close: str.Close}, nil
 }
 
 // stream is one subscription's connection and its copy of each live terminal's record.
@@ -80,8 +80,8 @@ type stream struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	s      *session
-	kinds  agents.Kinds // the client's (Client.Kinds): a status's app is one of them
-	lines  chan []byte  // read's: each line, closed when the connection ends
+	kinds  func() agents.Kinds // the client's (Client.kinds), read at each event: a status's app is one of them
+	lines  chan []byte         // read's: each line, closed when the connection ends
 	out    chan port.Event
 
 	seq  uint64            // the last event's
@@ -202,7 +202,7 @@ func (st *stream) event(t, typ string, data json.RawMessage) (port.Event, bool, 
 			return port.Event{}, false, bad(err)
 		}
 		st.recs[t] = r
-		return port.Event{Kind: port.EventCreated, Pane: t, New: r.pane(st.kinds)}, true, nil
+		return port.Event{Kind: port.EventCreated, Pane: t, New: r.pane(st.kinds())}, true, nil
 	case "status":
 		var d struct {
 			Status   *Status `json:"status"`
@@ -230,7 +230,7 @@ func (st *stream) event(t, typ string, data json.RawMessage) (port.Event, bool, 
 			now, known = *d.Record, true
 			if _, had := st.recs[t]; !had {
 				st.recs[t] = now
-				return port.Event{Kind: port.EventCreated, Pane: t, New: now.pane(st.kinds)}, true, nil
+				return port.Event{Kind: port.EventCreated, Pane: t, New: now.pane(st.kinds())}, true, nil
 			}
 		}
 		now.Labels = d.Labels
@@ -261,8 +261,8 @@ func (st *stream) event(t, typ string, data json.RawMessage) (port.Event, bool, 
 		return port.Event{}, false, nil
 	}
 	st.recs[t] = now
-	p := now.pane(st.kinds)
-	if p == old.pane(st.kinds) {
+	p := now.pane(st.kinds())
+	if p == old.pane(st.kinds()) {
 		return port.Event{}, false, nil
 	}
 	return port.Event{Kind: port.EventStatus, Pane: t, Status: p.Status, Agent: p.Agent, New: p}, true, nil

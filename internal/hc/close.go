@@ -29,7 +29,7 @@ func (cl *Client) CloseProject(ctx context.Context, c port.CloseProject) ([]stri
 		if r.Labels[LabelProject] != c.Name {
 			continue
 		}
-		if c.Ours != nil && !c.Ours(r.pane(cl.Kinds)) {
+		if c.Ours != nil && !c.Ours(r.pane(cl.kinds())) {
 			continue // spared: not in gone, so its tab and space stay
 		}
 		if !c.Dry {

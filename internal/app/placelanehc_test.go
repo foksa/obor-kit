@@ -72,7 +72,7 @@ func TestPlaceLaneOnHCReturnsAReadyPaneServeStartsIn(t *testing.T) {
 
 	// the worker's start types in that pane; the tab still holds that terminal alone
 	core.Program("claude", &hc.Status{State: "idle", App: "claude-code"})
-	if _, err := cl.Start(context.Background(), port.AgentStart{Kind: "claude", Pane: pane, Label: "pj-l-01"}); err != nil {
+	if _, err := cl.Start(context.Background(), port.AgentStart{Kind: "claude", Program: "claude", Pane: pane, Label: "pj-l-01"}); err != nil {
 		t.Fatalf("Start in %s = %v", pane, err)
 	}
 	if sent := core.Sent(pane); len(sent) == 0 || !strings.Contains(sent[len(sent)-1], "claude") {

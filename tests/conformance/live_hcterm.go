@@ -95,7 +95,7 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 		return
 	}
 	defer hl.stop()
-	cl := &hc.Client{Path: hl.sock, Kinds: l.kinds()}
+	cl := &hc.Client{Path: hl.sock, Kinds: l.kinds}
 	if err := cl.CheckEnv(context.Background()); err != nil {
 		report("FAIL", "HC-T0", kind+": the scratch core's environment: "+err.Error(), at("internal/hc/env.go", "func (cl *Client) CheckEnv"))
 		return
@@ -139,7 +139,7 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 
 	where1 := at("internal/hc/start.go", "func (cl *Client) Start") + ", " + hcTermPlan
 	t0 := time.Now()
-	p, err := cl.Start(ctx, port.AgentStart{Pane: pane, Label: "cf-l-01", Kind: kind, Argv: start.Args, Bound: 45 * time.Second})
+	p, err := cl.Start(ctx, port.AgentStart{Pane: pane, Label: "cf-l-01", Kind: kind, Program: agents.Programs(k)[0], Argv: start.Args, Bound: 45 * time.Second})
 	dialog := ""
 	if port.NotReady(err) { // a startup dialog (the scratch dir is new to the CLI): answered as a person would
 		keys := []string{"enter"}

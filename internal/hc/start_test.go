@@ -2,13 +2,16 @@ package hc_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
+	"obor/internal/testkit"
 )
 
 // A start types the kind's program and its argv, each word quoted, at the pane's shell after labelling the pane with
@@ -49,7 +52,7 @@ func TestStart(t *testing.T) {
 					core.Update("t1", func(r *hc.Record) { r.Foreground = nil })
 				}
 				began := time.Now()
-				p, err := core.Client().Start(ctx, port.AgentStart{Pane: "t1", Label: "pj-w1", Kind: "claude",
+				p, err := core.Client().Start(ctx, port.AgentStart{Pane: "t1", Label: "pj-w1", Kind: "claude", Program: "claude",
 					Argv: []string{"--model", "a b's"}, Prompt: tc.prompt, Bound: 5 * time.Second, Poll: time.Second})
 				if d := time.Since(began); d != tc.after {
 					t.Errorf("Start returned after %s, want %s", d, tc.after)
@@ -92,8 +95,68 @@ func agentlessCore() *hctest.Core {
 func TestStartKindLabel(t *testing.T) {
 	core := shellCore()
 	core.Program("claude", &hc.Status{State: "idle", App: "some-app"})
-	p, err := core.Client().Start(ctx, port.AgentStart{Pane: "t1", Label: "pj-w1", Kind: "claude"})
+	p, err := core.Client().Start(ctx, port.AgentStart{Pane: "t1", Label: "pj-w1", Kind: "claude", Program: "claude"})
 	if err != nil || p.Agent != "claude" {
 		t.Errorf("Start = %+v, %v; want claude, named by the label", p, err)
+	}
+}
+
+// A start reads no kind: it types the program the caller gives, so a plugin kind the client's kinds do not hold yet
+// (a config that gained it since the client was built) starts.
+func TestStartTakesTheProgramFromTheStart(t *testing.T) {
+	core := shellCore()
+	core.Program("opencode", &hc.Status{State: "idle", App: "opencode"})
+	cl := core.Client()
+	cl.Kinds = func() agents.Kinds { return agents.Kinds{} } // the compiled kinds: no opencode
+	if _, ok := cl.Kinds().Lookup("opencode"); ok {
+		t.Fatal("precondition: the client's kinds hold opencode")
+	}
+	p, err := cl.Start(ctx, port.AgentStart{Pane: "t1", Label: "pj-w1", Kind: "opencode", Program: "opencode"})
+	if err != nil || p.Agent != "opencode" {
+		t.Errorf("Start = %+v, %v; want opencode running in t1", p, err)
+	}
+	if got := core.Sent("t1"); !slices.Equal(got, []string{"opencode"}) {
+		t.Errorf("typed %q, want the program alone", got)
+	}
+}
+
+// A start with no program is refused before anything is typed or labelled: the kind's program is the launcher's to
+// give, and no default stands in for it.
+func TestStartWithoutProgramIsRefused(t *testing.T) {
+	core := shellCore()
+	_, err := core.Client().Start(ctx, port.AgentStart{Pane: "t1", Label: "pj-w1", Kind: "claude"})
+	if err == nil || !strings.Contains(err.Error(), "no program for agent kind claude") {
+		t.Errorf("Start = %v; want the no-program refusal", err)
+	}
+	if got := core.Sent("t1"); len(got) != 0 {
+		t.Errorf("typed %q, want nothing", got)
+	}
+	if l := core.Labels("t1"); l[hc.LabelKind] != "" {
+		t.Errorf("labels %v, want none set", l)
+	}
+}
+
+// The status-to-kind mapping reads Client.Kinds at each use: a plugin kind added to the config since the client was
+// built names the agent of the next snapshot.
+func TestStatusKindFollowsTheClientsKinds(t *testing.T) {
+	core := hctest.New()
+	core.Add(hc.Record{Address: "t1", PID: 41000, Labels: map[string]string{hc.LabelProject: "proj"},
+		Foreground: &hc.Foreground{PID: 41001, Name: "opencode"}, Status: &hc.Status{State: "idle", App: "opencode"}})
+	kinds := agents.Kinds{}
+	cl := core.Client()
+	cl.Kinds = func() agents.Kinds { return kinds }
+	agentOf := func() string {
+		snap, err := (hc.Panes{C: cl}).Snapshot(ctx)
+		if err != nil || len(snap.Panes) != 1 {
+			t.Fatalf("Snapshot = %+v, %v; want one pane", snap, err)
+		}
+		return snap.Panes[0].Agent
+	}
+	if got := agentOf(); got != "" {
+		t.Fatalf("precondition: agent %q before the kind is added, want none", got)
+	}
+	kinds = testkit.Kinds() // the config gained opencode
+	if got := agentOf(); got != "opencode" {
+		t.Errorf("agent %q after the kind is added, want opencode", got)
 	}
 }
