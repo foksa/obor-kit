@@ -1095,7 +1095,7 @@ func (s *FakeWorkflow) SetPreview(lane string, p port.Preview) {
 // FakeWorkflow is the package's one port.Workflow for tests (as FakeScratch): the loop rig's (app_test)
 // and the concurrency rig's, and the in-memory row of the workflow contract table (testkit.WorkflowContract). It runs
 // no git and no command: shas are made up, the target is a head the test moves (Move, Land), pins and lane commits are
-// maps. It keeps port.Workflow's contract (port/effects.go, port/workflow.go): an outcome is final for its step, an
+// maps. It keeps port.Workflow's contract (port/workflow.go): an outcome is final for its step, an
 // error is "not decided". Outcomes are scripted per call and task (Script); unscripted, a gate is green, a lane test
 // green and a publish merges while the target is still the candidate's. The git behaviour behind each outcome (a real
 // conflict, a moved merge, a held fast-forward) is internal/checks' to test, over real git.

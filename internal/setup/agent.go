@@ -483,7 +483,7 @@ func (s *Setup) shellWait() time.Duration {
 const maxPanesPerTab = 4
 
 // placement is a's new pane as the terminal is asked for it: whose it is, its kind, its cwd and env, where w says,
-// and the project it is for (the layout is the adapter's). A tab holds maxPanesPerTab panes.
+// and the project it is for (where it goes is app/layout's decision). A tab holds maxPanesPerTab panes.
 func (s *Setup) placement(a agent, w where, env []string) port.Placement {
 	kind := port.KindRole
 	switch {
