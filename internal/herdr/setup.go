@@ -1,8 +1,9 @@
 package herdr
 
 // setup.go: port.TerminalSetup over herdr. What obor setup and obor init ask of the terminal in neutral terms
-// (a pane for a role near something, herdr's own setting for a restart, a project rename) is laid out here in
-// herdr's: tabs, workspaces, splits, the workspace label, and its config.toml.
+// (a pane for a role, herdr's own setting for a restart, a project rename) is laid out here in herdr's: tabs,
+// workspaces, splits, the workspace label, and its config.toml. Where a pane goes is not decided here: Place reads
+// herdr's tabs into app/layout's types and carries out its answer.
 
 import (
 	"bufio"
@@ -16,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"obor/internal/app/layout"
 	"obor/internal/app/port"
 	"obor/internal/project"
 )
@@ -47,12 +49,10 @@ func (h *Setup) Panes(ctx context.Context) ([]port.Pane, error) {
 
 // --- placement -----------------------------------------------------------------------------
 
-// Place makes a new pane for p (see port.Placement): Group → a new tab labelled Group in the project's workspace;
-// In → a split of that tab (refused when it holds the lead's pane, and for a lead when it holds any pane; a full
-// one: a new tab of p's kind); none → a split
-// of the project's first tab of p's kind with room (kindTab), else a new tab of that kind (kindLabel). A new tab goes
-// to the project's workspace (the one whose panes work in the project), a new one named after the project when none
-// has a pane of it; never the caller's or herdr's active workspace.
+// Place makes a new pane for p (see port.Placement): it gathers the tabs of the project's workspace (the one whose
+// panes work in the project) and the tab In names (tabsOf), asks layout.Place where the pane goes, and does what the
+// answer says: a split of that tab, a new tab named so, or the refusal. A new tab goes to the project's workspace, a new one named after the
+// project when none has a pane of it; never the caller's or herdr's active workspace.
 func (h *Setup) Place(ctx context.Context, p port.Placement) (string, error) {
 	panes := h.last
 	if panes == nil {
@@ -61,38 +61,53 @@ func (h *Setup) Place(ctx context.Context, p port.Placement) (string, error) {
 			return "", project.Failf("herdr pane list failed")
 		}
 	}
+	a := layout.Ask{Kind: p.Kind, Group: p.Group, In: p.In, MaxPanes: p.Project.MaxPanes, Tabs: tabsOf(panes, p.Project, p.In)}
+	a.Home = "the " + p.Project.Name + " workspace"
+	ans := layout.Place(a)
 	switch {
-	case p.Group != "":
-		return h.newTab(ctx, panes, p, p.Group)
-	case p.In != "":
-		if leadTab(panes, p.Project.KindOf, p.In) {
-			return "", project.Failf("tab %s holds the lead's pane, which keeps its tab alone: pass --new-tab <label> "+
-				"(or --pane <id>)", p.In)
+	case ans.Refused != "":
+		return "", project.Failf("%s", ans.Refused)
+	case ans.New != "":
+		if ans.Said != "" {
+			say(p, "%s", ans.Said)
 		}
-		if n := inTab(panes, p.In); p.Kind == port.KindLead && n > 0 {
-			return "", project.Failf("tab %s holds %d pane(s): the lead keeps its tab alone: pass --new-tab <label>", p.In, n)
-		}
-		if n := inTab(panes, p.In); n >= p.Project.MaxPanes {
-			say(p, "tab %s is full (%d of %d panes)", p.In, n, p.Project.MaxPanes)
-			return h.newTab(ctx, panes, p, kindLabel(p.Kind))
-		}
-		return h.split(ctx, panes, p, p.In)
+		return h.newTab(ctx, panes, p, ans.New)
 	}
-	if tab := kindTab(panes, p.Project, p.Kind); tab != "" {
-		return h.split(ctx, panes, p, tab)
-	}
-	return h.newTab(ctx, panes, p, kindLabel(p.Kind))
+	return h.split(ctx, panes, p, ans.Tab.ID)
 }
 
-// kindLabel is the label of a new tab for a pane of kind k: "lanes", "roles", "lead".
-func kindLabel(k port.PaneKind) string {
-	switch k {
-	case port.KindLane:
-		return "lanes"
-	case port.KindRole:
-		return "roles"
+// tabsOf is the tabs the decision is asked about, in herdr's order: those of the project's workspace (projectWorkspace;
+// none when no workspace is the project's) and the tab in names, the user's own choice (obor setup --tab) wherever it
+// is: split still never touches a pane of another project. Their panes are as layout takes them: herdr cannot tell a
+// person's shell from another project's pane by more than its cwd, so no pane is aside (a shell blocks a kind); a pane
+// whose cwd is unknown or not the project's is of no kind either, so it blocks (its tab may be another project's),
+// but the lead's pane keeps its kind (leadPane) wherever it works.
+func tabsOf(panes []Pane, pr port.PlaceProject, in string) []layout.Tab {
+	ws := projectWorkspace(panes, pr.Has)
+	var tabs []layout.Tab
+	at := map[string]int{}
+	for _, p := range panes {
+		if ws == "" || p.Workspace != ws {
+			if in == "" || p.Tab != in {
+				continue
+			}
+		}
+		i, ok := at[p.Tab]
+		if !ok {
+			i = len(tabs)
+			at[p.Tab] = i
+			tabs = append(tabs, layout.Tab{ID: p.Tab})
+		}
+		var kind port.PaneKind
+		switch {
+		case leadPane(p, pr.KindOf):
+			kind = port.KindLead
+		case p.Cwd != "" && pr.Has(p.Cwd):
+			kind = paneKind(p, pr.KindOf)
+		}
+		tabs[i].Panes = append(tabs[i].Panes, layout.Pane{Kind: kind})
 	}
-	return string(k)
+	return tabs
 }
 
 // say is one progress line of p.
@@ -128,22 +143,6 @@ func projectWorkspace(panes []Pane, has func(string) bool) string {
 	return ws
 }
 
-// projectTab: every pane of tab has a known cwd in this project, so placement may pick it on its own. A pane
-// with an unknown cwd may be another project's.
-func projectTab(panes []Pane, has func(string) bool, tab string) bool {
-	n := 0
-	for _, p := range panes {
-		if p.Tab != tab {
-			continue
-		}
-		if p.Cwd == "" || !has(p.Cwd) {
-			return false
-		}
-		n++
-	}
-	return n > 0
-}
-
 // paneKind is p's kind by the identity evidence launch reads (launch.Locate's name proof, Socket.Named): the name
 // herdr holds for p's live agent, whatever the label says (a person may relabel a running agent's pane); else, no
 // live agent named, its label; else the name herdr keeps for it. "" for a pane that names no agent of the project (a
@@ -163,32 +162,6 @@ func leadPane(p Pane, kindOf func(string) port.PaneKind) bool {
 	return paneKind(p, kindOf) == port.KindLead || p.Label != "" && kindOf(p.Label) == port.KindLead
 }
 
-// tabKind is the kind every pane of tab is of; "" when tab has no pane, or a pane of another kind or of none.
-func tabKind(panes []Pane, kindOf func(string) port.PaneKind, tab string) port.PaneKind {
-	var kind port.PaneKind
-	for _, p := range panes {
-		if p.Tab != tab {
-			continue
-		}
-		k := paneKind(p, kindOf)
-		if k == "" || kind != "" && k != kind {
-			return ""
-		}
-		kind = k
-	}
-	return kind
-}
-
-// leadTab: a pane of tab is the lead's (leadPane).
-func leadTab(panes []Pane, kindOf func(string) port.PaneKind, tab string) bool {
-	for _, p := range panes {
-		if p.Tab == tab && leadPane(p, kindOf) {
-			return true
-		}
-	}
-	return false
-}
-
 // inTab is how many panes tab holds.
 func inTab(panes []Pane, tab string) int {
 	n := 0
@@ -198,24 +171,6 @@ func inTab(panes []Pane, tab string) int {
 		}
 	}
 	return n
-}
-
-// kindTab is the tab a placement of kind k with no place named goes to: the first tab of the project's workspace, in
-// herdr's order, that is a project tab, whose panes are all of kind k (paneKind), none the lead's by label or live
-// agent (leadTab), and which holds fewer than MaxPanes; "" when none (a new tab then). The lead's pane keeps its tab
-// alone: a lead placement never shares one.
-func kindTab(panes []Pane, pr port.PlaceProject, k port.PaneKind) string {
-	proj := projectWorkspace(panes, pr.Has)
-	if proj == "" || k == port.KindLead {
-		return ""
-	}
-	for _, p := range panes {
-		if p.Workspace == proj && inTab(panes, p.Tab) < pr.MaxPanes && projectTab(panes, pr.Has, p.Tab) &&
-			tabKind(panes, pr.KindOf, p.Tab) == k && !leadTab(panes, pr.KindOf, p.Tab) {
-			return p.Tab
-		}
-	}
-	return ""
 }
 
 // workspace is where this run's new tabs go: the project's workspace; none (no herdr workspace holds a pane of the
@@ -342,10 +297,10 @@ func (h *Setup) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken, 
 	if err := h.RenamePane(ctx, p.Pane, p.Agent); err != nil {
 		return port.LeadTaken{}, project.Failf("herdr pane rename %s %s failed: %v", p.Pane, p.Agent, err)
 	}
-	if err := h.RenameTab(ctx, me.Tab, kindLabel(port.KindLead)); err != nil {
+	if err := h.RenameTab(ctx, me.Tab, layout.Label(port.KindLead)); err != nil {
 		return port.LeadTaken{}, project.Failf("herdr tab rename %s failed: %v", me.Tab, err)
 	}
-	did := fmt.Sprintf("pane %s labelled %s, tab %s labelled %s", p.Pane, p.Agent, me.Tab, kindLabel(port.KindLead))
+	did := fmt.Sprintf("pane %s labelled %s, tab %s labelled %s", p.Pane, p.Agent, me.Tab, layout.Label(port.KindLead))
 	if snap.labels()[me.Workspace] != p.Project.Name {
 		if err := h.RenameWorkspace(ctx, me.Workspace, p.Project.Name); err != nil {
 			return port.LeadTaken{}, project.Failf("herdr workspace rename %s failed: %v", me.Workspace, err)
