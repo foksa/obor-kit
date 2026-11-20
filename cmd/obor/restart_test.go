@@ -276,7 +276,7 @@ func TestRestartCommand(t *testing.T) {
 		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
+		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role or recorded session)"},
 		// serve is down and may hold an open job for the integrator: refused, not restarted without a wake.
 		{[]string{"restart", "pj-int", "--fresh"}, 1, "FAIL restart pj-int: obor serve is not running; it may hold an " +
 			"open job for pj-int: start serve, then restart"},

@@ -237,7 +237,7 @@ func (r *renamer) agentPairs(rows map[string]store.LaneRow) []agentPair {
 		out = append(out, agentPair{a, r.mapAgent(a)})
 	}
 	for _, l := range r.cfg.Lanes() {
-		old := r.cfg.LaneAgentAliases(l.Name)[0]
+		old := r.cfg.LaneAgent(l.Name)
 		next := r.mapAgent(old)
 		if next != old {
 			next = r.prefix + "-" + strings.ToLower(l.Name)

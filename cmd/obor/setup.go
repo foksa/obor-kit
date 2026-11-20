@@ -51,7 +51,7 @@ func setupCmd(args []string) int {
 	return s.Run(context.Background(), args)
 }
 
-// initCmd is `obor init [--name N] [--prefix P] [--terminal herdr|hc]` (P7-2): the project set up with no questions
+// initCmd is `obor init [--name N] [--prefix P] [--terminal herdr|hc]`: the project set up with no questions
 // (internal/setup/oborinit.go), its summary, OK or FAIL; when that succeeds the lead starts (obor lead's start: a lead
 // already running is OK, nothing touched, so a rerun of init stays a safe repair).
 func initCmd(args []string) int {

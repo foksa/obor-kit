@@ -251,8 +251,8 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.LaneAgentAliases("L-01"); !reflect.DeepEqual(got, []string{"pj-l-01"}) { // derived only
-		t.Errorf("LaneAgentAliases = %#v", got)
+	if got := c.LaneAgent("L-01"); got != "pj-l-01" { // derived only
+		t.Errorf("LaneAgent = %#v", got)
 	}
 	if _, ok := c.AgentLookup("pj-advisor", ""); ok {
 		t.Error("an optional role that is not configured is known")
@@ -284,7 +284,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if got := c.Agents(); len(got) < len(want) || !reflect.DeepEqual(got[:len(want)], want) {
 		t.Errorf("Agents = %v, want the lanes' workers and drives first: %v", got, want)
 	}
-	// the removed forms resolve to nothing: the compact lane alias (pj-l1), an agents entry (adv) and the bare
+	// the removed forms resolve to nothing: the compact lane alias (pj-l1), an unconfigured name (adv) and the bare
 	// lane name (l-01).
 	for _, name := range []string{"pj-l1", "adv", "l-01"} {
 		if got, ok := c.AgentLookup(name, ""); ok {

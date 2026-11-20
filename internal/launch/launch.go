@@ -4,11 +4,11 @@
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
 //	         entry (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
-//	         OBOR_ROLE (the role's env value, triage's too; an agents entry without a role: unset), OBOR_LANE (no lane:
+//	         OBOR_ROLE (the role's env value, triage's too; no role: unset), OBOR_LANE (no lane:
 //	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.StartVars,
 //	         a stale OBOR_AGENT or another kind's OBOR_OPENCODE_MODEL);
 //	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
-//	         launch's, else a lane agent's lane row model), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
+//	         launch's, else a lane agent's lane row model), else the role / lead's model (config.Model: base args, model id, kinds args, then --settings for
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
 //	Where    Locate (locate.go), under the agent's restart lock, before anything is stopped, labelled, typed or
 //	         recorded: the pane serve's identity table proves the agent runs in (a restart in place, its label put
@@ -279,7 +279,7 @@ func (l *Launcher) until(ctx context.Context, d time.Duration, cond func() bool)
 // target is the agent being launched: who it is and where it runs.
 type target struct {
 	agent string
-	known bool // the config knows it (lane, role, agents entry, lane cwd)
+	known bool // the config knows it (lane, role, lane cwd)
 	info  config.AgentInfo
 	sid   string // recorded session id
 	// sidKind is the recorded session's kind ("": not recorded); dispatched: the type is a dispatch's (the launch's or
@@ -318,7 +318,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) 
 	rec, _ := l.session(agent)
 	t.sid, t.sidKind, t.transcript = rec.ID, rec.Kind, rec.Transcript
 	if !t.known && t.sid == "" && asked == "" {
-		return nil, project.Failf("unknown agent %s (no lane, role, agents entry or recorded session)", agent)
+		return nil, project.Failf("unknown agent %s (no lane, role or recorded session)", agent)
 	}
 	if pane == "" {
 		return nil, project.Failf("no pane labelled %s (pass --pane)", agent)

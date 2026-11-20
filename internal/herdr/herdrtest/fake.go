@@ -32,7 +32,7 @@ type Pane struct {
 	// Screen is what pane read of source visible shows (a recent source shows it, then Later); agent read shows it
 	// above the input box.
 	Screen string
-	// Stale: the visible screen went stale (after an agent exited, T-970): what the shell prints from now on reaches
+	// Stale: the visible screen went stale (after an agent exited): what the shell prints from now on reaches
 	// the pane's recent output only (Later), never Screen.
 	Stale bool
 	Later string // what the shell printed while Stale: a recent read shows it after Screen, a visible read never

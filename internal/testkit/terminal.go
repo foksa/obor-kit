@@ -21,7 +21,7 @@ import (
 // setup, Panes for serve, TerminalSetup for a placement). Group is the group its pane is in, as a person reads it
 // (port.Pane.Group); Cwd is that pane's cwd, where a placement puts a new pane. Stale, a test terminal's hook (nil on a
 // live one), makes pane's visible screen stale: what its shell prints from then on reaches its recent output only, as
-// a terminal's visible screen after an agent exited (T-970); an error when it has no such pane.
+// a terminal's visible screen after an agent exited; an error when it has no such pane.
 type Terminal struct {
 	Control port.PaneControl
 	Panes   port.Panes
@@ -265,7 +265,7 @@ func start(ctx context.Context, t Terminal, name, pane string) error {
 }
 
 // typed types a command line at the pane's shell that prints obor-contract-<word>, and reads the pane's recent output
-// (the env-line handshake's read, not the visible screen: T-970) until that output shows (10 s). The line quotes word,
+// (the env-line handshake's read, not the visible screen) until that output shows (10 s). The line quotes word,
 // so only the shell's output matches, never the typed line itself.
 func typed(ctx context.Context, t Terminal, pane, word string) error {
 	if err := t.Control.Write(ctx, pane, "true && echo obor-contract-\""+word+"\"", true); err != nil {

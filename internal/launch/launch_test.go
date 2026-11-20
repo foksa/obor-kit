@@ -1088,7 +1088,7 @@ func TestRestartWhereRefusals(t *testing.T) {
 		name: "unknown agent without a sid",
 		prep: func(x *fx) {},
 		req:  launch.Request{Agent: "nobody"},
-		line: "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)",
+		line: "FAIL unknown agent nobody (no lane, role or recorded session)",
 	}, {
 		name: "no pane labelled the agent",
 		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p9", "", "/elsewhere") },
@@ -1135,7 +1135,7 @@ func TestRestartWhereRefusals(t *testing.T) {
 
 // two projects with the same names. The kit has lane L-02 (agent pj-l-02); axis has a lane L-02 too, in its own
 // worktree. A restart that loaded the kit's config (axis's scheduled self-restart, spawned in the kit's checkout) took
-// axis's lane pane for the kit's lane and started it in the kit's lane worktree. An agents entry names nothing; the
+// axis's lane pane for the kit's lane and started it in the kit's lane worktree. An unconfigured name names nothing; the
 // pane's lane cwd is what makes it axis's.
 func TestRestartOtherProjectsPane(t *testing.T) {
 	t.Parallel()

@@ -1217,10 +1217,9 @@ func (c *Config) RoleWriteDirs(r roles.Role) []string {
 // ScratchDir is the merge scratch, <lanes.dir>/merge, absolute.
 func (c *Config) ScratchDir() string { return filepath.Join(c.LanesDir(), "merge") }
 
-// LaneAgentAliases returns the names that identify this lane's worker: its derived one (no lane row names
-// one).
-func (c *Config) LaneAgentAliases(lane string) []string {
-	return roles.LaneAgentAliases(lane, c.Data.Project.AgentPrefix)
+// LaneAgent returns the name of this lane's worker: the derived one (no lane row names one).
+func (c *Config) LaneAgent(lane string) string {
+	return roles.LaneAgent(lane, c.Data.Project.AgentPrefix)
 }
 
 // Agents is every agent name c names, by the name rules AgentLookup resolves: each lane's worker and drive agent, then
@@ -1228,7 +1227,7 @@ func (c *Config) LaneAgentAliases(lane string) []string {
 func (c *Config) Agents() []string {
 	var names []string
 	for _, lane := range c.Lanes() {
-		names = append(names, c.LaneAgentAliases(lane.Name)...)
+		names = append(names, c.LaneAgent(lane.Name))
 		names = append(names, c.Self(roles.Driver, lane.Name))
 	}
 	for _, rc := range c.RoleAgents() {
@@ -1252,10 +1251,8 @@ func (c *Config) NamesOtherAgent(label string, names ...string) bool {
 // role driver in the lane's worktree), then resolves an unmatched cwd at to a lane's worker.
 func (c *Config) AgentLookup(agent, at string) (AgentInfo, bool) {
 	for _, lane := range c.Lanes() {
-		for _, name := range c.LaneAgentAliases(lane.Name) {
-			if agent == name {
-				return AgentInfo{Role: "worker", Lane: lane.Name, Cwd: lane.Dir}, true
-			}
+		if agent == c.LaneAgent(lane.Name) {
+			return AgentInfo{Role: "worker", Lane: lane.Name, Cwd: lane.Dir}, true
 		}
 		if d := c.Self(roles.Driver, lane.Name); d != "" && agent == d {
 			return AgentInfo{Role: roles.Driver, Lane: lane.Name, Cwd: lane.Dir}, true

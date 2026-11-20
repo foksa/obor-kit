@@ -120,14 +120,14 @@ func briefCmd(args []string) int {
 
 // brief is the brief request for agent (text the line its pane or session reads; fresh: serve starts it fresh on it);
 // agent must be a role's agent other than the lead's, the integrator's and a worker's (reviewer, deep_dive, advisor,
-// an agents entry …).
+// …).
 func brief(ctx context.Context, cfg *config.Config, agent, text string, fresh bool, env project.Env) (string, error) {
 	cwd, _ := os.Getwd()
 	r := &wire.BriefReq{Envelope: caller(env, cwd, cfg), To: agent, Text: text, Fresh: fresh}
 	return wire.Verdict(ctx, wire.SocketPath(cfg.Root), r)
 }
 
-// roleAgent: agent is an agent of cfg (a role's or an agents entry) that serve sends no jobs to: not the lead, the
+// roleAgent: agent is an agent of cfg (a role's) that serve sends no jobs to: not the lead, the
 // integrator or a lane's agent (a worker, a drive).
 func roleAgent(cfg *config.Config, agent string) bool {
 	info, ok := cfg.AgentLookup(agent, "")
