@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/view"
+	"obor/internal/web"
 )
 
 // status is `obor status [--facts] [--json] [--short]`. Serve down is a line, never a non-zero exit: the lanes are read
@@ -69,6 +71,7 @@ func status(args []string) int {
 		Events: statusEvents, Notes: view.Notes(cfg.Root, warn),
 		Background: view.ScanBackground(ctx, cfg.Root, ss, err, info)})
 	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)
+	st.Web = webStatus(ctx, project.OSEnv)
 	if !asJSON {
 		switch {
 		case short:
@@ -119,6 +122,24 @@ func serveProcess(ctx context.Context, cfg *config.Config, up bool) (pid int, la
 	return pid, "loaded"
 }
 
+// webStatus is the machine's obor web agent as obor status shows it: running (its launchd pid and the page's
+// address) when launchd has it loaded with a process; none (its plist is missing, or launchd has the label without a
+// process); nil off darwin, where there is no line.
+func webStatus(ctx context.Context, env project.Env) *view.Web {
+	w := webOf(nil, env)
+	if !w.Supported() {
+		return nil
+	}
+	if _, err := os.Stat(w.PlistPath()); err != nil {
+		return &view.Web{Launchd: "none"}
+	}
+	pid, loaded := w.PID(ctx)
+	if !loaded || pid == 0 {
+		return &view.Web{Launchd: "none"}
+	}
+	return &view.Web{Launchd: "running", PID: pid, URL: "http://" + web.DefaultListen}
+}
+
 // writeStatus is the text of st at now: serve's line, the running line (what serve does without an agent), one line per
 // lane, serve's open tasks on no lane (not dropped), the agents on no lane, each needs-you with its answer, the queue
 // and the full check.
@@ -143,6 +164,7 @@ func serveSection(st view.Project, now time.Time) []string {
 		fmt.Fprintln(&b, n)
 	}
 	writeServe(&b, st.Serve, now)
+	writeWeb(&b, st.Web)
 	writeReviewOpen(&b, st.ReviewOpen, now)
 	writeRunning(&b, st, now)
 	writePending(&b, st, now)
@@ -499,6 +521,19 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 			fmt.Fprintf(w, "serve: event log broken: %s\n", s.LogError)
 		}
 	}
+}
+
+// writeWeb is the machine's web agent's line under serve's: launchd runs it (its pid and the page's address), or it
+// is not running — no agent, or launchd does not have it loaded — and obor serve install brings it.
+func writeWeb(w io.Writer, web *view.Web) {
+	if web == nil {
+		return
+	}
+	if web.Launchd == "running" && web.PID != 0 {
+		fmt.Fprintf(w, "web: launchd pid %d · %s\n", web.PID, web.URL)
+		return
+	}
+	fmt.Fprintln(w, "web: not running (obor serve install)")
 }
 
 // writeReviewOpen is the open review's line under serve's, nothing when none is open: its id, its stage with what the

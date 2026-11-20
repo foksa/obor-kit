@@ -55,7 +55,7 @@ var Commands = []Command{
 	{"status", "obor status [--facts] [--json] [--short]",
 		"serve, lanes, agents, what needs you, the last full check", "project"},
 	{"web", "obor web [--listen 127.0.0.1:<port>]",
-		"a localhost page for every project on this machine: lanes, queue, needs-you, events, reports, setup, help", "project"},
+		"a localhost page for every project on this machine (launchd keeps it up on macOS): lanes, queue, needs-you, events, reports, setup, help", "project"},
 	{"pause", `obor pause [--model <name>] [--for <dur>] "<why>" | obor pause [--model <name>] --clear`,
 		"stop dispatching (quota, waiting on you), or stop using one model; --clear ends it", "project"},
 	{"stop", `obor stop ["<why>"] [--force]`,

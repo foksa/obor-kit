@@ -23,7 +23,7 @@ to write.
 ## Rules
 - Writes only under `docs/ui/` in the main checkout (the guard holds it to `agents.roles.designer`'s write list). No
   code or config edits and no git writes; leave the doc uncommitted. Scratch files and screenshots go to a temp dir.
-- Look at the live page first: `obor web` serves every project at http://127.0.0.1:8787/ (the `ob-web` pane runs it).
+- Look at the live page first: `obor web` serves every project at http://127.0.0.1:8787/ (the machine's `obor.web` launchd agent runs it).
   Read the page's source and the data it gets, so the design fits what exists.
 - Keep to what the page can show from data obor already has. A design needing new data says so as a separate item.
 - Follow the current visual language (`web/src/app.css`, `web/src/ui/`) unless the brief asks for a new one.

@@ -339,7 +339,8 @@ Reads the store's `lanes` table read-only (each lane's task and merge evidence) 
 agents, needs-you, pause, the lines not typed yet) when serve is up. The row, how serve projects it from the log and
 every reader: `docs/state-model.md` ("The log", the `lanes` bullet). Fields per lane (`type`: the model its open
 dispatch runs, "" none): `lane, type, dir, branch, task,
-state, done_age, dirty, warning, op, task_state, attempt, running, agent, agent_status`. Text output: serve's line, one line per
+state, done_age, dirty, warning, op, task_state, attempt, running, agent, agent_status`. Text output: serve's line with
+the machine's web agent's line under it, one line per
 lane, serve's tasks on no lane, needs-you with the commands that answer them, the full check, the pause.
 A skew line names each agent whose calls come from another obor release than serve's, until it starts a new session
 (serve has the caller's version from every request envelope; `wire.Status.Skew`). Agent CLI and terminal
@@ -425,6 +426,24 @@ allows silently.
    of its brief's finished line; a worker's needs-you, carried in the `stopped` fact itself). A worker's stop
    ends on its next turn: its `UserPromptSubmit` and `Stop` hooks send serve one `turn` request (serve down:
    nothing, the stop ends on a later turn).
+
+## launchd (darwin)
+Two LaunchAgents per user, both in `~/Library/LaunchAgents`, both `RunAtLoad` + `KeepAlive`, each with the caller's
+PATH and the terminal's own variables as the installing caller had them (`internal/service`):
+- **`obor.serve.<name>`**, one per project: `<kit>/bin/obor serve` in the project's main checkout, its output in
+  `.obor/state/logs/serve.log`. `obor serve install` writes and bootstraps it (`obor init` runs that), `obor serve
+  uninstall` boots it out and removes it, `obor serve restart` kickstarts it.
+- **`obor.web`**, one per machine (the page covers every project): `<kit>/bin/obor web` on its default listen
+  `127.0.0.1:8787`, its working directory the user's home, its output in `~/.obor/web.log` (a machine path, not a
+  project's). `obor serve install` installs it or refreshes a stale plist; a current plist whose label is loaded is
+  left alone. A serve launchd starts (`obor serve`) installs it at its start when its plist is missing, so an
+  upgraded kit brings it with serve's next start and no extra step; serve never restarts or replaces a loaded
+  `obor.web`. `obor serve uninstall` removes it only when no other project's `obor.serve.*` plist is left.
+- A web agent whose port is held (a hand-started `obor web`) fails to bind, writes one line naming the port and the
+  error and exits non-zero; launchd's throttle starts it again. It hunts no free port.
+- `obor status` shows it under serve's: `web: launchd pid <n> · http://127.0.0.1:8787` when launchd runs it, `web:
+  not running (obor serve install)` when its plist is missing or launchd does not have it loaded; no line on a host
+  without launchd.
 
 ## Serve's work: merge and dispatch
 Serve dispatches waiting tasks (`obor dispatch … --after`), gates, merges, runs the nightly full check
@@ -566,8 +585,9 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   once the restart is decided; `obor status` shows `restarting serve` meanwhile, and a failed restart is a needs-you
   `serve restart on the new obor binary failed: <err>` (key `serve`), not tried again by that serve. A serve launchd
   does not run execs `<kit>/bin/obor serve` after it has ended: same pid, same pane; Go's files are close-on-exec, so
-  the flock goes with the exec, and the new serve takes it and removes a leftover socket. Web asks every 30 s and execs `obor web --listen <the address it bound>`, so its
-  URL stays and the page's long poll reconnects. `scripts/ship` restarts nothing: its last line says they follow within a minute. A
+  the flock goes with the exec, and the new serve takes it and removes a leftover socket. Web asks every 30 s: a web
+  launchd runs exits 0 for launchd to start the new build, as serve does there; any other web execs `obor web --listen
+  <the address it bound>`, so its URL stays and the page's long poll reconnects. `scripts/ship` restarts nothing: its last line says they follow within a minute. A
   candidate speaking another herdr protocol restarts into today's warning.
 
 ## Machine-wide check slots (v2.4, 2026-10-08 — axis-alies lead + user; protocol from axis-alies)

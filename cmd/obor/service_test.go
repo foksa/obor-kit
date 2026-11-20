@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"net"
 	"os"
@@ -273,5 +274,130 @@ func TestServiceOfTakesTheTerminalsVariables(t *testing.T) {
 	s = serviceOf(cfg, testkit.MapEnv(map[string]string{"HOME": t.TempDir(), "PATH": "/opt/bin"}))
 	if len(s.Env) != 0 {
 		t.Errorf("the caller has none of the terminal's variables, but the plist carries %+v", s.Env)
+	}
+}
+
+// webOf carries the same PATH and terminal variables into the web agent's plist, one agent for the machine: the label
+// obor.web, obor web from the kit in the user's home, its log in ~/.obor.
+func TestWebOf(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	w := webOf(cfg, testkit.MapEnv(map[string]string{"HOME": home, "PATH": "/opt/bin",
+		"HERDR_SOCKET_PATH": "/tmp/h.sock"}))
+	if w.Label() != "obor.web" || w.PlistPath() != filepath.Join(home, "Library", "LaunchAgents", "obor.web.plist") ||
+		w.LogPath() != filepath.Join(home, ".obor", "web.log") {
+		t.Errorf("the web agent: label %q, plist %s, log %s", w.Label(), w.PlistPath(), w.LogPath())
+	}
+	plist := string(w.Plist())
+	for _, want := range []string{"<string>" + project.KitRoot(project.OSEnv) + "/bin/obor</string>", "<string>web</string>",
+		"<string>" + home + "</string>", "<string>/opt/bin</string>", "<key>HERDR_SOCKET_PATH</key>"} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("the web plist has no %q:\n%s", want, plist)
+		}
+	}
+}
+
+// webAtServeStart installs the missing web agent when serve is launchd's own run (the label holds its pid) and says
+// so; a plist that is there is left exactly as it is; a serve not under launchd installs nothing.
+func TestServeStartInstallsWeb(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd: darwin only")
+	}
+	p := testkit.NewPlain(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := p.Env("PATH=" + os.Getenv("PATH"))
+	s, w := serviceOf(cfg, env), webOf(cfg, env)
+	ctx := context.Background()
+
+	// A serve in a pane: launchd's label is not loaded, so the page agent is not installed.
+	calls, state := fakeLaunchctl(t)
+	var said bytes.Buffer
+	webAtServeStart(ctx, s, w, os.Getpid(), &said)
+	if _, err := os.Stat(w.PlistPath()); !os.IsNotExist(err) {
+		t.Fatalf("a serve not under launchd installed the web agent: %v", err)
+	}
+	if b, _ := os.ReadFile(calls); strings.Contains(string(b), "bootstrap") || strings.Contains(string(b), "bootout") {
+		t.Errorf("a serve not under launchd loaded or unloaded the web agent: %q", b)
+	}
+
+	// launchd's own serve (its print names 4242): the missing agent is installed and said.
+	if err := os.WriteFile(state, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	webAtServeStart(ctx, s, w, 4242, &said)
+	if b, err := os.ReadFile(w.PlistPath()); err != nil || string(b) != string(w.Plist()) {
+		t.Errorf("the web plist after the install: %v\n%s", err, b)
+	}
+	if c, _ := os.ReadFile(calls); !strings.Contains(string(c), "bootstrap gui/501 "+w.PlistPath()) {
+		t.Errorf("the web agent was not bootstrapped: %q", c)
+	}
+	if !strings.Contains(said.String(), "obor serve: INSTALLED obor.web (") {
+		t.Errorf("what serve said of the install: %q", said.String())
+	}
+
+	// A plist that is there: left alone, no launchctl bootstrap.
+	if err := os.WriteFile(w.PlistPath(), []byte("kept\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(calls)
+	said.Reset()
+	webAtServeStart(ctx, s, w, 4242, &said)
+	if b, _ := os.ReadFile(w.PlistPath()); string(b) != "kept\n" {
+		t.Errorf("the present web plist was rewritten: %q", b)
+	}
+	after, _ := os.ReadFile(calls)
+	if len(after) != len(before) {
+		t.Errorf("launchd was called with a plist present: %q", string(after[len(before):]))
+	}
+	if said.Len() != 0 {
+		t.Errorf("a present plist was reported: %q", said.String())
+	}
+}
+
+// installWeb reports a current web agent as nothing (no launchctl call: serve install leaves it alone) and installs
+// a stale one, with its line.
+func TestInstallWeb(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd: darwin only")
+	}
+	p := testkit.NewPlain(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := p.Env("PATH=" + os.Getenv("PATH"))
+	w := webOf(cfg, env)
+	ctx := context.Background()
+	calls, _ := fakeLaunchctl(t)
+	if _, err := w.Install(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(calls)
+	if line, err := installWeb(ctx, w); err != nil || line != "" {
+		t.Errorf("a current agent: %q, %v; want nothing done", line, err)
+	}
+	after, _ := os.ReadFile(calls)
+	if added := string(after[len(before):]); strings.Contains(added, "bootstrap") || strings.Contains(added, "bootout") {
+		t.Errorf("launchd loaded or unloaded a current agent: %q", added)
+	}
+	stale := w
+	stale.Path = "/opt/bin"
+	line, err := installWeb(ctx, stale)
+	if err != nil || !strings.HasPrefix(line, "INSTALLED obor.web (") {
+		t.Errorf("a stale agent: %q, %v; want it installed", line, err)
+	}
+	if b, _ := os.ReadFile(w.PlistPath()); string(b) != string(stale.Plist()) {
+		t.Errorf("the stale plist was not rewritten:\n%s", b)
 	}
 }

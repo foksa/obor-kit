@@ -50,7 +50,9 @@ func webCmd(args []string) int {
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		errf("obor web: %v", err)
+		// One line and a non-zero exit: launchd's throttle starts the agent again once the port is free; the
+		// port is not hunted.
+		errf("obor web: %v%s", err, heldBy(project.OSEnv, addr))
 		return 1
 	}
 	// One terminal for the machine's overviews: the projects' panes' process info (each project's own kind is the
@@ -83,7 +85,14 @@ func webCmd(args []string) int {
 	if !followed.Load() {
 		return 0
 	}
-	// A new obor binary: the same address again, so the owner's URL stays (an unset port would change); the
+	// A web launchd runs leaves the new build to launchd, as serve does there: the label holds this pid, and
+	// KeepAlive starts the kit's shim once this process has exited 0.
+	if launched(context.Background(), webOf(nil, project.OSEnv), os.Getpid()) {
+		fmt.Fprintln(out, "obor web: a new obor binary: exiting for launchd to start it")
+		out.Flush()
+		return 0
+	}
+	// Any other web: the same address again, so the owner's URL stays (an unset port would change); the
 	// page's long poll reconnects.
 	if err := selfExec(project.KitRoot(project.OSEnv), []string{"web", "--listen", ln.Addr().String()}); err != nil {
 		errf("obor web: following the new obor binary: %v", err)
@@ -94,6 +103,23 @@ func webCmd(args []string) int {
 
 // webFollowEvery is how often obor web asks whether a new obor binary is there; a test shortens it.
 var webFollowEvery = 30 * time.Second
+
+// heldBy is a refused bind's hint at the port's holder, when it is known: on the default listen, the machine's
+// obor.web agent when launchd runs it as another process. "" when the holder cannot be told.
+func heldBy(env project.Env, addr string) string {
+	if addr != web.DefaultListen {
+		return ""
+	}
+	w := webOf(nil, env)
+	if !w.Supported() {
+		return ""
+	}
+	pid, loaded := w.PID(context.Background())
+	if !loaded || pid == 0 || pid == os.Getpid() {
+		return ""
+	}
+	return fmt.Sprintf(" (obor.web runs as pid %d)", pid)
+}
 
 // watchBinary calls follow once changed says a new obor binary is there, asking every webFollowEvery until ctx ends.
 func watchBinary(ctx context.Context, changed func() bool, follow func()) {

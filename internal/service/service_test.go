@@ -33,6 +33,39 @@ func TestPlistGolden(t *testing.T) {
 	}
 }
 
+// The web agent's plist: obor web from the kit in the user's home (the page is every project's), at load, kept
+// alive, its output in ~/.obor/web.log, the caller's PATH then the terminal's own variables; with none of them
+// set, no such key.
+func TestWebPlistGolden(t *testing.T) {
+	w := Web{Kit: "/kit", Home: "/Users/p&j", Path: "/opt/bin:/usr/bin",
+		Env: []EnvVar{{Name: "HERDR_SOCKET_PATH", Value: "/tmp/herdr.sock"}}}
+	want, err := os.ReadFile(filepath.Join("testdata", "web.plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(w.Plist()); got != string(want) {
+		t.Errorf("plist:\n%s\nwant:\n%s", got, want)
+	}
+	w.Env = nil
+	if got := string(w.Plist()); strings.Contains(got, "HERDR_SOCKET_PATH") || !strings.Contains(got, "<key>PATH</key>") {
+		t.Errorf("plist without the terminal's variables:\n%s", got)
+	}
+	if w.Label() != "obor.web" {
+		t.Errorf("label %q", w.Label())
+	}
+	if w.PlistPath() != filepath.Join(w.Home, "Library", "LaunchAgents", "obor.web.plist") {
+		t.Errorf("plist path %s", w.PlistPath())
+	}
+	if w.LogPath() != filepath.Join(w.Home, ".obor", "web.log") {
+		t.Errorf("log path %s", w.LogPath())
+	}
+}
+
+// webAgent is the machine's web agent in a temp home, on darwin's launchd.
+func webAgent(t *testing.T) Web {
+	return Web{Kit: "/kit", Home: t.TempDir(), UID: 501, GOOS: "darwin", Path: "/usr/bin"}
+}
+
 // fakeLaunchd is an in-process launchctl (ExecLaunchctl): it records every call in calls and keeps one label's state:
 // loaded and pid (print's answer while loaded; 0: loaded, no serve). Its knobs are launchd's states a test needs: eio,
 // the number of bootstraps that fail with launchd's "5: Input/output error"; noload, a bootstrap that returns 0 loading
@@ -312,6 +345,127 @@ func TestElsewhere(t *testing.T) {
 	}
 	if _, err := os.Stat(s.PlistPath()); !os.IsNotExist(err) {
 		t.Errorf("plist written on linux: %v", err)
+	}
+}
+
+// Off darwin the web agent's verbs print the one line and do nothing (no launchctl, no plist).
+func TestWebElsewhere(t *testing.T) {
+	f := fakeLaunchctl(t)
+	w := webAgent(t)
+	w.GOOS = "linux"
+	ctx := context.Background()
+	for name, verb := range map[string]func(context.Context) (string, error){
+		"install": w.Install, "uninstall": w.Uninstall, "uninstall last": w.UninstallLast} {
+		if line, err := verb(ctx); err != nil || line != "run `obor serve` yourself (systemd --user later)" {
+			t.Errorf("%s on linux: %q, %v", name, line, err)
+		}
+	}
+	if _, loaded := w.PID(ctx); loaded {
+		t.Error("loaded on linux")
+	}
+	if w.Current(ctx) {
+		t.Error("current off darwin")
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("launchctl called: %q", f.calls)
+	}
+	if _, err := os.Stat(w.PlistPath()); !os.IsNotExist(err) {
+		t.Errorf("plist written on linux: %v", err)
+	}
+}
+
+// The web agent's verbs: install writes the plist and bootstraps it; a current plist with its label loaded is
+// reported current (the callers leave it alone); a stale one is written again and its agent reloaded; uninstall
+// boots it out and removes the plist; uninstall again says it is not installed.
+func TestWebVerbs(t *testing.T) {
+	f := fakeLaunchctl(t)
+	w := webAgent(t)
+	ctx := context.Background()
+	if _, loaded := w.PID(ctx); loaded {
+		t.Fatal("precondition: loaded before the install")
+	}
+	if w.Current(ctx) {
+		t.Fatal("current before the install")
+	}
+	line, err := w.Install(ctx)
+	if err != nil || !strings.HasPrefix(line, "INSTALLED obor.web (") {
+		t.Fatalf("install: %q, %v", line, err)
+	}
+	if b, err := os.ReadFile(w.PlistPath()); err != nil || string(b) != string(w.Plist()) {
+		t.Errorf("plist on disk: %v\n%s", err, b)
+	}
+	if _, err := os.Stat(filepath.Dir(w.LogPath())); err != nil {
+		t.Errorf("log dir: %v", err)
+	}
+	if pid, loaded := w.PID(ctx); !loaded || pid != 4242 {
+		t.Errorf("after install: pid %d, loaded %v; want 4242", pid, loaded)
+	}
+	if !w.Current(ctx) {
+		t.Error("not current after its install")
+	}
+	// another PATH than the plist's: stale, so the next install writes and reloads it
+	moved := w
+	moved.Path = "/opt/bin:/usr/bin"
+	if moved.Current(ctx) {
+		t.Error("current with another PATH than the plist's")
+	}
+	f.calls = nil
+	if line, err := moved.Install(ctx); err != nil || !strings.HasPrefix(line, "INSTALLED obor.web (") {
+		t.Fatalf("install of the stale plist: %q, %v", line, err)
+	}
+	if b, _ := os.ReadFile(moved.PlistPath()); string(b) != string(moved.Plist()) {
+		t.Errorf("stale plist not rewritten:\n%s", b)
+	}
+	if !strings.Contains(f.joined(), "bootout gui/501/obor.web") || !strings.Contains(f.joined(), "bootstrap gui/501 ") {
+		t.Errorf("the stale agent's reload: %q", f.calls)
+	}
+	if line, err := moved.Uninstall(ctx); err != nil || line != "UNINSTALLED obor.web" {
+		t.Errorf("uninstall: %q, %v", line, err)
+	}
+	if _, err := os.Stat(moved.PlistPath()); !os.IsNotExist(err) {
+		t.Errorf("plist left: %v", err)
+	}
+	if _, loaded := moved.PID(ctx); loaded {
+		t.Error("still loaded after the uninstall")
+	}
+	if line, err := moved.Uninstall(ctx); err != nil || line != "obor.web is not installed" {
+		t.Errorf("uninstall again: %q, %v", line, err)
+	}
+}
+
+// The web agent goes with the machine's last serve agent: uninstall leaves it (and its page running) while another
+// project's obor.serve.* plist exists, and removes it with the last.
+func TestWebUninstallLast(t *testing.T) {
+	f := fakeLaunchctl(t)
+	w := webAgent(t)
+	ctx := context.Background()
+	if _, err := w.Install(ctx); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(filepath.Dir(w.PlistPath()), "obor.serve.other.plist")
+	if err := os.WriteFile(other, []byte("another project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if line, err := w.UninstallLast(ctx); err != nil || line != "" {
+		t.Fatalf("uninstall with another project's agent: %q, %v; want nothing done", line, err)
+	}
+	if !f.loaded {
+		t.Error("the web agent is unloaded while another project's serve agent is left")
+	}
+	if _, err := os.Stat(w.PlistPath()); err != nil {
+		t.Errorf("the web plist is gone while another project's serve agent is left: %v", err)
+	}
+	if err := os.Remove(other); err != nil {
+		t.Fatal(err)
+	}
+	if line, err := w.UninstallLast(ctx); err != nil || line != "UNINSTALLED obor.web" {
+		t.Fatalf("uninstall with no serve agent left: %q, %v", line, err)
+	}
+	if f.loaded {
+		t.Error("the web agent is still loaded with no serve agent left")
+	}
+	if _, err := os.Stat(w.PlistPath()); !os.IsNotExist(err) {
+		t.Errorf("the web plist is left: %v", err)
 	}
 }
 

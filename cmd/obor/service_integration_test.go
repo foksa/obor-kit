@@ -45,6 +45,11 @@ func TestServeServiceVerbs(t *testing.T) {
 	if len(plists) != 1 {
 		t.Fatalf("plists: %q", plists)
 	}
+	// obor serve install brings the machine's page agent with it.
+	webPlist := filepath.Join(home, "Library", "LaunchAgents", "obor.web.plist")
+	if b, err := os.ReadFile(webPlist); err != nil || !strings.Contains(string(b), "<string>web</string>") {
+		t.Errorf("obor serve install left no obor.web plist: %v\n%s", err, b)
+	}
 	b, _ := os.ReadFile(plists[0])
 	for _, want := range []string{"<string>" + p.Root + "</string>", "/bin/obor</string>", "<string>serve</string>",
 		"<string>" + path + "</string>", p.Root + "/.obor/state/logs/serve.log"} {
@@ -70,6 +75,10 @@ func TestServeServiceVerbs(t *testing.T) {
 	}
 	if _, err := os.Stat(plists[0]); !os.IsNotExist(err) {
 		t.Errorf("plist left: %v", err)
+	}
+	// The last project's serve agent takes the machine's page agent with it.
+	if _, err := os.Stat(webPlist); !os.IsNotExist(err) {
+		t.Errorf("obor.web plist left after the last serve agent: %v", err)
 	}
 	calls, _ := os.ReadFile(log)
 	for _, verb := range []string{"bootstrap gui/", "kickstart -k gui/", "bootout gui/"} {

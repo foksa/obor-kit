@@ -48,7 +48,7 @@ func serveInstalled(env project.Env) func(*config.Config) (string, bool) {
 }
 
 // serveInstaller is obor init's last step: `obor serve install` for the project (service), already when its
-// current plist is loaded, skipped off darwin.
+// current plist is loaded, and the machine's obor.web agent with it; skipped off darwin.
 func serveInstaller(env project.Env) func(context.Context, *config.Config) (string, string, error) {
 	return func(ctx context.Context, cfg *config.Config) (string, string, error) {
 		s := serviceOf(cfg, env)
@@ -57,11 +57,24 @@ func serveInstaller(env project.Env) func(context.Context, *config.Config) (stri
 		}
 		ctx, cancel := context.WithTimeout(ctx, service.Deadline)
 		defer cancel()
-		if s.Current(ctx) {
-			return "already", s.Label() + " installed and loaded (" + s.PlistPath() + ")", nil
+		state, line := "done", ""
+		switch {
+		case s.Current(ctx):
+			state, line = "already", s.Label()+" installed and loaded ("+s.PlistPath()+")"
+		default:
+			l, err := s.Install(ctx)
+			if err != nil {
+				return state, l, err
+			}
+			line = l
 		}
-		line, err := s.Install(ctx)
-		return "done", line, err
+		w := webOf(cfg, env)
+		if wl, err := installWeb(ctx, w); err != nil {
+			return state, line, err
+		} else if wl != "" {
+			line += " with " + w.Label()
+		}
+		return state, line, nil
 	}
 }
 

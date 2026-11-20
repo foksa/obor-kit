@@ -81,15 +81,20 @@ func TestInitEndToEnd(t *testing.T) {
 	if _, err := os.Stat(plist); err != nil || !strings.Contains(string(calls), "launchctl bootstrap gui/") {
 		t.Fatalf("serve not installed (%v):\n%s\ncalls:\n%s", err, stdout, calls)
 	}
-	if !strings.Contains(stdout, "  serve      done     INSTALLED obor.serve.proj (") {
+	if !strings.Contains(stdout, "  serve      done     INSTALLED obor.serve.proj (") ||
+		!strings.Contains(stdout, " with obor.web") {
 		t.Errorf("serve step:\n%s", stdout)
 	}
+	if _, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "obor.web.plist")); err != nil {
+		t.Errorf("no obor.web plist after init: %v", err)
+	}
+	before := strings.Count(string(calls), "launchctl bootstrap")
 	rc, stdout, stderr = run(t, p.Root, env, "init")
 	if rc != 0 || !strings.Contains(stdout, "  serve      already  obor.serve.proj installed and loaded") {
 		t.Fatalf("rerun: exit %d\n%s%s", rc, stdout, stderr)
 	}
 	again, _ := os.ReadFile(log)
-	if strings.Count(string(again), "launchctl bootstrap") != 1 || strings.Count(string(again), "claude plugin install") != 1 {
+	if strings.Count(string(again), "launchctl bootstrap") != before || strings.Count(string(again), "claude plugin install") != 1 {
 		t.Errorf("rerun bootstrapped or installed again:\n%s", again)
 	}
 }
