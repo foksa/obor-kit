@@ -22,6 +22,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/version"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -63,6 +64,12 @@ func (a *App) hook(point string) {
 // wire.DriveReply: the CLI starts the drive agent (Running: it runs already). It decides and records under a.verdicts,
 // then (the lock released) waits for a new drive's lane to be prepared, so the reply says it (Prepared).
 func (a *App) driveCall(ctx context.Context, c wire.DriveReq) (string, error) {
+	// A caller of another obor cannot read the reply (its text and this JSON differ across builds): refused before
+	// anything is recorded.
+	if c.Version != version.Version {
+		return "", fmt.Errorf("drive: serve runs %s, this obor %s: serve restarts on the new binary once nothing runs; obor drive again then",
+			version.Version, cmp.Or(c.Version, "older"))
+	}
 	reply, err := a.driveDecide(ctx, c)
 	if err != nil {
 		return "", err

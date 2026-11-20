@@ -75,8 +75,8 @@ func TestDriveUnreadableReply(t *testing.T) {
 		p := servedProject(t)
 		home, _ := startFakeServe(t, p.Root, wire.Status{}, reply, "")
 		rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "web")
-		if rc != 1 || !strings.Contains(stdout, "FAIL cannot read serve's reply") {
-			t.Errorf("reply %q: rc %d, %q; want FAIL cannot read", reply, rc, stdout)
+		if rc != 1 || !strings.Contains(stdout, "FAIL serve answered in another obor's format") {
+			t.Errorf("reply %q: rc %d, %q; want the format FAIL", reply, rc, stdout)
 		}
 	}
 }
