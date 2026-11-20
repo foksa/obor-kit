@@ -99,9 +99,8 @@ type Setup struct {
 	// host is the git seam (nil: realGit): a test of what setup decides gives it a fake.
 	host gitHost
 
-	root  string // the main checkout, once found
-	cfg   *config.Config
-	wrote bool // init: a file was created or appended to
+	root string // the main checkout, once found
+	cfg  *config.Config
 	// terminal is the kind obor init writes into a new config and names in its refusals ("": herdr); cmd/obor
 	// passes it as --terminal, decided before any write.
 	terminal string

@@ -369,7 +369,7 @@ func (x *fx) projectStep(t *testing.T, name, prefix string) (string, error) {
 	if err := s.findRoot(); err != nil {
 		t.Fatal(err)
 	}
-	err := s.initProject(name, prefix)
+	_, err := s.initProject(name, prefix)
 	return out.String(), err
 }
 

@@ -52,8 +52,8 @@ func (s *Setup) initTerminal() string {
 func (s *Setup) reviewsIgnore() string { return s.cfg.ReviewsDir() + "/" }
 
 // initProject writes what init writes (config, .gitignore lines, the docs; each only when missing) and loads the
-// config. name "": the root's base; prefix "": defaultPrefix of the name.
-func (s *Setup) initProject(name, prefix string) error {
+// config; wrote: a file was created or appended to. name "": the root's base; prefix "": defaultPrefix of the name.
+func (s *Setup) initProject(name, prefix string) (wrote bool, err error) {
 	if name == "" {
 		name = filepath.Base(s.root)
 	}
@@ -61,26 +61,30 @@ func (s *Setup) initProject(name, prefix string) error {
 		prefix = defaultPrefix(name)
 	}
 	if !config.PrefixRe.MatchString(prefix) {
-		return project.Failf("bad prefix %s (must match %s)", prefix, config.PrefixRe)
+		return false, project.Failf("bad prefix %s (must match %s)", prefix, config.PrefixRe)
 	}
-	if err := s.writeConfig(name, prefix); err != nil {
+	step := func(w bool, err error) error {
+		wrote = wrote || w
 		return err
 	}
-	if err := s.fillProject(name, prefix); err != nil {
-		return err
+	if err := step(s.writeConfig(name, prefix)); err != nil {
+		return wrote, err
+	}
+	if err := step(s.fillProject(name, prefix)); err != nil {
+		return wrote, err
 	}
 	if err := s.load(); err != nil {
-		return err
+		return wrote, err
 	}
-	if err := s.gitignore(); err != nil {
-		return err
+	if err := step(s.gitignore()); err != nil {
+		return wrote, err
 	}
 	for _, t := range s.initTemplates(s.cfg.AgentsDir()) {
-		if err := s.copyTemplate(t.src, t.rel, t.stub); err != nil {
-			return err
+		if err := step(s.copyTemplate(t.src, t.rel, t.stub)); err != nil {
+			return wrote, err
 		}
 	}
-	return nil
+	return wrote, nil
 }
 
 // initTemplate is one doc init copies: the kit's template src to rel under the root, stub as copyTemplate's.
@@ -121,26 +125,25 @@ func defaultPrefix(name string) string {
 	return "obor"
 }
 
-// writeConfig writes .obor/config.json from the kit's example unless it exists.
-func (s *Setup) writeConfig(name, prefix string) error {
+// writeConfig writes .obor/config.json from the kit's example unless it exists; wrote: it did.
+func (s *Setup) writeConfig(name, prefix string) (wrote bool, err error) {
 	path := filepath.Join(s.root, ".obor", "config.json")
 	if _, err := os.Stat(path); err == nil {
 		s.say("skip .obor/config.json (exists)")
-		return nil
+		return false, nil
 	}
 	doc, err := s.configJSON(name, prefix, s.initTerminal())
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return project.Failf("cannot create %s", filepath.Dir(path))
+		return false, project.Failf("cannot create %s", filepath.Dir(path))
 	}
 	if err := project.WriteAtomic(path, doc); err != nil {
-		return project.Failf("cannot write %s", path)
+		return false, project.Failf("cannot write %s", path)
 	}
-	s.wrote = true
 	s.say("created .obor/config.json (name %s, prefix %s, terminal %s, no lanes)", name, prefix, s.initTerminal())
-	return nil
+	return true, nil
 }
 
 // configJSON is the .obor/config.json init writes: the kit's example with name, prefix, terminal, the lanes dir beside the root
@@ -166,11 +169,11 @@ func (s *Setup) configJSON(name, prefix, terminal string) ([]byte, error) {
 // gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts; reviews.dir: an
 // open review). Not the paths obor links into a worktree: a lane's steps tell its links from its work
 // (project.LaneDirt), and the main checkout's own untracked files stay visible to git.
-func (s *Setup) gitignore() error { return s.ignoreLines(s.gitignoreLines()...) }
+func (s *Setup) gitignore() (wrote bool, err error) { return s.ignoreLines(s.gitignoreLines()...) }
 
 // ignoreLines appends lines to .gitignore, each once. A line already there with or without its trailing slash (git
-// ignores the directory either way) is not added again.
-func (s *Setup) ignoreLines(lines ...string) error {
+// ignores the directory either way) is not added again; wrote: it added some.
+func (s *Setup) ignoreLines(lines ...string) (wrote bool, err error) {
 	path := filepath.Join(s.root, ".gitignore")
 	text, _ := os.ReadFile(path)
 	have := map[string]bool{}
@@ -185,20 +188,19 @@ func (s *Setup) ignoreLines(lines ...string) error {
 		}
 	}
 	if len(add) == 0 {
-		return nil
+		return false, nil
 	}
 	if len(text) > 0 && text[len(text)-1] != '\n' {
 		text = append(text, '\n')
 	}
 	text = append(text, strings.Join(add, "\n")+"\n"...)
 	if err := os.WriteFile(path, text, 0o644); err != nil {
-		return project.Failf("cannot write %s", path)
+		return false, project.Failf("cannot write %s", path)
 	}
-	s.wrote = true
 	for _, l := range add {
 		s.say(".gitignore += %s", l)
 	}
-	return nil
+	return true, nil
 }
 
 // gitignoreLines are the lines init puts in .gitignore.
@@ -326,26 +328,25 @@ func lastLine(out string, err error) string {
 	return err.Error()
 }
 
-// copyTemplate writes the template file to rel under the root (renderTemplate), unless rel exists.
-func (s *Setup) copyTemplate(src, rel string, stub bool) error {
+// copyTemplate writes the template file to rel under the root (renderTemplate), unless rel exists; wrote: it did.
+func (s *Setup) copyTemplate(src, rel string, stub bool) (wrote bool, err error) {
 	dest := filepath.Join(s.root, rel)
 	if _, err := os.Stat(dest); err == nil {
 		s.say("skip %s (exists)", rel)
-		return nil
+		return false, nil
 	}
 	text, err := s.renderTemplate(src, stub)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return project.Failf("cannot create %s", filepath.Dir(dest))
+		return false, project.Failf("cannot create %s", filepath.Dir(dest))
 	}
 	if err := os.WriteFile(dest, text, 0o644); err != nil {
-		return project.Failf("cannot write %s", dest)
+		return false, project.Failf("cannot write %s", dest)
 	}
-	s.wrote = true
 	s.say("created %s", rel)
-	return nil
+	return true, nil
 }
 
 // renderTemplate is the text copyTemplate writes for the template src: placeholders filled from the loaded config;
@@ -404,22 +405,22 @@ func writeJSON(path string, doc []byte) error {
 
 // fillProject writes the project keys a config init finds lacks (writeConfig writes both into a new one): project.name
 // and project.agent_prefix, each from the arguments as for a new config. A key the config has is kept.
-func (s *Setup) fillProject(name, prefix string) error {
+func (s *Setup) fillProject(name, prefix string) (wrote bool, err error) {
 	cfg, err := config.Load(s.root)
 	if err != nil {
-		return project.Failf("%v", err)
+		return false, project.Failf("%v", err)
 	}
 	if cfg.Prefix() == "" {
 		if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.SetProjectPrefix(doc, prefix) }); err != nil {
-			return err
+			return wrote, err
 		}
-		s.wrote = true
+		wrote = true
 	}
 	if cfg.Name() == "" {
 		if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.SetProjectName(doc, name) }); err != nil {
-			return err
+			return wrote, err
 		}
-		s.wrote = true
+		wrote = true
 	}
-	return nil
+	return wrote, nil
 }

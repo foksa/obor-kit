@@ -382,7 +382,7 @@ func (x *initFx) interrupted(t *testing.T, dir string) {
 	if err := s.findRoot(); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.initProject("", ""); err != nil {
+	if _, err := s.initProject("", ""); err != nil {
 		t.Fatal(err)
 	}
 }
