@@ -26,13 +26,14 @@ type leadRun struct {
 	// wake is obor start in a stopped project, its outside systems as this project's (nil: the real ones; tests fake
 	// them).
 	wake *sleeper
-	// initRun is obor init with no flags (nil: the real one, in the current directory; tests fake it).
+	// initRun is obor init with no flags, which starts the lead itself (nil: the real one, in the current directory;
+	// tests fake it).
 	initRun func(ctx context.Context) int
 }
 
 // lead is `obor lead [--resume]`: (re)start the project's lead (roles.lead) in a fresh session;
-// --resume continues its last one. A project with no .obor/config.json is set up first: obor init's steps run, then
-// the lead starts (init failing ends obor lead with its rc). A stopped project is woken first: obor start's steps run, its STARTED said,
+// --resume continues its last one. A project with no .obor/config.json (or no repository) runs obor init, which
+// starts the lead as its last step: obor lead returns init's rc. A stopped project is woken first: obor start's steps run, its STARTED said,
 // and only then the lead starts; a start that fails ends obor lead with its error and starts no lead. Where the lead
 // runs is launch's Locate (serve's identity table, the pane labels, the terminal's name): its agent already running →
 // OK naming its pane (and the pane's label when a person relabelled it), nothing touched; ambiguous, not decidable
@@ -59,20 +60,19 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		}
 	}
 	repo, err := project.Find(r.dir)
-	if err != nil {
-		return fail("not in a git repository")
+	var cfg *config.Config
+	if err == nil {
+		cfg, err = config.Load(repo.Root)
 	}
-	cfg, err := config.Load(repo.Root)
-	if errors.Is(err, config.ErrNoConfig) { // a project never set up: obor init is the one setup path
+	if err != nil && (errors.Is(err, config.ErrNoConfig) || errors.Is(err, project.ErrNotGit)) {
+		// a project never set up (or no repository yet): obor init is the one setup path, and it ends by starting
+		// the lead itself
 		fmt.Fprintln(r.out, "no obor config here: running obor init")
 		init := r.initRun
 		if init == nil {
 			init = func(context.Context) int { return initCmd(nil) }
 		}
-		if rc := init(ctx); rc != 0 {
-			return rc
-		}
-		cfg, err = config.Load(repo.Root)
+		return init(ctx)
 	}
 	if err != nil {
 		return fail("the config does not load: %v (obor config validate)", err)

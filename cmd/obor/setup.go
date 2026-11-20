@@ -52,8 +52,34 @@ func setupCmd(args []string) int {
 }
 
 // initCmd is `obor init [--name N] [--prefix P] [--terminal herdr|hc]` (P7-2): the project set up with no questions
-// (internal/setup/oborinit.go), its summary, OK or FAIL.
-func initCmd(args []string) int { return setupCmd(append([]string{"obor-init"}, args...)) }
+// (internal/setup/oborinit.go), its summary, OK or FAIL; when that succeeds the lead starts (obor lead's start: a lead
+// already running is OK, nothing touched, so a rerun of init stays a safe repair).
+func initCmd(args []string) int {
+	return initFlow{
+		init: func(a []string) int { return setupCmd(append([]string{"obor-init"}, a...)) },
+		lead: func(ctx context.Context) int {
+			cwd, _ := os.Getwd()
+			// initRun fails: init has just written the config, so obor lead must not run init again
+			r := leadRun{dir: cwd, kit: project.KitRoot(project.OSEnv), env: project.OSEnv, out: out,
+				initRun: func(context.Context) int { fmt.Fprintln(out, "FAIL obor init wrote no config"); return 1 }}
+			return r.run(ctx, nil)
+		},
+	}.run(context.Background(), args)
+}
+
+// initFlow is obor init then the lead: init's steps (init), and only when they end 0 the lead start (lead). Tests
+// fake both.
+type initFlow struct {
+	init func(args []string) int
+	lead func(ctx context.Context) int
+}
+
+func (f initFlow) run(ctx context.Context, args []string) int {
+	if rc := f.init(args); rc != 0 {
+		return rc
+	}
+	return f.lead(ctx)
+}
 
 // serveInstalled is setup's Installed: the plist of cfg's serve LaunchAgent (service) when it is there.
 func serveInstalled(env project.Env) func(*config.Config) (string, bool) {
