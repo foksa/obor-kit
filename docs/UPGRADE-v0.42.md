@@ -1,5 +1,24 @@
 # Upgrading an obor project from v0.41 to v0.42
 
+## v0.42.1 (one start flow, the config in serve, test plan)
+
+**Internal restructuring, no workflow change.** Every agent start goes through one flow (`obor setup … --start`,
+`obor lead`, `obor drive`, serve's starts and restores); pane placement is one rule for herdr and hc; a config carries
+its own plugin kinds, and serve reads one config per pass. Visible effects:
+
+- `obor setup pane|role --pane <id> --start` takes a pane at its shell whatever its directory, as without `--start`.
+- A worker or role start from `obor setup … --start` on a quarantined Codex install is refused with the `xattr` line
+  (only the lead and a drive warn and go on).
+- A failed fresh start's retry hint says `--fresh`.
+- `obor drive` refuses while serve still runs another obor build (it restarts onto the new binary once nothing
+  runs): run it again then.
+- On hc a plugin kind added to the config starts without a serve restart.
+- The nightly's budget line warns per package when its test lines grew faster than its code.
+
+```sh
+# nothing to do
+```
+
 ## v0.42.0 (obor init is the one command for a new project)
 
 **obor init in an empty folder.** `cd` into an empty folder and run `obor init`, in herdr or in a herdr-app (hc)
