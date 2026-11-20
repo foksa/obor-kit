@@ -13,8 +13,8 @@ import (
 
 // Agents starts and stops obor agents in their panes; the kill sequence is the implementation's (launch.Launcher).
 type Agents interface {
-	// Launch starts req.Agent (a lane's agent or a role) in its pane, its kind and args from its lane
-	// type or role, after stopping what runs there. Returns the one-line result and the agent it started; a fresh
+	// Launch starts req.Agent (a lane's agent or a role) in its pane (req.Place: one it places when it has none), its
+	// kind and args from its lane type or role, after stopping what runs there (req.NoStop: refused instead). Returns the one-line result and the agent it started; a fresh
 	// start held by a trust dialog returns them too, with a *TrustDialog error (TrustHeld).
 	Launch(ctx context.Context, req Launch) (Started, error)
 	// Stop quits agent in pane ("": the pane labelled agent) and leaves the pane at its shell; force also stops a
@@ -46,7 +46,28 @@ type Launch struct {
 	// Type is the model to start with (a dispatch's choice); "": a lane agent's lane row model (its last
 	// dispatch's), else the configured one (a role's).
 	Type string
+	// Place places a pane for an agent that has none (no pane it runs in, no home pane, no Pane named): called once,
+	// after the start is built and before anything is typed, and the start goes into the pane it returns. nil: such an
+	// agent is refused (no pane labelled Agent).
+	Place *Placer
+	// NoStop refuses a start rather than stop a running agent, nothing stopped: Agent itself running (a *Running), another
+	// agent in Agent's lane worktree, or another program in the start's pane.
+	NoStop bool
 }
+
+// Placer is Launch.Place: Place places a new pane for the agent, env NAME=VALUE for its shell ("NAME=": set empty,
+// the start's env as agents.StartVars builds it), and returns the pane's id. A pointer in Launch, so a Launch stays
+// comparable.
+type Placer struct {
+	Place func(ctx context.Context, env []string) (pane string, err error)
+}
+
+// Running is a NoStop launch's refusal when its agent already runs, in Pane: nothing stopped, typed or placed.
+type Running struct {
+	Agent, Pane string
+}
+
+func (r *Running) Error() string { return r.Agent + " already running (pane " + r.Pane + ")" }
 
 // Prompter types text to the agent in a pane, as it is (a job's wake with its [obor job <id>] tag, or a line carrying
 // its own [obor …]): the agent layer's way to type. A blocked agent is refused before any input (a dialog would take
