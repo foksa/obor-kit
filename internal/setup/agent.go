@@ -206,6 +206,32 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 	return s.start(ctx, a, w)
 }
 
+// LeadHere offers the caller's pane to the lead as its home (obor lead when the lead has no pane): the caller is no
+// agent (no OBOR_ROLE), sits in a pane of the project's terminal (project.PaneOf), and the terminal takes that pane
+// (port.TerminalSetup.TakeLead: labelled the lead's, its tab named lead, its group the project's). It answers the
+// pane when taken ("": the lead gets a new tab) and the line saying what was done or why the pane stays as it is.
+func (s *Setup) LeadHere(ctx context.Context) (string, string, error) {
+	if err := s.load(); err != nil {
+		return "", "", err
+	}
+	if role := s.Env.Get(agents.RoleVar); role != "" {
+		return "", "this pane is a " + role + "'s (" + agents.RoleVar + " is set)", nil
+	}
+	pane, err := project.PaneOf(s.cfg, s.Env)
+	if err != nil {
+		return "", "this shell runs in no pane of terminal " + s.cfg.TerminalKind(), nil
+	}
+	t, err := s.T.TakeLead(ctx, port.LeadPane{Pane: pane, Agent: s.cfg.AgentName("lead", ""),
+		Project: PlaceProjectOf(s.cfg, s.root)})
+	if err != nil {
+		return "", "", err
+	}
+	if !t.Taken {
+		return "", t.Line, nil
+	}
+	return pane, t.Line, nil
+}
+
 // copyFile copies src to rel under the root unless rel exists.
 func (s *Setup) copyFile(src, rel string) error {
 	dest := filepath.Join(s.root, rel)

@@ -25,7 +25,9 @@ var Sent = map[string][]string{
 	"pane.close":        {"pane_id"},
 	"pane.process_info": {"pane_id"},
 	"tab.create":        {"workspace_id", "label", "cwd", "focus", "env"},
+	"tab.rename":        {"tab_id", "label"},
 	"workspace.create":  {"label", "cwd", "focus"},
+	"workspace.rename":  {"workspace_id", "label"},
 	"notification.show": {"title", "body"},
 	"events.subscribe":  {"subscriptions"},
 }

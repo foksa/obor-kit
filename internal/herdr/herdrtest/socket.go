@@ -982,6 +982,37 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		defer f.mu.Unlock()
 		n := f.newTab(p.Workspace, p.Label, p.Cwd)
 		return ok(map[string]any{"type": "tab_created", "tab": map[string]any{"tab_id": n.Tab}, "root_pane": n.paneJSON()}), nil
+	case "tab.rename":
+		var p struct {
+			Tab   string `json:"tab_id"`
+			Label string `json:"label"`
+		}
+		_ = json.Unmarshal(params, &p)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.TabLabels == nil {
+			f.TabLabels = map[string]string{}
+		}
+		f.TabLabels[p.Tab] = p.Label
+		return ok(map[string]any{"type": "tab_info", "tab": map[string]any{"tab_id": p.Tab, "label": p.Label}}), nil
+	case "workspace.rename":
+		var p struct {
+			Workspace string `json:"workspace_id"`
+			Label     string `json:"label"`
+		}
+		_ = json.Unmarshal(params, &p)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for i := range f.Workspaces {
+			if f.Workspaces[i].ID == p.Workspace {
+				f.Workspaces[i].Label = p.Label
+				return ok(map[string]any{"type": "workspace_info", "workspace": map[string]any{"workspace_id": p.Workspace,
+					"label": p.Label}}), nil
+			}
+		}
+		f.Workspaces = append(f.Workspaces, herdr.Workspace{ID: p.Workspace, Label: p.Label})
+		return ok(map[string]any{"type": "workspace_info", "workspace": map[string]any{"workspace_id": p.Workspace,
+			"label": p.Label}}), nil
 	case "tab.list":
 		f.mu.Lock()
 		defer f.mu.Unlock()

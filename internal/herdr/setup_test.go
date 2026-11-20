@@ -199,3 +199,37 @@ func TestCloseProjectClosesOnlyWhatIsOurs(t *testing.T) {
 		t.Errorf("second run: %v, %v, want nothing", again, err)
 	}
 }
+
+// TakeLead refuses a pane that runs an agent (a person's agent typed obor lead) and one this herdr does not have,
+// touching nothing; a qualifying pane whose workspace already carries the project's name keeps that label.
+func TestTakeLeadRefusesAnAgentsPane(t *testing.T) {
+	t.Parallel()
+	f := herdrtest.New()
+	f.Tab("w1:tc", 80, 24, "w1:p1")
+	f.Agent("w1:p1", "", "idle", "/proj")
+	f.Tab("w2:tc", 80, 24, "w2:p1")
+	f.Shell("w2:p1", "", "/proj")
+	f.Group("w2", "proj")
+	srv := herdrtest.Serve(t, f)
+	h := &herdr.Setup{Socket: srv.Client(), Env: func(string) (string, bool) { return "", false }}
+	pr := port.PlaceProject{Name: "proj", Root: "/proj", MaxPanes: 4,
+		Has: func(cwd string) bool { return strings.HasPrefix(cwd, "/proj") }, KindOf: func(string) port.PaneKind { return "" }}
+	for pane, why := range map[string]string{"w1:p1": "pane w1:p1 runs an agent (claude)", "w9:p9": "pane w9:p9 is not a pane of this herdr"} {
+		got, err := h.TakeLead(ctx, port.LeadPane{Pane: pane, Agent: "pj-lead", Project: pr})
+		if err != nil || got.Taken || got.Line != why {
+			t.Errorf("TakeLead(%s) = %+v, %v; want not taken: %s", pane, got, err, why)
+		}
+	}
+	for _, r := range srv.Requests() {
+		if strings.HasSuffix(r.Method, ".rename") {
+			t.Errorf("a refusal sent %s", r)
+		}
+	}
+	got, err := h.TakeLead(ctx, port.LeadPane{Pane: "w2:p1", Agent: "pj-lead", Project: pr})
+	if err != nil || !got.Taken || got.Line != "pane w2:p1 labelled pj-lead, tab w2:tc labelled lead" {
+		t.Errorf("TakeLead(w2:p1) = %+v, %v; want taken, no workspace rename", got, err)
+	}
+	if f.Pane("w2:p1").Label != "pj-lead" || f.TabLabels["w2:tc"] != "lead" {
+		t.Errorf("pane %+v, tab %q: want pj-lead and lead", f.Pane("w2:p1").Label, f.TabLabels["w2:tc"])
+	}
+}

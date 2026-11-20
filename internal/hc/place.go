@@ -139,6 +139,82 @@ func (cl *Client) adopt(ctx context.Context, recs []Record, pr port.PlaceProject
 	return n, nil
 }
 
+// TakeLead makes the caller's terminal p.Pane the lead's home (port.TerminalSetup) when it is a live terminal of this
+// core, at its shell (no agent reported, no program in the foreground), shown in a herdr-app tab and alone in it.
+// Taken: labelled as Place labels a lead's terminal (the project, the lead's kind, p.Agent) and kept; its tab named
+// lead; its space named after the project unless another space already is (the project's tabs are there: not
+// taken). herdr-app closed (or no App): not taken, the tab cannot be read.
+func (cl *Client) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken, error) {
+	no := func(format string, a ...any) (port.LeadTaken, error) {
+		return port.LeadTaken{Line: fmt.Sprintf(format, a...)}, nil
+	}
+	recs, err := cl.terminals(ctx)
+	if err != nil {
+		return port.LeadTaken{}, err
+	}
+	var me *Record
+	for i := range recs {
+		if recs[i].Address == p.Pane {
+			me = &recs[i]
+		}
+	}
+	switch {
+	case me == nil:
+		return no("terminal %s is not a live terminal of this hc", p.Pane)
+	case me.Status != nil || me.programRuns():
+		return no("terminal %s runs a program", p.Pane)
+	case me.Labels[herdrapp.LabelTab] == "":
+		return no("terminal %s is in no herdr-app tab", p.Pane)
+	case cl.App == nil:
+		return no("no herdr-app client to name its tab")
+	}
+	tab := me.Labels[herdrapp.LabelTab]
+	if n := len(inTab(recs, tab)); n > 1 {
+		return no("terminal %s shares its tab with %d other terminal(s)", p.Pane, n-1)
+	}
+	spaces, err := cl.App.Spaces(ctx)
+	switch {
+	case port.NotRunning(err):
+		return no("herdr-app is not running: its tab cannot be named")
+	case err != nil:
+		return port.LeadTaken{}, err
+	}
+	var mine *herdrapp.Space
+	for i, s := range spaces {
+		if s.Machine == "" && s.ID == me.Labels[herdrapp.LabelSpace] {
+			mine = &spaces[i]
+		}
+	}
+	if mine == nil {
+		return no("terminal %s is in no space of this computer's herdr-app", p.Pane)
+	}
+	for _, s := range spaces {
+		if s.Machine == "" && s.Name == p.Project.Name && s.ID != mine.ID {
+			return no("the %s space is another than this terminal's (%s)", p.Project.Name, mine.Name)
+		}
+	}
+	labels := map[string]string{LabelProject: p.Project.Name, LabelPlace: string(port.KindLead), LabelAgent: p.Agent}
+	if err := cl.label(ctx, p.Pane, labels); err != nil {
+		return port.LeadTaken{}, err
+	}
+	if !me.Keep {
+		if err := cl.call(ctx, nil, "terminal.keep", map[string]any{"terminal": p.Pane, "keep": true}); err != nil {
+			return port.LeadTaken{}, err
+		}
+	}
+	if _, err := cl.App.RenameTab(ctx, tab, kindLabel(port.KindLead)); err != nil {
+		return port.LeadTaken{}, err
+	}
+	did := fmt.Sprintf("terminal %s labelled %s, tab %s named %s", p.Pane, p.Agent, tab, kindLabel(port.KindLead))
+	if mine.Name != p.Project.Name {
+		if err := cl.App.NameSpace(ctx, mine.ID, p.Project.Name); err != nil {
+			return port.LeadTaken{}, err
+		}
+		did += fmt.Sprintf(", space %s named %s", mine.Name, p.Project.Name)
+	}
+	return port.LeadTaken{Taken: true, Line: did}, nil
+}
+
 // errNoApp is spot's error for a client with no App: no window, as with herdr-app closed.
 var errNoApp error = &herdrapp.Error{Op: "ls", Msg: "no herdr-app client"}
 

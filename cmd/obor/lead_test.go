@@ -215,7 +215,7 @@ func TestLeadPromptWithAnEffort(t *testing.T) {
 
 	x = newLeadFx(t, testkit.Set("agents.roles.lead", "opus:high"))
 	out, rc = x.run(t)
-	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" {
+	if rc != 0 || lastLine(out) != "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)" {
 		t.Fatalf("no pane: exit %d\n%s", rc, out)
 	}
 	if c := noSessionID(x.calls()); !strings.Contains(c, start("pj-lead", "wn1:n2")) || strings.Contains(c, "handoff") {
@@ -264,7 +264,7 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	x := newLeadFx(t)
 	out, rc := x.run(t)
 	// No pane of the project anywhere: its own herdr workspace first, wn1.
-	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" {
+	if rc != 0 || lastLine(out) != "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)" {
 		t.Fatalf("no pane: exit %d\n%s", rc, out)
 	}
 	c := x.calls()
@@ -336,7 +336,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	}
 
 	x = newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
-	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" { // its own workspace
+	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)" { // its own workspace
 		t.Fatalf("codex lead, new tab: exit %d\n%s", rc, out)
 	}
 	if c := x.calls(); !strings.Contains(c, "agent.start") || strings.Contains(c, "/obor:lead") {
@@ -355,7 +355,7 @@ func TestLeadWakesAStoppedProjectFirst(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, rc, serve := x.runWakes(t, true)
-		if rc != 0 || !strings.HasSuffix(out, "OK lead: pj-lead in pane wn1:n2\n") || serve.asks == 0 {
+		if rc != 0 || !strings.HasSuffix(out, "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)\n") || serve.asks == 0 {
 			t.Fatalf("stopped: exit %d\n%s", rc, out)
 		}
 		started, lead := strings.Index(out, "STARTED proj (agents start on first use)"), strings.Index(out, "OK lead:")
@@ -392,7 +392,7 @@ func TestLeadWakesAStoppedProjectFirst(t *testing.T) {
 	t.Run("running", func(t *testing.T) {
 		x := newLeadFx(t)
 		out, rc, serve := x.runWakes(t, true)
-		if rc != 0 || !strings.HasSuffix(out, "OK lead: pj-lead in pane wn1:n2\n") || strings.Contains(out, "STARTED") {
+		if rc != 0 || !strings.HasSuffix(out, "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)\n") || strings.Contains(out, "STARTED") {
 			t.Fatalf("running: exit %d\n%s", rc, out)
 		}
 		if serve.asks != 0 {
