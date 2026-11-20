@@ -51,6 +51,9 @@ func TestRun(t *testing.T) {
 		{"full glob", []string{"-full", "build/**"}, list("a/a.go", "build/x.txt"), "full: changed build/x.txt\n"},
 		{"full glob not matched", []string{"-full", "build/**"}, list("a/a.go"), "fx/a\nfx/b\n"},
 		{"no glob, build file", nil, list("build/x.txt"), ""},
+		{"reads glob matched", []string{"-reads", "skills/**=c"}, list("skills/x/SKILL.md"), "fx/c\n"},
+		{"reads beside a Go change", []string{"-reads", "skills/**=c", "-reads", "README.md=a"}, list("c/c.go", "skills/x/SKILL.md", "README.md"), "fx/a\nfx/c\n"},
+		{"reads glob not matched", []string{"-reads", "skills/**=c"}, list("README.md"), ""},
 		{"no list", nil, "", "full: OBOR_CHANGED_FILES not set\n"},
 	} {
 		var out bytes.Buffer
@@ -80,5 +83,24 @@ func TestRun(t *testing.T) {
 	out.Reset()
 	if rc := run(root, []string{"--direct"}, env, &out); rc != 2 || out.String() != "" {
 		t.Errorf("--direct: exit %d, stdout %q; want exit 2 and no list", rc, out.String())
+	}
+	// A -reads value without "=dirs" is a bad flag; a dir with no package makes no list (exit 1: the Makefile runs full).
+	out.Reset()
+	if rc := run(root, []string{"-reads", "skills/**"}, env, &out); rc != 2 || out.String() != "" {
+		t.Errorf("-reads without dirs: exit %d, stdout %q; want exit 2 and no list", rc, out.String())
+	}
+	out.Reset()
+	one := filepath.Join(t.TempDir(), "one")
+	if err := os.WriteFile(one, []byte("skills/x/SKILL.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envOne := func(name string) string {
+		if name == "OBOR_CHANGED_FILES" {
+			return one
+		}
+		return ""
+	}
+	if rc := run(root, []string{"-reads", "skills/**=nopkg"}, envOne, &out); rc != 1 || out.String() != "" {
+		t.Errorf("-reads of a missing package: exit %d, stdout %q; want exit 1 and no list", rc, out.String())
 	}
 }

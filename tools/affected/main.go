@@ -22,16 +22,19 @@ func main() {
 }
 
 // run is the tool: root is the module root, args its flags (-full, repeatable: the globs whose change forces the full
-// suite, which the Makefile passes), getenv the environment (OBOR_CHANGED_FILES, the changed files one
-// repo-relative path per line), out where the import paths, or the one "full: <why>" line, go. It returns 1 when the
-// list cannot be made (the Makefile then runs the full suite) and 2 on a bad flag.
+// suite; -reads, repeatable: a glob of non-Go files and the packages that read them; the Makefile passes both), getenv
+// the environment (OBOR_CHANGED_FILES, the changed files one repo-relative path per line), out where the import paths,
+// or the one "full: <why>" line, go. It returns 1 when the list cannot be made (the Makefile then runs the full suite)
+// and 2 on a bad flag.
 func run(root string, args []string, getenv func(string) string, out io.Writer) int {
 	var fullGlobs globs
+	var reads readFlag
 	fs := flag.NewFlagSet("affected", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Var(&fullGlobs, "full", "a glob of a file whose change forces the full suite (repeatable)")
+	fs.Var(&reads, "reads", "<glob>=<dir>[,<dir>...]: the packages (module-relative dirs) that read the files the glob matches (repeatable)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: affected -full <glob> [-full <glob>]... (changed files: $OBOR_CHANGED_FILES)")
+		fmt.Fprintln(os.Stderr, "usage: affected [-full <glob>]... [-reads <glob>=<dir>,<dir>]... (changed files: $OBOR_CHANGED_FILES)")
 	}
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -56,7 +59,7 @@ func run(root string, args []string, getenv func(string) string, out io.Writer) 
 			files = append(files, f)
 		}
 	}
-	res, err := Go(root, files, fullGlobs)
+	res, err := Go(root, files, fullGlobs, reads)
 	switch {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "affected: %v\n", err)
@@ -81,6 +84,40 @@ func (g *globs) Set(v string) error {
 	return nil
 }
 
+// Read names the packages (module-relative dirs) that read the files Glob matches, outside a Go import: a change to
+// such a file selects them.
+type Read struct {
+	Glob string
+	Dirs []string
+}
+
+// readFlag is the -reads flag's value: each occurrence "<glob>=<dir>[,<dir>...]" adds one Read.
+type readFlag []Read
+
+func (r *readFlag) String() string {
+	var parts []string
+	for _, x := range *r {
+		parts = append(parts, x.Glob+"="+strings.Join(x.Dirs, ","))
+	}
+	return strings.Join(parts, " ")
+}
+
+func (r *readFlag) Set(v string) error {
+	glob, dirs, ok := strings.Cut(v, "=")
+	if !ok || glob == "" || dirs == "" {
+		return fmt.Errorf("want <glob>=<dir>[,<dir>...], got %q", v)
+	}
+	x := Read{Glob: glob}
+	for _, d := range strings.Split(dirs, ",") {
+		if d == "" {
+			return fmt.Errorf("empty package dir in %q", v)
+		}
+		x.Dirs = append(x.Dirs, d)
+	}
+	*r = append(*r, x)
+	return nil
+}
+
 // Result is what to test: Full non-empty means the whole suite (the reason), else Pkgs (sorted import paths; none: no
 // package is affected).
 type Result struct {
@@ -93,7 +130,9 @@ type Result struct {
 // the package of its nearest directory that holds one (a testdata/ or embedded file selects its package); a file under
 // no package selects nothing, except a .go file (a removed package), which forces full. A changed _test.go file selects
 // its directory's package only, never the packages that import it: a test binary is built from that directory alone.
-func Go(root string, files, fullGlobs []string) (Result, error) {
+// A changed file matching a reads entry's glob also selects that entry's packages, once however many files match,
+// and not their importers (they read the file, nothing imports it); a named dir that holds no package is an error.
+func Go(root string, files, fullGlobs []string, reads []Read) (Result, error) {
 	for _, f := range files {
 		if f == "go.mod" || f == "go.sum" {
 			return Result{Full: "changed " + f}, nil
@@ -116,9 +155,22 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 	}
 	changed := map[string]bool{}   // files that are imported (or embedded): their packages and reverse deps
 	testFiles := map[string]bool{} // _test.go files: their own package only
+	readers := map[string]bool{}   // packages that read a changed file: themselves only
 	for _, f := range files {
 		if f = path.Clean(f); f == "." || strings.HasPrefix(f, "../") || path.IsAbs(f) {
 			continue // not module-relative: no package of this module holds it (an absolute path never reached ".")
+		}
+		for _, r := range reads {
+			if !match(f, r.Glob) {
+				continue
+			}
+			for _, dir := range r.Dirs {
+				ip, ok := byDir[dir]
+				if !ok {
+					return Result{}, fmt.Errorf("-reads %s: no package in %s", r.Glob, dir)
+				}
+				readers[ip] = true
+			}
 		}
 		test := strings.HasSuffix(f, "_test.go")
 		for dir := path.Dir(f); ; dir = path.Dir(dir) {
@@ -139,6 +191,9 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 		}
 	}
 	set := map[string]bool{}
+	for ip := range readers {
+		set[ip] = true
+	}
 	for _, p := range list {
 		name := strip(p.ImportPath)
 		if p.Name == "main" && p.ForTest == "" && strings.HasSuffix(name, ".test") {

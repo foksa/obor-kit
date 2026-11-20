@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -164,8 +165,8 @@ func TestCounts(t *testing.T) {
 
 // obor-kit's own merge.classes (bash classify.test.sh case_real_valid, case_real_docs): docs-only merges are
 // partial neutral (guard only); Go-only merges partial go and run check_affected (the same heavy gate on the affected
-// packages); skills/, templates/, hooks/, bin/go-commands and .claude-plugin/ partial readers and run
-// check_readers; web/src/ and the committed internal/web/dist partial web and run check_web; the kit's release tooling
+// packages); skills/, templates/, hooks/, bin/go-commands, .claude-plugin/, README.md, bin/obor, githooks/ and
+// opencode/ partial readers and run check_affected (tools/affected adds the packages that read them); web/src/ and the committed internal/web/dist partial web and run check_web; the kit's release tooling
 // (Makefile, scripts/, install.sh, RELEASING.md, the marketplace, tests/release/) partial release and runs
 // check_release; two of them in one merge are partial with both names (config order) and run both checks;
 // every other file still runs the full check.
@@ -188,10 +189,11 @@ func TestOborKitConfig(t *testing.T) {
 			{"internal/app/loop.go", "internal/app/loop_test.go"},
 			{"internal/app/loop.go", "cmd/obor/main.go", "internal/checks/merge.go", "docs/tasks/T-75.md"},
 			{"tools/affected/main.go"}, // the kit's Go tool is Go code the gate tests
+			{"tests/go/socketprobe/main.go"},
 		}},
-		{"readers", "check_readers", [][]string{
+		{"readers", "check_affected", [][]string{
 			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"}, {"bin/go-commands"},
-			{".claude-plugin/plugin.json"},
+			{".claude-plugin/plugin.json"}, {"README.md"}, {"bin/obor"}, {"githooks/pre-commit"}, {"opencode/obor.js"},
 			{"skills/lead/SKILL.md", "templates/agents/worker.md", "bin/go-commands", "docs/tasks/T-75.md"},
 		}},
 		{"web", "check_web", [][]string{
@@ -218,7 +220,7 @@ func TestOborKitConfig(t *testing.T) {
 	// A merge in two classes is partial, named in config order, and runs both classes' checks.
 	for _, c := range []struct{ files, class, checks string }{
 		{"internal/app/loop.go Makefile", "go+release", "check_affected check_release"},
-		{"Makefile skills/lead/SKILL.md", "release+readers", "check_release check_readers"},
+		{"Makefile skills/lead/SKILL.md", "release+readers", "check_release check_affected"},
 		{"internal/app/loop.go web/src/lib/format.ts", "web+go", "check_web check_affected"},
 	} {
 		files := strings.Fields(c.files)
@@ -241,8 +243,7 @@ func TestOborKitConfig(t *testing.T) {
 		}
 	}
 	// Anything no class names still runs the full suite, alone and beside a class's file.
-	for _, f := range []string{"go.mod", "go.sum", "bin/obor", "githooks/pre-commit",
-		"web/package.json", "README.md", "tests/go/socketprobe/main.go"} {
+	for _, f := range []string{"go.mod", "go.sum", "web/package.json"} {
 		if c := Classify(m, []string{f}, false); c.Partial {
 			t.Errorf("%s: %s (want a full merge)", f, c.Mode())
 		}
@@ -272,19 +273,26 @@ func TestOborKitConfig(t *testing.T) {
 	}
 }
 
-// READER_PKGS in the Makefile is the survey of the packages whose Go files name a path the readers class maps to
-// check_readers (skills/, templates/, hooks/, bin/go-commands, .claude-plugin/): a package that starts reading one and is
-// missing there would run no test on a change to it. The survey is a grep, the same one the target's comment records;
-// this file is skipped, its tables name the paths without reading them.
+// The Makefile's -reads map (AFFECTED_READS, passed to tools/affected) names, per path, the packages that read it. The
+// survey is a grep over the .go files under cmd/ and internal/ for the five paths the readers class always had (skills/,
+// templates/, hooks/, bin/go-commands, .claude-plugin/), the same one the map's comment records: a package that starts
+// reading one and is in none of their lines would run no test on a change to it, and a listed package that stopped is
+// dead weight. This file is skipped, its tables name the paths without reading them. README.md, bin/obor, githooks/
+// and opencode/ are named by too many packages as plain words to survey by grep: their lines are the map's own.
 func TestOborKitReaders(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
-	listed, err := readerPkgs(filepath.Join(repo, "Makefile"))
+	reads, err := readerMap(filepath.Join(repo, "Makefile"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) == 0 {
-		t.Fatal("precondition: no READER_PKGS line in the Makefile")
+	var listed []string // the packages of the five surveyed paths' lines
+	for _, glob := range []string{"skills/**", "templates/**", "hooks/**", "bin/go-commands", ".claude-plugin/**"} {
+		pkgs, ok := reads[glob]
+		if !ok {
+			t.Fatalf("precondition: no -reads %s in the Makefile's AFFECTED_READS", glob)
+		}
+		listed = append(listed, pkgs...)
 	}
 	markers := []string{`"skills"`, `"skills/`, `"templates"`, `"templates/`, `"hooks"`, `"hooks/`, `"go-commands"`, `.claude-plugin`}
 	found := map[string]bool{}
@@ -306,7 +314,7 @@ func TestOborKitReaders(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				found["./"+filepath.ToSlash(rel)] = true
+				found[filepath.ToSlash(rel)] = true
 				break
 			}
 			return nil
@@ -317,26 +325,26 @@ func TestOborKitReaders(t *testing.T) {
 	}
 	for p := range found {
 		if !slices.Contains(listed, p) {
-			t.Errorf("%s names a readers path: add it to READER_PKGS, with its line in check-readers' comment", p)
+			t.Errorf("%s names a readers path: add it to the -reads line of that path in the Makefile's AFFECTED_READS, with its note in the comment above", p)
 		}
 	}
 	for _, p := range listed {
 		if !found[p] {
-			t.Errorf("%s is in READER_PKGS but no Go file under it names a readers path: drop it", p)
+			t.Errorf("%s is in a -reads line of the Makefile but no Go file under it names a readers path: drop it", p)
 		}
 	}
 }
 
-// readerPkgs is the Makefile's READER_PKGS entries ("./dir" per package), nil when the line is absent.
-func readerPkgs(path string) ([]string, error) {
+// readerMap is the Makefile's -reads entries: glob → the packages (module-relative dirs) named for it. An empty map
+// when the Makefile has none.
+func readerMap(path string) (map[string][]string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if rest, ok := strings.CutPrefix(line, "READER_PKGS :="); ok {
-			return strings.Fields(rest), nil
-		}
+	m := map[string][]string{}
+	for _, f := range regexp.MustCompile(`-reads '([^'=]+)=([^']+)'`).FindAllStringSubmatch(string(b), -1) {
+		m[f[1]] = append(m[f[1]], strings.Split(f[2], ",")...)
 	}
-	return nil, nil
+	return m, nil
 }

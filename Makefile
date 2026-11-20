@@ -1,8 +1,8 @@
 # obor (Go). `make build` → dist/obor and the kind binaries beside it (OUT elsewhere), `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected), `make check-compile` → the merge slot's
 # compile tier (commands.compile), `make check-retest` → a red lane test's failing tests once more
-# (commands.retest), `make check-readers` / `make check-web` →
-# the two non-Go classes' checks (skills/templates/hooks and the page's Go side), `make check-release` → the
+# (commands.retest), `make check-web` →
+# the page's Go side (merge.classes "web"), `make check-release` → the
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release),
 # `make check-budget` → the nightly test budget (tests/budget),
 # `make check-race` → the nightly's non-gating race line (commands.race),
@@ -47,7 +47,7 @@ GOARCH_LIST := arm64 amd64
 KINDS := opencode
 RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 
-.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-race check-readers check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-race check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 # build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>; obor
 # runs a kit kind from the directory of its own executable, config.KitKind).
@@ -102,11 +102,11 @@ trim-go-cache:
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
 # $TMPDIR when the default is not writable (a Codex sandbox), then build, gofmt and vet; every failure prints a
 # line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest and check-affected);
-# check-readers and check-web start with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the
+# check-web starts with GO_CACHE only; neither it nor check-affected runs gofmt, go vet or deadcode: the
 # slot compiled the commit.
 # The integration tag (owner 11-08): tests that need real I/O (real git, herdr's fake socket, a built binary) go
 # in files with `//go:build integration`, and a worker's plain `go test ./<pkg>/...` leaves them out. Every check that
-# gates or measures (check, check-affected, check-retest, check-readers, check-web, check-release, vet, deadcode and
+# gates or measures (check, check-affected, check-retest, check-web, check-release, vet, deadcode and
 # tests/budget) passes -tags integration, so a tagged test keeps running wherever it gates. `make test` stays plain: it
 # is the unit tests a worker runs, and a file with the integration tag is not one of them.
 GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
@@ -125,11 +125,47 @@ check:
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
+# AFFECTED_READS: the packages that read the non-Go files outside a Go import (tools/affected -reads <glob>=<dirs>): a
+# changed file matching a glob adds its packages to check-affected's list, beside the Go packages and their importers.
+# TestOborKitReaders greps the .go files under cmd/ and internal/ for each of the first five paths and fails when a
+# package reads one and its line lacks it, and when a listed package stopped. Per path:
+#   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to)
+#   templates/**     cmd/obor (skills_test.go), internal/app (fetch.go, dispatch.go: the role texts and the job prompt),
+#                    internal/config (validate_test.go: templates/config.example.json), internal/guard (session.go: the
+#                    role text a session shows), internal/setup (init.go, agent.go: what setup copies into a project)
+#   hooks/**         cmd/obor (plugin_wiring_test.go: hooks.json as the plugin registers it); internal/agents,
+#                    internal/agents/codex, internal/agents/plugin and internal/checks match only through the status
+#                    value "hooks" (Caps.Status), codex's "hooks" key, the kind protocol's caps.hooks and the
+#                    classification table's fixtures, no path: listed so the survey needs no per-file exception
+#   bin/go-commands  cmd/obor (skills_test.go, shim_test.go: the shim's commands)
+#   .claude-plugin/  cmd/obor (plugin_wiring_test.go, shim_test.go), internal/agents/claude (claude.go: the manifest's
+#                    mcpServers entry), internal/setup (plugin.go, oborinit.go: install's registration)
+#   README.md        cmd/obor (skills_test.go)
+#   bin/obor         cmd/obor (shim_test.go: the shim run as a script)
+#   githooks/**      internal/setup (the hook tests), cmd/obor (githooks_integration_test.go), internal/checks
+#                    (scratch_integration_test.go: the kit's chain hooks in a scratch repo)
+#   opencode/**      cmd/obor (plugin_test.go: the plugin's package dir and its package.json)
+# tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. docs/** is merge.neutral
+# (guard only): docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app (worktext_test.go), run no test.
+# In .obor/config.json the web class must stay before go (internal/web/dist/** lies under internal/**) and the release
+# class before readers (.claude-plugin/marketplace.json lies under readers' .claude-plugin/**), since the first class
+# whose glob matches owns the file.
+AFFECTED_READS := \
+	-reads 'skills/**=cmd/obor' \
+	-reads 'templates/**=cmd/obor,internal/app,internal/config,internal/guard,internal/setup' \
+	-reads 'hooks/**=cmd/obor,internal/agents,internal/agents/codex,internal/agents/plugin,internal/checks' \
+	-reads 'bin/go-commands=cmd/obor' \
+	-reads '.claude-plugin/**=cmd/obor,internal/agents/claude,internal/setup' \
+	-reads 'README.md=cmd/obor' \
+	-reads 'bin/obor=cmd/obor' \
+	-reads 'githooks/**=cmd/obor,internal/checks,internal/setup' \
+	-reads 'opencode/**=cmd/obor'
+
 check-affected:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget -missing || exit 1; \
 	pkgs=./...; \
-	if a=$$($(GO) run ./tools/affected -full Makefile -full 'internal/testkit/**' -full 'internal/herdr/herdrtest/**'); then \
+	if a=$$($(GO) run ./tools/affected -full Makefile -full 'internal/testkit/**' -full 'internal/herdr/herdrtest/**' $(AFFECTED_READS)); then \
 	  case "$$a" in \
 	    "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	    "") pkgs= ;; \
@@ -175,42 +211,6 @@ check-race:
 	n=$$(printf '%s\n' "$$out" | grep -c 'WARNING: DATA RACE' || true); \
 	f=$$(printf '%s\n' "$$out" | grep -c "^FAIL	" || true); \
 	echo "race: $$n data race report(s), $$f package(s) with failing tests under -race"; test "$$n" = 0
-
-# check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers"). The survey
-# greps the .go files under cmd/ and internal/ for each path, package by package; TestOborKitReaders fails when a package
-# starts reading one and READER_PKGS lacks it, and when a listed package stopped:
-#   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to)
-#   templates/**     cmd/obor (skills_test.go), internal/app (fetch.go, dispatch.go: the role texts and the job prompt),
-#                    internal/config (validate_test.go: templates/config.example.json), internal/guard (session.go: the
-#                    role text a session shows), internal/setup (init.go, agent.go: what setup copies into a project)
-#   hooks/**         cmd/obor (plugin_wiring_test.go: hooks.json as the plugin registers it)
-#   bin/go-commands  cmd/obor (skills_test.go, shim_test.go: the shim's commands)
-#   .claude-plugin/  cmd/obor (plugin_wiring_test.go, shim_test.go), internal/agents/claude (claude.go: the manifest's
-#                    mcpServers entry), internal/setup (plugin.go, oborinit.go: install's registration)
-#   internal/checks  matches only through the classification table and a fixture that name paths without reading them:
-#                    listed so the survey needs no per-file exception; its tests run beside cmd/obor's and internal/app's,
-#                    so the extra package costs little wall time.
-#   internal/agents, internal/agents/plugin  match only through the status value "hooks" (Caps.Status) and the
-#                    kind protocol's caps.hooks in plugin's test manifests, no path: listed for the same reason; their
-#                    tests take about two seconds.
-#   internal/agents/codex  matches only through the "hooks" key of the user's hooks.json it reads (codex.go), no
-#                    path: listed for the same reason; its tests take under a second.
-# tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No compile step (the slot's
-# check-compile compiled the commit) and no deadcode: a changed skill or template moves no package's API. Left as
-# they are: docs/** is merge.neutral (guard only, unchanged) — the
-# reader list above leaves docs out, so docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app
-# (worktext_test.go), keeps today's hole; root README.md is read by cmd/obor (skills_test.go) but stays unmatched (the
-# full check, safe), and bin/obor, githooks/** and web/package.json match no class and run the full check too (the
-# release class owns Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json and
-# tests/release/**). In .obor/config.json the web class must stay before go (internal/web/dist/** lies under
-# internal/**) and the release class before readers (.claude-plugin/marketplace.json lies under readers'
-# .claude-plugin/**), since the first class whose glob matches owns the file.
-READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/codex ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
-check-readers:
-	@$(GO_CACHE); \
-	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
-	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
-	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
 # check-web: the Go side of the page (merge.classes "web"), with GO_CACHE as the other lane checks (the slot's
 # check-compile compiled the commit). `go test ./internal/web` is
