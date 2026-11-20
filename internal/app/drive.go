@@ -16,6 +16,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
@@ -25,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"obor/internal/config"
 	"obor/internal/roles"
@@ -57,10 +59,58 @@ func (a *App) hook(point string) {
 // driveCall answers the socket's drive request (the owner or the lead): a call id is required and a repeated one gets
 // the stored reply. DriveReq.Task: that task, a drive already (driveAgain; any other task refused: a drive is new work
 // only); else a new drive named DriveReq.Name (newDrive). A task already driving (or the open drive of that
-// name) whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> → <lane>
-// (<drive agent>, <type ref>): the CLI starts the drive agent; DRIVING …: <agent> runs already: it runs.
-// It decides and records under a.verdicts.
+// name) whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is the JSON of a
+// wire.DriveReply: the CLI starts the drive agent (Running: it runs already). It decides and records under a.verdicts,
+// then (the lock released) waits for a new drive's lane to be prepared, so the reply says it (Prepared).
 func (a *App) driveCall(ctx context.Context, c wire.DriveReq) (string, error) {
+	reply, err := a.driveDecide(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	var r wire.DriveReply
+	if err := json.Unmarshal([]byte(reply), &r); err != nil {
+		return "", fmt.Errorf("drive: reply %q: %v", reply, err)
+	}
+	if !r.Running {
+		a.mu.Lock()
+		p := a.projAt(c.Root)
+		a.mu.Unlock()
+		r.Prepared = p != nil && a.laneReady(ctx, p, r.Task)
+	}
+	return driveJSON(r)
+}
+
+// laneReady waits up to Options.DriveWait (a minute) for task's drive to be prepared (fold: driving), reporting whether it is.
+func (a *App) laneReady(ctx context.Context, p *proj, task string) bool {
+	wait := cmp.Or(a.opt.DriveWait, time.Minute)
+	deadline := time.Now().Add(wait)
+	for {
+		a.mu.Lock()
+		m := p.folded.loop[task]
+		ready := m != nil && m.is(stDriving)
+		a.mu.Unlock()
+		if ready {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+// driveJSON is r as drive's reply.
+func driveJSON(r wire.DriveReply) (string, error) {
+	b, err := json.Marshal(r)
+	return string(b), err
+}
+
+// driveDecide is driveCall's decision and record, under a.verdicts.
+func (a *App) driveDecide(ctx context.Context, c wire.DriveReq) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" && strings.TrimSpace(c.Name) == "" {
@@ -103,9 +153,10 @@ func (a *App) driveCall(ctx context.Context, c wire.DriveReq) (string, error) {
 	return a.newDrive(ctx, p, fx, c)
 }
 
-// driveReply is a drive's reply: DRIVE <task> → <lane> (<agent>, <type ref>).
+// driveReply is a drive's reply as recorded: its JSON, not yet Prepared (driveCall settles that at each answer).
 func driveReply(task, lane, agent, ref string) string {
-	return fmt.Sprintf("DRIVE %s → %s (%s, %s)", task, lane, agent, Dash(ref))
+	s, _ := driveJSON(wire.DriveReply{Task: task, Lane: lane, Agent: agent, Type: ref})
+	return s
 }
 
 // newDrive records a new drive named c.Name (under a.verdicts): the next task id, its spec "Owner drive: <name>", fact
@@ -180,8 +231,8 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) 
 }
 
 // driveAgain answers obor drive on task, a drive already (driving, or a new drive's dispatch; under a.verdicts):
-// nothing recorded. Its drive agent running: DRIVING <task> → <lane>: <agent> runs already (the CLI starts nothing);
-// else DRIVE <task> → <lane> (<agent>, <type ref>) on its recorded lane and type, and the CLI starts the agent again
+// nothing recorded. Its drive agent running: Running, its pane (the CLI starts nothing);
+// else the reply with Again on its recorded lane and type, and the CLI starts the agent again
 // (a start that failed is retried by the same command). Refused, nothing recorded: a task that is not a drive
 // (a worker's, whatever its state, or none open), a drive no longer driving (landed).
 func (a *App) driveAgain(p *proj, task string) (string, error) {
@@ -199,10 +250,9 @@ func (a *App) driveAgain(p *proj, task string) (string, error) {
 		return "", fmt.Errorf("drive %s: %s is %s, not driving", task, task, Dash(mt.shown()))
 	}
 	if w.State == Identified {
-		return fmt.Sprintf("DRIVING %s → %s: %s runs already (pane %s)", task, mt.lane, mt.agent, w.Pane.ID), nil
+		return driveJSON(wire.DriveReply{Task: task, Lane: mt.lane, Agent: mt.agent, Running: true, Pane: w.Pane.ID})
 	}
-	ref := mt.disp.Type
-	return driveReply(task, mt.lane, mt.agent, ref) + " again: its agent is not running", nil
+	return driveJSON(wire.DriveReply{Task: task, Lane: mt.lane, Agent: mt.agent, Type: mt.disp.Type, Again: true})
 }
 
 // pickDriving is a driving task's step (under mu): the lead's line once a red gate, a sendback or a hold sent it back

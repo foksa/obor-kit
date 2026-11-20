@@ -46,7 +46,9 @@ type Options struct {
 	// attempt in a row up to StepRetryMax (1 min; cutwait.go).
 	StepRetry, StepRetryMax time.Duration
 	Now                     func() time.Time
-	Out                     io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
+	// DriveWait bounds how long serve holds a new drive's reply for its lane to be prepared (1 min).
+	DriveWait time.Duration
+	Out       io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
 	// Refresh: the stream ended with err only so the app works from a new snapshot (herdr's Code refresh): it
 	// subscribes again with no line in Out (nil: never).
 	Refresh func(err error) bool

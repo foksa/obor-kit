@@ -27,7 +27,7 @@ func TestCallDeadline(t *testing.T) {
 		{"", MethodStopped, stopFailureDeadline},
 		{"", MethodDispatch, verdictDeadline},
 		{"", MethodDrop, verdictDeadline},
-		{"", MethodDrive, verdictDeadline},
+		{"", MethodDrive, driveDeadline}, // serve holds its reply for the new drive's lane
 		{"0.2", MethodAccept, 200 * time.Millisecond},
 		{"0.2", MethodTurn, 200 * time.Millisecond},
 		{"0.2", MethodStopped, 200 * time.Millisecond},

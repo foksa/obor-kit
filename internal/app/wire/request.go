@@ -308,7 +308,7 @@ func (ExitReq) Method() string { return MethodExit }
 
 // DriveReq is the owner's or the lead's (obor drive): Name the drive's name for a new drive (a new task on the
 // first free untyped lane, Types its one type reference), else Task a drive's own task (its retry; any other task
-// refused). The reply is DRIVE <task> → <lane> (<agent>, <type>): the CLI starts the drive agent.
+// refused). The reply is the JSON of a DriveReply: the CLI starts the drive agent.
 type DriveReq struct {
 	Envelope
 	Task  string   `json:"task"`
