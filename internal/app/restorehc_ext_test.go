@@ -42,6 +42,7 @@ type hcRig struct {
 	root   string
 	fr     *lostRestorer
 	app    *app.App
+	adopt  func(ctx context.Context) (int, error) // Options.Adopt (nil: none)
 	out    *syncBuf
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -75,7 +76,7 @@ func (r *hcRig) start() {
 	r.t.Helper()
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.root, Tick: 2 * time.Millisecond, Retry: 5 * time.Millisecond,
-		Out: r.out, Procs: quietProcs, Refresh: port.Refreshed, Restore: r.fr}, hc.Panes{C: r.core.Client()}, &laneTable{})
+		Out: r.out, Procs: quietProcs, Refresh: port.Refreshed, Restore: r.fr, Adopt: r.adopt}, hc.Panes{C: r.core.Client()}, &laneTable{})
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {

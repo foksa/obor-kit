@@ -137,6 +137,7 @@ func (a *App) Serve(ctx context.Context) error {
 		call := a.restoreWhy(st.Snapshot, first, lost)
 		a.connect(ctx, st.Snapshot, call.why != "")
 		a.connectRestore(ctx, &wg, st.Snapshot, call)
+		a.adoptHidden(ctx, &wg)
 		first, lost = false, false
 		a.run(ctx, st, tick.C)
 		st.Close()
@@ -236,3 +237,24 @@ func (a *App) projAt(root string) *proj {
 // FlockFile is a project's serve lock: <root>/.obor/state/serve.flock. The serve holding it (obor serve takes it at
 // its start) is the project's one: its log's one writer. It names that serve's pid.
 func FlockFile(root string) string { return filepath.Join(root, ".obor", "state", "serve.flock") }
+
+// adoptHidden asks the terminal, after a connect, to place the project's hidden terminals (Options.Adopt; herdr has
+// none). It runs beside the stream: an error (the window still closed) is one line, and the next connect or Place tries
+// again.
+func (a *App) adoptHidden(ctx context.Context, wg *sync.WaitGroup) {
+	if a.opt.Adopt == nil {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		n, err := a.opt.Adopt(ctx)
+		switch {
+		case ctx.Err() != nil:
+		case err != nil:
+			a.logf("terminal: hidden terminals stay unplaced: %v", err)
+		case n > 0:
+			a.logf("terminal: placed %d hidden terminal(s)", n)
+		}
+	}()
+}

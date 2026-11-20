@@ -4,6 +4,7 @@ package main
 // so a second terminal is a case here and nothing else.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/project"
 	"obor/internal/service"
+	"obor/internal/setup"
 )
 
 // terminal is the project's terminal: one value for its panes and events, launch's pane operations with the wakes
@@ -60,4 +62,20 @@ func terminalEnv(cfg *config.Config, env project.Env) []service.EnvVar {
 		}
 	}
 	return out
+}
+
+// adopter is serve's adoption of the project's hidden terminals over term: nil when its setup has no such capability
+// (herdr). The project's config is read at each call, so a merged change counts.
+func adopter(term port.Terminal, root string) func(ctx context.Context) (int, error) {
+	ad, ok := term.Setup.(port.Adopter)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context) (int, error) {
+		cfg, err := config.Load(root)
+		if err != nil {
+			return 0, err
+		}
+		return ad.Adopt(ctx, setup.PlaceProjectOf(cfg, root))
+	}
 }

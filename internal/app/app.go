@@ -83,6 +83,9 @@ type Options struct {
 	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back
 	// (restore.go; nil: never).
 	Restore port.Restorer
+	// Adopt places the project's hidden terminals once the terminal answers (port.Adopter; nil: the terminal has no
+	// such capability). Serve calls it after each connect; an error is one log line, retried at the next connect.
+	Adopt func(ctx context.Context) (int, error)
 	// ReadDir is how load reads the state's logs dir once for the tasks it folds as ended (logs.go;
 	// nil: os.ReadDir).
 	ReadDir func(dir string) ([]os.DirEntry, error)
