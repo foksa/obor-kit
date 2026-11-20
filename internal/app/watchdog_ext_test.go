@@ -15,29 +15,20 @@ import (
 	"obor/internal/herdr/herdrtest"
 )
 
+// An idle agent's stall and its needs-you, seen through obor status: the facts in force and the agent's age. (When the
+// facts come is TestWatchdogTable's.)
 func TestIdleStallsThenNeedsYou(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
 		r.f.Pane("w1:p2").Status = "working" // L-02 is not idle: only T-1 stalls
 		r.start()
-		r.clock.Add(9 * time.Minute)
-		r.settle()
-		eq(t, r.facts(), nil, "facts after 9 min idle")
-
-		r.clock.Add(2 * time.Minute)
+		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-1 stalled{idle}")
-		rec := r.records()[0]
-		if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (event.FactData{Lane: "L-01", Machine: "local", Group: "pj",
-			Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
-			t.Errorf("stalled record = %+v", rec)
-		}
-
 		r.clock.Add(10 * time.Minute)
 		r.waitFacts("T-1 stalled{idle}", "T-1 needs-you{stalled}")
 		r.clock.Add(30 * time.Minute)
 		r.settle()
-		eq(t, r.facts(), []string{"T-1 stalled{idle}", "T-1 needs-you{stalled}"}, "facts 30 min later")
 
 		st := r.app.Status()
 		if st.Project == nil || st.Project.Name != "pj" || len(st.Project.Agents) != 2 ||
@@ -165,20 +156,8 @@ func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
 	})
 }
 
-func TestBlockedNeedsYou(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := newRig(t)
-		r.f.Pane("w1:p1").Status = "blocked"
-		r.f.Pane("w1:p2").Status = "working"
-		r.start()
-		r.waitFacts("T-1 needs-you{blocked}")
-		r.clock.Add(20 * time.Minute)
-		r.settle()
-		eq(t, r.facts(), []string{"T-1 needs-you{blocked}"}, "facts 20 min later")
-	})
-}
-
+// With T-2 submitted and both panes gone, obor status holds the one needs-you of the lane that still holds its task.
+// (Which pane's exit alarms is TestWatchdogTable's.)
 func TestPaneExitedNeedsYou(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -191,14 +170,14 @@ func TestPaneExitedNeedsYou(t *testing.T) {
 		r.f.Remove("w1:p1")
 		r.srv.Push("pane_exited", map[string]any{"pane_id": "w1:p1"})
 		r.waitFacts("T-2 submitted", "T-1 needs-you{pane exited}")
-		r.settle()
-		eq(t, r.facts(), []string{"T-2 submitted", "T-1 needs-you{pane exited}"}, "facts after both panes went")
 		if f := r.app.Status().Project.Facts; len(f) != 1 {
 			t.Errorf("facts in force = %+v, want pane exited (the lane still holds T-1)", f)
 		}
 	})
 }
 
+// After a restart the stall is in force in obor status and the records go on from its seq. (That a replay records no
+// second stalled and escalates after the next quiet period is TestWatchdogTable's.)
 func TestReplayAfterRestart(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -214,10 +193,7 @@ func TestReplayAfterRestart(t *testing.T) {
 		if st := r.app.Status(); len(st.Project.Facts) != 1 || st.Project.Facts[0].String() != "stalled{idle}" {
 			t.Fatalf("facts in force after replay = %+v, want stalled{idle}", st.Project.Facts)
 		}
-		r.clock.Add(9 * time.Minute)
-		r.settle()
-		eq(t, r.facts(), []string{"T-1 stalled{idle}"}, "facts 9 min after the restart (no second stalled)")
-		r.clock.Add(2 * time.Minute)
+		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-1 stalled{idle}", "T-1 needs-you{stalled}")
 		if recs := r.records(); recs[1].Seq != 2 {
 			t.Errorf("seq after replay = %d, want 2", recs[1].Seq)
@@ -225,6 +201,8 @@ func TestReplayAfterRestart(t *testing.T) {
 	})
 }
 
+// Panes of another group in a lane's worktree are not in obor status' agents. (That none is watched is
+// TestWatchdogTable's.)
 func TestPaneInAnotherGroupIgnored(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -237,19 +215,14 @@ func TestPaneInAnotherGroupIgnored(t *testing.T) {
 		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-2 stalled{idle}")
 		r.settle()
-		eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts")
-		for _, a := range r.app.Status().Project.Agents {
+		agents := r.app.Status().Project.Agents
+		if len(agents) == 0 {
+			t.Fatal("precondition: status lists the lanes' agents")
+		}
+		for _, a := range agents {
 			if a.Pane != "w1:p1" && a.Pane != "w1:p2" {
 				t.Errorf("status lists %s of another workspace", a.Pane)
 			}
-		}
-		for _, req := range r.srv.Requests() {
-			if req.Method == "pane.process_info" && !strings.Contains(string(req.Params), `"w1:p2"`) {
-				t.Errorf("process info asked of %s, want L-02's pane only", req.Params)
-			}
-		}
-		if r.count("pane.process_info") == 0 {
-			t.Error("process info never asked of L-02's pane")
 		}
 	})
 }

@@ -9,7 +9,8 @@ import (
 )
 
 // obor review close reaches serve as a request (wire.MethodReviewClose): with RV-5 started and no
-// docs/reviews/RV-5.md written, serve refuses it as no open review, nothing committed.
+// docs/reviews/RV-5.md written, serve's handler answers with its no-open-review refusal (the refusal's text and the
+// change it leaves undone are TestReviewCloseRefusals').
 func TestReviewCloseOnTheSocket(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -19,7 +20,7 @@ func TestReviewCloseOnTheSocket(t *testing.T) {
 		r.start()
 		_, err := r.ask(&wire.ReviewCloseReq{Envelope: wire.Envelope{Root: r.p.Root,
 			Agent: "pj-lead", Role: "lead", CallID: "c1"}, Summary: "fixed"})
-		if err == nil || !strings.HasPrefix(err.Error(), "no open review: no docs/reviews/RV-5.md in ") {
+		if err == nil || !strings.HasPrefix(err.Error(), "no open review:") {
 			t.Errorf("review_close: %v; want serve's no-open-review refusal", err)
 		}
 	})

@@ -152,6 +152,8 @@ func TestRunningGateCommand(t *testing.T) {
 	ps := h.a.Status().Project
 	if len(ps.Running) != 1 || ps.Running[0].Step != event.StepGate || ps.Running[0].Command != "check_affected" {
 		t.Errorf("running %+v; want T-3's gate running check_affected", ps.Running)
+	} else if want := h.now.Unix(); ps.Running[0].Since != want {
+		t.Errorf("the gate's since is %d, want its effect's start %d", ps.Running[0].Since, want)
 	}
 	if s := ps.Scratch; s == nil || *s != (wire.ScratchStatus{Task: "T-3", Why: wire.ScratchGating}) {
 		t.Errorf("scratch %+v; want T-3 gating", s)

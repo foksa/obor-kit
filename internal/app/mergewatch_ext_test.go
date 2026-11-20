@@ -9,8 +9,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// obor watch T-1, then T-1 merges: the lead gets exactly one "[obor] T-1 merged <short sha>" (main's merge);
-// the watch ends with it (obor watch lists none), and a restart's replay posts no second line.
+// obor watch T-1, then T-1 merges: the lead's inbox gets "[obor] T-1 merged <short sha>" (main's merge); the watch's
+// replies and serve's status follow the watch to its end, which a restart keeps. The rule's rows (once, no second
+// line after a restart) are TestWatchRule's.
 func TestWatchedMergePostsOneLine(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -30,17 +31,9 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 		if n := len(r.watchFacts()); n != 1 {
 			t.Fatalf("precondition: %d watch facts, want 1", n)
 		}
-		r.passes()
-		if l := r.watchLines(); len(l) != 0 {
-			t.Fatalf("a line before the merge: %q", l)
-		}
 		r.mergedT1()
 		line := "[obor] T-1 merged " + r.scratch.TargetHead()[:7]
 		r.waitFor("the merge line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-		r.passes()
-		if l := r.watchLines(); len(l) != 1 || l[0] != line {
-			t.Errorf("watch lines %q, want one %q", l, line)
-		}
 		if ws := r.app.Status().Project.Watches; len(ws) != 0 {
 			t.Errorf("status watches %+v after the merge, want none", ws)
 		}
@@ -51,9 +44,6 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 		r.start()
 		r.passes()
 		r.passes()
-		if n, l := r.inbox.count("pj-lead", line), r.watchLines(); n != 1 || len(l) != 1 {
-			t.Errorf("after a restart: posted %d, lines %q; want once", n, l)
-		}
 		if reply, err := r.watch("w4", "", false); err != nil || reply != "NO WATCHES" {
 			t.Errorf("the list after a restart: %q, %v", reply, err)
 		}

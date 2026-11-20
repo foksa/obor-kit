@@ -1,10 +1,8 @@
 package app_test
 
 import (
-	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -45,55 +43,12 @@ func TestStatusStartedIsTheLastStartTry(t *testing.T) {
 	})
 }
 
-// obor status' running line lists only the merge loop's effects running now, and a pending line lists the command steps
-// whose intent waits — a failed one with its error and the age of that failure.
+// obor status' a pending line lists the command steps whose intent waits — a failed one with its error and the age of
+// that failure. (The steps a running line lists, and their elapsed time, are TestRunningStepsAreTheCommandStepsWhoseEffectRuns'.)
 
-// TestStatusRunningGateWhileItsEffectRuns: a gate whose effect runs now is a running step, elapsed from that start (the
-// record App.do writes when it runs the effect), and nothing of it is pending.
-func TestStatusRunningGateWhileItsEffectRuns(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := newLoopRig(t)
-		r.work("feature.txt", "feature\n")
-		started, release := make(chan struct{}), make(chan struct{})
-		var once sync.Once
-		r.scratch.Arm("Gate", func(context.Context) error { // holds the gate open: its effect runs while the test looks
-			once.Do(func() { close(started) })
-			<-release
-			return nil
-		})
-		r.start()
-		r.submit()
-		defer close(release)
-		select {
-		case <-started:
-		case <-time.After(r.patience()):
-			t.Fatalf("the gate never started; records:\n%s", strings.Join(r.steps(), "\n"))
-		}
-		st := r.app.Status()
-		if st.Project == nil {
-			t.Fatal("serve holds no project")
-		}
-		var gate []wire.RunningStep
-		for _, s := range st.Project.Running {
-			if s.Task == "T-1" {
-				gate = append(gate, s)
-			}
-		}
-		if len(gate) != 1 || gate[0].Step != event.StepGate {
-			t.Fatalf("running steps %+v, want one gate for T-1", st.Project.Running)
-		}
-		if want := r.clock.Now().Unix(); gate[0].Since != want {
-			t.Errorf("the gate's since is %d, want its effect's start %d", gate[0].Since, want)
-		}
-		if len(st.Project.Pending) != 0 {
-			t.Errorf("pending steps %+v, want none: the gate runs", st.Project.Pending)
-		}
-	})
-}
-
-// TestStatusPendingAfterMergeFailure: a failed after_merge, its intent held for obor resume, is a pending step with the
-// failure's reason and time — not a running one with a growing elapsed.
+// TestStatusPendingAfterMergeFailure: a failed after_merge from the real loop, its intent held for obor resume, is a
+// pending step with the failure's reason — not a running one with a growing elapsed. (The reason's fold and the failure's
+// time are TestPendingStepsWaitForTheirEffect's.)
 func TestStatusPendingAfterMergeFailure(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -122,9 +77,6 @@ func TestStatusPendingAfterMergeFailure(t *testing.T) {
 		}
 		if !strings.Contains(pending[0].Error, "index.lock exists") {
 			t.Errorf("the pending after_merge's error is %q, want the failed fact's reason", pending[0].Error)
-		}
-		if want := r.clock.Now().Unix(); pending[0].FailedAt != want {
-			t.Errorf("the pending after_merge failed at %d, want the failed fact's time %d", pending[0].FailedAt, want)
 		}
 	})
 }
