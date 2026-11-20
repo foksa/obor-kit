@@ -23,7 +23,7 @@ type holdRestorer struct {
 	open    map[string]bool
 }
 
-func (r *holdRestorer) RestoreProject(ctx context.Context, _ string) {
+func (r *holdRestorer) RestoreProject(ctx context.Context, _ string, _ port.Lost) {
 	select {
 	case <-r.release:
 	case <-ctx.Done():
@@ -102,8 +102,8 @@ func finished(h *harness, agent string) int {
 func restoreRun(t *testing.T, h *harness, r *holdRestorer, snap port.Snapshot, first, lost bool) {
 	t.Helper()
 	ctx := context.Background()
-	why := h.a.restoreWhy(snap, first, lost)
-	if why == "" {
+	call := h.a.restoreWhy(snap, first, lost)
+	if call.why == "" {
 		t.Fatal("precondition: no restore follows the snapshot")
 	}
 	h.a.connect(ctx, snap, true)
@@ -128,7 +128,7 @@ func restoreRun(t *testing.T, h *harness, r *holdRestorer, snap port.Snapshot, f
 	}
 	pass("restore pending")
 	var wg sync.WaitGroup
-	h.a.connectRestore(ctx, &wg, snap, why)
+	h.a.connectRestore(ctx, &wg, snap, call)
 	pass("restore running")
 	close(r.release)
 	wg.Wait()

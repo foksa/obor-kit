@@ -91,6 +91,17 @@ func (c *Core) Down() {
 	}
 }
 
+// Drop closes every subscriber's connection with the core still up, as hc drops a stalled reader: it reads EOF.
+func (c *Core) Drop() {
+	c.mu.Lock()
+	subs := c.subs
+	c.subs = nil
+	c.mu.Unlock()
+	for _, k := range subs {
+		k.Close()
+	}
+}
+
 func (c *Core) Up() {
 	c.mu.Lock()
 	c.down, c.seq = false, 0 // seq restarts with each core process

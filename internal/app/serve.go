@@ -69,9 +69,10 @@ func (a *App) logf(format string, args ...any) {
 // doubling up to RetryMax), one line when it is back, then it works from the fresh snapshot; the socket requests
 // and the merge loop's goroutine go on meanwhile. It returns once the merge loop has stopped and the socket requests
 // in progress, canceled, have ended (their process groups cleaned up). The binary watch (follow.go) has its own timer,
-// herdr connected or not. The first stream after a lost connection (port.NotRunning: a failed subscribe, or
-// the stream's end) starts the restore of the project's panes (restore.go), and so does the first stream of
-// serve's life when herdr restarted since serve last connected to it.
+// herdr connected or not. A stream whose snapshot shows panes of the project that lost their program since serve last
+// saw them (with a terminal that cannot tell which: the first stream after a lost connection, port.NotRunning, or
+// serve's first when the terminal restarted since serve last connected to it) starts the restore of those panes
+// (restore.go).
 func (a *App) Serve(ctx context.Context) error {
 	defer a.shutdown()
 	tick := time.NewTicker(a.opt.Tick)
@@ -98,8 +99,8 @@ func (a *App) Serve(ctx context.Context) error {
 		}
 	}
 	wait, down := a.opt.Retry, false
-	lost := false   // the terminal connection was lost since the last stream: the next one restores (restore.go)
-	first := true   // no stream yet in serve's life: its snapshot's terminal instance decides a restore (restore.go)
+	lost := false   // the terminal connection was lost since the last stream: evidence where panes name no run (restore.go)
+	first := true   // no stream yet in serve's life: what serve recorded is the comparison (restore.go)
 	var ended error // the last stream's end, not logged yet (nil: none, or a refresh)
 	for ctx.Err() == nil {
 		a.loadProject()
@@ -133,9 +134,9 @@ func (a *App) Serve(ctx context.Context) error {
 			a.logf("terminal stream ended: %v; subscribed again", ended)
 		}
 		wait, down, ended = a.opt.Retry, false, nil
-		why := a.restoreWhy(st.Snapshot, first, lost)
-		a.connect(ctx, st.Snapshot, why != "")
-		a.connectRestore(ctx, &wg, st.Snapshot, why)
+		call := a.restoreWhy(st.Snapshot, first, lost)
+		a.connect(ctx, st.Snapshot, call.why != "")
+		a.connectRestore(ctx, &wg, st.Snapshot, call)
 		first, lost = false, false
 		a.run(ctx, st, tick.C)
 		st.Close()

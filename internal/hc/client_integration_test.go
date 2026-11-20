@@ -98,9 +98,10 @@ func TestRealCore(t *testing.T) {
 			found = p
 		}
 	}
-	if found.Group != "itest" || found.Label != "w1" || found.Cwd == "" || st.Snapshot.Version == "" ||
-		!strings.Contains(st.Snapshot.Instance, ":") {
-		t.Fatalf("snapshot = %+v; want %s in group itest labelled w1 with a cwd, a version and an instance", st.Snapshot, made.Address)
+	if found.Group != "itest" || found.Label != "w1" || found.Cwd == "" || found.Run == "" || st.Snapshot.Version == "" ||
+		st.Snapshot.Instance == "" || !st.Snapshot.PaneRuns {
+		t.Fatalf("snapshot = %+v; want %s in group itest labelled w1 with a cwd and its shell's run, a version, an instance and pane runs",
+			st.Snapshot, made.Address)
 	}
 	run("label", made.Address, hc.LabelAgent+"=w2")
 	deadline := time.After(10 * time.Second)

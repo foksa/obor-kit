@@ -19,9 +19,8 @@ var Sent = map[string][]string{
 // copy; Record, Status, Foreground and the answers' structs decode exactly these.
 var Read = map[string][]string{
 	"HelloResult":     {"generation", "version", "methods"},
-	"StatusResult":    {"core", "holders"},
+	"StatusResult":    {"core"},
 	"CoreInfo":        {"id"},
-	"HolderInfo":      {"instance"},
 	"ListResult":      {"terminals"},
 	"SubscribeResult": {"seq", "terminals"},
 	"ReadResult":      {"text"},

@@ -78,7 +78,7 @@ func TestStreamEvents(t *testing.T) {
 	if len(st.Snapshot.Panes) != 1 || st.Snapshot.Panes[0].Group != "cap" || st.Snapshot.Instance == "" {
 		t.Fatalf("snapshot = %+v, want t1 in group cap and an instance", st.Snapshot)
 	}
-	base := port.Pane{ID: "t1", Terminal: "t1", Group: "cap", Label: "w1", Cwd: "/private/tmp/obhc-3752525046/work/sub"}
+	base := port.Pane{ID: "t1", Terminal: "t1", Run: "34044", Group: "cap", Label: "w1", Cwd: "/private/tmp/obhc-3752525046/work/sub"}
 	steps := []struct {
 		name, term, typ, data string
 		want                  *port.Event // nil: nothing sent (the next step's event comes first)
@@ -94,7 +94,7 @@ func TestStreamEvents(t *testing.T) {
 		{"obor.project removed", "t1", "labels", labelsOut, &port.Event{Kind: port.EventStatus, Pane: "t1",
 			New: func() port.Pane { p := base; p.Label, p.Group = "w2", ""; return p }()}},
 		{"a new terminal", "t2", "created", createdT2, &port.Event{Kind: port.EventCreated, Pane: "t2",
-			New: port.Pane{ID: "t2", Terminal: "t2", Group: "cap", Cwd: "/private/tmp/obhc-3752525046/work"}}},
+			New: port.Pane{ID: "t2", Terminal: "t2", Run: "34138", Group: "cap", Cwd: "/private/tmp/obhc-3752525046/work"}}},
 		{"its end", "t2", "finished", finishedT2, &port.Event{Kind: port.EventExited, Pane: "t2"}},
 		{"its removal after the end", "t2", "removed", `{}`, nil},
 	}
@@ -126,8 +126,9 @@ func TestStreamEvents(t *testing.T) {
 	}
 }
 
-// Each way a stream ends: hc's missed and a seq gap (in an event or a heartbeat) as a refresh; the connection closing
-// (a restart, a stalled reader), a stop's lost server_stop, and a lost holder's restarted as a lost connection.
+// Each way a stream ends: hc's missed, a seq gap (in an event or a heartbeat) and a lost holder's restarted as a
+// refresh; the connection closing (a restart, a stalled reader hc dropped) and a stop's lost server_stop as a lost
+// connection.
 func TestStreamEndings(t *testing.T) {
 	for _, c := range []struct {
 		name      string
@@ -138,9 +139,10 @@ func TestStreamEndings(t *testing.T) {
 		{"missed", func(core *hctest.Core) { core.Missed() }, true, "missed"},
 		{"a seq gap", func(core *hctest.Core) { core.Skip(); core.Event("t1", "foreground", json.RawMessage(fgSub)) }, true, "events were lost"},
 		{"a heartbeat past the last event", func(core *hctest.Core) { core.Skip(); core.Heartbeat() }, true, "events were lost"},
+		{"a lost holder", func(core *hctest.Core) { core.Restart("t1", 34182) }, true, "fresh shell"},
 		{"the connection closed", func(core *hctest.Core) { core.Down() }, false, "connection closed"},
+		{"a stalled reader dropped", func(core *hctest.Core) { core.Drop() }, false, "connection closed"},
 		{"a stop", func(core *hctest.Core) { core.Stop() }, false, "server_stop"},
-		{"a lost holder", func(core *hctest.Core) { core.Restart("t1", 34182) }, false, "fresh shell"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			core, st := startedCore(t)

@@ -31,6 +31,11 @@ type Pane struct {
 	// Terminal is the terminal's own id of what runs in the pane, kept when the pane moves (herdr: terminal_id): the
 	// identity table's key (registry.go); "" when the terminal reports none. Kept when an event has none.
 	Terminal string
+	// Run names the run of the pane's own program (hc: its shell's pid): the terminal replaces that program, and the
+	// agent in it, exactly when Run changes (Snapshot.PaneRuns). "" where the adapter cannot tell. Kept when an event
+	// has none. A stream never changes a pane's Run in an event: it ends as a refresh (Refreshed), so the change shows
+	// in the next snapshot, which serve's restore compares.
+	Run string
 }
 
 // Ready: the pane's agent is idle: it takes a prompt now (done is idle with an unviewed reply).
@@ -45,8 +50,12 @@ type Snapshot struct {
 	// Instance identifies the terminal's run (herdr: its socket file's modification time, in RFC 3339 with
 	// nanoseconds, set when the server creates the socket at its start and untouched while it runs): a terminal
 	// restart changes it, so it is the instance serve's restore compares (internal/app/restore.go). "" where the
-	// adapter cannot tell.
+	// adapter cannot tell. It decides serve's restore only where PaneRuns is false.
 	Instance string
+	// PaneRuns: each pane's Run says when the terminal replaced its program, so serve's restore restarts exactly the
+	// panes whose Run changed since serve last saw them (hc). False: the adapter cannot tell which panes lost their
+	// program, and a lost connection or a terminal restart loses every pane (herdr: its restart replaces every pane).
+	PaneRuns bool
 	// Note is the adapter's own sentence when the terminal is newer than the adapter knows (herdr: its protocol above
 	// obor's), else "": obor status shows it.
 	Note  string

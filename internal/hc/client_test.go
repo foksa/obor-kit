@@ -107,7 +107,7 @@ func TestReads(t *testing.T) {
 	core.SetScreen("t1", "line a\nline b\nprompt %")
 	cl := core.Client()
 
-	want := port.Pane{ID: "t1", Terminal: "t1", Label: "w1", Cwd: "/w/sub"}
+	want := port.Pane{ID: "t1", Terminal: "t1", Run: "34044", Label: "w1", Cwd: "/w/sub"}
 	if p, err := cl.Pane(ctx, "t1"); err != nil || p != want {
 		t.Errorf("Pane(t1) = %+v, %v; want %+v", p, err, want)
 	}
@@ -142,8 +142,8 @@ func TestReads(t *testing.T) {
 	}
 }
 
-// Snapshot: the version, the instance (core id and the sorted holder instances), the live terminals with their
-// group, and a note only when hc lacks a method obor sends.
+// Snapshot: the version, the instance (the core id, whatever its holders), the live terminals with their group and
+// run (PaneRuns), and a note only when hc lacks a method obor sends.
 func TestSnapshot(t *testing.T) {
 	ctx := context.Background()
 	core := hctest.New()
@@ -155,10 +155,11 @@ func TestSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []port.Pane{{ID: "t1", Terminal: "t1", Group: "cap", Label: "w1", Cwd: "/w"}, {ID: "t2", Terminal: "t2", Cwd: "/x"}}
-	if snap.Version != "0.1.21" || snap.Instance != "6bdfe8023479182e4e1a5ff565c060e4:aaa,bbb" || snap.Note != "" ||
+	want := []port.Pane{{ID: "t1", Terminal: "t1", Run: "34044", Group: "cap", Label: "w1", Cwd: "/w"},
+		{ID: "t2", Terminal: "t2", Run: "34044", Cwd: "/x"}}
+	if snap.Version != "0.1.21" || snap.Instance != "6bdfe8023479182e4e1a5ff565c060e4" || !snap.PaneRuns || snap.Note != "" ||
 		!slices.Equal(snap.Panes, want) {
-		t.Errorf("snapshot = %+v\nwant version 0.1.21, instance <id>:aaa,bbb, no note, panes %+v", snap, want)
+		t.Errorf("snapshot = %+v\nwant version 0.1.21, the core id as instance, pane runs, no note, panes %+v", snap, want)
 	}
 	core.SetMethods(slices.DeleteFunc(slices.Clone(hctest.Methods), func(m string) bool { return m == "terminal.read" })...)
 	snap, err = hc.Panes{C: core.Client()}.Snapshot(ctx)
