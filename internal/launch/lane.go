@@ -12,7 +12,7 @@ var errNoPane = errors.New("no pane")
 
 // PaneOf is agent's pane (R-28 §2): a pane labelled agent that is this project's (labels are machine-wide,
 // another project may use the same names). With dir: its cwd in dir; else in the main checkout, a lanes.dir worktree
-// or the agent's own configured cwd (an agents.<name> entry may live elsewhere). A pane with a known cwd first; one
+// or the agent's own configured cwd (a role's dir, AgentInfo.Cwd). A pane with a known cwd first; one
 // with none is taken, except for a bare <lane lower> label in a lane lookup (dir given), which only a cwd can confirm.
 // No config, or (without dir) an agent the config does not know: the first pane labelled agent.
 func (l *Launcher) PaneOf(ctx context.Context, agent, dir string) (string, error) {

@@ -1,8 +1,8 @@
 // Package launch starts, stops and restarts an obor agent in its labelled herdr pane (`obor restart`, and serve's
 // start of a worker): the one launch path.
 //
-//	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
-//	         entry (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
+//	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor)
+//	         (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_ROLE (the role's env value, triage's too; no role: unset), OBOR_LANE (no lane:
 //	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.StartVars,
