@@ -436,3 +436,9 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
 - Step 2: `obor init` on the hand-written config added agents, lanes, BACKLOG and docs but no
   `project.agent_prefix`; `obor lead` then derived an empty lead name and matched an unlabelled hc terminal `t1`
   (`pane t1 (from label)`, `FAIL bad agent name ""`), nothing touched. T-1374. Workaround: set the prefix by hand.
+- Step 2 (after the prefix by hand): serve under launchd on hc, lead `hct-lead` in herdr-app's `hc-trial` space with
+  `lead`, `lanes` and `roles` tabs; the space's first shell tab stays open beside them, as herdr's does at a first
+  `obor lead`. The lead at its first question shows `blocked` (herdr-app "Needs you"); the web page showed the
+  project idle, as it does on herdr (needs-you there is serve's records only): T-1375.
+- Step 3: models confirmed and committed by the trial lead (integrator sonnet, reviewer codex terra:xhigh, 2 lanes).
+  `obor send hc-trial` from obor-kit reached the trial lead's hc terminal ("posted to its session").
