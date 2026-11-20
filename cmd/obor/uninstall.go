@@ -67,15 +67,18 @@ func teardownOf(env project.Env, cwd string, t port.PaneControl) *setup.Teardown
 	}
 }
 
-// mergedBranches is the task branches a structured prune reply says serve takes (its tasks are merged), with their tips.
+// mergedBranches is the task branches a structured prune reply says are merged (merged or landed outside the app),
+// checked out or not, with their tips.
 func mergedBranches(reply string) ([]port.PruneBranch, error) {
 	r, err := wire.ParsePruneReply(reply)
 	if err != nil {
 		return nil, err
 	}
 	var out []port.PruneBranch
-	for _, b := range r.Merged {
-		out = append(out, port.PruneBranch{Name: b.Name, SHA: b.SHA})
+	for _, b := range r.Branches {
+		if b.State == wire.PruneMerged {
+			out = append(out, port.PruneBranch{Name: b.Name, SHA: b.SHA})
+		}
 	}
 	return out, nil
 }

@@ -205,18 +205,31 @@ type PruneReq struct {
 
 func (PruneReq) Method() string { return MethodPrune }
 
-// PruneReply is a structured prune's reply: the task branches the request deletes (DryRun: would delete), Merged, and
-// the task branches it keeps, Unmerged (its task is open, dropped and not asked for, unknown, or git refused the
-// delete), each with its full tip sha. A branch checked out in a worktree and one outside task/ are in neither.
+// PruneReply is a structured prune's reply: every task branch of the project, in git's order, whether or not it is
+// checked out in a worktree. A branch that is not a task's (outside task/) is not in it.
 type PruneReply struct {
-	Merged   []PruneRef `json:"merged"`
-	Unmerged []PruneRef `json:"unmerged"`
+	Branches []PruneBranch `json:"branches"`
 }
 
-// PruneRef is a branch of a PruneReply with the sha of its tip.
-type PruneRef struct {
-	Name string `json:"name"`
-	SHA  string `json:"sha"`
+// The states of a task as a PruneBranch reports it: its task is merged (or landed outside the app), ended unmerged
+// (dropped), has not ended, or is not in serve's fold at all.
+const (
+	PruneMerged  = "merged"
+	PruneEnded   = "unmerged"
+	PruneOpen    = "open"
+	PruneUnknown = "unknown"
+)
+
+// PruneBranch is a task branch of a PruneReply: its full tip sha, its task's State (a Prune* value above, whatever the
+// checkout) with Ended, the time the task ended (merged or unmerged; "" for open and unknown, RFC 3339 otherwise), and
+// Deletable: this request deletes the branch (DryRun: would), which is false for a checked-out branch, a task whose
+// rules are not met and a delete git refused. State says what the task is, Deletable what prune does about it.
+type PruneBranch struct {
+	Name      string `json:"name"`
+	SHA       string `json:"sha"`
+	State     string `json:"state"`
+	Ended     string `json:"ended,omitempty"`
+	Deletable bool   `json:"deletable"`
 }
 
 // ParsePruneReply is a structured prune's reply read.

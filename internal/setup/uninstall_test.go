@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -56,6 +57,8 @@ type fakePruner struct {
 	branches []port.PruneBranch
 	dirt     map[string]string // worktree dir → why it must stay
 	checked  map[string]bool   // branches checked out in the main checkout
+	inTree   map[string]string // worktree dir → the branch it has checked out (a lane's, once registered)
+	outside  map[string]string // worktree dir outside lanes.dir → its branch
 	gone     []string          // registered worktrees whose dir is gone
 	removed  []string
 	deleted  []string
@@ -71,12 +74,27 @@ func (p *fakePruner) Branches(context.Context) ([]port.PruneBranch, error) {
 func (p *fakePruner) CheckedOut(context.Context) (map[string]bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.checked, nil
+	return p.checkedOut(), nil
+}
+
+// checkedOut is every branch some worktree has checked out (p.mu held).
+func (p *fakePruner) checkedOut() map[string]bool {
+	out := maps.Clone(p.checked)
+	for _, b := range p.inTree {
+		out[b] = true
+	}
+	for _, b := range p.outside {
+		out[b] = true
+	}
+	return out
 }
 
 func (p *fakePruner) DeleteBranch(_ context.Context, b port.PruneBranch) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.checkedOut()[b.Name] {
+		return fmt.Errorf("cannot delete branch %s: checked out in a worktree", b.Name)
+	}
 	p.deleted = append(p.deleted, b.Name)
 	p.branches = slices.DeleteFunc(p.branches, func(x port.PruneBranch) bool { return x.Name == b.Name })
 	return nil
@@ -85,9 +103,14 @@ func (p *fakePruner) DeleteBranch(_ context.Context, b port.PruneBranch) error {
 func (p *fakePruner) Trees(context.Context) ([]port.PruneTree, error) {
 	p.git.mu.Lock()
 	defer p.git.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	var ts []port.PruneTree
 	for _, w := range p.git.repoFor(p.root).worktrees {
-		ts = append(ts, port.PruneTree{Dir: w, SHA: strings.Repeat("a", 40)})
+		ts = append(ts, port.PruneTree{Dir: w, Branch: p.inTree[w], SHA: strings.Repeat("a", 40)})
+	}
+	for dir, b := range p.outside {
+		ts = append(ts, port.PruneTree{Dir: dir, Branch: b, SHA: strings.Repeat("a", 40)})
 	}
 	for _, g := range p.gone {
 		ts = append(ts, port.PruneTree{Dir: g, SHA: strings.Repeat("b", 40), Gone: true})
@@ -104,6 +127,7 @@ func (p *fakePruner) Dirt(_ context.Context, dir string) (string, error) {
 func (p *fakePruner) RemoveTree(_ context.Context, dir string) error {
 	p.mu.Lock()
 	p.removed = append(p.removed, dir)
+	delete(p.inTree, dir)
 	p.mu.Unlock()
 	p.git.mu.Lock()
 	defer p.git.mu.Unlock()
@@ -192,7 +216,7 @@ func newUninstallFx(t *testing.T) *uninstallFx {
 	x.init(t)
 	u := &uninstallFx{initFx: x, git: g}
 	u.down = &fakeDown{known: true, pr: &fakePruner{git: x.fake, root: x.Root, dirt: map[string]string{},
-		checked: map[string]bool{}}}
+		checked: map[string]bool{}, inTree: map[string]string{}, outside: map[string]string{}}}
 	return u
 }
 
@@ -442,6 +466,64 @@ func TestUninstallRefusesEveryBranchWhenTheReplyIsNotRead(t *testing.T) {
 	}
 }
 
+// A merged branch checked out in a clean lane is deleted after the lane's worktree goes, with no --discard; an unmerged
+// one is refused without it; one checked out in a worktree outside lanes.dir stays, listed, merged or not.
+func TestUninstallDeletesAMergedBranchCheckedOutInALane(t *testing.T) {
+	t.Parallel()
+	u := newUninstallFx(t)
+	lanes := u.worktrees()
+	if len(lanes) < 2 {
+		t.Fatalf("precondition: %d worktrees, want two lanes", len(lanes))
+	}
+	for _, name := range []string{"task/T-3", "task/T-4", "task/T-5"} {
+		u.branch(name)
+	}
+	u.down.merged = []string{"task/T-3", "task/T-5"} // T-4 is not merged
+	u.down.pr.inTree[lanes[0]] = "task/T-3"
+	u.down.pr.inTree[lanes[1]] = "task/T-4"
+	elsewhere := filepath.Join(filepath.Dir(filepath.Dir(lanes[0])), "elsewhere")
+	u.down.pr.outside[elsewhere] = "task/T-5"
+
+	out, rc := u.uninstall(t)
+	if rc != 1 || !strings.Contains(out, "branch task/T-4 (ccccccc): serve's prune does not list it as merged") ||
+		strings.Contains(out, "branch task/T-3") || strings.Contains(out, "branch task/T-5") {
+		t.Fatalf("an unmerged branch checked out in a lane must be the one refusal: exit %d\n%s", rc, out)
+	}
+	if len(u.down.pr.deleted)+len(u.down.pr.removed) != 0 {
+		t.Fatalf("a refusal changed something: deleted %v, removed %v", u.down.pr.deleted, u.down.pr.removed)
+	}
+
+	out, rc = u.uninstall(t, "--discard")
+	if rc != 0 {
+		t.Fatalf("--discard: exit %d\n%s", rc, out)
+	}
+	if want := []string{"task/T-3", "task/T-4"}; !slices.Equal(u.down.pr.deleted, want) {
+		t.Errorf("deleted %v, want %v (T-5 is checked out outside lanes.dir)", u.down.pr.deleted, want)
+	}
+	has(t, out, "kept task/T-5: checked out outside the worktrees uninstall removes", "the held branch")
+	if len(u.worktrees()) != 0 {
+		t.Errorf("worktrees left: %v", u.worktrees())
+	}
+}
+
+// A merged branch checked out in a clean lane needs no --discard: nothing refuses, and its worktree goes first.
+func TestUninstallDoesNotRefuseAMergedBranchCheckedOutInACleanLane(t *testing.T) {
+	t.Parallel()
+	u := newUninstallFx(t)
+	lane := u.worktrees()[0]
+	u.branch("task/T-3")
+	u.down.merged = []string{"task/T-3"}
+	u.down.pr.inTree[lane] = "task/T-3"
+	out, rc := u.uninstall(t)
+	if rc != 0 {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if !slices.Equal(u.down.pr.deleted, []string{"task/T-3"}) || !slices.Contains(u.down.pr.removed, lane) {
+		t.Errorf("deleted %v, removed %v: want task/T-3 deleted and %s removed", u.down.pr.deleted, u.down.pr.removed, lane)
+	}
+	has(t, out, "deleted task/T-3 (was ccccccc)", "the branch line")
+}
+
 // A branch checked out in the main checkout stays, listed; a worktree directory that is gone loses its registration.
 func TestUninstallKeepsTheMainCheckoutsBranchAndPrunesMissingTrees(t *testing.T) {
 	t.Parallel()
@@ -454,7 +536,7 @@ func TestUninstallKeepsTheMainCheckoutsBranchAndPrunesMissingTrees(t *testing.T)
 	if rc != 0 {
 		t.Fatalf("exit %d\n%s", rc, out)
 	}
-	has(t, out, "kept task/T-3: checked out in the main checkout", "the kept branch")
+	has(t, out, "kept task/T-3: checked out outside the worktrees uninstall removes", "the kept branch")
 	if len(u.down.pr.deleted) != 0 {
 		t.Errorf("deleted %v", u.down.pr.deleted)
 	}

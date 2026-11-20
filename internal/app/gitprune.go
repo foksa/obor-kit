@@ -21,7 +21,8 @@ import (
 // fold, never from git's ancestry (the gate merges a candidate commit, so a merged branch is not an ancestor of the
 // target); the Pruner does the git. A branch goes only when its task is merged (or landed outside the app); with
 // Unmerged also when the task was dropped over pruneUnmerged ago. Never a branch outside task/, a task serve's fold
-// does not know or still holds open, or a branch checked out in a worktree. A worktree goes only when it sits directly
+// does not know or still holds open, or a branch checked out in a worktree. A structured reply names every task
+// branch with its task's state and, apart from it, whether prune deletes it. A worktree goes only when it sits directly
 // under lanes.dir, is a lane beyond lanes.count or the worktree of a role the config does not run, holds no task, and
 // git finds it clean; a registered worktree whose dir is gone is git worktree prune's. Every deletion is a line with its
 // tip sha and, once, fact pruned.
@@ -64,13 +65,13 @@ func (a *App) pruneCall(ctx context.Context, c wire.PruneReq) (string, error) {
 
 // prune runs c on p through g. Its reply is a line per deletion (or per kept worktree) and the summary last; the
 // nightly's is the summary only (its line in the nightly's result), the lines going to serve's log; c.Structured: the
-// reply is a wire.PruneReply's JSON, the branches it takes and the task branches it keeps.
+// reply is a wire.PruneReply's JSON, every task branch with its task's state and whether this call deletes it.
 func (a *App) prune(ctx context.Context, p *proj, g port.Pruner, cfg *config.Config, c wire.PruneReq) (string, error) {
 	now := a.opt.Now()
 	var lines []string
 	var did event.Pruned
 	var oldest time.Time
-	reply := wire.PruneReply{Merged: []wire.PruneRef{}, Unmerged: []wire.PruneRef{}}
+	reply := wire.PruneReply{Branches: []wire.PruneBranch{}}
 	branches, err := g.Branches(ctx)
 	if err != nil {
 		return "", fmt.Errorf("prune: %v", err)
@@ -81,27 +82,32 @@ func (a *App) prune(ctx context.Context, p *proj, g port.Pruner, cfg *config.Con
 	}
 	for _, b := range branches {
 		task := cfg.TaskFromBranch(b.Name)
-		if task == "" || !strings.HasPrefix(b.Name, "task/") || cfg.TaskBranch(task) != b.Name || checked[b.Name] {
+		if task == "" || !strings.HasPrefix(b.Name, "task/") || cfg.TaskBranch(task) != b.Name {
 			continue
 		}
-		at, ok := a.prunable(p, task, c, now)
-		if !ok {
-			reply.Unmerged = append(reply.Unmerged, wire.PruneRef{Name: b.Name, SHA: b.SHA})
+		state, ended := a.taskEnd(p, task)
+		ref := wire.PruneBranch{Name: b.Name, SHA: b.SHA, State: state}
+		if !ended.IsZero() {
+			ref.Ended = ended.UTC().Format(time.RFC3339)
+		}
+		if checked[b.Name] || !prunable(state, ended, c, now) {
+			reply.Branches = append(reply.Branches, ref)
 			continue
 		}
 		if c.DryRun {
 			lines = append(lines, fmt.Sprintf("would delete %s (was %s)", b.Name, short(b.SHA)))
 		} else if err := g.DeleteBranch(ctx, b); err != nil {
 			lines = append(lines, fmt.Sprintf("kept %s: %v", b.Name, err))
-			reply.Unmerged = append(reply.Unmerged, wire.PruneRef{Name: b.Name, SHA: b.SHA})
+			reply.Branches = append(reply.Branches, ref)
 			continue
 		} else {
 			lines = append(lines, fmt.Sprintf("deleted %s (was %s)", b.Name, short(b.SHA)))
 		}
 		did.Branches = append(did.Branches, event.PrunedRef{Name: b.Name, SHA: b.SHA})
-		reply.Merged = append(reply.Merged, wire.PruneRef{Name: b.Name, SHA: b.SHA})
-		if oldest.IsZero() || at.Before(oldest) {
-			oldest = at
+		ref.Deletable = true
+		reply.Branches = append(reply.Branches, ref)
+		if oldest.IsZero() || ended.Before(oldest) {
+			oldest = ended
 		}
 	}
 	if !c.Nightly {
@@ -148,22 +154,34 @@ func pruneSummary(c wire.PruneReq, branches, trees int, oldest time.Time) string
 	return fmt.Sprintf("PRUNE %s %d branches, %d worktrees", what, branches, trees)
 }
 
-// prunable: the branch of task may go under c, and when its task ended (merged, or dropped) — the fold's read, under mu.
-func (a *App) prunable(p *proj, task string, c wire.PruneReq, now time.Time) (time.Time, bool) {
+// taskEnd is task's state as a wire.PruneBranch reports it and, for a task that ended, when — the fold's read, under mu.
+func (a *App) taskEnd(p *proj, task string) (string, time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	mt := p.folded.loop[task]
-	if mt == nil || mt.endedAt.IsZero() {
-		return time.Time{}, false
-	}
-	age := now.Sub(mt.endedAt)
 	switch {
+	case mt == nil:
+		return wire.PruneUnknown, time.Time{}
+	case mt.endedAt.IsZero():
+		return wire.PruneOpen, time.Time{}
 	case mt.state == stMerged:
-		return mt.endedAt, !c.Nightly || age > pruneNightly
+		return wire.PruneMerged, mt.endedAt
 	case mt.state == stDropped:
-		return mt.endedAt, c.Unmerged && !c.Nightly && age > pruneUnmerged
+		return wire.PruneEnded, mt.endedAt
 	}
-	return time.Time{}, false
+	return wire.PruneOpen, time.Time{}
+}
+
+// prunable: the branch of a task in state, ended at ended, may go under c (it is not checked out: the caller's).
+func prunable(state string, ended time.Time, c wire.PruneReq, now time.Time) bool {
+	age := now.Sub(ended)
+	switch state {
+	case wire.PruneMerged:
+		return !c.Nightly || age > pruneNightly
+	case wire.PruneEnded:
+		return c.Unmerged && !c.Nightly && age > pruneUnmerged
+	}
+	return false
 }
 
 // pruneTrees is the worktree part of a hand run: its lines; the removed ones are added to did.

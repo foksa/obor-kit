@@ -50,8 +50,8 @@ const UninstallUsage = "usage: obor uninstall [--dry-run] [--discard] [--purge] 
 type Teardown struct {
 	// Open is the open or waiting tasks, one line ("" none); known false: serve does not answer for the project.
 	Open func(ctx context.Context, cfg *config.Config) (tasks string, known bool)
-	// Merged is the task branches serve's prune deletes (merged or landed tasks), from its structured reply; an
-	// error: none known.
+	// Merged is the task branches whose task is merged or landed, checked out or not, from serve's structured prune
+	// reply; an error: none known.
 	Merged func(ctx context.Context, cfg *config.Config) ([]port.PruneBranch, error)
 	// Agents stops the project's agents but the caller's own (force: a working one too). With dry it stops none.
 	Agents func(ctx context.Context, cfg *config.Config, force, dry bool) (state, line string, err error)
@@ -169,9 +169,9 @@ type uninstallPlan struct {
 	trees    []port.PruneTree // worktrees directly under lanes.dir, with a directory
 	gone     []port.PruneTree // registered ones directly under lanes.dir whose directory is gone
 	branches []port.PruneBranch
-	merged   map[string]bool // branch names serve's prune takes
-	held     map[string]bool // branches checked out outside the worktrees uninstall removes (the main checkout's)
-	unmerged map[string]bool // task/* branches serve's prune does not take
+	merged   map[string]bool // task/* branches whose task serve says is merged
+	held     map[string]bool // branches checked out outside the worktrees uninstall removes (the main checkout's or a worktree outside lanes.dir)
+	unmerged map[string]bool // task/* branches whose task serve does not say is merged
 	links    bool            // a worktree holds the plugin's settings link
 }
 
@@ -360,13 +360,14 @@ func (s *Setup) uninstallTrees(ctx context.Context, g port.Pruner, p *uninstallP
 	return nil
 }
 
-// uninstallBranches deletes the task/* branches serve's prune takes (and with --discard the others) and obor's refs.
+// uninstallBranches deletes the task/* branches whose task is merged, one checked out in a worktree uninstallTrees
+// removed too (and with --discard the others), and obor's refs.
 func (s *Setup) uninstallBranches(ctx context.Context, g port.Pruner, p *uninstallPlan, o uninstallOpts, add func(name, state, format string, a ...any) *ustep) error {
 	var lines []string
 	for _, b := range p.branches {
 		switch {
 		case p.held[b.Name]:
-			lines = append(lines, fmt.Sprintf("kept %s: checked out in the main checkout", b.Name))
+			lines = append(lines, fmt.Sprintf("kept %s: checked out outside the worktrees uninstall removes", b.Name))
 			continue
 		case p.unmerged[b.Name] && !o.discard:
 			continue // refused before

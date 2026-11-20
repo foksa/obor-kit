@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,18 +12,23 @@ import (
 	"obor/internal/app/port"
 )
 
-// The branches uninstall deletes are the structured reply's merged list, with their tips: no line of text is read for
-// them (the reply here carries branch-looking lines that are no data), and a reply that is not structured is an error.
+// The merged branches uninstall reads are the structured reply's branches whose task is merged, deletable now or not
+// (a lane's checked-out branch is merged and not deletable), with their tips: no line of text is read for them, and a
+// reply that is not structured is an error.
 func TestMergedBranchesReadsTheStructuredReply(t *testing.T) {
 	t.Parallel()
 	sha := strings.Repeat("a", 40)
-	reply := `{"merged":[{"name":"task/T-1","sha":"` + sha + `"},{"name":"task/T-22","sha":"` + sha + `"}],` +
-		`"unmerged":[{"name":"task/T-3","sha":"` + sha + `"}]}`
+	ref := func(name, state string, deletable bool) string {
+		return fmt.Sprintf(`{"name":%q,"sha":%q,"state":%q,"deletable":%v}`, name, sha, state, deletable)
+	}
+	reply := `{"branches":[` + strings.Join([]string{
+		ref("task/T-1", "merged", true), ref("task/T-22", "merged", false), ref("task/T-3", "unmerged", false),
+		ref("task/T-4", "open", false), ref("task/T-5", "unknown", false)}, ",") + `]}`
 	got, err := mergedBranches(reply)
 	if err != nil || len(got) != 2 || got[0] != (port.PruneBranch{Name: "task/T-1", SHA: sha}) || got[1].Name != "task/T-22" {
-		t.Errorf("merged %v, %v, want task/T-1 and task/T-22 with their tips (not the unmerged task/T-3)", got, err)
+		t.Errorf("merged %v, %v, want task/T-1 and the not deletable task/T-22 with their tips", got, err)
 	}
-	if got, err := mergedBranches(`{"merged":[],"unmerged":[]}`); err != nil || len(got) != 0 {
+	if got, err := mergedBranches(`{"branches":[]}`); err != nil || len(got) != 0 {
 		t.Errorf("an empty reply: %v, %v", got, err)
 	}
 	text := "would delete task/T-1 (was abc1234)\nPRUNE would delete 1 branches, 0 worktrees"
