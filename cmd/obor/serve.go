@@ -257,7 +257,7 @@ func workflowOf(o checks.Options) (port.Workflow, error) {
 	switch k := o.Cfg.WorkflowKind(); k {
 	case config.DefaultWorkflow:
 		scratch := checks.Scratch{Options: o}
-		return checks.NewScratchFF(scratch, reviewGit{root: o.Cfg.Root, locked: scratch.Locked, out: scratch.Out}), nil
+		return checks.NewScratchFF(scratch, reviewGit{root: o.Cfg.Root, cfg: o.Cfg, locked: scratch.Locked, out: scratch.Out}), nil
 	default:
 		return nil, fmt.Errorf("workflow.kind %q: serve knows %s", k, strings.Join(config.WorkflowKinds, ", "))
 	}
