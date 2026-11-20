@@ -558,6 +558,13 @@ func (a *App) startedCall(c wire.StartedReq) (string, error) {
 	return "STARTED " + c.Agent, nil
 }
 
+// Started is the started request in process, for the launchers serve itself runs (Launcher.Started): agent's start in
+// the served project at root is confirmed.
+func (a *App) Started(root, agent string) error {
+	_, err := a.startedCall(*wire.StartedRequest(root, agent))
+	return err
+}
+
 // skewNote is the status note for the agents in a pane whose calls carry another obor release than serve's (behind):
 // "pj-l-01 runs obor v0.33.0, pj-rev runs an older obor (serve v0.34.0)", agents in name order; "" when none. seen is
 // the agents serve observes in a pane now: one that left is not named. The caller holds a.mu.

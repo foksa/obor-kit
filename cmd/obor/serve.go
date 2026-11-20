@@ -113,7 +113,9 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		return 1
 	}
 	term = serveTerminal(cfg, term)
-	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed, Loop: mergeLoop(env, term, end, kinds),
+	var a *app.App // the merge loop's launchers ask it, in process: set before serve runs
+	a = app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed,
+		Loop:    mergeLoop(env, term, end, kinds, func() serveApp { return a }),
 		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
 		Info: term.Control.ProcessInfo, Screen: term.Control.Screen},
 		term.Panes, checks.Lanes{})
@@ -174,9 +176,10 @@ type serveEnd struct {
 // change counts), launch for the integrator's start and the merged worker's stop, the terminal for the job
 // prompts and the lines it types, the session inbox for the lead's lines and for the lines and job wakes of a
 // kind with an inbox, and dispatch as state (dispatchLoop: obor serve is the only dispatcher).
-// end ends serve for its self-restart. A plugin kind whose command changed is described again first
-// (kindCache).
-func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCache) func(root string) (*app.Loop, error) {
+// self is serve's App, which answers the launcher's where, sessions, reports and starts in process; end ends serve for
+// its self-restart. A plugin kind whose command changed is described again first (kindCache).
+func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCache,
+	self func() serveApp) func(root string) (*app.Loop, error) {
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
 		if err != nil {
@@ -192,8 +195,8 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 			}
 		}
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
-		agents := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: io.Discard, Diag: flushWriter{},
-			Background: func(search func()) { go search() }, Log: flushWriter{}}
+		agents := serveLauncher(cfg, env, term.Control, io.Discard, self())
+		agents.Diag, agents.Background, agents.Log = flushWriter{}, func(search func()) { go search() }, flushWriter{}
 		wf, err := workflowOf(o)
 		if err != nil {
 			return nil, err

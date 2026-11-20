@@ -1,11 +1,12 @@
 // registry.go: which pane each agent of a project runs in, and which agent a pane runs.
 // The table and its rules are package identity's (proj.reg); here are the lookups that read the observed panes:
 // whereIs (agent → pane) and the table's WhoIs (pane → agent) are the app's only identity lookups, and reconcile
-// collects the proofs the table accepts. whereCall is both lookups as the socket's where request: a caller outside serve
-// asks the table, never a copy of its proofs.
+// collects the proofs the table accepts. whereReply is both lookups as the socket's where request (whereCall) and as
+// serve's own launchers ask it (Where): a caller asks the table, never a copy of its proofs.
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,22 +199,37 @@ func (a *App) candidates(p *proj, mine []port.Pane, configured []string, named f
 	return out
 }
 
-// whereCall answers where: c.Name's pane in c's project and the agent each pane of c.Panes runs, from the table rebuilt
+// whereCall answers the socket's where request: where's reply as JSON.
+func (a *App) whereCall(c wire.WhereReq) (string, error) {
+	r, err := a.whereReply(c)
+	if err != nil {
+		return "", err
+	}
+	return whereJSON(r)
+}
+
+// Where is where's answer in process, for the launchers serve itself runs (Launcher.Where): no socket between serve
+// and itself.
+func (a *App) Where(_ context.Context, c wire.WhereReq) (wire.WhereReply, error) {
+	return a.whereReply(c)
+}
+
+// whereReply answers where: c.Name's pane in c's project and the agent each pane of c.Panes runs, from the table rebuilt
 // now (under mu: reconcile, whereIs, WhoIs). A pane the request names that is not one of the project's observed panes
 // runs "" (no agent the table knows of). Not connected to the terminal is its own state, with no panes' agents: nothing
 // is known.
-func (a *App) whereCall(c wire.WhereReq) (string, error) {
+func (a *App) whereReply(c wire.WhereReq) (wire.WhereReply, error) {
 	if c.Name == "" {
-		return "", errors.New("where: no agent named")
+		return wire.WhereReply{}, errors.New("where: no agent named")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p := a.projAt(c.Root)
 	if p == nil {
-		return "", fmt.Errorf("where: no served project at %s", c.Root)
+		return wire.WhereReply{}, fmt.Errorf("where: no served project at %s", c.Root)
 	}
 	if !a.connected {
-		return whereJSON(wire.WhereReply{State: wire.WhereNotConnected})
+		return wire.WhereReply{State: wire.WhereNotConnected}, nil
 	}
 	a.reconcile(p)
 	var r wire.WhereReply
@@ -234,7 +250,7 @@ func (a *App) whereCall(c wire.WhereReq) (string, error) {
 			r.Runs[id], _ = p.reg.WhoIs(o.pane)
 		}
 	}
-	return whereJSON(r)
+	return r, nil
 }
 
 // whereJSON is r as where's reply.
