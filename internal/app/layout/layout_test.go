@@ -27,6 +27,12 @@ func withAside(t layout.Tab) layout.Tab {
 	return t
 }
 
+// withAsideLead adds an aside pane that carries the lead's kind: aside wins, it holds no lead.
+func withAsideLead(t layout.Tab) layout.Tab {
+	t.Panes = append(t.Panes, layout.Pane{Kind: lead, Aside: true})
+	return t
+}
+
 // The case table of the placement decision: every row the herdr adapter's tests (internal/setup/placement_test.go,
 // internal/herdr/setup_test.go) and the hc adapter's (internal/hc/place_test.go) cover, as tabs and panes in, the
 // answer out. want is the tab's id, "new:<name>" for a new tab, or "refused: <text>" (a part of the refusal).
@@ -57,6 +63,8 @@ func TestPlace(t *testing.T) {
 			"t2", ""},
 		{"role, only a lanes tab: a new roles tab",
 			layout.Ask{Kind: role, Tabs: []layout.Tab{tab("t1", "lanes", lane, lane)}}, "new:roles", ""},
+		{"lane, a lanes tab with an aside pane of kind lead: split into it",
+			layout.Ask{Kind: lane, Tabs: []layout.Tab{withAsideLead(tab("t1", "lanes", lane))}}, "t1", ""},
 		{"lane, only a roles tab: a new lanes tab",
 			layout.Ask{Kind: lane, Tabs: []layout.Tab{tab("t1", "roles", role)}}, "new:lanes", ""},
 		{"lane, a tab with lanes and a shell: not a lanes tab",
@@ -129,6 +137,8 @@ func TestPlace(t *testing.T) {
 		{"lane --tab a tab full with the person's pane counted: a new lanes tab",
 			layout.Ask{Kind: lane, In: "t1", MaxPanes: 2, Tabs: []layout.Tab{withAside(tab("t1", "lanes", lane))}},
 			"new:lanes", "tab t1 is full (2 of 2 panes)"},
+		{"lane --tab a lanes tab with an aside pane of kind lead: it, never refused as the lead's",
+			layout.Ask{Kind: lane, In: "t1", MaxPanes: 4, Tabs: []layout.Tab{withAsideLead(tab("t1", "lanes", lane))}}, "t1", ""},
 		{"lane --tab the lead's tab: refused",
 			layout.Ask{Kind: lane, In: "t0", MaxPanes: 4, Tabs: []layout.Tab{tab("t0", "lead", lead)}},
 			"refused: tab t0 holds the lead's pane, which keeps its tab alone: pass --new-tab <label> (or --pane <id>)", ""},

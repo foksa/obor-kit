@@ -144,10 +144,10 @@ func takes(t Tab, k port.PaneKind, max int) bool {
 	return mine > 0 || t.Name == Label(k)
 }
 
-// holdsLead: a pane of t is the lead's.
+// holdsLead: a pane of t is the lead's. An aside pane never is, whatever kind it carries (the Aside contract).
 func holdsLead(t Tab) bool {
 	for _, p := range t.Panes {
-		if p.Kind == port.KindLead {
+		if !p.Aside && p.Kind == port.KindLead {
 			return true
 		}
 	}
