@@ -2,10 +2,11 @@
 
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
-// `make conformance [KIND=herdr|claude|codex|opencode|plugin] [TIER=static|live] [TURN=1]` (plugin: the kind protocol
-// against a shell-script kind, static only). Each check prints one line,
-// `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them. The exit status is 1
-// when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no TURN), SKIPs with why.
+// `make conformance [KIND=herdr|claude|codex|opencode|plugin|hc] [TIER=static|live] [TURN=1]` (plugin: the kind protocol
+// against a shell-script kind, static only; hc: the hc probes of live_hc.go, live only, run only when named). Each
+// check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them.
+// The exit status is 1 when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no
+// TURN), SKIPs with why.
 //
 // Tiers: static (static.go and herdrStatic here: schema, help text, binary strings, files; no session, no model) and
 // live (live.go: one throwaway herdr session per kind, the agents started interactively in its panes; model calls only
@@ -63,6 +64,18 @@ func main() {
 	if err := toRepoRoot(); err != nil {
 		fmt.Fprintln(os.Stderr, "FAIL conformance:", err)
 		os.Exit(2)
+	}
+	if kind == "hc" { // the hc probes (live_hc.go): live only, and only when named
+		if tier == "live" {
+			hcLive(turn)
+		} else {
+			report("SKIP", "HC", "hc has probes in the live tier only (TIER=live)", "tests/conformance/live_hc.go")
+		}
+		fmt.Println(out.summary())
+		if out.failed() {
+			os.Exit(1)
+		}
+		return
 	}
 	all := kinds
 	if tier == "static" { // the kind protocol has no live tier: its kind is a script, no CLI (plugin.go)
