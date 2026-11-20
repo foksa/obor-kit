@@ -87,7 +87,7 @@ func TestStartIsOneLaunchWithSetupsPlacement(t *testing.T) {
 	}
 	has(t, calls, "env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_ROLE=worker}", "the placement takes the launcher's env")
 	has(t, calls, "target_pane_id=w1:p1", "the placement in the tab --tab names")
-	if p != (placed{pane: "w1:n1", started: true}) {
+	if p != (placed{pane: "w1:n1"}) {
 		t.Errorf("result %+v, want started in the placed pane w1:n1", p)
 	}
 	if got := last(out.String()); got != "OK L-01: pj-l-01 in pane w1:n1" {

@@ -288,7 +288,6 @@ type placed struct {
 	pane    string
 	running bool // the agent ran already: nothing done
 	idle    bool // a pane labelled for the agent was there already, no agent in it (a rerun without --start)
-	started bool // the agent was started (a pane without --start starts none)
 }
 
 // start starts a's agent where w says through the launcher's one start (port.Launcher.Launch): a fresh session, its
@@ -327,7 +326,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) (placed, error) {
 	}
 	s.say("agent %s started (%s)", a.name, st.Kind)
 	s.say("OK %s: %s in pane %s", what, a.name, st.Pane)
-	return placed{pane: st.Pane, started: true}, nil
+	return placed{pane: st.Pane}, nil
 }
 
 // --- placement -------------------------------------------------------------------------------------------

@@ -73,6 +73,10 @@ type Options struct {
 	// Activity is what the agents themselves record of their work, the watchdogs' evidence (activity.go; nil: the
 	// agents' files under Home and the process table, with each pane's process info from Info).
 	Activity AgentActivity
+	// Kinds are the agent kinds of the config the last merge-loop pass loaded: the watchdogs' kind lookups read them
+	// at each use, so a kind added by a config edit counts from the next pass, as in the terminal adapter that reads
+	// the same value (nil: the kinds of the config at the project's load, never refreshed).
+	Kinds func() agents.Kinds
 	// Home is the user's home holding the agents' transcripts: .claude/projects and .codex/sessions
 	// ("" : os.UserHomeDir).
 	Home string
@@ -155,9 +159,9 @@ type App struct {
 // and the live state below it.
 type proj struct {
 	root, name string
-	// kinds are the project's agent kinds (config.Config.Kinds) as its config last loaded: at load, then on each
-	// tick's check (refreshKinds); a load that fails keeps the last good ones. Read with kindsNow, any goroutine.
-	kinds atomic.Pointer[agents.Kinds]
+	// kinds are the project's agent kinds: Options.Kinds (serve's, the last pass's config, the one source the terminal
+	// adapter reads too), else those of the config at load. Any goroutine.
+	kinds func() agents.Kinds
 	// terminal is the project's terminal kind (config.TerminalKind): its name among the tools the version pass reads.
 	terminal string
 	log      *event.Log

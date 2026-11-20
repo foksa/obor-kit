@@ -39,8 +39,11 @@ func (a *App) load(root string) (*proj, error) {
 		tests: map[string]event.Key{}, testCmd: map[string]string{},
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, cuts: map[event.Key]*cutWait{},
 		reg: identity.New(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
-	kinds := cfg.Kinds()
-	p.kinds.Store(&kinds)
+	p.kinds = a.opt.Kinds
+	if p.kinds == nil { // no serve to follow: the kinds of the config at load
+		kinds := cfg.Kinds()
+		p.kinds = func() agents.Kinds { return kinds }
+	}
 	for _, r := range recs {
 		p.foldRecord(r)
 	}
@@ -65,26 +68,9 @@ func (a *App) load(root string) (*proj, error) {
 	return p, nil
 }
 
-// refreshKinds makes p's kinds (proj.kinds) those of its config as it reads now; a config that does not load keeps
-// the last good ones (as wtAgentsNow does). Outside mu: it reads the config.
-func (p *proj) refreshKinds() {
-	if cfg, err := p.cfgNow(); err == nil {
-		kinds := cfg.Kinds()
-		p.kinds.Store(&kinds)
-	}
-}
-
-// kindsNow are p's kinds (proj.kinds).
-func (p *proj) kindsNow() agents.Kinds {
-	if k := p.kinds.Load(); k != nil {
-		return *k
-	}
-	return agents.Kinds{}
-}
-
-// kind is p's kind of name (kindsNow); nil: none.
+// kind is p's kind of name (proj.kinds); nil: none.
 func (p *proj) kind(name string) agents.Kind {
-	k, _ := p.kindsNow().Lookup(name)
+	k, _ := p.kinds().Lookup(name)
 	return k
 }
 
