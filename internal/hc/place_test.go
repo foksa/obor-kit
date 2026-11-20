@@ -96,8 +96,8 @@ func (k *placeKit) tabNames() []string {
 	return out
 }
 
-// A pane into a tab that is there is a terminal.run; the tab's count includes the app's own terminals (a person's
-// split): with them it is full, and the next lane goes to a new tab.
+// A pane into a tab that is there is a terminal.run; the tab's panes, for the placement decision, include the app's
+// own terminals (a person's split): they count toward its room.
 func TestPlaceCountIncludesTheAppsTerminals(t *testing.T) {
 	k := newPlaceKit(2)
 	a := k.place(t, port.KindLane, "", "")
@@ -137,83 +137,6 @@ func TestPlaceKeepsTheAppsTerminal(t *testing.T) {
 	b := k2.place(t, port.KindLane, "", "")
 	if !k2.core.Kept(b) || slices.Contains(k2.core.Requests(), "terminal.keep") {
 		t.Errorf("a kept app terminal: kept %v, requests %q; want no terminal.keep", k2.core.Kept(b), k2.core.Requests())
-	}
-}
-
-// A role goes to roles, never into a lanes tab; the lead to its own lead tab, which no lane, role or second lead
-// shares.
-func TestPlaceRolesAndLeadKeepTheirTabs(t *testing.T) {
-	k := newPlaceKit(4)
-	lane := k.place(t, port.KindLane, "", "")
-	role := k.place(t, port.KindRole, "", "")
-	lead := k.place(t, port.KindLead, "", "")
-	lane2 := k.place(t, port.KindLane, "", "")
-	role2 := k.place(t, port.KindRole, "", "")
-	lead2 := k.place(t, port.KindLead, "", "")
-	for id, want := range map[string]string{lane: "lanes", lane2: "lanes", role: "roles", role2: "roles", lead: "lead", lead2: "lead"} {
-		if got := k.tabOf(t, id); got != want {
-			t.Errorf("terminal %s is in tab %q, want %q", id, got, want)
-		}
-	}
-	if k.core.Labels(lead)[herdrapp.LabelTab] == k.core.Labels(lead2)[herdrapp.LabelTab] {
-		t.Errorf("two leads share a tab: %v", k.core.Labels(lead))
-	}
-	if k.core.Labels(lane)[herdrapp.LabelTab] != k.core.Labels(lane2)[herdrapp.LabelTab] {
-		t.Errorf("lanes are in two tabs, want one")
-	}
-}
-
-// --tab: In the lead's tab is refused with a line naming the way out; In a lanes tab joins it, a full one makes a new
-// tab of the kind; a tab the space lacks is an error.
-func TestPlaceInATab(t *testing.T) {
-	k := newPlaceKit(2)
-	lead := k.place(t, port.KindLead, "", "")
-	leadTab := k.core.Labels(lead)[herdrapp.LabelTab]
-	_, err := k.c.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj", In: leadTab, Project: k.pr})
-	if err == nil || !strings.Contains(err.Error(), "holds the lead") || !strings.Contains(err.Error(), "--new-tab") {
-		t.Errorf("Place in the lead's tab = %v, want the refusal naming --new-tab", err)
-	}
-	if n := len(k.live()); n != 1 {
-		t.Errorf("terminals %q, want only the lead's: the refusal made none", k.live())
-	}
-	a := k.place(t, port.KindLane, "", "")
-	laneTab := k.core.Labels(a)[herdrapp.LabelTab]
-	b := k.place(t, port.KindRole, laneTab, "")
-	if k.core.Labels(b)[herdrapp.LabelTab] != laneTab {
-		t.Errorf("In %s put the terminal in %v", laneTab, k.core.Labels(b))
-	}
-	k.said = nil
-	c := k.place(t, port.KindLane, laneTab, "")
-	if got := k.tabOf(t, c); got != "lanes" || k.core.Labels(c)[herdrapp.LabelTab] == laneTab {
-		t.Errorf("In a full tab: terminal in %q %v, want a new lanes tab", got, k.core.Labels(c))
-	}
-	if !slices.ContainsFunc(k.said, func(l string) bool { return strings.Contains(l, "is full (2 of 2") }) {
-		t.Errorf("said %q, want the full-tab line", k.said)
-	}
-	if _, err := k.c.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj", In: "tb99", Project: k.pr}); err == nil {
-		t.Error("Place in a tab the space lacks succeeded")
-	}
-}
-
-// Group is always a new tab of that name: a second Group of the same name is another tab, and `--new-tab lead` never
-// lands in the lead's tab.
-func TestPlaceGroupMakesANewNamedTab(t *testing.T) {
-	k := newPlaceKit(4)
-	lead := k.place(t, port.KindLead, "", "")
-	first := k.place(t, port.KindLane, "", "review")
-	second := k.place(t, port.KindLane, "", "review")
-	if got := k.tabOf(t, first); got != "review" {
-		t.Errorf("terminal in tab %q, want review", got)
-	}
-	if k.core.Labels(first)[herdrapp.LabelTab] == k.core.Labels(second)[herdrapp.LabelTab] || k.tabOf(t, second) != "review" {
-		t.Errorf("two Places of Group review share a tab: %v %v", k.core.Labels(first), k.core.Labels(second))
-	}
-	if got := k.tabNames(); !slices.Equal(got, []string{"lead", "review", "review"}) {
-		t.Errorf("tabs = %q, want lead and two review tabs", got)
-	}
-	other := k.place(t, port.KindLane, "", "lead")
-	if k.core.Labels(other)[herdrapp.LabelTab] == k.core.Labels(lead)[herdrapp.LabelTab] {
-		t.Errorf("Group lead put a terminal in the lead's tab")
 	}
 }
 
@@ -267,17 +190,6 @@ func TestRenameProjectRenamesTheSpace(t *testing.T) {
 	}
 	if got := k.core.Labels(id2)[hc.LabelProject]; got != "third" {
 		t.Errorf("obor.project = %q, want third", got)
-	}
-}
-
-// A refusal is a project failure (a line setup prints after FAIL).
-func TestPlaceRefusalIsAProjectFailure(t *testing.T) {
-	k := newPlaceKit(2)
-	lead := k.place(t, port.KindLead, "", "")
-	_, err := k.c.Place(ctx, port.Placement{Kind: port.KindRole, Cwd: "/proj", In: k.core.Labels(lead)[herdrapp.LabelTab], Project: k.pr})
-	var f project.Fail
-	if !errors.As(err, &f) {
-		t.Errorf("refusal %v is not a project failure", err)
 	}
 }
 
@@ -411,16 +323,6 @@ func TestPlaceCases(t *testing.T) {
 					t.Errorf("tabs %q, terminals %q; want a lead tab holding the lead %s alone", w.k.tabNames(), w.k.live(), w.addr)
 				}
 			}},
-		{name: "open, an empty lead tab, lead: in it, alone",
-			state: func(t *testing.T, k *placeKit) {
-				k.app.AddSpace(herdrapptest.Space{ID: "sp9", Name: "proj", Folder: "/proj", Tabs: []herdrapptest.Tab{{ID: "tb9", Name: "lead"}}})
-			},
-			p: port.Placement{Kind: port.KindLead, Cwd: "/proj"},
-			expect: func(t *testing.T, w when) {
-				if got := w.k.inTab("tb9"); !slices.Equal(got, []string{w.addr}) || !slices.Equal(w.k.tabNames(), []string{"lead"}) {
-					t.Errorf("tb9 holds %q, tabs %q; want the lead %s alone in the one lead tab", got, w.k.tabNames(), w.addr)
-				}
-			}},
 		{name: "open, a person's shell in the lead tab, lead: a new lead tab, the shell untouched",
 			state: func(t *testing.T, k *placeKit) {
 				k.app.AddSpace(herdrapptest.Space{ID: "sp9", Name: "proj", Folder: "/proj", Tabs: []herdrapptest.Tab{{ID: "tb9", Name: "lead"}}})
@@ -443,9 +345,8 @@ func TestPlaceCases(t *testing.T) {
 			p:     port.Placement{Kind: port.KindLead, Cwd: "/proj", In: "lanes"},
 			expect: func(t *testing.T, w when) {
 				var f project.Fail
-				if w.err == nil || !errors.As(w.err, &f) || !strings.Contains(w.err.Error(), "the lead keeps its tab alone") ||
-					!strings.Contains(w.err.Error(), "--new-tab") {
-					t.Errorf("Place = %v, want the project failure naming --new-tab", w.err)
+				if w.err == nil || !errors.As(w.err, &f) {
+					t.Errorf("Place = %v, want the decision's refusal as a project failure", w.err)
 				}
 				if !slices.Equal(w.k.live(), w.pre) {
 					t.Errorf("terminals %q after the refusal, want %q", w.k.live(), w.pre)

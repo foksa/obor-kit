@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/app/layout"
 	"obor/internal/app/port"
 	"obor/internal/herdrapp"
 	"obor/internal/project"
@@ -20,14 +21,9 @@ import (
 // as labels (docs/research/hc-probes.md P7); a tab's terminals are the live hc terminals labelled with its id, the
 // app's own and a person's included (herdr-app's `ls` lists tabs, not their terminals).
 //
-// One rule set decides where a terminal goes (spot), for Place and for the adoption of a hidden terminal alike:
-//
-//	Group      → a new tab named Group
-//	In         → that tab; refused when it holds the lead's terminal, and for a lead when it holds any terminal;
-//	             full: a new tab of the kind
-//	lead       → the first tab named `lead` that holds no terminal at all, else a new `lead` tab
-//	lane, role → the first tab with room whose project terminals are all of the kind (with none: a tab named for
-//	             the kind), else a new tab of the kind
+// One decision places a terminal, for Place and for the adoption of a hidden terminal alike: internal/app/layout's
+// (the rules are there). hc gathers the facts (the space's tabs from herdr-app, each tab's terminals and their labels
+// from hc), asks it (spot) and carries out the answer: the tab, or a new tab of the name it gives.
 //
 // A new tab is the one `space.new` made with the space when this call made the space (renamed), else `tab.new`'s;
 // herdr-app starts its first terminal and prints that terminal's address, and the address is how obor knows the
@@ -75,7 +71,7 @@ func (cl *Client) Place(ctx context.Context, p port.Placement) (string, error) {
 		return "", project.Failf("herdr-app is not running: open it, or place without --tab/--new-tab")
 	case closed(err):
 		say(p, "herdr-app is not running: the terminal is made hidden and is placed in the %s tab once the window is open",
-			kindLabel(p.Kind))
+			layout.Label(p.Kind))
 		return cl.run(ctx, p, labels)
 	default:
 		return "", err
@@ -157,10 +153,10 @@ func (cl *Client) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken
 			return port.LeadTaken{}, err
 		}
 	}
-	if _, err := cl.App.RenameTab(ctx, c.tab, kindLabel(port.KindLead)); err != nil {
+	if _, err := cl.App.RenameTab(ctx, c.tab, layout.Label(port.KindLead)); err != nil {
 		return port.LeadTaken{}, err
 	}
-	did := fmt.Sprintf("terminal %s labelled %s, tab %s named %s", p.Pane, p.Agent, c.tab, kindLabel(port.KindLead))
+	did := fmt.Sprintf("terminal %s labelled %s, tab %s named %s", p.Pane, p.Agent, c.tab, layout.Label(port.KindLead))
 	if line, err := cl.nameSpace(ctx, c.space, p.Project.Name); err != nil {
 		return port.LeadTaken{}, err
 	} else if line != "" {
@@ -191,67 +187,68 @@ type caller struct {
 	space herdrapp.Space
 }
 
-// leadCaller is the caller's terminal p.Pane when it qualifies as the lead's home, else why it does not: a live
-// terminal of this core with no agent reported and nothing in the foreground but its shell or the command offering it
-// (p.Caller's process group: it exits before the lead starts), shown in a herdr-app tab and alone in it, in a space of
-// this computer that holds no terminal of another project, while no other space is named after the project (the
-// project's tabs are there). herdr-app closed (or no App): not qualified, the tab cannot be read.
+// leadCaller is the caller's terminal p.Pane when it qualifies as the lead's home (layout.Home over the facts read
+// here), else why it does not. herdr-app closed (or no App): not qualified, the tab cannot be named.
 func (cl *Client) leadCaller(ctx context.Context, p port.LeadPane) (caller, string, error) {
-	no := func(format string, a ...any) (caller, string, error) { return caller{}, fmt.Sprintf(format, a...), nil }
 	recs, err := cl.terminals(ctx)
 	if err != nil {
 		return caller{}, "", err
 	}
-	var me *Record
-	for i := range recs {
-		if recs[i].Address == p.Pane {
-			me = &recs[i]
-		}
-	}
-	switch {
-	case me == nil:
-		return no("terminal %s is not a live terminal of this hc", p.Pane)
-	case me.Status != nil:
-		return no("terminal %s runs an agent (%s)", p.Pane, cmp.Or(me.Status.App, me.Status.State))
-	case me.programRuns() && (p.Caller == 0 || me.Foreground.PID != p.Caller):
-		return no("terminal %s runs a program (%s)", p.Pane, cmp.Or(me.Foreground.Name, strconv.Itoa(me.Foreground.PID)))
-	case me.Labels[herdrapp.LabelTab] == "":
-		return no("terminal %s is in no herdr-app tab", p.Pane)
-	case cl.App == nil:
-		return no("no herdr-app client to name its tab")
-	}
-	tab := me.Labels[herdrapp.LabelTab]
-	if n := len(inTab(recs, tab)); n > 1 {
-		return no("terminal %s shares its tab with %d other terminal(s)", p.Pane, n-1)
-	}
+	c := layout.Caller{Pane: p.Pane, Project: p.Project.Name, Grouped: true}
+	var me Record
 	for _, r := range recs {
-		if pr := r.Labels[LabelProject]; r.Labels[herdrapp.LabelSpace] == me.Labels[herdrapp.LabelSpace] && pr != "" &&
-			pr != p.Project.Name {
-			return no("its space holds terminal %s of another project (%s)", r.Address, pr)
+		if r.Address == p.Pane {
+			me, c.Found = r, true
 		}
 	}
-	spaces, err := cl.App.Spaces(ctx)
-	switch {
-	case port.NotRunning(err):
-		return no("herdr-app is not running: its tab cannot be named")
-	case err != nil:
-		return caller{}, "", err
-	}
-	var mine *herdrapp.Space
-	for i, s := range spaces {
-		if s.Machine == "" && s.ID == me.Labels[herdrapp.LabelSpace] {
-			mine = &spaces[i]
+	var spaces []herdrapp.Space
+	down := ""
+	if c.Found {
+		tab := me.Labels[herdrapp.LabelTab]
+		if me.Status != nil {
+			c.Agent = cmp.Or(me.Status.App, me.Status.State)
+		}
+		if me.programRuns() && (p.Caller == 0 || me.Foreground.PID != p.Caller) {
+			c.Program = cmp.Or(me.Foreground.Name, strconv.Itoa(me.Foreground.PID))
+		}
+		c.Tabbed = tab != ""
+		if c.Tabbed {
+			c.TabMates = len(inTab(recs, tab)) - 1
+		}
+		for _, r := range recs {
+			if pr := r.Labels[LabelProject]; c.Foreign == "" && r.Labels[herdrapp.LabelSpace] == me.Labels[herdrapp.LabelSpace] &&
+				pr != "" && pr != p.Project.Name {
+				c.Foreign, c.ForeignOf = r.Address, pr
+			}
+		}
+		if cl.App == nil {
+			down = "no herdr-app client to name its tab"
+		} else if spaces, err = cl.App.Spaces(ctx); port.NotRunning(err) {
+			down = "herdr-app is not running: its tab cannot be named"
+		} else if err != nil {
+			return caller{}, "", err
 		}
 	}
-	if mine == nil {
-		return no("terminal %s is in no space of this computer's herdr-app", p.Pane)
-	}
-	for _, s := range spaces {
-		if s.Machine == "" && s.Name == p.Project.Name && s.ID != mine.ID {
-			return no("the %s space is another than this terminal's (%s)", p.Project.Name, mine.Name)
+	var mine herdrapp.Space
+	if down == "" && c.Found && c.Tabbed {
+		c.Grouped = false
+		for _, s := range spaces {
+			if s.Machine == "" && s.ID == me.Labels[herdrapp.LabelSpace] {
+				mine, c.Grouped, c.Group = s, true, s.Name
+			}
+		}
+		for _, s := range spaces {
+			if s.Machine == "" && s.Name == p.Project.Name && s.ID != mine.ID {
+				c.Other = true
+			}
 		}
 	}
-	return caller{me: *me, tab: tab, space: *mine}, "", nil
+	if why := layout.Home(c); why != "" {
+		return caller{}, why, nil
+	} else if down != "" {
+		return caller{}, down, nil
+	}
+	return caller{me: me, tab: me.Labels[herdrapp.LabelTab], space: mine}, "", nil
 }
 
 // nameSpace names space sp name unless it is named so: what it did ("" when nothing).
@@ -271,8 +268,8 @@ var errNoApp error = &herdrapp.Error{Op: "ls", Msg: "no herdr-app client"}
 // closed: err says there is no window to lay out in (herdr-app not running, or no App).
 func closed(err error) bool { return err == errNoApp || port.NotRunning(err) }
 
-// spot is where p goes by the rules in this file's head: the project's space (made when there is none) and its tab,
-// made when none that is there takes p. Its refusals are project failures.
+// spot is where p goes by layout's decision over the project's space (made when there is none) and its tabs: the tab
+// the answer names, or a new one. Its refusals are project failures.
 func (cl *Client) spot(ctx context.Context, recs []Record, p port.Placement) (spot, error) {
 	if cl.App == nil {
 		return spot{}, errNoApp
@@ -282,83 +279,35 @@ func (cl *Client) spot(ctx context.Context, recs []Record, p port.Placement) (sp
 	if err != nil {
 		return spot{}, err
 	}
-	newTab := func(name string) (spot, error) {
-		if sp.First.ID != "" { // the space this call made: its one tab is the new tab, its terminal herdr-app's
-			t, err := cl.App.RenameTab(ctx, sp.First.ID, name)
-			t.Terminal = sp.First.Terminal
-			return spot{Space: sp.ID, Tab: t, Folder: sp.Folder}, err
+	ask := layout.Ask{Kind: p.Kind, Group: p.Group, In: p.In, Home: fmt.Sprintf("the %s space", sp.Name), MaxPanes: pr.MaxPanes}
+	for _, t := range sp.Tabs {
+		lt := layout.Tab{ID: t.ID, Name: t.Name}
+		for _, r := range inTab(recs, t.ID) {
+			// a terminal of another project or of nobody in the project's tab is a person's: it holds a place
+			// and blocks no kind
+			lt.Panes = append(lt.Panes, layout.Pane{Kind: placeKind(r, pr), Aside: r.Labels[LabelProject] != pr.Name})
 		}
-		folder := cmp.Or(p.Cwd, pr.Root)
-		t, err := cl.App.NewTab(ctx, sp.ID, name, folder)
-		return spot{Space: sp.ID, Tab: t, Folder: folder}, err
+		ask.Tabs = append(ask.Tabs, lt)
 	}
-	switch {
-	case p.Group != "":
-		return newTab(p.Group)
-	case p.In != "":
-		t, ok := findTab(sp.Tabs, p.In)
-		if !ok {
-			return spot{}, project.Failf("tab %s is not in the %s space", p.In, sp.Name)
-		}
-		held := inTab(recs, t.ID)
-		if p.Kind == port.KindLead && len(held) > 0 {
-			return spot{}, project.Failf("tab %s holds %d pane(s): the lead keeps its tab alone: pass --new-tab <label>",
-				p.In, len(held))
-		}
-		if holdsLead(held, pr) {
-			return spot{}, project.Failf("tab %s holds the lead's pane, which keeps its tab alone: pass --new-tab <label> "+
-				"(or --pane <id>)", p.In)
-		}
-		if len(held) < pr.MaxPanes {
-			return spot{Space: sp.ID, Tab: t}, nil
-		}
-		say(p, "tab %s is full (%d of %d panes)", p.In, len(held), pr.MaxPanes)
-	default:
-		if t, ok := kindTab(sp.Tabs, recs, p.Kind, pr); ok {
-			return spot{Space: sp.ID, Tab: t}, nil
-		}
+	ans := layout.Place(ask)
+	if ans.Refused != "" {
+		return spot{}, project.Failf("%s", ans.Refused)
 	}
-	return newTab(kindLabel(p.Kind))
-}
-
-// kindTab is the first tab of tabs, in the window's order, a placement of kind k with no place named goes to. A
-// lead's: a tab named `lead` that holds no terminal at all (a person's shell, the app's own and an unlabelled one
-// occupy it too). Any other kind's: fewer than MaxPanes terminals in it, every project terminal in it of kind k (the
-// lead's is of none), and with none of them a tab named for the kind.
-func kindTab(tabs []herdrapp.Tab, recs []Record, k port.PaneKind, pr port.PlaceProject) (herdrapp.Tab, bool) {
-	for _, t := range tabs {
-		held := inTab(recs, t.ID)
-		if k == port.KindLead {
-			if t.Name == kindLabel(k) && len(held) == 0 {
-				return t, true
-			}
-			continue
-		}
-		if len(held) >= pr.MaxPanes {
-			continue
-		}
-		mine, fits := 0, true
-		for _, r := range held {
-			if r.Labels[LabelProject] == pr.Name {
-				mine++
-				fits = fits && placeKind(r, pr) == k
-			}
-		}
-		if fits && (mine > 0 || t.Name == kindLabel(k)) {
-			return t, true
-		}
+	if ans.Said != "" {
+		say(p, "%s", ans.Said)
 	}
-	return herdrapp.Tab{}, false
-}
-
-// holdsLead: a terminal of held is the project's lead's.
-func holdsLead(held []Record, pr port.PlaceProject) bool {
-	for _, r := range held {
-		if r.Labels[LabelProject] == pr.Name && placeKind(r, pr) == port.KindLead {
-			return true
-		}
+	if ans.New == "" {
+		t, _ := findTab(sp.Tabs, ans.Tab.ID)
+		return spot{Space: sp.ID, Tab: t}, nil
 	}
-	return false
+	if sp.First.ID != "" { // the space this call made: its one tab is the new tab, its terminal herdr-app's
+		t, err := cl.App.RenameTab(ctx, sp.First.ID, ans.New)
+		t.Terminal = sp.First.Terminal
+		return spot{Space: sp.ID, Tab: t, Folder: sp.Folder}, err
+	}
+	folder := cmp.Or(p.Cwd, pr.Root)
+	t, err := cl.App.NewTab(ctx, sp.ID, ans.New, folder)
+	return spot{Space: sp.ID, Tab: t, Folder: folder}, err
 }
 
 // take makes the terminal herdr-app started in the tab at made (at.Tab.Terminal, the address it printed) p's pane:
@@ -484,10 +433,10 @@ func inTab(recs []Record, tab string) []Record {
 	return out
 }
 
-// findTab is the tab of tabs with this id or name.
-func findTab(tabs []herdrapp.Tab, idOrName string) (herdrapp.Tab, bool) {
+// findTab is the tab of tabs with this id.
+func findTab(tabs []herdrapp.Tab, id string) (herdrapp.Tab, bool) {
 	for _, t := range tabs {
-		if t.ID == idOrName || t.Name == idOrName {
+		if t.ID == id {
 			return t, true
 		}
 	}
@@ -503,17 +452,6 @@ func placeKind(r Record, pr port.PlaceProject) port.PaneKind {
 		return pr.KindOf(r.Labels[LabelAgent])
 	}
 	return ""
-}
-
-// kindLabel is the name of a new tab for a terminal of kind k: "lanes", "roles", "lead" (herdr's).
-func kindLabel(k port.PaneKind) string {
-	switch k {
-	case port.KindLane:
-		return "lanes"
-	case port.KindRole:
-		return "roles"
-	}
-	return string(k)
 }
 
 func say(p port.Placement, format string, a ...any) {
