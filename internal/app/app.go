@@ -325,4 +325,8 @@ type quietTimer struct {
 type seen struct {
 	pane  port.Pane
 	since time.Time // its status and agent since
+	// ready is since when it was Ready (idle or done) and running the same agent, or not: the done stretch obor
+	// status' and the lead's reminder count (roleDone). An idle/done flip is no new stretch (done is idle with an
+	// unviewed reply: viewing it makes it idle); working, blocked or no agent is.
+	ready time.Time
 }

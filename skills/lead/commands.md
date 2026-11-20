@@ -14,6 +14,10 @@ T-yy (make build, 12s)` (else `running: nothing`); a lane's state column is its 
 `publish`, `merging`, `publish pending`, `needs-you`, or `held` (the integrator's hold alone);
 an undelivered line names why: `undelivered: <why>`. `obor status --short` is just that line, serve's and needs-you (a status bar).
 An empty pipeline shows `idle: <why>` once you acknowledged it, else `idle, not acknowledged since <time>`.
+A role agent's line ends with ` → obor restart <agent> --stop` once it has been done or idle for an hour with no open
+work, and serve posts you one line, `[obor] <agent> done <age>, no open work — obor restart <agent> --stop (the next
+obor brief starts it fresh)`: once per done stretch, a reminder, not a stop — you may still want a follow-up in that
+session.
 
 ## obor web
 `obor web` serves a page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen

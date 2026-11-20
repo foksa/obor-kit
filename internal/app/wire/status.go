@@ -322,6 +322,10 @@ type AgentStatus struct {
 	Session    string `json:"session,omitempty"`
 	Transcript string `json:"transcript,omitempty"`
 	Started    int64  `json:"started,omitempty"`
+	// Hint is the command obor status prints after a role agent's line: the stop of a role agent (not the lead, not a
+	// lane's agent) done or idle with no open work for an hour ("obor restart <agent> --stop"; roleDone). "" for every
+	// other agent, and a serve older than this field sends none.
+	Hint string `json:"hint,omitempty"`
 }
 
 // SetSession fills a's recorded session fields (sessions.go) from s, the one session shape they mirror.
