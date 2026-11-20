@@ -1695,6 +1695,7 @@ func TestEnvLineSeenInRecentOutputWhenTheScreenIsStale(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", x.lane)
 		staleScreen(x, "w1:p3")
 		r := &launch.Restorer{Env: x.p.Env(), H: x.f, Now: func() time.Time { return time.Unix(0, 0) },
+			Sessions:  store.CurrentAt,
 			LaneState: func(*config.Config, config.Lane) string { return port.LaneWorking },
 			Restart: func(ctx context.Context, _ *config.Config, req launch.Request, w io.Writer) (string, error) {
 				return x.launcher(w).Restart(ctx, req)

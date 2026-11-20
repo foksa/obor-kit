@@ -3,6 +3,7 @@ package project
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"obor/internal/agents"
 	"obor/internal/config"
@@ -16,7 +17,15 @@ import (
 
 // PaneVars are every variable PaneOf reads, for any kind: a process that is no agent's (the herdr plugin's command,
 // serve's restore) drops them all.
-var PaneVars = []string{agents.PaneVar, config.TerminalPaneVars[config.DefaultTerminal], config.TerminalPaneVars[config.TerminalHC]}
+// OBOR_PANE, then the terminal table's variables (config.TerminalPaneVars), sorted: no kind is named here.
+var PaneVars = func() []string {
+	vars := []string{}
+	for _, v := range config.TerminalPaneVars {
+		vars = append(vars, v)
+	}
+	sort.Strings(vars)
+	return append([]string{agents.PaneVar}, vars...)
+}()
 
 // ErrNoPane: the environment names no pane: the caller runs outside a pane.
 var ErrNoPane = errors.New("no pane")

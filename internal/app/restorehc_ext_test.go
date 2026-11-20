@@ -17,6 +17,7 @@ import (
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
 	"obor/internal/launch"
+	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -345,6 +346,7 @@ func newTrialRig(t *testing.T) *trialRig {
 	p.Config(testkit.Set("agents.roles", map[string]any{"integrator": "", "reviewer": "opus"}))
 	r := &trialRig{hcRig: &hcRig{t: t, core: hctest.New(), root: p.Root, fr: &lostRestorer{}}}
 	pl := &launch.Restorer{Env: p.Env(), H: r.core.Client(),
+		Sessions:  store.CurrentAt,
 		LaneState: func(*config.Config, config.Lane) string { return port.LaneFree },
 		OpenWork:  func(string, string) (bool, error) { return false, nil }}
 	pl.Restart = func(_ context.Context, _ *config.Config, req launch.Request, _ io.Writer) (string, error) {

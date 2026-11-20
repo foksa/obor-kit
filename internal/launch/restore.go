@@ -68,6 +68,9 @@ type Restorer struct {
 	// pane, leaving its shell (a pane the restore skips); the result line, or the error it failed with. Nil: that
 	// agent is left running, said in the log.
 	Stop func(ctx context.Context, cfg *config.Config, agent, pane string, out io.Writer) (string, error)
+	// Sessions is agent's current recorded session in the project at root: the App's fold, the one source a restart
+	// reads (serve's launchers' Launcher.Sessions). Nil: no session is recorded.
+	Sessions func(root, agent string) (store.Session, bool)
 	// Settle bounds one run's wait for the agents the terminal resumed to settle (0: settleBound); Poll is how often
 	// it looks (0: settlePoll).
 	Settle, Poll time.Duration
@@ -261,7 +264,10 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 	if role == "" {
 		role = "agent"
 	}
-	s, _ := store.CurrentAt(cfg.Root, agent)
+	var s store.Session
+	if p.Sessions != nil {
+		s, _ = p.Sessions(cfg.Root, agent)
+	}
 	switch kind := project.RunningKind(cfg, info); {
 	case !agents.Resumes(kind):
 		req.Fresh, note = true, note+" ("+role+", kind "+kind+" resumes nothing: --fresh)"

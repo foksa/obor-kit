@@ -57,6 +57,7 @@ func newRfxAt(t *testing.T, git bool) *rfx {
 	f := &rfx{t: t, p: p, fail: map[string]bool{}, prompts: map[string]string{}}
 	f.h = newTerm()
 	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.h, Now: func() time.Time { return time.Unix(0, 0) },
+		Sessions: store.CurrentAt, // the App's fold stands in as the store the tests record into
 		LaneState: func(cfg *config.Config, l config.Lane) string {
 			if !git {
 				return port.LaneWorking // a lane with its task: the free-lane skip is newGitRfx's
@@ -690,5 +691,42 @@ func TestRestoreWaitsForAResumedAgentToSettle(t *testing.T) {
 		has(t, log, " pj-lead (pane w1:p1): the terminal's claude has not settled by the restore's bound: taken as it is\n",
 			"the bound is logged")
 		lacks(t, log, "the terminal resumed", "restored as a shell")
+	})
+}
+
+// the restore reads the session from the Sessions function (the App's fold), not from the store on disk: a session
+// there and none on disk resumes; one on disk and none there starts fresh.
+func TestRestoreReadsSessionFromSessions(t *testing.T) {
+	setup := func(t *testing.T) *rfx {
+		f := newRfx(t)
+		lane := f.p.PlainLane("L-01", "task/T-01")
+		f.p.Config()
+		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
+		f.shell("w1:p1", lane, "pj-l-01")
+		return f
+	}
+	claude := store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()}
+	t.Run("in the fold, none on disk: resumes", func(t *testing.T) {
+		f := setup(t)
+		if _, ok := store.CurrentAt(f.p.Root, "pj-l-01"); ok {
+			t.Fatal("precondition: a session on disk")
+		}
+		f.pl.Sessions = func(root, agent string) (store.Session, bool) {
+			return claude, root == f.p.Root && agent == claude.Agent
+		}
+		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1")
+		lacks(t, f.restoreLog(), "no recorded session", "no --fresh note")
+	})
+	t.Run("on disk, none in the fold: fresh", func(t *testing.T) {
+		f := setup(t)
+		recordSessions(t, f.p.Root, claude)
+		if _, ok := store.CurrentAt(f.p.Root, "pj-l-01"); !ok {
+			t.Fatal("precondition: no session on disk")
+		}
+		f.pl.Sessions = func(string, string) (store.Session, bool) { return store.Session{}, false }
+		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
+		has(t, f.restoreLog(), "no recorded session", "fresh")
 	})
 }
