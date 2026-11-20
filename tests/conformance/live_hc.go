@@ -619,7 +619,7 @@ func hcP2(hc, root string) {
 	for _, n := range []int{4000, 16000} {
 		ok = l.line(a, "echo "+strings.Repeat("x", n)+" | wc -c", strconv.Itoa(n+1))
 		report(passIf(ok), "HC-P2", fmt.Sprintf("a %d-byte command line at a shell arrives whole: %v", n, ok), where+
-			", "+at("internal/launch/launch.go", "func shellQuote"))
+			", "+at("internal/project/shell.go", "func ShellQuote"))
 	}
 	var ds []string
 	for _, k := range []string{"esc", "ctrl+c", "enter"} {

@@ -1,6 +1,7 @@
 package hc
 
 import (
+	"cmp"
 	"context"
 	"strconv"
 
@@ -43,9 +44,10 @@ type Foreground struct {
 // pane is r as the core sees it. Group and Label are the obor.project and obor.agent labels; Cwd the foreground's
 // (it follows a cd), else the record's; Run the terminal's own program's pid (a fresh shell after a lost holder or a
 // stop and start has another). The agent is what the program reported: its kind the one whose agents report
-// status.app (kindOf; never foreground.name, which is Claude's version), its status hc's word, with `error`
-// as idle (the turn ended, the agent takes a prompt again). With no status, a program other than the terminal's own
-// in the foreground is unknown; the terminal's own program (its shell) is no agent.
+// status.app (kindOf; never foreground.name, which is Claude's version), else the obor.kind label obor's start set,
+// its status hc's word, with `error` as idle (the turn ended, the agent takes a prompt again; its msg is logged where
+// a wait reads it). With no status, a program other than the terminal's own in the foreground is unknown; the
+// terminal's own program (its shell) is no agent.
 func (r Record) pane() port.Pane {
 	p := port.Pane{ID: r.Address, Terminal: r.Address, Group: r.Labels[LabelProject], Label: r.Labels[LabelAgent], Cwd: r.Cwd}
 	if r.PID != 0 {
@@ -56,12 +58,17 @@ func (r Record) pane() port.Pane {
 	}
 	switch {
 	case r.Status != nil:
-		p.Agent = kindOf(r.Status.App)
+		p.Agent = cmp.Or(kindOf(r.Status.App), r.Labels[LabelKind])
 		p.Status = statusWord(r.Status.State)
-	case r.Foreground != nil && r.Foreground.PID != r.PID:
+	case r.programRuns():
 		p.Status = "unknown"
 	}
 	return p
+}
+
+// programRuns: a program other than the terminal's own (a shell terminal's shell) holds the foreground.
+func (r Record) programRuns() bool {
+	return r.Foreground != nil && r.Foreground.PID != r.PID
 }
 
 // kindOf is the kind whose agents report app as their name in a status (agents.Caps.App, else the kind's name); ""

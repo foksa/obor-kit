@@ -19,7 +19,8 @@ const HeartbeatLost = 45 * time.Second
 // terminal, so only an unfiltered stream can tell a lost event by its seq). Its snapshot is the subscription's own;
 // each later event is applied to the stream's copy of the record and sent on as the whole pane when the pane changed:
 // a terminal's creation as EventCreated, its status, foreground (cwd) and labels (group, label) as EventStatus, its
-// end as EventExited, its removal as EventClosed. A labels event without obor.project is the pane leaving its group
+// end as EventExited (for good: a kept terminal whose shell exited is finished and never restarted, so the restore
+// places a new pane), its removal as EventClosed. A labels event without obor.project is the pane leaving its group
 // (Group ""), sent like any other change.
 //
 // The stream ends, C closed and Err set:

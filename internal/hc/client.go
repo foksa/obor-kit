@@ -1,8 +1,9 @@
 // Package hc is obor's client of herdr-core (`hc`), the second terminal adapter (docs/plan/herdr-core.md): JSON-RPC 2.0
 // over the core's unix socket, one message per line, each request on its own connection after `hello {generation: 1}`.
-// It implements port.Panes (Panes: the snapshot, the event stream, Notify) and the reads of port.PaneControl (Client:
-// Pane, Panes, Screen, Recent, ProcessInfo). A terminal is a pane: its address (`t7`) is the pane's id, its labels
-// obor.project and obor.agent are the pane's group and label. No project's terminal is hc yet.
+// It implements port.Panes (Panes: the snapshot, the event stream, Notify), port.PaneControl (Client: its reads here,
+// the typing and the wait in control.go) and port.AgentStarter (start.go). A terminal is a pane: its address (`t7`) is
+// the pane's id, its labels obor.project and obor.agent are the pane's group and label. No project's terminal is hc
+// yet.
 //
 // Every failure is an *Error: hc's own answer carries its data.kind (not_found → port.NotFound); a core that does not
 // answer (no socket, a refused dial, a connection that went) is port.NotRunning; hc's `unavailable` (a terminal in
@@ -34,10 +35,12 @@ const (
 	MinVersion = "0.1.21"
 )
 
-// The labels obor reads on a terminal: the project it belongs to (the pane's Group) and obor's agent name (its Label).
+// The labels obor reads on a terminal: the project it belongs to (the pane's Group), obor's agent name (its Label) and
+// the kind obor's last start ran there (the pane's Agent when the running agent's status names no kind).
 const (
 	LabelProject = "obor.project"
 	LabelAgent   = "obor.agent"
+	LabelKind    = "obor.kind"
 )
 
 // Error is every error the client returns.
@@ -49,11 +52,14 @@ type Error struct {
 	down bool
 	// refresh: the stream ended only so the caller reads a new snapshot and subscribes again (port.Refreshed).
 	refresh bool
+	// sent: the request went out whole before its answer failed to come: hc may have acted on it (a send typed).
+	sent bool
 }
 
 // NotFound, Unavailable, Refreshed and Answered let the core read an *Error without importing hc (port.NotFound,
-// port.NotRunning, port.Refreshed, port.Answered).
-func (e *Error) NotFound() bool    { return e.Kind == "not_found" }
+// port.NotRunning, port.Refreshed, port.Answered). A finished terminal is not found: its program ended for good (a kept
+// terminal whose shell exited is never restarted), so the pane is gone.
+func (e *Error) NotFound() bool    { return e.Kind == "not_found" || e.Kind == "finished" }
 func (e *Error) Unavailable() bool { return e.down }
 func (e *Error) Refreshed() bool   { return e.refresh }
 func (e *Error) Answered() bool    { return e.Kind != "" }
@@ -137,14 +143,19 @@ func (cl *Client) dial(ctx context.Context, op string) (net.Conn, error) {
 }
 
 // open dials the core and says hello: a session once hc speaks generation 1 and is MinVersion or newer. ctx bounds
-// the connection's whole life (it is closed when ctx ends).
+// the connection's whole life (it is closed when ctx ends) and, by its deadline (none: the client's timeout), the
+// hello's and the caller's requests.
 func (cl *Client) open(ctx context.Context, op string) (*session, error) {
 	c, err := cl.dial(ctx, op)
 	if err != nil {
 		return nil, err
 	}
 	context.AfterFunc(ctx, func() { c.Close() })
-	_ = c.SetDeadline(time.Now().Add(cl.timeout())) // the hello and the caller's requests; a stream clears it
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(cl.timeout())
+	}
+	_ = c.SetDeadline(deadline) // a stream clears it
 	s := &session{c: c, r: bufio.NewReaderSize(c, 1<<20)}
 	if err := s.call(ctx, "hello", map[string]any{"generation": Generation}, &s.hello); err != nil {
 		c.Close()
@@ -159,7 +170,12 @@ func (cl *Client) open(ctx context.Context, op string) (*session, error) {
 
 // do runs fn on a new session, the whole of it bounded by the client's timeout.
 func (cl *Client) do(ctx context.Context, op string, fn func(ctx context.Context, s *session) error) error {
-	ctx, cancel := context.WithTimeout(ctx, cl.timeout())
+	return cl.doFor(ctx, op, cl.timeout(), fn)
+}
+
+// doFor runs fn on a new session, the whole of it bounded by d.
+func (cl *Client) doFor(ctx context.Context, op string, d time.Duration, fn func(ctx context.Context, s *session) error) error {
+	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	s, err := cl.open(ctx, op)
 	if err != nil {
@@ -256,7 +272,9 @@ func (s *session) call(ctx context.Context, method string, params, result any) e
 	for {
 		b, err := s.r.ReadBytes('\n')
 		if err != nil {
-			return connError(ctx, method, err)
+			e := connError(ctx, method, err)
+			e.sent = true
+			return e
 		}
 		var l line
 		if err := json.Unmarshal(b, &l); err != nil {
@@ -286,7 +304,7 @@ func (s *session) call(ctx context.Context, method string, params, result any) e
 }
 
 // connError is a connection's failure: the core went, or ctx ended (its deadline: timed out).
-func connError(ctx context.Context, op string, err error) error {
+func connError(ctx context.Context, op string, err error) *Error {
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded):
 		return &Error{Op: op, Msg: "timed out", down: true}
@@ -296,13 +314,10 @@ func connError(ctx context.Context, op string, err error) error {
 	return &Error{Op: op, Msg: "connection closed: " + err.Error(), down: true}
 }
 
-var _ interface {
-	Pane(ctx context.Context, pane string) (port.Pane, error)
-	Panes(ctx context.Context) ([]port.Pane, error)
-	ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error)
-	Screen(ctx context.Context, pane string, lines int) (string, error)
-	Recent(ctx context.Context, pane string, lines int) (string, error)
-} = (*Client)(nil)
+var (
+	_ port.PaneControl  = (*Client)(nil)
+	_ port.AgentStarter = (*Client)(nil)
+)
 
 // Pane is terminal.get: the terminal as a pane, no Group (PaneControl's answers carry none). A finished terminal is
 // no pane: NotFound.
