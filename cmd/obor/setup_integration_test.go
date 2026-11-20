@@ -49,8 +49,7 @@ func TestSetupPaneUsesTheHerdrSocket(t *testing.T) {
 }
 
 // obor init end to end (the binary): stub herdr on its socket, a fake claude and a fake launchctl on PATH, HOME a
-// temp dir. It sets the project up, installs serve (bootstrap of obor.serve.proj's plist under HOME) and says next:
-// obor lead; a rerun leaves the loaded agent alone (no second bootstrap). Off darwin the serve step is skipped with
+// temp dir. It sets the project up, installs serve (bootstrap of obor.serve.proj's plist under HOME) and ends with the line saying where the lead starts; a rerun leaves the loaded agent alone (no second bootstrap). Off darwin the serve step is skipped with
 // the run-it-yourself line and init still succeeds. A project with no merge.compile gets that warning here, where the
 // choice is made.
 func TestInitEndToEnd(t *testing.T) {
@@ -58,9 +57,8 @@ func TestInitEndToEnd(t *testing.T) {
 	p := testkit.New(t)
 	env, log, home := initEnv(t, nil)
 	rc, stdout, stderr := run(t, p.Root, env, "init")
-	if rc != 0 || !strings.Contains(stdout, "OK init proj (prefix proj); next: first task for the lead: set up the stack "+
-		"and `merge.check` (lanes.setup, lanes.ready); until then every gate stops on \"missing command\"\n") ||
-		!strings.Contains(stdout, "starting point: the lead goes through it with you at its first session\n") ||
+	if rc != 0 || !strings.Contains(stdout, "OK init proj (prefix proj): the lead starts in its own lead tab\n") ||
+		strings.Contains(stdout, "starting point:") || strings.Contains(stdout, "next:") ||
 		!strings.Contains(stdout, "\nOK lead: proj-lead in pane ") { // init ends by starting the lead
 		t.Fatalf("obor init: exit %d\n%s%s", rc, stdout, stderr)
 	}

@@ -7,6 +7,18 @@ the last one (`session <sid>`). An already running lead: `OK <agent> runs (pane 
 `obor restart <you> --handoff` is the handoff restart: its first prompt is `/obor:lead handoff`, so the new session
 continues from the Handoff's next steps without waiting (SKILL.md, Handoff).
 
+## What init no longer says
+`obor init` prints its steps and warnings, not advice; the lead passes this on when it matters:
+- `merge.check` is what every merge must pass: keep it to a few minutes; slower tests go in `check_milestone` (the
+  nightly), and `obor nightly off` if CI on main already does that. Unset, every gate stops on "missing command": the
+  first task sets the stack up (`merge.check`, `lanes.setup`, `lanes.ready`, `lanes.links`).
+- `merge.compile` is what a candidate re-runs when its target moved after its lane test (a typecheck or build, no
+  tests); without it that candidate re-runs `merge.check`. With a `package.json` typecheck script, suggest it:
+  `<pm> run typecheck`, if it type-checks what `merge.check` covers.
+- obor's lane and merge commits pass `--no-verify`: the adopter's pre-commit and commit-msg hooks do not run on them;
+  formatting and secret scans belong in `merge.check`.
+- Any of it changes in `.obor/config.json` (then `obor init` again, or `obor setup lane / pane / role`).
+
 ## obor status
 Read the line under serve's to see what runs without an agent: `running: gate T-xx (make -s check, 2m14s) · after_merge
 T-yy (make build, 12s)` (else `running: nothing`); a lane's state column is its task's phase, the same word the queue's
