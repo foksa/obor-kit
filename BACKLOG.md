@@ -24,6 +24,13 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   the check-then-act findings. (3) Parked until the owner decides a second terminal: D3 and terminal plan steps 6-9
   (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
 ## Owner decisions pending
+- (test plan TP-3, 11-21) A lane's heavy check runs at `lanes.cpus` (2), not `checks.cpus_per_check`: today two gates at
+  2 CPUs each. Options: lane checks at `cpus_per_check` (2 x 5 = all 10 cores while two gates run), or lower
+  `cpus_per_check`/raise `lanes.cpus` to a bound the owner picks. The 11-20 config commit's "4x4 = 16" was wrong (lane
+  tests ran at 2 CPUs).
+- (test plan, not verified) Role agents (reviewer, deep dive, advisor) start with no CPU cap: their own `go test` uses
+  all cores outside the check slots, the likely bulk of the 11-20 load. Capping it is a start env change (owner OK,
+  live conformance per kind).
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
 ## Later candidates
@@ -55,6 +62,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (test plan, lead) After TP-7a (`docs/research/app-test-levels.md`): TP-7b delete pairs (medium, review on merge) → TP-8 rig split (move only, internal/app quiet) → TP-9 tests speak the rig only + boundary test → TP-10 neutral `testkit.Term` (hard; the one to cut). Specs from `docs/research/test-plan-advice.md`.
 - (RV-214 design, lead 11-20) Two temp-index builders of lane work with different exclusions: `merge_preview` (`internal/checks/preview.go`, T-1349) and `obor run` (`internal/run/run.go:182`). Give them one owner if their rules converge; until then keep the differences named in both.
 - (lead 11-13) `obor restart ob-designer --fresh` (pane w5:p2F, first start of the new designer role) printed `terminal agent start ob-designer: no claude agent came up in w5:p2F within 30s` and `FAIL start failed` while Claude was up and working the brief (screen and processes in the same output show it). First `obor restart` start after Claude Code 2.1.322 → 2.1.323; serve's dispatch starts (T-1300, T-1301) worked after the update. If the next restart start fails the same way: a bug task on the start's readiness detection (herdr agent field vs the new version).
 - (lead 11-12) One local `go test ./internal/app/` failed after 1.9 s with a panic through `serve.go:88` (output not kept); the next run passed. Not the T-1290 SQLITE_BUSY hang (that takes 2 minutes). If it recurs, keep the output (`go test ./internal/app/ > <file> 2>&1`) before re-running.
