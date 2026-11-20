@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/version"
 )
 
 // No watchdog watches a driving task. The same seed as a worker's prepared dispatch (askSeed, whose idle worker
@@ -158,4 +160,38 @@ func TestLandSupersededByConcurrentDrop(t *testing.T) {
 			t.Errorf("T-1 is %s after a normal land; want submitted", st)
 		}
 	})
+}
+
+// A drive request from another obor is refused before anything is recorded (its reply could not be read there); the
+// same version is not refused for it.
+func TestDriveRefusedForAnotherVersion(t *testing.T) {
+	t.Parallel()
+	root := projectRoot(t)
+	a := rootApp(root, &bytes.Buffer{})
+	a.loadProject()
+	t.Cleanup(a.closeLog)
+	if a.p == nil {
+		t.Fatal("precondition: project loaded")
+	}
+	ask := askApp(t, a)
+	count := func() int {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return len(a.projAt(root).folded.calls)
+	}
+	before := count()
+	for _, v := range []string{"v0.1.0", ""} {
+		ans := ask(&wire.DriveReq{Envelope: wire.Envelope{Root: root, CallID: "d-" + v, Version: v}, Name: "web"})
+		if !strings.Contains(ans.Error, "serve runs "+version.Version+", this obor ") ||
+			!strings.Contains(ans.Error, "serve restarts on the new binary once nothing runs; obor drive again then") {
+			t.Errorf("version %q: error %q, want the skew refusal", v, ans.Error)
+		}
+		if n := count(); n != before {
+			t.Errorf("version %q: %d calls recorded, want %d", v, n, before)
+		}
+	}
+	ans := ask(&wire.DriveReq{Envelope: wire.Envelope{Root: root, CallID: "d-same", Version: version.Version}, Name: "web"})
+	if strings.Contains(ans.Error, "serve runs") {
+		t.Errorf("same version: error %q, want no skew refusal", ans.Error)
+	}
 }

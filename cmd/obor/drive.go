@@ -68,7 +68,7 @@ func driveCmd(args []string) int {
 	}
 	var d wire.DriveReply
 	if err := json.Unmarshal([]byte(reply), &d); err != nil || d.Task == "" {
-		fmt.Fprintf(out, "FAIL cannot read serve's reply %q\n", reply)
+		fmt.Fprintf(out, "FAIL serve answered in another obor's format (it is restarting onto the new binary): the drive may be recorded; obor drive %s again in a minute\n", name)
 		return 1
 	}
 	fmt.Fprintln(out, d.Line())
