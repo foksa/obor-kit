@@ -213,7 +213,7 @@ func TestLeadNewTabWhenTheCallersHCTerminalRunsAProgram(t *testing.T) {
 	if rc != 0 || !strings.HasPrefix(lastLine(out), "OK pj-lead runs in space proj, tab lead (pane ") {
 		t.Fatalf("exit %d, want the lead in a new tab:\n%s", rc, out)
 	}
-	if !strings.Contains(out, "this pane stays as it is: terminal "+k.addr+" runs a program (vim)") {
+	if !strings.Contains(out, "this pane stays as it is: pane "+k.addr+" runs a program (vim)") {
 		t.Errorf("no line saying why the terminal stays:\n%s", out)
 	}
 	if l := k.core.Labels(k.addr); l[hc.LabelAgent] != "" || l[hc.LabelProject] != "" {
@@ -238,7 +238,7 @@ func TestLeadNewTabWhenTheCallersHCTerminalHasASibling(t *testing.T) {
 	if rc != 0 || !strings.HasPrefix(lastLine(out), "OK pj-lead runs in space proj, tab lead (pane ") {
 		t.Fatalf("exit %d, want the lead in a new tab:\n%s", rc, out)
 	}
-	if !strings.Contains(out, "this pane stays as it is: terminal "+k.addr+" shares its tab with 1 other terminal(s)") {
+	if !strings.Contains(out, "this pane stays as it is: pane "+k.addr+" shares its tab with 1 other pane(s)") {
 		t.Errorf("no line saying why the terminal stays:\n%s", out)
 	}
 	for _, a := range []string{k.addr, other} {
@@ -265,7 +265,7 @@ func TestLeadNewTabWhenTheProjectsSpaceIsAnother(t *testing.T) {
 	if rc != 0 || !strings.HasPrefix(lastLine(out), "OK pj-lead runs in space proj, tab lead (pane ") {
 		t.Fatalf("exit %d, want the lead in a new tab:\n%s", rc, out)
 	}
-	if !strings.Contains(out, "this pane stays as it is: the proj space is another than this terminal's (work)") {
+	if !strings.Contains(out, "this pane stays as it is: the proj group is another than this pane's (work)") {
 		t.Errorf("no line saying why the terminal stays:\n%s", out)
 	}
 	if l := k.core.Labels(k.addr); l[hc.LabelAgent] != "" {

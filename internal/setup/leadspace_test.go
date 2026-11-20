@@ -195,10 +195,10 @@ func TestInitLeavesTheCallersSpaceWhenItDoesNotQualify(t *testing.T) {
 		{"an editor in its foreground", "runs a program (vim)", func(k *hcInitFx) {
 			k.core.SetForeground(k.addr, hc.Foreground{PID: 99999, Name: "vim", Argv: []string{"vim"}, Cwd: k.Root})
 		}},
-		{"the project's own space", "the proj space is another than this terminal's (home)", func(k *hcInitFx) {
+		{"the project's own space", "the proj group is another than this pane's (home)", func(k *hcInitFx) {
 			k.app.AddSpace(herdrapptest.Space{ID: "sp2", Name: "proj", Folder: k.Root, Tabs: []herdrapptest.Tab{{ID: "tb2", Name: "roles"}}})
 		}},
-		{"another project's terminal in its space", "its space holds terminal t2 of another project (other)", func(k *hcInitFx) {
+		{"another project's terminal in its space", "its group holds pane t2 of another project (other)", func(k *hcInitFx) {
 			k.app.AddTab("sp1", herdrapptest.Tab{ID: "tb9", Name: "lanes"})
 			k.core.Label(k.core.AppTerminals(false)("sp1", "tb9", "/elsewhere"), map[string]string{hc.LabelProject: "other"})
 		}},
