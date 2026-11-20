@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -40,8 +41,10 @@ type leadRun struct {
 // (serve down beside an unaccounted agent of the project) or an agent of that name running outside the project →
 // FAIL, no pane made. A pane labelled with its agent at its shell (the session ended, or Claude was quit to update
 // it) → obor restart's start in that pane; from that pane itself the start runs once this command has exited (herdr
-// starts an agent only at the shell prompt). No such pane → obor setup role lead's start in a new tab, fresh; only
-// this needs roles.lead.type (a running or labelled untyped lead is restarted as any other).
+// starts an agent only at the shell prompt). No such pane → the caller's own pane when it qualifies (setup's
+// LeadHere: no OBOR_ROLE, alone in its tab, the terminal takes it and labels it the lead's), started there as from the
+// lead's own pane; else obor setup role lead's start in a new tab, fresh, its last line naming the workspace (hc: the
+// space), tab and pane. Only these need roles.lead.type (a running or labelled untyped lead is restarted as any other).
 func lead(args []string) int {
 	cwd, _ := os.Getwd()
 	r := leadRun{dir: cwd, kit: project.KitRoot(project.OSEnv), env: project.OSEnv, out: out}
@@ -118,18 +121,54 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		fmt.Fprintf(r.out, "OK %s runs (pane %s%s)\n", agent, loc.Pane, labelled)
 		return 0
 	}
-	if pane := loc.Pane; pane != "" {
-		// A fresh start passes no first prompt: launch gives it the role's, the lead's plain /obor:lead.
-		req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
-		line, err := l.Restart(ctx, req)
-		if err == nil && strings.HasPrefix(line, "SCHEDULED ") {
-			line = fmt.Sprintf("STARTING %s in this pane (%s) once obor lead exits", agent, pane)
+	pane := loc.Pane
+	if pane == "" { // no home pane: the caller's own when the terminal takes it, else a new tab
+		if rc, _ := cfg.Role("lead"); rc.Type == "" {
+			return fail("roles.lead is not set (a model ref, e.g. <model>[:<effort>]): a new lead pane needs it")
 		}
-		return launchResult(r.out, line, err)
+		s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: r.t.Setup, Out: r.out, Starter: launcherFor(r.env, r.kit, r.t.Control, r.out, r.tune)}
+		here, line, err := s.LeadHere(ctx)
+		if err != nil {
+			return launchResult(r.out, "", err)
+		}
+		if here == "" {
+			fmt.Fprintf(r.out, "this pane stays as it is: %s\n", line)
+			if rc := s.Run(ctx, []string{"role", "lead", "--start"}); rc != 0 {
+				return rc
+			}
+			r.sayWhere(ctx, cfg, agent)
+			return 0
+		}
+		fmt.Fprintf(r.out, "lead pane: %s\n", line)
+		pane = here
 	}
-	if rc, _ := cfg.Role("lead"); rc.Type == "" {
-		return fail("roles.lead is not set (a model ref, e.g. <model>[:<effort>]): a new lead pane needs it")
+	// A fresh start passes no first prompt: launch gives it the role's, the lead's plain /obor:lead.
+	req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
+	line, err := l.Restart(ctx, req)
+	if err == nil && strings.HasPrefix(line, "SCHEDULED ") {
+		line = fmt.Sprintf("STARTING %s in this pane (%s) once obor lead exits", agent, pane)
 	}
-	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: r.t.Setup, Out: r.out, Starter: launcherFor(r.env, r.kit, r.t.Control, r.out, r.tune)}
-	return s.Run(ctx, []string{"role", "lead", "--start"})
+	return launchResult(r.out, line, err)
+}
+
+// sayWhere is the last line of a lead started in a new tab: its group (herdr: the workspace, hc: the space), its tab
+// and its pane, as the terminal's snapshot names them; nothing when the terminal cannot say.
+func (r leadRun) sayWhere(ctx context.Context, cfg *config.Config, agent string) {
+	group := "workspace"
+	if cfg.TerminalKind() == config.TerminalHC {
+		group = "space"
+	}
+	if r.t.Panes == nil {
+		return
+	}
+	snap, err := r.t.Panes.Snapshot(ctx)
+	if err != nil {
+		return
+	}
+	for _, p := range snap.Panes {
+		if p.Label == agent {
+			fmt.Fprintf(r.out, "OK %s runs in %s %s, tab lead (pane %s)\n", agent, group, cmp.Or(p.Group, "(unlabelled)"), p.ID)
+			return
+		}
+	}
 }

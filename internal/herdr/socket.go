@@ -768,6 +768,16 @@ func (s *Socket) NewWorkspace(ctx context.Context, label, cwd string) (string, e
 	return r.Workspace.ID, nil
 }
 
+// RenameTab is tab.rename: tab labelled label.
+func (s *Socket) RenameTab(ctx context.Context, tab, label string) error {
+	return s.call(ctx, 0, nil, "tab.rename", map[string]any{"tab_id": tab, "label": label})
+}
+
+// RenameWorkspace is workspace.rename: workspace labelled label.
+func (s *Socket) RenameWorkspace(ctx context.Context, workspace, label string) error {
+	return s.call(ctx, 0, nil, "workspace.rename", map[string]any{"workspace_id": workspace, "label": label})
+}
+
 // Close is pane.close.
 func (s *Socket) Close(ctx context.Context, pane string) error {
 	return s.call(ctx, 0, nil, "pane.close", map[string]any{"pane_id": pane})

@@ -183,6 +183,12 @@ func (c *Client) RenameSpace(ctx context.Context, old, name string) (bool, error
 	return false, nil
 }
 
+// NameSpace names the space id name (`space.rename`).
+func (c *Client) NameSpace(ctx context.Context, id, name string) error {
+	_, err := c.do(ctx, "space.rename", map[string]any{"id": id, "name": name})
+	return err
+}
+
 // CloseSpace closes the space with this id and its tabs (`space.close`, confirmed: the app asks no question).
 func (c *Client) CloseSpace(ctx context.Context, id string) error {
 	if id == "" {

@@ -274,6 +274,25 @@ type TerminalSetup interface {
 	// CloseProject closes the project's panes, then the tabs (and the group) they leave empty, one line each; with
 	// c.Dry it closes nothing and says what it would. A pane or tab that is not the project's is never touched.
 	CloseProject(ctx context.Context, c CloseProject) ([]string, error)
+	// TakeLead makes the caller's pane (p.Pane) the lead's home when it qualifies: a pane of this terminal, at its
+	// shell (no agent runs in it), alone in its tab, and (herdr) in a group that holds no pane of another project.
+	// Taken, the pane is labelled p.Agent, its tab named lead and its group named after the project; not taken,
+	// nothing is touched and Line says why.
+	TakeLead(ctx context.Context, p LeadPane) (LeadTaken, error)
+}
+
+// LeadPane is the caller's pane offered as the lead's home (obor lead): its id, the lead's agent name and the
+// project.
+type LeadPane struct {
+	Pane, Agent string
+	Project     PlaceProject
+}
+
+// LeadTaken is TakeLead's outcome: whether the pane is now the lead's, and Line: what was done, or why the pane does
+// not qualify.
+type LeadTaken struct {
+	Taken bool
+	Line  string
 }
 
 // CloseProject is what obor uninstall asks the terminal to close: the project's name (its group is named after

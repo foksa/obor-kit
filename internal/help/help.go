@@ -43,7 +43,7 @@ var Commands = []Command{
 	{"review", `obor review | obor review start [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
 		` | obor review close …`,
 		"the review state (no argument), a review request now or after tasks merge, ending it; close is the review's own step", "reviews"},
-	{"lead", "obor lead [--resume]", "bring the project's lead back in its own tab (--resume continues its last session); a project never set up runs obor init, which starts it", "agents"},
+	{"lead", "obor lead [--resume]", "bring the project's lead back: in its own pane, else in this one when it is alone in its tab, else in a new lead tab (--resume continues its last session); a project never set up runs obor init, which starts it", "agents"},
 	{"restart", "obor restart <agent> [--pane <id>] [--fresh|--handoff] [--force] | obor restart <agent> --stop [--pane <id>] [--force]",
 		"restart an agent in its pane (--fresh: a new session; --handoff: the lead's handoff restart, implies --fresh), or stop it",
 		"agents"},
@@ -74,7 +74,7 @@ var Commands = []Command{
 	{"version", "obor version", "this binary's version and where it came from", "project"},
 	{"help", "obor help", "this list", "project"},
 	{"init", "obor init [--name N] [--prefix P] [--terminal herdr|hc]",
-		"set up a project: plugin, git hooks, .obor/config.json, lanes, agent panes, obor serve, then it starts the lead (a lead already running is left as it is); a new project's terminal is the one it is typed in (else the one that runs: herdr when both), --terminal picks it", "setup"},
+		"set up a project: plugin, git hooks, .obor/config.json, lanes, agent panes, obor serve, then it starts the lead, in this pane when it is alone in its tab (a lead already running is left as it is); a new project's terminal is the one it is typed in (else the one that runs: herdr when both), --terminal picks it", "setup"},
 	{"uninstall", "obor uninstall [--dry-run] [--discard] [--purge] [--force]",
 		"undo obor init: agents, serve, panes, worktrees, task branches, git hooks, plugin and project list go; .obor/config.json and the store stay (--purge: the store too; --discard: dirty worktrees and unmerged branches too; --force: open tasks too)", "setup"},
 	{"setup", "obor setup <lane|pane|role|githooks|agents|mcp> …",

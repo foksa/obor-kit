@@ -305,6 +305,56 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 	return pane, nil
 }
 
+// --- the caller's pane as the lead's ----------------------------------------------------------------------------
+
+// TakeLead makes the caller's pane p.Pane the lead's home (port.TerminalSetup) when it is a pane of this herdr, at its
+// shell, alone in its tab, and its workspace holds no pane of another project (a known cwd outside the project, as
+// projectWorkspace counts it). Taken: the pane labelled p.Agent, its tab labelled lead, its workspace labelled the
+// project's name (serve serves the panes of the workspace labelled so).
+func (h *Setup) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken, error) {
+	snap, err := h.Snapshot(ctx)
+	if err != nil {
+		return port.LeadTaken{}, project.Failf("herdr session snapshot failed: %v", err)
+	}
+	var me *Pane
+	for i := range snap.Panes {
+		if snap.Panes[i].ID == p.Pane {
+			me = &snap.Panes[i]
+		}
+	}
+	no := func(format string, a ...any) (port.LeadTaken, error) {
+		return port.LeadTaken{Line: fmt.Sprintf(format, a...)}, nil
+	}
+	switch {
+	case me == nil:
+		return no("pane %s is not a pane of this herdr", p.Pane)
+	case me.Agent != "":
+		return no("pane %s runs an agent (%s)", p.Pane, me.Agent)
+	}
+	if n := inTab(snap.Panes, me.Tab); n > 1 {
+		return no("pane %s shares its tab with %d other pane(s)", p.Pane, n-1)
+	}
+	for _, q := range snap.Panes {
+		if q.Workspace == me.Workspace && q.Cwd != "" && !p.Project.Has(q.Cwd) {
+			return no("its workspace holds pane %s of another project (%s)", q.ID, q.Cwd)
+		}
+	}
+	if err := h.RenamePane(ctx, p.Pane, p.Agent); err != nil {
+		return port.LeadTaken{}, project.Failf("herdr pane rename %s %s failed: %v", p.Pane, p.Agent, err)
+	}
+	if err := h.RenameTab(ctx, me.Tab, kindLabel(port.KindLead)); err != nil {
+		return port.LeadTaken{}, project.Failf("herdr tab rename %s failed: %v", me.Tab, err)
+	}
+	did := fmt.Sprintf("pane %s labelled %s, tab %s labelled %s", p.Pane, p.Agent, me.Tab, kindLabel(port.KindLead))
+	if snap.labels()[me.Workspace] != p.Project.Name {
+		if err := h.RenameWorkspace(ctx, me.Workspace, p.Project.Name); err != nil {
+			return port.LeadTaken{}, project.Failf("herdr workspace rename %s failed: %v", me.Workspace, err)
+		}
+		did += fmt.Sprintf(", workspace %s labelled %s", me.Workspace, p.Project.Name)
+	}
+	return port.LeadTaken{Taken: true, Line: did}, nil
+}
+
 // --- closing the project ----------------------------------------------------------------------------------------
 
 // CloseProject closes every labelled pane that is the project's (c.Ours): a pane with no label, or another project's,
