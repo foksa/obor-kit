@@ -43,7 +43,7 @@ var Commands = []Command{
 	{"review", `obor review | obor review start [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
 		` | obor review close …`,
 		"the review state (no argument), a review request now or after tasks merge, ending it; close is the review's own step", "reviews"},
-	{"lead", "obor lead [--resume]", "start the project's lead in its own tab (--resume continues its last session)", "agents"},
+	{"lead", "obor lead [--resume]", "start the project's lead in its own tab (--resume continues its last session); a project never set up runs obor init first", "agents"},
 	{"restart", "obor restart <agent> [--pane <id>] [--fresh|--handoff] [--force] | obor restart <agent> --stop [--pane <id>] [--force]",
 		"restart an agent in its pane (--fresh: a new session; --handoff: the lead's handoff restart, implies --fresh), or stop it",
 		"agents"},
