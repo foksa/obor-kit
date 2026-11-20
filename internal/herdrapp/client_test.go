@@ -1,0 +1,370 @@
+package herdrapp_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"obor/internal/app/port"
+	"obor/internal/herdrapp"
+	"obor/internal/herdrapp/herdrapptest"
+)
+
+// one is the first space of the window (a test's precondition: the window has one).
+func one(t *testing.T, app *herdrapptest.App) herdrapptest.Space {
+	t.Helper()
+	ss := app.Spaces()
+	if len(ss) != 1 {
+		t.Fatalf("precondition: the fake window has %d spaces, want 1", len(ss))
+	}
+	return ss[0]
+}
+
+// doCalls is the window's calls of `do <command>`, the command's name each.
+func doCalls(app *herdrapptest.App) []string {
+	var out []string
+	for _, c := range app.Calls() {
+		if len(c) >= 2 && c[0] == "do" {
+			out = append(out, c[1])
+		}
+	}
+	return out
+}
+
+// verbs is the calls' verbs, in order.
+func verbs(app *herdrapptest.App) []string {
+	var out []string
+	for _, c := range app.Calls() {
+		if len(c) > 0 {
+			out = append(out, c[0])
+		}
+	}
+	return out
+}
+
+func TestLabels(t *testing.T) {
+	got := herdrapp.Labels("spa1", "tb2")
+	want := map[string]string{"herdr.space": "spa1", "herdr.tab": "tb2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Labels = %v, want %v", got, want)
+	}
+}
+
+func TestSpaces(t *testing.T) {
+	app := herdrapptest.New()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory: " + err.Error())
+	}
+	repo := filepath.Join(t.TempDir(), "obor-kit")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: filepath.Join(repo, "lane"),
+		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}, {ID: "tb2", Name: "lead"}}})
+	app.AddSpace(herdrapptest.Space{ID: "spa2", Name: "~", Folder: home})
+	app.AddSpace(herdrapptest.Space{ID: "spa3", Name: "api-remote", Folder: "/srv/api", Machine: "vps",
+		Tabs: []herdrapptest.Tab{{ID: "tb3", Name: "1"}}})
+
+	got, err := app.Client().Spaces(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("Spaces = %d spaces, want 3", len(got))
+	}
+	// A space named after its repo is the one the app would name; the lane's folder is under that repo.
+	if got[0].Named {
+		t.Errorf("space 1 Named = true: %q is the repo's auto name", got[0].Name)
+	}
+	if got[1].Named {
+		t.Errorf("space 2 Named = true: %q is the home's auto name", got[1].Name)
+	}
+	if !got[2].Named {
+		t.Errorf("space 3 Named = false: %q is not %q's auto name", got[2].Name, "api-remote")
+	}
+	if got[2].Machine != "vps" {
+		t.Errorf("space 3 Machine = %q, want vps", got[2].Machine)
+	}
+	if tabs := got[0].Tabs; len(tabs) != 2 || tabs[0].Named || !tabs[1].Named {
+		t.Errorf("space 1 tabs = %+v, want an unnamed \"1\" and a named \"lead\"", tabs)
+	}
+}
+
+func TestSpacesReadsVersionOnce(t *testing.T) {
+	app := herdrapptest.New()
+	c := app.Client()
+	for i := 0; i < 2; i++ {
+		if _, err := c.Spaces(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Join(verbs(app), ","); got != "--version,ls,ls" {
+		t.Errorf("calls = %s, want one --version and two ls", got)
+	}
+}
+
+func TestEnsureSpaceCreates(t *testing.T) {
+	app := herdrapptest.New()
+	c := app.Client()
+	folder := "/work/obor-kit"
+	got, err := c.EnsureSpace(context.Background(), "obor-kit", folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "sp1" || got.Name != "obor-kit" || got.Folder != folder || !got.Named {
+		t.Errorf("EnsureSpace = %+v, want the new space sp1", got)
+	}
+	if calls := doCalls(app); !reflect.DeepEqual(calls, []string{"space.new"}) {
+		t.Errorf("do calls = %v, want [space.new]", calls)
+	}
+	// A second call finds it: the same id and no second space.new.
+	again, err := c.EnsureSpace(context.Background(), "obor-kit", folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != got.ID {
+		t.Errorf("second EnsureSpace = %q, want %q", again.ID, got.ID)
+	}
+	if calls := doCalls(app); len(calls) != 1 {
+		t.Errorf("do calls after the second EnsureSpace = %v, want one", calls)
+	}
+}
+
+func TestEnsureSpaceRenamesUnnamed(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
+		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}}})
+	got, err := app.Client().EnsureSpace(context.Background(), "My Project", "/work/obor-kit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "spa1" || got.Name != "My Project" {
+		t.Errorf("EnsureSpace = %+v, want spa1 renamed", got)
+	}
+	if calls := doCalls(app); !reflect.DeepEqual(calls, []string{"space.rename"}) {
+		t.Errorf("do calls = %v, want [space.rename]", calls)
+	}
+	if name := one(t, app).Name; name != "My Project" {
+		t.Errorf("the window's space is named %q, want My Project", name)
+	}
+}
+
+func TestEnsureSpaceNamed(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "My Project", Folder: "/work/obor-kit",
+		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}}})
+	got, err := app.Client().EnsureSpace(context.Background(), "My Project", "/work/elsewhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "spa1" {
+		t.Errorf("EnsureSpace = %+v, want the named space spa1", got)
+	}
+	if calls := doCalls(app); len(calls) != 0 {
+		t.Errorf("do calls = %v, want none", calls)
+	}
+}
+
+func TestEnsureSpaceSkipsRemote(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa9", Name: "obor-kit", Folder: "/srv/obor-kit", Machine: "vps",
+		Tabs: []herdrapptest.Tab{{ID: "tb9", Name: "1"}}})
+	got, err := app.Client().EnsureSpace(context.Background(), "obor-kit", "/work/obor-kit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID == "spa9" || got.ID != "sp1" {
+		t.Errorf("EnsureSpace = %+v, want a new local space, not the vps one", got)
+	}
+	if calls := doCalls(app); !reflect.DeepEqual(calls, []string{"space.new"}) {
+		t.Errorf("do calls = %v, want [space.new]", calls)
+	}
+}
+
+func TestEnsureSpaceNeedsNameAndFolder(t *testing.T) {
+	app := herdrapptest.New()
+	for _, c := range []struct{ name, folder string }{{"", "/work/p"}, {"p", ""}} {
+		if _, err := app.Client().EnsureSpace(context.Background(), c.name, c.folder); err == nil {
+			t.Errorf("EnsureSpace(%q, %q) = nil error", c.name, c.folder)
+		}
+	}
+	if calls := doCalls(app); len(calls) != 0 {
+		t.Errorf("do calls = %v, want none", calls)
+	}
+}
+
+func TestEnsureTabRenamesFirst(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
+		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}}})
+	got, err := app.Client().EnsureTab(context.Background(), "spa1", "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "tb1" || got.Name != "lead" {
+		t.Errorf("EnsureTab = %+v, want tb1 renamed", got)
+	}
+	if calls := doCalls(app); !reflect.DeepEqual(calls, []string{"tab.rename"}) {
+		t.Errorf("do calls = %v, want [tab.rename]", calls)
+	}
+	if tabs := one(t, app).Tabs; tabs[0].Name != "lead" {
+		t.Errorf("the window's tab is named %q, want lead", tabs[0].Name)
+	}
+}
+
+func TestEnsureTabCreates(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
+		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "lead"}}})
+	got, err := app.Client().EnsureTab(context.Background(), "spa1", "L-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "L-02" || got.ID == "tb1" {
+		t.Errorf("EnsureTab = %+v, want a new tab", got)
+	}
+	if calls := doCalls(app); !reflect.DeepEqual(calls, []string{"tab.new"}) {
+		t.Errorf("do calls = %v, want [tab.new]", calls)
+	}
+	if n := len(one(t, app).Tabs); n != 2 {
+		t.Errorf("the window's space has %d tabs, want 2", n)
+	}
+	// A second call finds the tab it made: no third tab.
+	again, err := app.Client().EnsureTab(context.Background(), "spa1", "L-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != got.ID || len(one(t, app).Tabs) != 2 {
+		t.Errorf("second EnsureTab = %+v with %d tabs, want %q and 2", again, len(one(t, app).Tabs), got.ID)
+	}
+}
+
+func TestEnsureTabPresent(t *testing.T) {
+	app := herdrapptest.New()
+	app.AddSpace(herdrapptest.Space{ID: "spa1", Name: "obor-kit", Folder: "/work/obor-kit",
+		Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}, {ID: "tb2", Name: "lead"}}})
+	got, err := app.Client().EnsureTab(context.Background(), "spa1", "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "tb2" {
+		t.Errorf("EnsureTab = %+v, want tb2", got)
+	}
+	if calls := doCalls(app); len(calls) != 0 {
+		t.Errorf("do calls = %v, want none", calls)
+	}
+}
+
+func TestEnsureTabUnknownSpace(t *testing.T) {
+	app := herdrapptest.New()
+	if _, err := app.Client().EnsureTab(context.Background(), "spa1", "lead"); err == nil ||
+		!strings.Contains(err.Error(), "spa1") {
+		t.Errorf("EnsureTab of a missing space = %v, want an error naming it", err)
+	}
+}
+
+func TestWindowClosed(t *testing.T) {
+	app := herdrapptest.New()
+	app.Down()
+	_, err := app.Client().Spaces(context.Background())
+	if err == nil {
+		t.Fatal("Spaces with the window closed = nil error")
+	}
+	if !port.NotRunning(err) {
+		t.Errorf("Spaces error %v is not port.NotRunning: the caller places by labels later", err)
+	}
+	if !strings.Contains(err.Error(), "no Herdr window") {
+		t.Errorf("Spaces error = %q, want the CLI's no-window line", err)
+	}
+}
+
+func TestErrorReply(t *testing.T) {
+	app := herdrapptest.New()
+	app.Fail("space.new", "folder /work/p is not there")
+	_, err := app.Client().EnsureSpace(context.Background(), "p", "/work/p")
+	if err == nil || !strings.Contains(err.Error(), "folder /work/p is not there") {
+		t.Fatalf("EnsureSpace = %v, want the CLI's error reply", err)
+	}
+	if len(app.Spaces()) != 0 {
+		t.Errorf("the window has a space after a failed space.new")
+	}
+}
+
+func TestOldVersion(t *testing.T) {
+	app := herdrapptest.New()
+	app.SetVersion("0.1.15")
+	_, err := app.Client().Spaces(context.Background())
+	if err == nil {
+		t.Fatal("Spaces of herdr-app 0.1.15 = nil error")
+	}
+	for _, want := range []string{"0.1.15", herdrapp.MinVersion, "update"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal %q does not name %q", err, want)
+		}
+	}
+	if got := strings.Join(verbs(app), ","); got != "--version" {
+		t.Errorf("calls = %s, want only --version before the refusal", got)
+	}
+}
+
+func TestContract(t *testing.T) {
+	have, err := herdrapp.CommandsOf(herdrapp.Contract())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(have) < 60 {
+		t.Fatalf("precondition: the committed copy has %d commands, not herdr-app's list", len(have))
+	}
+	for command, args := range herdrapp.Commands {
+		got, ok := have[command]
+		if !ok {
+			t.Errorf("herdr-app %s has no command %s", herdrapp.MinVersion, command)
+			continue
+		}
+		for _, a := range args {
+			found := false
+			for _, h := range got {
+				found = found || h == a
+			}
+			if !found {
+				t.Errorf("herdr-app %s's %s has no argument %s (it has %q)", herdrapp.MinVersion, command, a, got)
+			}
+		}
+	}
+}
+
+func TestDrift(t *testing.T) {
+	drift, err := herdrapp.Drift(herdrapp.Contract())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drift) != 0 {
+		t.Errorf("Drift of the committed copy = %v, want none", drift)
+	}
+	installed := strings.Replace(string(herdrapp.Contract()), `"name": "folder"`, `"name": "directory"`, 1)
+	drift, err = herdrapp.Drift([]byte(installed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(drift, "; ")
+	for _, want := range []string{"space.new: no argument folder", "space.new: new argument directory"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Drift = %q, want it to name %q", got, want)
+		}
+	}
+	renamed := strings.Replace(string(herdrapp.Contract()), `"name": "space.new"`, `"name": "space.make"`, 1)
+	drift, err = herdrapp.Drift([]byte(renamed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = strings.Join(drift, "; ")
+	for _, want := range []string{"space.new: command gone", "space.make: new command"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Drift = %q, want it to name %q", got, want)
+		}
+	}
+}

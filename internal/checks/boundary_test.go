@@ -49,14 +49,16 @@ var layerOf = map[string]string{
 
 	"internal/app": core,
 
-	"internal/herdr": adapter, "internal/hc": adapter, "internal/checks": adapter, "internal/launch": adapter,
-	"internal/mcp": adapter, "internal/guard": adapter, "internal/setup": adapter, "internal/service": adapter,
+	"internal/herdr": adapter, "internal/hc": adapter, "internal/herdrapp": adapter, "internal/checks": adapter,
+	"internal/launch": adapter, "internal/mcp": adapter, "internal/guard": adapter, "internal/setup": adapter,
+	"internal/service": adapter,
 
 	"internal/view": view,
 
 	"cmd/obor": entry, "internal/web": entry,
 
 	"internal/testkit": testhelp, "internal/herdr/herdrtest": testhelp, "internal/hc/hctest": testhelp,
+	"internal/herdrapp/herdrapptest": testhelp,
 }
 
 // layerPrefixes give whole trees a layer: the app may grow subpackages; probes, spikes and the kit's tools are
@@ -93,6 +95,11 @@ func allowed(fromPkg, from, toPkg, to string) bool {
 		return toPkg == "internal/agents"
 	case to == bridge:
 		return true
+	}
+	// The herdr-app window is hc's second surface: the hc adapter drives it, and the conformance static tier checks
+	// its command contract against the installed app. No other package imports it (docs/module-map.md).
+	if toPkg == "internal/herdrapp" {
+		return fromPkg == "internal/hc" || from == testhelp || strings.HasPrefix(fromPkg, "tests/")
 	}
 	switch from {
 	case entry, testhelp, legacy:
@@ -141,6 +148,14 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/app", "internal/hc", false},
 		{"internal/launch", "internal/hc", false},
 		{"internal/hc/hctest", "internal/hc", true},
+		{"internal/hc", "internal/herdrapp", true},
+		{"internal/app", "internal/herdrapp", false},
+		{"internal/checks", "internal/herdrapp", false},
+		{"internal/launch", "internal/herdrapp", false},
+		{"tests/conformance", "internal/herdrapp", true},
+		{"internal/herdrapp/herdrapptest", "internal/herdrapp", true},
+		{"internal/herdrapp", "internal/project", true},
+		{"internal/herdrapp", "internal/hc", false},
 		{"internal/guard", "internal/launch", false},
 		{"internal/setup", "internal/herdr", false},
 		{"internal/setup", "internal/launch", false},

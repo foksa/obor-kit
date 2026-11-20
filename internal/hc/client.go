@@ -26,6 +26,7 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/project"
+	"obor/internal/version"
 )
 
 // Generation is the protocol generation obor speaks; MinVersion the oldest hc it accepts (a newer one is fine: hc's
@@ -195,7 +196,7 @@ func checkHello(h hello) error {
 	if h.Generation != Generation {
 		return &Error{Op: "hello", Msg: fmt.Sprintf("hc %s speaks generation %d, obor speaks %d", h.Version, h.Generation, Generation)}
 	}
-	older, ok := versionBelow(h.Version, MinVersion)
+	older, ok := version.Older(h.Version, MinVersion)
 	if !ok {
 		return &Error{Op: "hello", Msg: fmt.Sprintf("hc reports version %q, which obor cannot read", h.Version)}
 	}
@@ -203,30 +204,6 @@ func checkHello(h hello) error {
 		return &Error{Op: "hello", Msg: fmt.Sprintf("hc %s is older than %s, the oldest obor speaks: run `hc update`", h.Version, MinVersion)}
 	}
 	return nil
-}
-
-// versionBelow: v is older than min (both dotted numbers; a suffix after '-' or '+' is not read). ok false: v is
-// not such a version.
-func versionBelow(v, min string) (below, ok bool) {
-	num := func(s string) ([]int, bool) {
-		s, _, _ = strings.Cut(s, "-")
-		s, _, _ = strings.Cut(s, "+")
-		var out []int
-		for _, f := range strings.Split(s, ".") {
-			n, err := strconv.Atoi(f)
-			if err != nil {
-				return nil, false
-			}
-			out = append(out, n)
-		}
-		return out, len(out) > 0
-	}
-	a, ok := num(v)
-	b, _ := num(min)
-	if !ok {
-		return false, false
-	}
-	return slices.Compare(a, b) < 0, true
 }
 
 // note is the snapshot's sentence when hc lacks a method obor sends ("" when it has every one): obor status shows it.
