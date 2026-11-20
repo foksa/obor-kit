@@ -285,7 +285,8 @@ on a file missing from this table or a listed file that is gone); the entry is t
   task_done, and every agent's live background run), StopFailure, SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
   starts agents through the launcher's one start (`port.Launcher.Launch`, given setup's placement and refusing rather
-  than stopping a running agent) that `cmd/obor` injects as a `setup.Launcher`, and asks the terminal for panes through
+  than stopping a running agent; a pane with no `--start` is the same launch with its `NoAgent` option: label the pane and
+  type its env, start no agent) that `cmd/obor` injects as a `port.Launcher`, and asks the terminal for panes through
   `port.TerminalSetup`, whose adapter lays them out; `obor setup check` runs the terminal's own check, `check.go`); `obor init`
   (`oborinit.go`: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`); `obor uninstall` (`uninstall.go`: those steps undone in reverse; serve, the agents and the main

@@ -123,8 +123,8 @@ func serveInstaller(env project.Env) func(context.Context, *config.Config) (stri
 
 // launcherFor is how obor setup starts an agent (setup does not import launch): a launch.Launcher for the config it
 // loaded; tune (nil: none) adjusts it.
-func launcherFor(env project.Env, kit string, h port.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) setup.Launcher {
-	return func(cfg *config.Config) setup.Launcher {
+func launcherFor(env project.Env, kit string, h port.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) port.Launcher {
+	return func(cfg *config.Config) port.Launcher {
 		l := &launch.Launcher{Cfg: cfg, Env: env, Kit: kit, H: h, Out: w}
 		if tune != nil {
 			tune(l)

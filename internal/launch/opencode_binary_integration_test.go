@@ -1,6 +1,6 @@
 //go:build integration
 
-package main
+package launch_test
 
 import (
 	"bytes"
@@ -20,16 +20,24 @@ import (
 )
 
 // a lane worker of an OpenCode model, started the way a dispatch starts it
-// (launch.Launcher.Build), runs the real obor-kind-opencode binary built here, once, through obor's plugin package
+// (launch.Launcher.Build, the test helper of export_test.go), runs the real obor-kind-opencode binary built here, once, through obor's plugin package
 // (a recording wrapper keeps each request): the start request carries the complete start (kit, the model's args, the
 // effort, the prompt, the lane dir, strict), and the start gets the argv, the env and the generated config the compiled
 // kind gave it (--auto --standalone, the model gone, --prompt; OBOR_OPENCODE_MODEL model#effort, OPENCODE_CONFIG the
 // file in the state dir holding the kit's mcp server and plugin).
 func TestLaneStartRunsTheBinary(t *testing.T) {
-	delete(plugin.Local, kind.Name) // testkit answers OpenCode in process: this test runs the binary
+	// testkit answers OpenCode in process: this test runs the binary. It is no parallel test (the parallel ones of the
+	// package start once it has returned), and puts the in-process answer back for them.
+	local, had := plugin.Local[kind.Name]
+	delete(plugin.Local, kind.Name)
+	t.Cleanup(func() {
+		if had {
+			plugin.Local[kind.Name] = local
+		}
+	})
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real")
-	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", real, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", real, "obor/kinds/opencode").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	rec := filepath.Join(dir, "requests")

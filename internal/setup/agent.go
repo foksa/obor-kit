@@ -293,21 +293,19 @@ type placed struct {
 
 // start starts a's agent where w says through the launcher's one start (port.Launcher.Launch): a fresh session, its
 // first prompt a's own (else the role's), a new pane placed by w and the agent's kind when it has none, refused rather
-// than stopping what runs (NoStop): the agent itself running → OK, nothing done. A pane without --start is setup's own
-// (paneOnly).
+// than stopping what runs (NoStop): the agent itself running → OK, nothing done. A pane without --start is the same
+// launch with NoAgent: the launcher labels the pane and types its env, no agent started; its labelled pane there
+// already (a rerun) → OK, nothing done.
 func (s *Setup) start(ctx context.Context, a agent, w where) (placed, error) {
 	what := cmp.Or(a.lane, a.role.Name)
 	l := s.Launcher(s.cfg)
-	if a.noStart {
-		return s.paneOnly(ctx, l, a, w, what)
-	}
 	place := func(ctx context.Context, env []string) (string, error) {
 		p := s.placement(a, w, env)
-		p.Starts = true // the start types the env line: the pane gets it once
+		p.Starts = !a.noStart // the start types the env line: the pane gets it once (no start: the terminal readies it)
 		return s.T.Place(ctx, p)
 	}
 	st, err := l.Launch(ctx, port.Launch{Agent: a.name, Pane: w.pane, Fresh: true, Prompt: a.prompt, Type: a.typ,
-		Effort: a.effort, Again: a.again, NoStop: true, Place: &port.Placer{Place: place}})
+		Effort: a.effort, Again: a.again, NoStop: true, NoAgent: a.noStart, Place: &port.Placer{Place: place}})
 	var running *port.Running
 	switch {
 	case errors.As(err, &running):
@@ -318,74 +316,18 @@ func (s *Setup) start(ctx context.Context, a agent, w where) (placed, error) {
 		return placed{}, project.Failf("start failed in %s (%s)", st.Pane, port.TrustHeld(err).Hint)
 	case err != nil:
 		return placed{}, err
+	case st.Idle: // a rerun: the pane is there, labelled, with no agent
+		s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, st.Pane)
+		s.say("OK %s: pane %s", what, st.Pane)
+		return placed{pane: st.Pane, idle: true}, nil
+	case a.noStart:
+		s.say("pane %s ready for %s, no agent started (started on first use; --start starts it now)", st.Pane, a.name)
+		s.say("OK %s: pane %s", what, st.Pane)
+		return placed{pane: st.Pane}, nil
 	}
 	s.say("agent %s started (%s)", a.name, st.Kind)
 	s.say("OK %s: %s in pane %s", what, a.name, st.Pane)
 	return placed{pane: st.Pane, started: true}, nil
-}
-
-// paneOnly places a's pane where w says (or takes the --pane target, or its home: the pane labelled with its name at
-// its shell), types its env and labels it, starting no agent: the launcher's Locate decides first (adds no agent: serve
-// down does not refuse a label), under the agent's restart lock held to the last step. The agent running → OK, nothing
-// done; another agent in its lane → refused; its labelled pane already there (a rerun) → OK, nothing done.
-func (s *Setup) paneOnly(ctx context.Context, l Launcher, a agent, w where, what string) (placed, error) {
-	if !config.AgentNameRE.MatchString(a.name) {
-		return placed{}, project.Failf("%s", config.BadAgentName(s.cfg, a.name))
-	}
-	loc, end, err := l.Locate(ctx, a.name, w.pane, false)
-	if err != nil {
-		return placed{}, err
-	}
-	defer end()
-	if loc.Runs {
-		s.say("skip agent start: %s already running (pane %s)", a.name, loc.Pane)
-		s.say("OK %s: %s already running", what, a.name)
-		return placed{pane: loc.Pane, running: true}, nil
-	}
-	if err := l.LaneFree(ctx, a.name, a.lane, a.cwd); err != nil { // the launcher's one decision (Launch's NoStop too)
-		return placed{}, err
-	}
-	if w.pane == "" && loc.Pane != "" { // a rerun: the pane is there, labelled, with no agent
-		s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, loc.Pane)
-		s.say("OK %s: pane %s", what, loc.Pane)
-		return placed{pane: loc.Pane, idle: true}, nil
-	}
-	// The env of the agent's role and lane (no start is built, so none of a kind's own), by the one builder of a
-	// start's env (agents.Kinds.StartVars): every registry var it does not set goes empty, so the pane inherits none of
-	// setup's own (an OpenCode agent running setup; a stale OBOR_AGENT; the caller's OBOR_PANE).
-	var vars map[string]string
-	if a.lane != "" { // a lane's env: the generic facts and the project's lanes.env
-		vars = config.WithLaneEnv(nil, s.cfg)
-	}
-	pane := loc.Pane // the --pane target
-	if pane == "" {
-		set, unset := s.cfg.Kinds().StartVars(a.role.EnvValue, a.lane, "", vars)
-		var env []string
-		for _, v := range set {
-			env = append(env, v.Name+"="+v.Value)
-		}
-		for _, v := range unset {
-			env = append(env, v+"=")
-		}
-		if pane, err = s.T.Place(ctx, s.placement(a, w, env)); err != nil {
-			return placed{}, err
-		}
-	} else { // a pane that was there: its shell may hold the env of the agent that ran there before
-		s.say("pane %s (existing)", pane)
-		if err := l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd,
-			Vars: vars}); err != nil {
-			return placed{}, err
-		}
-	}
-	if loc.Label != a.name {
-		if err := s.T.RenamePane(ctx, pane, a.name); err != nil {
-			return placed{}, project.Failf("terminal pane rename %s %s failed", pane, a.name)
-		}
-		s.say("labelled pane %s %s", pane, a.name)
-	}
-	s.say("pane %s ready for %s, no agent started (started on first use; --start starts it now)", pane, a.name)
-	s.say("OK %s: pane %s", what, pane)
-	return placed{pane: pane}, nil
 }
 
 // --- placement -------------------------------------------------------------------------------------------

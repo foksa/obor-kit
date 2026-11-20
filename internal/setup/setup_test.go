@@ -18,6 +18,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -251,7 +252,7 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
 	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check,
-		Launcher: func(cfg *config.Config) Launcher {
+		Launcher: func(cfg *config.Config) port.Launcher {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open, Poll: x.poll, Up: x.up,
 				Where: x.where, Shell: x.shellWait}
 		}, Serve: x.serve, Installed: x.installed, Install: install, host: x.host}, &out

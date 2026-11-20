@@ -12,7 +12,8 @@
 //	        --tab, --new-tab or --pane as the person's say; its refusals print after FAIL); cwd the lane, env
 //	        OBOR_ROLE / OBOR_LANE (and with --start the kind's vars), every other var of the registry empty
 //	        (agents.Kinds.StartVars; no OBOR_AGENT: a name is derived); then the pane label (= the agent). --start is the
-//	        launcher's one start (port.Launcher.Launch, shared with obor restart and serve): a fresh session, the
+//	        launcher's one start (port.Launcher.Launch, shared with obor restart and serve; without --start the same
+//	        launch with its NoAgent option: the pane labelled and its env typed): a fresh session, the
 //	        model's kind and args (+ Claude --settings), refused rather than stopping what runs (NoStop), the new
 //	        pane placed by this command once the start is built (port.Launch.Place); a pane a new tab or a split made
 //	        is used once herdr reports it an available shell (within the launcher's shell bound, agent_pane_busy
@@ -79,7 +80,7 @@ type Setup struct {
 	McpCheck func(project.Env) (string, error)
 	// Launcher builds the agent launcher for the project's config (cmd/obor passes a launch.Launcher: setup is an
 	// adapter and does not import launch).
-	Launcher func(cfg *config.Config) Launcher
+	Launcher func(cfg *config.Config) port.Launcher
 	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
@@ -104,18 +105,6 @@ type Setup struct {
 	// terminal is the kind obor init writes into a new config and names in its refusals ("": herdr); cmd/obor
 	// passes it as --terminal, decided before any write.
 	terminal string
-}
-
-// Launcher is what setup asks of the agent launcher (launch.Launcher): an agent's start is the one start
-// (port.Launcher.Launch, given setup's placement); a pane with no agent (no --start) is setup's own, decided by Locate
-// (where the agent runs, its home, the --pane target; held under the agent's restart lock until its release), LaneFree
-// (the lane's one occupancy decision, Launch's too) and
-// its env line typed by SetEnv.
-type Launcher interface {
-	port.Launcher
-	Locate(ctx context.Context, agent, pane string, adds bool) (port.Located, func(), error)
-	LaneFree(ctx context.Context, agent, lane, cwd string) error
-	SetEnv(ctx context.Context, pane string, e port.AgentEnv) error
 }
 
 // Usage is the one usage line.

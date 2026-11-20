@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
@@ -60,7 +61,7 @@ func (k *hcInitFx) setup(t *testing.T) (*Setup, *bytes.Buffer) {
 	t.Helper()
 	s, out := k.newSetup(t)
 	s.Dir, s.T = k.Root, k.cl
-	s.Launcher = func(cfg *config.Config) Launcher {
+	s.Launcher = func(cfg *config.Config) port.Launcher {
 		return &launch.Launcher{Cfg: cfg, Env: s.Env, Kit: s.Kit, H: k.cl, Out: out, Poll: k.poll, Up: k.up, Where: k.where}
 	}
 	return s, out

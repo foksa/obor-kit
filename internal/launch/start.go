@@ -18,13 +18,13 @@ import (
 type StartError = port.StartError
 
 // Start is one agent start in its pane (Launch's): the agent's env and cwd are the pane shell's
-// already (or Env types them), its argv the one its Build built.
+// already (or Env types them), its argv the one its buildStart built.
 type Start struct {
 	Agent, Kind, Pane string
 	Label             string   // the pane's label now: renamed to Agent when it differs
-	Args              []string // the argv after the binary (Built.Args): started as it is
+	Args              []string // the argv after the binary (startBuilt.Args): started as it is
 	Resume            string   // the session id to resume; "" for a new one
-	// Session is the session id obor chose for a fresh start (Built.Session; Args name it): recorded for the agent
+	// Session is the session id obor chose for a fresh start (startBuilt.Session; Args name it): recorded for the agent
 	// before it runs; "" for none.
 	Session string
 	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
@@ -52,7 +52,7 @@ type Start struct {
 // Start is the one start of an agent in its pane, Launch's (a restart, serve's starts, a restore, obor setup's
 // --start) and the live conformance's probe of it: the pane's shell waited for (s.Await, within s.Shell), the env line
 // (s.Env), the pane labelled, the launch line printed (a wrong model or permission mode is visible before the
-// agent starts; s.Args as its Build built them: no kind is asked again), the session obor chose recorded
+// agent starts; s.Args as its buildStart built them: no kind is asked again), the session obor chose recorded
 // (s.Session), then the terminal's agent start (port.AgentStarter, asked of the PaneControl): a PaneBusy answer
 // retried once the pane is its shell again, within s.Shell. The terminal's start returns once its agent runs in the
 // pane, within Up; its own lines (a name it kept and cleared, a start it counts though its answer failed) are said
@@ -106,7 +106,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if why := l.Cfg.Kinds().StartRefusal(s.Kind, l.installHost()); why != "" {
 		l.say("warning: " + why)
 	}
-	// The session obor chose for a kind whose sessions it names (Built.Session): recorded before the agent runs.
+	// The session obor chose for a kind whose sessions it names (startBuilt.Session): recorded before the agent runs.
 	if s.Session != "" {
 		l.recordSession(ctx, s)
 	}

@@ -11,13 +11,15 @@ import (
 
 // fakeLauncher is the launcher setup's start drives (port.Launcher.Launch): it records each request and answers it as
 // the launcher does for an agent with no pane: the request's placement called once with env, the start in the pane it
-// returns. running: the agent runs in that pane (a NoStop request's *port.Running, nothing placed); trust: the start is
-// held by a trust dialog. Locate, SetEnv and Stop are not setup's start's (nil: a call panics).
+// returns. running: the agent runs in that pane (a NoStop request's *port.Running, nothing placed); idle: a NoAgent request
+// finds its labelled pane there with no agent (Started.Idle); trust: the start is
+// held by a trust dialog. Stop is not setup's start's (nil: a call panics).
 type fakeLauncher struct {
-	Launcher
+	port.Launcher
 	reqs    []port.Launch
 	env     []string
 	running string
+	idle    string // a NoAgent launch finds its labelled pane here, no agent in it (Started.Idle)
 	trust   bool
 }
 
@@ -26,12 +28,18 @@ func (f *fakeLauncher) Launch(ctx context.Context, req port.Launch) (port.Starte
 	if f.running != "" && req.NoStop {
 		return port.Started{}, &port.Running{Agent: req.Agent, Pane: f.running}
 	}
+	if f.idle != "" && req.NoAgent && req.Pane == "" {
+		return port.Started{Pane: f.idle, Idle: true}, nil
+	}
 	pane := req.Pane
 	if pane == "" && req.Place != nil {
 		var err error
 		if pane, err = req.Place.Place(ctx, f.env); err != nil {
 			return port.Started{}, err
 		}
+	}
+	if req.NoAgent {
+		return port.Started{Pane: pane}, nil
 	}
 	st := port.Started{Line: "RESTARTED " + req.Agent, Pane: pane, Kind: "claude"}
 	if f.trust {
@@ -46,7 +54,7 @@ func (x *fx) setupWith(t *testing.T, f *fakeLauncher) (*Setup, *strings.Builder)
 	s, _ := x.newSetup(t)
 	var out strings.Builder
 	s.Dir, s.Out = x.Root, &out
-	s.Launcher = func(*config.Config) Launcher { return f }
+	s.Launcher = func(*config.Config) port.Launcher { return f }
 	return s, &out
 }
 
@@ -148,5 +156,58 @@ func TestStartRunningAndTrustHeld(t *testing.T) {
 	_, err = s2.lanePane(context.Background(), "L-01", where{}, true)
 	if want := "start failed in w1:n1 (pj-l-01 waits at a trust dialog in pane w1:n1)"; err == nil || err.Error() != want {
 		t.Errorf("a start held by a trust dialog: %v, want %q\n%s", err, want, out2)
+	}
+}
+
+// setup's pane without --start is the same one Launch with the NoAgent option (the launcher decides the name, the
+// running agent, the lane's occupancy, the env and the label once, as for a start): a pane placed by setup's placement
+// (the terminal readies it, no start types its env), the result its pane, and setup's own lines: its label, "ready
+// for", OK. The agent running → OK, nothing done; its labelled pane there already (a rerun) → OK, nothing done.
+func TestPaneWithoutStartIsOneNoAgentLaunch(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.lane(t, "L-01")
+	f := &fakeLauncher{env: []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01", "OBOR_AGENT="}}
+	s, out := x.setupWith(t, f)
+	x.reset()
+	p, err := s.lanePane(context.Background(), "L-01", where{tab: "w1:t1"}, false)
+	if err != nil {
+		t.Fatalf("lanePane: %v\n%s", err, out)
+	}
+	if len(f.reqs) != 1 {
+		t.Fatalf("%d launches, want one: %+v", len(f.reqs), f.reqs)
+	}
+	if r := f.reqs[0]; r.Agent != "pj-l-01" || !r.NoAgent || !r.NoStop || r.Pane != "" || r.Place == nil {
+		t.Errorf("launch %+v; want pj-l-01, NoAgent and NoStop, no pane, with a placement", r)
+	}
+	calls := strings.Join(x.reqs(), "\n")
+	has(t, calls, "target_pane_id=w1:p1", "the placement in the tab --tab names")
+	has(t, calls, "env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_ROLE=worker}", "the placement takes the launcher's env")
+	if p != (placed{pane: "w1:n1"}) {
+		t.Errorf("result %+v, want the placed pane w1:n1, no agent", p)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if n := len(lines); n < 2 || lines[n-2] != "pane w1:n1 ready for pj-l-01, no agent started (started on first use; --start starts it now)" ||
+		lines[n-1] != "OK L-01: pane w1:n1" {
+		t.Errorf("lines %q, want the ready line and OK last", lines)
+	}
+
+	f.reqs, f.running = nil, "w1:x1"
+	out.Reset()
+	if p, err = s.lanePane(context.Background(), "L-01", where{}, false); err != nil {
+		t.Fatalf("lanePane, running: %v\n%s", err, out)
+	}
+	if p != (placed{pane: "w1:x1", running: true}) || last(out.String()) != "OK L-01: pj-l-01 already running" {
+		t.Errorf("a running agent: %+v, last line %q", p, last(out.String()))
+	}
+
+	f.reqs, f.running, f.idle = nil, "", "w1:q1"
+	out.Reset()
+	if p, err = s.lanePane(context.Background(), "L-01", where{}, false); err != nil {
+		t.Fatalf("lanePane, rerun: %v\n%s", err, out)
+	}
+	if p != (placed{pane: "w1:q1", idle: true}) || last(out.String()) != "OK L-01: pane w1:q1" ||
+		!strings.Contains(out.String(), "skip pane: pj-l-01 already labelled pj-l-01 (pane w1:q1)") {
+		t.Errorf("a rerun: %+v, output %q", p, out.String())
 	}
 }
