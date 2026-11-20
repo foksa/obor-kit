@@ -12,6 +12,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"obor/internal/store"
 )
 
@@ -714,5 +715,42 @@ func TestBriefsSayTheMergeGatePassed(t *testing.T) {
 			" for it): don't run the check or the suite; run probes and the tests a finding names.") {
 			t.Errorf("the %s brief does not say the gate passed and not to run the check:\n%s", tc.name, tc.text)
 		}
+	}
+}
+
+// ReviewConfig takes the reviews dir as every other reader does: reviews.dir when the file sets it, else
+// docs/reviews (no "no reviews dir" refusal).
+func TestReviewConfigReviewsDirDefault(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, reviews, want string }{
+		{"no reviews.dir: the default", "", "docs/reviews"},
+		{"reviews.dir set: that one", `,"reviews":{"dir":"notes/rv"}`, "notes/rv"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cfgText := `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"merge":{"target_branch":"main"},` +
+				`"agents":{"roles":{"reviewer":"opus"}}` + tc.reviews + `}`
+			if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfgText), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.reviews == "" && cfg.ReviewsDirSet() != "" {
+				t.Fatalf("precondition: reviews.dir set to %q", cfg.ReviewsDirSet())
+			}
+			s, err := ReviewConfig(cfg)
+			if err != nil {
+				t.Fatalf("ReviewConfig: %v", err)
+			}
+			if s.Reviews != tc.want {
+				t.Errorf("Reviews = %q, want %q", s.Reviews, tc.want)
+			}
+		})
 	}
 }
