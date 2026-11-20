@@ -69,6 +69,15 @@ func (a *App) AddSpace(s Space) {
 	a.spaces = append(a.spaces, s)
 }
 
+// AddTab adds a tab to the space with id, as the app would list it.
+func (a *App) AddTab(space string, t Tab) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.space(space); s != nil {
+		s.Tabs = append(s.Tabs, t)
+	}
+}
+
 // Spaces is the window's spaces as they are now.
 func (a *App) Spaces() []Space {
 	a.mu.Lock()
@@ -212,6 +221,24 @@ func (a *App) do(command string, rest []string) string {
 		}
 		s.Name = str("name")
 		return fmt.Sprintf(`{"space":%q}`, s.ID)
+	case "space.close":
+		for i := range a.spaces {
+			if a.spaces[i].ID == str("id") {
+				a.spaces = append(a.spaces[:i], a.spaces[i+1:]...)
+				return fmt.Sprintf(`{"space":%q}`, str("id"))
+			}
+		}
+		return errorReply("no space " + str("id"))
+	case "tab.close":
+		for i := range a.spaces {
+			for j := range a.spaces[i].Tabs {
+				if a.spaces[i].Tabs[j].ID == str("id") {
+					a.spaces[i].Tabs = append(a.spaces[i].Tabs[:j], a.spaces[i].Tabs[j+1:]...)
+					return fmt.Sprintf(`{"tab":%q}`, str("id"))
+				}
+			}
+		}
+		return errorReply("no tab " + str("id"))
 	case "tab.new":
 		s := a.space(str("space"))
 		if s == nil {

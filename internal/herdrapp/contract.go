@@ -15,6 +15,8 @@ import (
 var Commands = map[string][]string{
 	"space.new":    {"name", "folder"},
 	"space.rename": {"id", "name"},
+	"space.close":  {"id", "confirmed"},
+	"tab.close":    {"id", "confirmed"},
 	"tab.new":      {"name", "space", "folder"},
 	"tab.rename":   {"id", "name"},
 }

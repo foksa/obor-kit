@@ -55,6 +55,8 @@ case "$*" in
 	[ -e "$d/fail" ] && exit 7
 	mkdir -p .claude
 	printf '{"enabledPlugins":{"%s":true}}' "$3" > .claude/settings.json ;;
+"plugin uninstall "*)
+	printf '{"enabledPlugins":{"%s":false}}' "$3" > .claude/settings.json ;;
 esac
 `
 	if err := os.MkdirAll(x.bin, 0o755); err != nil {

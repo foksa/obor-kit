@@ -264,6 +264,17 @@ type TerminalSetup interface {
 	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
 	// and relabels each pane of it whose label relabel maps to another label.
 	RenameProject(ctx context.Context, old, name string, relabel func(label string) string) (Renamed, error)
+	// CloseProject closes the project's panes, then the tabs (and the group) they leave empty, one line each; with
+	// c.Dry it closes nothing and says what it would. A pane or tab that is not the project's is never touched.
+	CloseProject(ctx context.Context, c CloseProject) ([]string, error)
+}
+
+// CloseProject is what obor uninstall asks the terminal to close: the project's name (its group is named after
+// it) and, for a pane the terminal lists (its label and cwd), whether it is the project's (Ours).
+type CloseProject struct {
+	Name string
+	Ours func(p Pane) bool
+	Dry  bool
 }
 
 // Placement is a new agent pane setup asks the terminal for (obor setup pane / role, obor drive, obor init): whose

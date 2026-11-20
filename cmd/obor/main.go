@@ -131,6 +131,8 @@ func main() {
 		exit(setupCmd(args))
 	case "init":
 		exit(initCmd(args))
+	case "uninstall":
+		exit(uninstallCmd(args))
 	case "serve":
 		exit(serveCmd(args))
 	case "mcp":
@@ -203,6 +205,7 @@ func loadReader() (cfg *config.Config, warn string, rc int) {
 var commands = map[string][]string{
 	"whoami":    nil,
 	"init":      nil,
+	"uninstall": nil,
 	"status":    nil,
 	"web":       nil,
 	"config":    {"get", "validate"},

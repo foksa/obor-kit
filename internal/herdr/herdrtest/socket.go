@@ -34,6 +34,9 @@ import (
 type Server struct {
 	Path string
 	F    *Fake
+	// ClosePanes makes pane.close remove the pane from F, as herdr does (off: it answers what Reply scripted, else
+	// not_scripted).
+	ClosePanes bool
 
 	mu       sync.Mutex
 	protocol int
@@ -695,6 +698,19 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 			}
 			time.Sleep(time.Millisecond)
 		}
+	case "pane.close":
+		if !s.ClosePanes {
+			break
+		}
+		var p struct {
+			Pane string `json:"pane_id"`
+		}
+		_ = json.Unmarshal(params, &p)
+		if f.Pane(p.Pane) == nil {
+			return fail("pane_not_found", "no pane "+p.Pane), nil
+		}
+		f.Remove(p.Pane)
+		return ok(map[string]any{"type": "ok"}), nil
 	case "pane.get":
 		var p struct {
 			Pane string `json:"pane_id"`

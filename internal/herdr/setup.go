@@ -305,6 +305,30 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 	return pane, nil
 }
 
+// --- closing the project ----------------------------------------------------------------------------------------
+
+// CloseProject closes every labelled pane that is the project's (c.Ours): a pane with no label, or another project's,
+// stays, whatever tab it shares. herdr removes a tab with its last pane, so no tab of the project is left to close.
+func (h *Setup) CloseProject(ctx context.Context, c port.CloseProject) ([]string, error) {
+	panes, err := h.panesAt(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, p := range panes {
+		if p.Label == "" || !c.Ours(p.Pane) {
+			continue
+		}
+		if !c.Dry {
+			if err := h.Close(ctx, p.ID); err != nil {
+				return lines, fmt.Errorf("pane %s (%s): %v", p.ID, p.Label, err)
+			}
+		}
+		lines = append(lines, fmt.Sprintf("pane %s (%s) in tab %s", p.ID, p.Label, p.Tab))
+	}
+	return lines, nil
+}
+
 // --- herdr's setting for a restart ------------------------------------------------------------------------------
 
 var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)

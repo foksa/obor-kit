@@ -30,7 +30,7 @@ func setupCmd(args []string) int {
 	}
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, T: t.Setup, Out: out, McpCheck: mcp.Check,
 		Starter: launcherFor(project.OSEnv, kit, t.Control, out, nil), Serve: serveInstaller(project.OSEnv),
-		Installed: serveInstalled(project.OSEnv)}
+		Installed: serveInstalled(project.OSEnv), Down: teardownOf(project.OSEnv, cwd, t.Control)}
 	return s.Run(context.Background(), args)
 }
 

@@ -88,6 +88,8 @@ type Setup struct {
 	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
+	// Down is what obor uninstall asks of the running project (cmd/obor passes it; nil: obor uninstall fails).
+	Down *Teardown
 	// Installed is the plist of cfg's serve LaunchAgent when it is installed (cmd/obor passes the service adapter's;
 	// nil: none is): obor setup rename refuses while it is.
 	Installed func(cfg *config.Config) (plist string, ok bool)
@@ -154,6 +156,11 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.oborInit(ctx, args)
 		if errors.Is(err, errUsage) {
 			err = project.Fail(InitUsage)
+		}
+	case "obor-uninstall": // `obor uninstall` (uninstall.go)
+		err = s.oborUninstall(ctx, args)
+		if errors.Is(err, errUsage) {
+			err = project.Fail(UninstallUsage)
 		}
 	default:
 		err = errUsage

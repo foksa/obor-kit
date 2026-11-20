@@ -264,6 +264,31 @@ continue there. It refuses from a worker lane, with serve down (start it first),
 that is not launchd's (in a pane, or run by hand) is asked to exit over its socket. `obor start` installs serve again,
 registers the project and ends the stop's pause (`STARTED <name>`; agents start on first use).
 
+## obor uninstall
+`obor uninstall [--dry-run] [--discard] [--purge] [--force]` undoes what `obor init` set up, in reverse order, and
+prints one line per step: `agents`, `serve`, `panes`, `worktrees`, `branches`, `githooks`, `plugin`, `plugin-links`,
+`projects`, `stopped`, `config`, `state`, each `done`, `already`, `skipped` or `kept: <why>`. A second run reports
+`already` for each step it has nothing left to do for. `--dry-run` prints the same list and changes nothing.
+
+- Refusals come first and change nothing: a task in progress (`--force` goes on and stops the agents; the tasks stay
+  in the store), a lane or role worktree that is dirty or holds commits no branch holds, and a `task/*` branch with
+  commits the main checkout lacks that serve's prune does not take (listed; `--discard` removes those too). A worker's
+  run is refused.
+- Order: the project's agents and serve stop (as `obor stop` does, with no marker and no pause left behind) and serve's
+  launchd agent is uninstalled, `obor.web` with the machine's last serve agent; the project's panes close in the
+  terminal (herdr: the panes labelled with the project's agents, the tabs go with their last pane; hc: the terminals
+  labelled `obor.project`, then herdr-app's tabs they leave empty and its project space) — never another project's
+  pane, nor the pane the command runs in; every worktree directly under `lanes.dir` (lanes, role worktrees, `merge`,
+  `merge-nightly`) is removed, and the registration of one whose directory is gone; the `task/*` branches serve's prune
+  takes (with `--discard` the rest) and the refs under `refs/obor/` are deleted, each line with the tip sha it had;
+  `core.hooksPath` is unset (one that is not obor's stays); the project-scope plugin is uninstalled when
+  `.claude/settings.json` is untracked (a tracked one stays: uninstall dirties nothing tracked); the project leaves the
+  machine's list; `obor stop`'s marker is removed.
+- Kept: `.obor/config.json` and every committed file, and `.obor/state` (store, logs, backups). `--purge` also removes
+  `.obor/state`, `.obor/drafts`, `.obor/local.json` and `.task-run`. `obor init` afterwards sets the project up again
+  from the kept config.
+- Not touched: the kit itself (`~/.obor/bin`, the `obor-kit` checkout) and committed files.
+
 ## obor drive and obor land
 The owner iterates by hand (the web page's design after a worker's first pass, say) in a plain interactive agent on its
 own branch, then sends the result through the same gate, integrator and merge as any task. A drive is a task on a

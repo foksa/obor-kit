@@ -1,6 +1,7 @@
 package herdr_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,5 +117,43 @@ func TestPlaceLeadInAnOccupiedTabRefused(t *testing.T) {
 	pane, err := h.Place(ctx, port.Placement{Kind: port.KindLane, Cwd: "/proj-wt/L-02", In: "w1:t1", Project: pr})
 	if err != nil || f.Pane(pane) == nil || f.Pane(pane).Tab != "w1:t1" {
 		t.Errorf("lane Place into the same tab = %q, %v; want a split of w1:t1", pane, err)
+	}
+}
+
+// CloseProject closes the labelled panes the project owns and no other: another project's pane in the same tab, a pane
+// with no label and the caller's own (Ours says no) stay; with Dry nothing closes.
+func TestCloseProjectClosesOnlyWhatIsOurs(t *testing.T) {
+	t.Parallel()
+	f := herdrtest.New()
+	f.Shell("w1:a", "pj-o-01", "/pj", func(p *herdrtest.Pane) { p.Tab = "w1:t1" })
+	f.Shell("w1:b", "pj-o-02", "/pj", func(p *herdrtest.Pane) { p.Tab = "w1:t1" })
+	f.Shell("w1:c", "zz-o-01", "/zz", func(p *herdrtest.Pane) { p.Tab = "w1:t1" }) // another project's, same tab
+	f.Shell("w1:d", "", "/pj", func(p *herdrtest.Pane) { p.Tab = "w1:t1" })        // no label
+	f.Shell("w1:e", "pj-lead", "/pj", func(p *herdrtest.Pane) { p.Tab = "w1:t2" }) // the caller's own
+	srv := herdrtest.ServeMem(t, f)
+	srv.ClosePanes = true
+	h := &herdr.Setup{Socket: srv.Client()}
+	ours := func(p port.Pane) bool { return strings.HasPrefix(p.Label, "pj-") && p.ID != "w1:e" }
+	ids := func() string {
+		var out []string
+		for _, p := range f.Panes {
+			out = append(out, p.ID)
+		}
+		return strings.Join(out, " ")
+	}
+
+	lines, err := h.CloseProject(context.Background(), port.CloseProject{Name: "pj", Ours: ours, Dry: true})
+	if err != nil || len(lines) != 2 || ids() != "w1:a w1:b w1:c w1:d w1:e" {
+		t.Fatalf("dry run: %v, %v, panes %s", lines, err, ids())
+	}
+	lines, err = h.CloseProject(context.Background(), port.CloseProject{Name: "pj", Ours: ours})
+	if err != nil || len(lines) != 2 {
+		t.Fatalf("close: %v, %v", lines, err)
+	}
+	if got := ids(); got != "w1:c w1:d w1:e" {
+		t.Errorf("panes left %q, want another project's, the unlabelled and the caller's", got)
+	}
+	if again, err := h.CloseProject(context.Background(), port.CloseProject{Name: "pj", Ours: ours}); err != nil || len(again) != 0 {
+		t.Errorf("second run: %v, %v, want nothing", again, err)
 	}
 }

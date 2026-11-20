@@ -186,6 +186,7 @@ func withHerdr(t *testing.T, p *testkit.Project) *fx {
 	h.Tab("w1:t1", 200, 50, "w1:p1")
 	h.Tab("w1:t2", 200, 50, "w1:q1")
 	x := &fx{Project: p, h: h, srv: herdrtest.Serve(t, h), tb: t}
+	x.srv.ClosePanes = true
 	for _, p := range h.Panes {
 		p.Cwd = x.Root // in workspace w1, its id's
 	}
