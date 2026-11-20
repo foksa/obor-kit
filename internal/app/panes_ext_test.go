@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/herdr/herdrtest"
 )
 
 func TestReconnectReadsANewSnapshot(t *testing.T) {
@@ -20,7 +22,7 @@ func TestReconnectReadsANewSnapshot(t *testing.T) {
 		before := r.count("session.snapshot")
 		// herdr restarts; meanwhile L-01's pane is gone and L-02's agent got blocked.
 		r.f.Remove("w1:p1")
-		r.f.Pane("w1:p2").Status = "blocked"
+		r.f.Set("w1:p2", func(p *herdrtest.Pane) { p.Status = "blocked" })
 		r.srv.DropConns()
 		// A reconnect is a new stream: wait for its connected line, then for the count its snapshot raised; the facts
 		// that snapshot gives follow.

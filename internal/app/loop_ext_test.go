@@ -139,8 +139,9 @@ var failRows = map[string]failRow{
 	// integrator: a blocked integrator is the start's failure (the two rows below); a typed integrator wake that fails
 	// is TestRV37V2ResumeRetryKeepsTheJob's (retry, nudge).
 	"start.review (integrator idle, start refused)": {step: "start.review", arm: func(r *loopRig, _ *answers) func() {
-		in := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root)
-		in.Label, in.Session = "pj-int", "int-0" // a refused start leaves it running
+		r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root, func(in *herdrtest.Pane) {
+			in.Label, in.Session = "pj-int", "int-0" // a refused start leaves it running
+		})
 		r.mu.Lock()
 		r.onStart = func() error { return errors.New("pj-int has background tasks (finish them, or --force to stop them)") }
 		r.mu.Unlock()
@@ -148,8 +149,9 @@ var failRows = map[string]failRow{
 	}, pending: func(r *loopRig) { r.startsWere(3, false) }},
 	"start.review (integrator blocked past the bound)": {step: "start.review", tick: 20 * time.Second,
 		arm: func(r *loopRig, _ *answers) func() {
-			in := r.f.Agent("w1:p9", "pj-int", "blocked", r.p.Root)
-			in.Label, in.Session = "pj-int", "int-0" // a failed start leaves it running
+			r.f.Agent("w1:p9", "pj-int", "blocked", r.p.Root, func(in *herdrtest.Pane) {
+				in.Label, in.Session = "pj-int", "int-0" // a failed start leaves it running
+			})
 			r.mu.Lock()
 			r.onStart = func() error { return errors.New("pj-int: exit dialog without a numbered option (closed it)") }
 			r.mu.Unlock()

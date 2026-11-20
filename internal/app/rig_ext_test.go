@@ -1013,8 +1013,7 @@ func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 // gap answered "its agent is not running" under load.
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
-	r.f.Agent("w1:p5", "pj-l-01-drive", "idle", r.lane)
-	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Label = "pj-l-01-drive" })
+	r.f.Agent("w1:p5", "pj-l-01-drive", "idle", r.lane, func(p *herdrtest.Pane) { p.Label = "pj-l-01-drive" })
 	r.waitFor("pj-l-01-drive identified", func() bool {
 		if app.IsIdentified(r.app, r.p.Root, "pj-l-01-drive") {
 			return true
@@ -1989,12 +1988,9 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 			return port.Started{}, err
 		}
 	}
-	if !r.f.Set("w1:p9", func(p *herdrtest.Pane) {
-		p.Kind, p.Name, p.Label, p.Status, p.Session = "claude", "pj-int", "pj-int", "idle", "int-1"
-	}) {
-		a := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root)
+	r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root, func(a *herdrtest.Pane) {
 		a.Label, a.Session = "pj-int", "int-1" // launch labels the pane
-	}
+	})
 	seen := false
 	poll(r.t, "pj-int in the app's status", 5*time.Second, 5*time.Millisecond, nil, func() bool {
 		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane
@@ -3205,8 +3201,9 @@ func (r *loopRig) foreign() string {
 	r.scratch.AddLane("L-02", lane, "task/T-20")
 	r.p.State("L-02", map[string]any{"lane": "L-02", "task": "T-20", "branch": "task/T-20", "agent": "pj-l-02",
 		"base": "main", "dispatched_at": 1})
-	w := r.f.Agent("w1:p2", "pj-l-02", "idle", lane)
-	w.Label = "pj-l-02" // labelled by its launch
+	r.f.Agent("w1:p2", "pj-l-02", "idle", lane, func(w *herdrtest.Pane) {
+		w.Label = "pj-l-02" // labelled by its launch
+	})
 	return lane
 }
 

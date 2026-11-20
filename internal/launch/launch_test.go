@@ -402,16 +402,11 @@ func (x *fx) transcript(sid string) string {
 func (x *fx) shell(pane, label, cwd string) *herdrtest.Pane { return x.f.Shell(pane, label, cwd) }
 
 // agent is a pane labelled and named name with an agent of kind in status, which leads the pane's foreground group 2.
-// Its fields are set in one write under the fake's lock, as the fake's server reads them while it answers. Fake.Set
-// cannot name this pane: one added over a pane the test already has (a shell an agent starts in) shares that pane's
-// id, and Set's lookup finds the other.
 func (x *fx) agent(pane, name, kind, status string) *herdrtest.Pane {
-	a := x.f.Agent(pane, name, status, "")
-	x.f.Locked(func() {
+	return x.f.Agent(pane, name, status, "", func(a *herdrtest.Pane) {
 		a.Label, a.Kind = name, kind
 		a.Procs = []herdr.Process{{PID: 2, Argv0: kind}}
 	})
-	return a
 }
 
 // calls is the requests whose call line has every part of query, e.g. "pane.send_input keys=[Enter] pane_id=w1:p3".
