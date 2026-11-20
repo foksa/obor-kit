@@ -79,7 +79,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   setup role should export the agent env the way restart does.
 - (10-30) The lead's handoff reminder rides only on prompts: an idle lead (or one in a long tool run) gets none
   until its next prompt. Fold into phase 6's context % (status-line JSON).
-- (T-563) opencode usage limits are still not read (its session store is not parsed); Codex done (T-563..T-569).
+- (T-563) opencode usage limits are still not read (its session store is not parsed); Codex done (T-563..T-569). Parsing it would also give OpenCode role agents the done reminder (T-1348/T-1353 need a last-activity time; RV-215 verify #1, accepted).
 - (T-524, low) The job intent's outer `a.do` around a start logs an extra error line when the start returns
   "running" or is refused; old logs' pending prompt intents stay pending and count in serve's load line (S1b removes
   them).
