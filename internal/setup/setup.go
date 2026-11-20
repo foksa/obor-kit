@@ -50,7 +50,7 @@
 //	show  the setup table, read-only: per difficulty level each model ref, in order, with its kind, model id
 //	        and effort; the lanes; the roles' models; whether the owner confirmed it.
 //
-// obor init (P7-2): see oborinit.go.
+// obor init: see oborinit.go.
 package setup
 
 import (

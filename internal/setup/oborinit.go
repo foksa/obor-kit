@@ -1,6 +1,6 @@
 package setup
 
-// obor init (P7-2, docs/plan/phase-7-advice.md §1): set a project up with no questions, by chaining what setup
+// obor init (docs/plan/phase-7-advice.md §1): set a project up with no questions, by chaining what setup
 // already does. Every step is idempotent, so a rerun after a fix is the repair path; the summary lists each step as
 // done, already or skipped (why).
 //

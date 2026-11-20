@@ -180,14 +180,14 @@ func (a *App) stoppedAt(p *proj, agent string) bool {
 	return ok
 }
 
-// roleAgentOf: agent is a role agent of p's config that a brief may start fresh: a role's or an agents entry's, not the
+// roleAgentOf: agent is a role agent of p's config that a brief may start fresh: a role's, not the
 // lead, the integrator or a lane's worker (by the name rules launch resolves, the lane rows' agents included; under
 // mu). A config that does not load names none.
 func (p *proj) roleAgentOf(agent string) bool {
 	return agent != p.integrator && p.roleAgent(agent)
 }
 
-// roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's or an agents entry's,
+// roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's,
 // not the lead and not a lane's agent (a worker, a drive; under mu): the agents obor status may report stopped.
 func (p *proj) roleAgent(agent string) bool {
 	cfg, err := config.Load(p.root)

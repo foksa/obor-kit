@@ -123,7 +123,7 @@ type Began struct {
 }
 
 // sessionKind is the kind agent runs as (project.RunningKind: a lane agent's is its lane's open dispatch's;
-// else its role's or agents entry's configured type), else agents.Default.
+// else its role's configured type), else agents.Default.
 func sessionKind(cfg *config.Config, agent, cwd string) string {
 	if info, ok := cfg.AgentLookup(agent, cwd); ok {
 		return project.RunningKind(cfg, info)

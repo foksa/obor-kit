@@ -580,11 +580,10 @@ func (v *validator) laneNames() {
 	}
 	roleAgents := Unique(names...)
 	for _, lane := range v.c.Lanes() {
-		for _, alias := range v.c.LaneAgentAliases(lane.Name) {
-			for _, agent := range roleAgents {
-				if alias == agent {
-					v.fail(".lanes", "lane "+lane.Name+"'s agent "+Compact(alias)+" collides with a role agent")
-				}
+		laneAgent := v.c.LaneAgent(lane.Name)
+		for _, agent := range roleAgents {
+			if laneAgent == agent {
+				v.fail(".lanes", "lane "+lane.Name+"'s agent "+Compact(laneAgent)+" collides with a role agent")
 			}
 		}
 		v.bareLaneName(lane.Name, roleAgents)

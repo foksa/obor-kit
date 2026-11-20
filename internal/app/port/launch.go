@@ -13,7 +13,7 @@ import (
 
 // Agents starts and stops obor agents in their panes; the kill sequence is the implementation's (launch.Launcher).
 type Agents interface {
-	// Launch starts req.Agent (a lane's agent, a role, an agents entry) in its pane, its kind and args from its lane
+	// Launch starts req.Agent (a lane's agent or a role) in its pane, its kind and args from its lane
 	// type or role, after stopping what runs there. Returns the one-line result and the agent it started; a fresh
 	// start held by a trust dialog returns them too, with a *TrustDialog error (TrustHeld).
 	Launch(ctx context.Context, req Launch) (Started, error)

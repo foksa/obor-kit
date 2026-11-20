@@ -271,7 +271,7 @@ func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *p
 }
 
 // otherAgent is whether label names an agent of root's project other than names (under mu), by the one label rule
-// (config.NamesOtherAgent, the one Locate reads too): a lane's, a role's or an agents entry's name. A label the config
+// (config.NamesOtherAgent, the one Locate reads too): a lane's or a role's name. A label the config
 // does not know — an old alias, a person's note — names nobody.
 func otherAgent(root, label string, names []string) bool {
 	if label == "" {
