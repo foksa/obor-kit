@@ -31,14 +31,14 @@
         "opus:high"
       ],
       "medium": [
-        "deepseek",
         "sonnet:medium",
-        "opus:medium"
+        "opus:medium",
+        "deepseek"
       ],
       "simple": [
-        "deepseek",
         "sonnet:medium",
-        "opus:medium"
+        "opus:medium",
+        "deepseek"
       ]
     },
     "kinds": {
