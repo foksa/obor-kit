@@ -14,7 +14,9 @@ package launch
 // (or dirty-free) lane (obor dispatch starts it), and a role agent that is neither the lead nor a worker while its
 // OpenWork read says serve's state has no work open for it (its next brief or job starts it). A pane with no recorded
 // session (serve's store) or a kind that resumes nothing starts --fresh (a role pane started
-// fresh with no prompt wrote no transcript either, so no restart could resume it). Log: ~/.obor/restore.log
+// fresh with no prompt wrote no transcript either, so no restart could resume it). A lane's worker and the integrator
+// start with the wake of the job serve holds open for them (Restorer.Job) as their first prompt: typed once a
+// resumed session is up, the first prompt of a fresh one; no open job, no prompt. Log: ~/.obor/restore.log
 // (last 200).
 
 import (
@@ -30,6 +32,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -55,6 +58,10 @@ type Restorer struct {
 	// finished, the integrator's open job, the reviewer's open review or verify. An error restores the pane (a real
 	// job is never left stopped). Nil: every role pane is restored.
 	OpenWork func(agent, role string) (bool, error)
+	// Job is the open job (<task>/<attempt>/<step>) serve holds for a lane's worker (lane set) or the integrator
+	// (lane ""): "" none. The restored agent starts with that job's wake as its first prompt (a resumed session gets it
+	// typed once up). An error restores the pane without it, said in the log. Nil: no wake.
+	Job func(root, agent, role, lane string) (string, error)
 }
 
 func (p *Restorer) stamp() string {
@@ -219,6 +226,11 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 	case s.ID == "":
 		req.Fresh, note = true, " ("+role+", no recorded session: --fresh)"
 	}
+	if wake, err := p.wake(cfg.Root, agent, info); err != nil {
+		fmt.Fprintf(w, "%s %s: its open job is not known (%v): restored with no wake\n", now, agent, err)
+	} else if wake != "" {
+		req.Prompt, note = wake, note+" (wake: "+wake+")"
+	}
 	fmt.Fprintf(w, "%s restore %s (pane %s) in %s%s\n", now, agent, pane.ID, cfg.Root, note)
 	rctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
@@ -231,6 +243,19 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		return
 	}
 	fmt.Fprintln(w, line)
+}
+
+// wake is the first prompt of agent's restart: the wake of its open job (Job) for a lane's worker and the integrator,
+// "" for any other agent and for one with no job.
+func (p *Restorer) wake(root, agent string, info config.AgentInfo) (string, error) {
+	if p.Job == nil || info.Role != "integrator" && (info.Role != "worker" || info.Lane == "") {
+		return "", nil
+	}
+	job, err := p.Job(root, agent, info.Role, info.Lane)
+	if err != nil || job == "" {
+		return "", err
+	}
+	return wire.WakeLine(job), nil
 }
 
 // alwaysRestored: a pane's role is restored whatever serve's state says: the lead's always, a worker's by its lane.

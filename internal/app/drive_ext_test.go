@@ -574,11 +574,12 @@ func TestAnswerToDriveDelivered(t *testing.T) {
 	})
 }
 
-// obor resume of a task that is not driving: a working task with nothing asked is refused.
+// obor resume of a task that is not driving: a working task with nothing asked and its worker working is refused.
 func TestAnswerNotDrivingUnchanged(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, working())
+		r.workerIs("working")
 		n := len(r.records())
 		if _, err := r.leadAnswer("a1", "yes"); err == nil || !strings.Contains(err.Error(), "T-1 is working with nothing to resume") {
 			t.Errorf("answer on a working task with no question: %v; want refused", err)

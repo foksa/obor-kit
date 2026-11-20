@@ -18,7 +18,8 @@ import (
 //     worker, line "[obor answer] <text>"}, delivered in the same attempt as its kind takes a line; --regate instead
 //     gates the lane as it is (a Blocked "re-gate, not my diff");
 //   - a stalled or stopped worker (the watchdog's needs-you{stalled}, a stop on an API error): the text as the
-//     same line;
+//     same line; a worker that is idle with its job open, before the watchdog stalls it, takes the same line (a
+//     working or blocked worker is refused, the refusal naming its status);
 //   - a driving task: the text as the line to the drive agent (answered{driver}), each its own line;
 //   - a green candidate, a review or resolve job out: the lead's sendback (the text its why);
 //   - a merge-loop needs-you (row 40): what its cause takes: held → the decision to the integrator (reprompt), a
@@ -35,6 +36,7 @@ import (
 const (
 	actAnswer   = "answer"   // the worker's question: the answer line
 	actLine     = "line"     // a stalled or stopped worker: the line
+	actIdle     = "idle"     // a worker idle with its job open: the line
 	actDrive    = "drive"    // a driving task: the line to the drive agent
 	actSendback = "sendback" // the lead's sendback: the next attempt, its fix job the text
 )
@@ -44,6 +46,7 @@ func resumeDoes(act string) string {
 	return map[string]string{
 		actAnswer:           "sends the worker the answer",
 		actLine:             "sends the worker the line",
+		actIdle:             "sends the idle worker the line",
 		actDrive:            "sends the drive agent the line",
 		actSendback:         "sends it back to its worker",
 		wire.ResumeRegate:   "gates it again",
@@ -93,7 +96,7 @@ func (a *App) resume(c wire.ResumeReq) (string, error) {
 	switch act {
 	case actSendback:
 		return a.leadSendback(p, c, mt)
-	case actAnswer, actLine, actDrive:
+	case actAnswer, actLine, actIdle, actDrive:
 		return a.resumeLine(p, c, mt, act)
 	}
 	d := mt.needs.fact.Fact()
@@ -182,6 +185,9 @@ func (a *App) resumeDecide(p *proj, c wire.ResumeReq) (string, mtask, string, er
 	}
 	act, err := p.resumeAct(mt, c.Flag)
 	if err != nil {
+		act, err = a.idleWorkerAct(p, mt, c.Flag, err)
+	}
+	if err != nil {
 		return "", mtask{}, "", err
 	}
 	if strings.TrimSpace(c.Text) == "" && p.resumeNeedsText(mt, act) {
@@ -194,7 +200,7 @@ func (a *App) resumeDecide(p *proj, c wire.ResumeReq) (string, mtask, string, er
 // resumeNeedsText: obor resume's act on mt needs a text: an answer, a line, a sendback (its why), a hold's decision.
 func (p *proj) resumeNeedsText(mt mtask, act string) bool {
 	switch act {
-	case actAnswer, actLine, actDrive, actSendback:
+	case actAnswer, actLine, actIdle, actDrive, actSendback:
 		return true
 	}
 	return act == wire.ResumeReprompt && mt.needs.fact.Fact().Cause == event.CauseHeld
@@ -222,6 +228,39 @@ func (p *proj) resumeAct(mt mtask, flag string) (string, error) {
 		return "", fmt.Errorf("resume %s: --%s does not fit (%s): say %s", t, flag, mt.needs.fact.Fact().Reason, flags(choice))
 	}
 	return "", fmt.Errorf("resume %s: --%s does not fit: obor resume %s %s", t, flag, t, resumeDoes(def))
+}
+
+// nothingToResume is resumeFits' refusal of a task with no question and no needs-you: the one a worker idle with its
+// job open turns into a line (idleWorkerAct).
+type nothingToResume string
+
+func (e nothingToResume) Error() string { return string(e) }
+
+// idleWorkerAct is obor resume's answer for a working task with nothing to resume (under mu: refusal err): with no
+// flag and the task's job open, a worker that is idle (ready: not working, not blocked) takes the text as a line
+// (actIdle); one that is working or blocked is refused, the refusal naming the worker's status. Any other refusal, and a
+// worker not found in its lane (the worker start rule's), stays as it is.
+func (a *App) idleWorkerAct(p *proj, mt mtask, flag string, err error) (string, error) {
+	var nothing nothingToResume
+	if !errors.As(err, &nothing) || flag != "" || !(mt.is(stWorking) || mt.is(stDispatched)) {
+		return "", err
+	}
+	if _, open := mt.workerJob(); !open {
+		return "", err
+	}
+	status := ""
+	if w := p.tasks[mt.task]; w != nil {
+		if at, _ := a.agentOf(p, w.lane); at.State == Identified {
+			status = at.Pane.Status
+		}
+	}
+	switch {
+	case status == "":
+		return "", err
+	case Ready(status):
+		return actIdle, nil
+	}
+	return "", fmt.Errorf("%w: the worker is %s", err, status)
 }
 
 // flags is the choice as obor resume's flags: "--regate or --sendback".
@@ -256,7 +295,7 @@ func (p *proj) resumeFits(mt mtask) (def string, choice []string, err error) {
 	case !mt.needs.held() && mt.drive:
 		return "", nil, errors.New("resume: " + driveAnswerable(mt))
 	case !mt.needs.held():
-		return "", nil, fmt.Errorf("resume: %s is %s with nothing to resume (no question, no needs-you)", t, st)
+		return "", nil, nothingToResume(fmt.Sprintf("resume: %s is %s with nothing to resume (no question, no needs-you)", t, st))
 	}
 	d := mt.needs.fact.Fact()
 	rule := mt.resumeRule(d.Cause)
@@ -307,7 +346,7 @@ func (mt mtask) resumeTo(task, to string) (string, error) {
 // needs-you held before it was sent.
 func (mt mtask) repromptable() bool { return mt.job != "" || mt.state == stGreen }
 
-// resumeLine records obor resume's line (an answer, a stalled or stopped worker's line, a drive's line): fact
+// resumeLine records obor resume's line (an answer, a stalled, stopped or idle worker's line, a drive's line): fact
 // answered{to: the worker or the drive agent, line "[obor answer] <text>"}, whose fold ends the task's question and
 // watchdog facts (answered) and whose line deliver sends at the agent's next idle; a drive's lines are each their own
 // (a newer one ends no older), and a land or a drop closes an undelivered one unsent.
@@ -323,13 +362,16 @@ func (a *App) resumeLine(p *proj, c wire.ResumeReq, mt mtask, act string) (strin
 	}
 	m := event.Message{To: to, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + c.Text, Call: c.CallID,
 		Task: c.Task, Driver: act == actDrive, Reply: answerReply(c.Task, to)}
-	if act == actLine {
+	if act == actLine || act == actIdle {
 		m.Reply = resumeReply(c.Task, wire.ResumeReprompt, reasonStalled)
-		if p.stops(c.Task) {
+		switch {
+		case act == actIdle:
+			m.Reply = resumeReply(c.Task, wire.ResumeReprompt, "worker idle")
+		case p.stops(c.Task):
 			m.Reply = resumeReply(c.Task, wire.ResumeReprompt, causeStopped)
 		}
 	}
-	if note := a.unnamed(p, to, ""); note != "" && act != actLine {
+	if note := a.unnamed(p, to, ""); note != "" && act != actLine && act != actIdle {
 		m.Reply += " (" + note + ")"
 	}
 	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact}, m) {

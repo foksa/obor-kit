@@ -70,6 +70,7 @@ func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 		if again, err := r.answer("", "a2", "yes, edit internal/x.go too"); err != nil || again != want {
 			t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
 		}
+		r.workerIs("working")
 		if _, err := r.answer("", "a3", "and more"); err == nil || !strings.Contains(err.Error(), "T-1 is working with nothing to resume") {
 			t.Errorf("a second answer with no question: %v; want refused", err)
 		}
@@ -244,5 +245,52 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 			r, _ := refusedRig(t)
 			ok(t, r, r.needsYou(), "drop", "not needed", "DROPPED T-1")
 		})
+	})
+}
+
+// obor resume with a line to a working task whose worker is idle with its job open (no question, no needs-you): the
+// line is typed to the worker as the stalled form's is, and the reply says the worker was idle. A worker that is
+// working is refused, the refusal naming why; a repeated call id gets the stored reply.
+func TestResumeLineToAnIdleWorker(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := fetchRig(t)
+		r.inbox.record("pj-l-01")
+		r.start()
+		r.mustDispatch("d1")
+		r.waitStep("1 result work")
+		r.workerNext("n1")
+		r.waitFor("working", func() bool { return r.taskState() == "working" })
+		if f := r.app.Status().Project.Facts; len(f) != 0 {
+			t.Fatalf("precondition: facts in force %+v, want none (no question, no needs-you)", f)
+		}
+		r.workerIs("working")
+		_, err := r.answer("lead", "i0", "carry on")
+		if err == nil || !strings.Contains(err.Error(), "T-1 is working with nothing to resume") ||
+			!strings.Contains(err.Error(), "the worker is working") {
+			t.Fatalf("resume of a working worker: %v; want refused, naming that the worker is working", err)
+		}
+		if n := r.inbox.count("pj-l-01", "[obor answer] carry on"); n != 0 {
+			t.Fatalf("the refused line was posted %d times", n)
+		}
+		r.workerIs("idle")
+		const want = "RESUMED T-1: reprompt (worker idle)"
+		if reply, err := r.answer("lead", "i1", "carry on"); err != nil || reply != want {
+			t.Fatalf("resume of an idle worker: %q, %v; want %q", reply, err, want)
+		}
+		r.waitFor("the line posted to pj-l-01", func() bool { return r.inbox.count("pj-l-01", "[obor answer] carry on") == 1 })
+		r.passes()
+		if n := r.inbox.count("pj-l-01", "[obor answer] carry on"); n != 1 {
+			t.Errorf("the line posted %d times, want once", n)
+		}
+		if again, err := r.answer("lead", "i1", "carry on"); err != nil || again != want {
+			t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
+		}
+		if _, err := r.answer("lead", "i2", " "); err == nil || !strings.Contains(err.Error(), "say the text") {
+			t.Errorf("an empty line: %v; want refused", err)
+		}
+		if r.taskState() != "working" || r.hasPrefix("2 ") {
+			t.Errorf("want T-1 working on attempt 1: %s, %q", r.taskState(), r.steps())
+		}
 	})
 }
