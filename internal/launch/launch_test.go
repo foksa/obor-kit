@@ -2583,7 +2583,8 @@ func TestStopForceTerminates(t *testing.T) {
 	t.Run("--force, restart: SIGTERM, leftovers stopped, then the start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.wait = shortWait
+		x.wait = shortWait // the stop's wait is the give-up under test
+		x.up = bound       // the start's outcome, not a give-up
 		x.sid("pj-l-01", "sid-1")
 		ignoring(x, syscall.SIGTERM, true)
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Force: true})
