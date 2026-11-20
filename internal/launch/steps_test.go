@@ -152,6 +152,7 @@ func TestLaunchOutcomeStep(t *testing.T) {
 		started bool   // the start was reported confirmed
 		again   string // the start's own command (Start.Again)
 		hinted  bool   // the error carries the command that starts the agent again
+		placed  bool   // the pane was placed for the start
 	}{
 		{name: "no error", started: false},
 		{name: "a trust dialog on a fresh start: started", err: &port.StartError{NotReady: true, Trust: true, Hint: "trust it"},
@@ -170,6 +171,9 @@ func TestLaunchOutcomeStep(t *testing.T) {
 		{name: "busy", err: &port.StartError{Err: busy},
 			fail: "start failed in w1:p3 (the pane is not an available shell: the old agent has not left it; run " +
 				"obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)", hinted: true},
+		{name: "busy, a placed pane: no old agent named", err: &port.StartError{Err: busy}, placed: true,
+			fail: "start failed in w1:p3 (the pane is not an available shell; run obor restart pj-l-01 --fresh --pane " +
+				"w1:p3 again or start it by hand)", hinted: true},
 		{name: "any other start error", err: &port.StartError{Err: errors.New("boom")},
 			fail: "start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: run " +
 				"obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)", hinted: true},
@@ -184,7 +188,7 @@ func TestLaunchOutcomeStep(t *testing.T) {
 			x.sessions = map[string]store.Session{} // none recorded: the retry is a --fresh start
 			x.shellBound = 7 * time.Second
 			x.shell("w1:p3", "pj-l-01", x.lane)
-			tg := launch.Target{Agent: "pj-l-01", Pane: "w1:p3", Kind: "claude", Role: "worker", Lane: "L-01"}
+			tg := launch.Target{Agent: "pj-l-01", Pane: "w1:p3", Kind: "claude", Role: "worker", Lane: "L-01", Placed: c.placed}
 			trust, err := x.launcher(&bytes.Buffer{}).Outcome(context.Background(), tg,
 				launch.Start{Kind: "claude", Again: c.again}, c.err)
 			switch {

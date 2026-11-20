@@ -154,3 +154,45 @@ func TestLaunchNoStopRefusesARunningAgent(t *testing.T) {
 		})
 	}
 }
+
+// A NoStop start of a role into the --pane the caller named takes a pane at its shell whatever its cwd (obor setup role
+// integrator --pane <p> --start); a pane carrying another agent's label is refused as before, nothing typed or started.
+func TestLaunchNoStopTakesTheNamedPaneWhateverItsCwd(t *testing.T) {
+	t.Parallel()
+	t.Run("a shell outside the project: started", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p5", "", "/elsewhere")
+		if cwd := x.f.At("w1:p5").Cwd; cwd != "/elsewhere" || strings.HasPrefix(cwd, x.p.Root) {
+			t.Fatalf("precondition: the pane's cwd is outside the project, got %q", cwd)
+		}
+		var out bytes.Buffer
+		started, err := x.launcher(&out).Launch(context.Background(),
+			launch.Request{Agent: "pj-int", Pane: "w1:p5", Fresh: true, NoStop: true})
+		if err != nil || started.Pane != "w1:p5" {
+			t.Fatalf("start: %+v, %v\n%s", started, err, out.String())
+		}
+		if call := x.startCall(); !strings.Contains(call, "pane=w1:p5") {
+			t.Errorf("start call %q, want it in w1:p5", call)
+		}
+	})
+	t.Run("another agent's label: refused", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p5", "pj-lead", "/elsewhere")
+		var out bytes.Buffer
+		_, err := x.launcher(&out).Launch(context.Background(),
+			launch.Request{Agent: "pj-int", Pane: "w1:p5", Fresh: true, NoStop: true})
+		if err == nil {
+			t.Fatalf("a pane labelled pj-lead took pj-int's start:\n%s", out.String())
+		}
+		if x.f.At("w1:p5").Label != "pj-lead" {
+			t.Errorf("the pane's label changed to %q", x.f.At("w1:p5").Label)
+		}
+		for _, method := range []string{"Write", "SendKeys", "Start", "RenamePane"} {
+			if calls := x.calls(method); len(calls) != 0 {
+				t.Errorf("%s called: %q", method, calls)
+			}
+		}
+	})
+}
