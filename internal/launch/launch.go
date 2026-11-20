@@ -798,9 +798,9 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 // screenLines is how many of a pane's last lines of output a look for an echoed mark reads.
 const screenLines = 60
 
-// screenShows reads pane's recent output (not its visible screen, which can be stale after an agent exits: T-970)
-// every Poll for at most d until one of words is in it, and returns that output; false when none showed (output that
-// cannot be read shows none).
+// screenShows reads pane's recent output (not its visible screen, which can lag behind what the shell printed after
+// an agent exits) every Poll for at most d until one of words is in it, and returns that output; false when none
+// showed (output that cannot be read shows none).
 func (l *Launcher) screenShows(ctx context.Context, pane string, d time.Duration, words ...string) (string, bool) {
 	var screen string
 	shows := func() bool {

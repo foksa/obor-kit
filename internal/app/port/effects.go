@@ -80,8 +80,8 @@ type PaneControl interface {
 	// Screen is the pane's visible text, its last lines.
 	Screen(ctx context.Context, pane string, lines int) (string, error)
 	// Recent is the pane's recent output, its last lines, long lines unwrapped: what a wait for a line the shell
-	// printed reads (the env line's mark). The visible screen can be stale while the shell prints (after an agent
-	// exits, T-970); a terminal without that distinction serves Screen's text.
+	// printed reads (the env line's mark). The visible screen can lag behind what the shell printed after an agent
+	// exits, while recent output carries the mark; a terminal without that distinction serves Screen's text.
 	Recent(ctx context.Context, pane string, lines int) (string, error)
 	// WaitStatus waits (up to timeout) for the agent in pane to be in one of until (idle, done): the error matches
 	// TimedOut when it is not; any other error says no agent is there to wait for (none ran, or it left the pane).
