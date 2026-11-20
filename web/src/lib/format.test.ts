@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_FILTERS, EVENT_KINDS, dur, eventKind, human, lineTo, parts, relText, splitTasks, tone } from "./format";
+import { EVENT_FILTERS, EVENT_KINDS, agentStatusText, dur, eventKind, human, lineTo, parts, relText, splitTasks, tone } from "./format";
 
 describe("wording", () => {
   it("says durations as a person does", () => {
@@ -50,5 +50,15 @@ describe("wording", () => {
   it("reads a line to an agent as its agent and text", () => {
     expect(lineTo("line to aa-rev: verify RV-4")).toEqual({ agent: "aa-rev", text: "verify RV-4" });
     expect(lineTo("merged T-1")).toBeNull();
+  });
+  it("says a blocked agent's status as waiting for you, with its age, in the needs-you colour", () => {
+    expect(agentStatusText("blocked", 21)).toBe("waiting for you 21s");
+    expect(agentStatusText("blocked")).toBe("waiting for you");
+    expect(tone("blocked")).toBe(tone("needs-you"));
+  });
+  it("says any other status as serve words it", () => {
+    expect(agentStatusText("working", 90)).toBe("working");
+    expect(agentStatusText("done")).toBe("done");
+    expect(agentStatusText(undefined)).toBe("");
   });
 });

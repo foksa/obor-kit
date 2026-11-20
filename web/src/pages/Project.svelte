@@ -6,7 +6,7 @@
   import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
-  import { dur, now, roleName, splitTasks, unixOf } from "../lib/format";
+  import { agentStatusText, dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
   import { fileName, reviewActive, reviewStageText, reviewTone } from "../lib/review";
   import { stageOf, taskOf } from "../lib/stages";
@@ -50,6 +50,9 @@
     const rs = v?.roles || [];
     return v?.lead ? [v.lead, ...rs] : rs;
   });
+  // ageOf is how long serve has seen agent's pane in its status (seconds; undefined: serve sees no pane of it).
+  const ageOf = (agent: string | undefined, lane = "") =>
+    (v?.agents || []).find((a) => a.name === agent && (a.lane || "") === lane)?.age;
   const jobStep = (id: string) => id.split("/").slice(2).join("/") || id;
   const events = $derived((v?.events || []).map((e) => ({ ...e, project })));
   let filter = $state("All");
@@ -153,7 +156,7 @@
         {/if}
         {#if r.file}<span class="mono small muted" title={r.file}>{fileName(r.file)}</span>{/if}
         <span class="rwho small">
-          {#if r.agent}<AgentLink {project} agent={r.agent} />{#if r.agent_status}<Pill state={r.agent_status} />{/if}{/if}
+          {#if r.agent}<AgentLink {project} agent={r.agent} />{#if r.agent_status}<Pill state={r.agent_status} text={agentStatusText(r.agent_status, ageOf(r.agent))} />{/if}{/if}
           {#if r.since}<span class="mono muted"><Rel at={r.since} mode="for" /></span>{/if}
         </span>
       </div>
@@ -207,7 +210,7 @@
             {:else}<p class="muted small">no task</p>{/if}
             <Stepper stage={st} compact />
             <div class="lfoot small">
-              {#if l.agent}<span>agent <AgentLink {project} agent={l.agent} />{#if l.agent_status}<span class="muted"> · {l.agent_status}</span>{/if}</span>{/if}
+              {#if l.agent}<span>agent <AgentLink {project} agent={l.agent} />{#if l.agent_status === "blocked"} · <Pill state="blocked" text={agentStatusText(l.agent_status, ageOf(l.agent, l.lane))} />{:else if l.agent_status}<span class="muted"> · {l.agent_status}</span>{/if}</span>{/if}
               {#if tk.job}<span>job <a class="mono" href={href.job(project, tk.job.id)}>{jobStep(tk.job.id)}</a>{#if !tk.job.delivered} <Pill state="not fetched" />{/if}</span>{/if}
               {#if l.branch}<span class="muted">branch <span class="mono">{l.branch}</span>{#if l.dirty}<span class="dirty"> · dirty</span>{/if}</span>{/if}
               {#if l.op}<span class="muted">{l.op}</span>{/if}
@@ -310,7 +313,7 @@
                   <tr>
                     <td>{roleName(r.role)}</td>
                     <td><AgentLink {project} agent={r.agent} /></td>
-                    <td>{#if r.status}<Pill state={r.status === "done" ? "idle" : r.status} text={r.status} />{:else}<Pill state="idle" text="no pane" />{/if}</td>
+                    <td>{#if r.status}<Pill state={r.status === "done" ? "idle" : r.status} text={agentStatusText(r.status, r.age)} />{:else}<Pill state="idle" text="no pane" />{/if}</td>
                     <td class="small">
                       {#if r.brief}brief {r.brief.worked ? "being worked" : r.brief.delivered ? "delivered" : "not delivered"} · <Rel at={r.brief.since} />{/if}
                       <Background list={r.background} />

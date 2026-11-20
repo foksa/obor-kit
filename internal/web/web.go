@@ -209,9 +209,10 @@ func (s *Server) answersTo(host string) bool {
 }
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
-// its needs-you count, its queue length (the merge loop's tasks and the dispatches waiting), the steps running without
-// an agent, the agents at work (Roles: the role agents working or with a brief waiting, plus the lead when it is
-// working) with how many of them are working (Working), and why its view could not be built.
+// its needs-you count (serve's needs-you records), its queue length (the merge loop's tasks and the dispatches waiting),
+// the steps running without an agent, the agents at work (Roles: the role agents working or with a brief waiting, plus
+// the lead when it is working) with how many of them are working (Working), the agents waiting for the owner's input
+// (Waiting), and why its view could not be built.
 type ProjectsEntry struct {
 	Name     string         `json:"name"`
 	Root     string         `json:"root"`
@@ -223,6 +224,9 @@ type ProjectsEntry struct {
 	Queue    int            `json:"queue"`
 	Running  []view.Running `json:"running"`
 	Roles    []view.Role    `json:"roles"`
+	// Waiting is the agents whose pane waits at a prompt (serve's status blocked: a question, a permission or trust
+	// dialog): the lead, the role agents and the lanes' workers. Counted apart from NeedsYou.
+	Waiting []Waiting `json:"waiting"`
 	// Background is how many long-running background processes the project's agents have.
 	Background int `json:"background"`
 	// Lanes is each lane's state column and task (the fleet page's lane strip), FullCheck the last full check,
@@ -249,6 +253,43 @@ type LaneDot struct {
 	view.Task
 }
 
+// Waiting is an agent waiting for the owner's input: its name, its role (a lane's worker: "worker", with its lane) and
+// since when its pane waits (epoch seconds; 0: unknown).
+type Waiting struct {
+	Agent string `json:"agent"`
+	Role  string `json:"role"`
+	Lane  string `json:"lane,omitempty"`
+	Since int64  `json:"since,omitempty"`
+}
+
+// waitingOf is v's agents whose pane is blocked at now (epoch seconds): the lead, the role agents, then each lane's
+// worker; a pane's age is serve's, as of the read.
+func waitingOf(v view.Project, now int64) []Waiting {
+	out := []Waiting{}
+	since := func(age int64) int64 { return now - age }
+	if v.Lead != nil && v.Lead.Status == "blocked" {
+		out = append(out, Waiting{Agent: v.Lead.Agent, Role: "lead", Since: since(v.Lead.Age)})
+	}
+	for _, r := range v.Roles {
+		if r.Status == "blocked" {
+			out = append(out, Waiting{Agent: r.Agent, Role: r.Role, Since: since(r.Age)})
+		}
+	}
+	for _, l := range v.Lanes {
+		if l.AgentStatus != "blocked" {
+			continue
+		}
+		w := Waiting{Agent: l.Agent, Role: "worker", Lane: l.Name}
+		for _, a := range v.Agents {
+			if a.Name == l.Agent && a.Lane == l.Name {
+				w.Since = since(a.Age)
+			}
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
 // fleetEvents is how many of each project's newest events /api/projects carries.
 const fleetEvents = 5
 
@@ -257,7 +298,7 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 	out := make([]ProjectsEntry, 0)
 	for _, p := range s.projects() {
 		e := ProjectsEntry{Name: p.Name, Root: p.Root, Running: []view.Running{}, Roles: []view.Role{},
-			Lanes: []LaneDot{}, Events: []view.Event{}}
+			Waiting: []Waiting{}, Lanes: []LaneDot{}, Events: []view.Event{}}
 		ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 		v, err := s.build(ctx, p.Root)
 		cancel()
@@ -267,6 +308,7 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 			e.Up, e.NeedsYou, e.Queue = v.Serve.Up, len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
 			e.Running = append(e.Running, v.Running...)
 			e.Background = v.BackgroundCount()
+			e.Waiting = waitingOf(v, time.Now().Unix())
 			e.FullCheck, e.Paused, e.ReviewOpen = v.FullCheck, v.Paused, v.ReviewOpen
 			e.Events = append(e.Events, v.Events[:min(fleetEvents, len(v.Events))]...)
 			for _, r := range v.Roles {

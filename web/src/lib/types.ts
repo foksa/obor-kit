@@ -317,6 +317,15 @@ export interface LaneDot {
   job?: Job;
 }
 
+// Waiting is an agent whose pane waits for the owner's input (serve's status blocked): its name, role (a lane's
+// worker: "worker", with its lane) and since when (epoch seconds; absent: unknown).
+export interface Waiting {
+  agent: string;
+  role: string;
+  lane?: string;
+  since?: number;
+}
+
 export interface ProjectsEntry {
   name: string;
   root: string;
@@ -328,6 +337,7 @@ export interface ProjectsEntry {
   queue: number;
   running: Running[];
   roles: Role[];
+  waiting: Waiting[]; // the agents waiting at a prompt for the owner's input, counted apart from needs_you
   background: number;
   lanes: LaneDot[];
   full_check?: FullCheck | null;

@@ -57,6 +57,7 @@ var goStructs = map[string]reflect.Type{
 	"Event":            reflect.TypeOf(view.Event{}),
 	"EventsPage":       reflect.TypeOf(view.EventsPage{}),
 	"LaneDot":          reflect.TypeOf(LaneDot{}),
+	"Waiting":          reflect.TypeOf(Waiting{}),
 	"ProjectsEntry":    reflect.TypeOf(ProjectsEntry{}),
 	"TaskRecord":       reflect.TypeOf(view.TaskRecord{}),
 	"Prompt":           reflect.TypeOf(view.Prompt{}),

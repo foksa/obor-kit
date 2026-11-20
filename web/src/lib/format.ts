@@ -61,6 +61,17 @@ export function tone(state: string | undefined | null): Tone {
 
 export const roleName = (r: string | undefined) => String(r || "").replace(/_/g, " ");
 
+// WAITING is how the page words an agent whose pane is blocked at a prompt (a question, a permission or trust dialog):
+// the owner's input is what it waits on.
+export const WAITING = "waiting for you";
+
+// agentStatusText is an agent's status as its line shows it: blocked is "waiting for you" with its age (seconds, when
+// known), any other status as serve words it. Its tone stays the status's (tone: blocked is the needs-you colour).
+export function agentStatusText(status: string | undefined, age?: number): string {
+  if (status !== "blocked") return status || "";
+  return age ? WAITING + " " + dur(age) : WAITING;
+}
+
 // splitTasks is a watch's task field ("T-1, T-2" or "T-1 T-2") as its task ids.
 export function splitTasks(field: string): string[] {
   return String(field || "").split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
