@@ -22,6 +22,15 @@ Words used: an hc **terminal** is hc's pane (one program, address `t7`). The **c
 fresh shell in place when its program is lost. **OSC 7501** is the escape sequence a program writes to report
 `idle`, `working`, `blocked`, `done` or `error`; hc reads status only from it.
 
+**Probe facts (T-1351, 2026-11-20, `docs/research/hc-probes.md`).** None of step 0's no-go checks hit: all three
+kinds report OSC 7501 inside hc, `blocked` included, and a send at `blocked` is refused before any byte. Where a fact
+differs from this plan, the probe note's "What each fact changes in steps 2-5" is the spec input: `Snapshot.Instance`
+is the core id plus the sorted holder instances (not the pid); "up" is foreground not the shell and status not null;
+a turn ends when the status leaves `working` (OpenCode never says `done`); `Prompt`'s bound exceeds hc's 60 s
+`draft_wait`; no ~1 KB env-line split on hc; `env: {"NAME": ""}` sets empty, never unsets. **Step 5 is dropped**
+(only Codex's trust and update prompts report nothing: the start's screen read covers the first, the second is an
+upstream ask). HD4 holds as decided. HD8 waits for P7 (the owner's steps in the probe note).
+
 ## Recommendation
 
 1. **Build hc as a second adapter behind the port, chosen per project by `project.terminal: "hc"`; herdr stays the
