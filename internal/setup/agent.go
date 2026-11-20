@@ -283,28 +283,6 @@ func (s *Setup) copyFile(src, rel string) error {
 	return nil
 }
 
-// laneFree refuses a pane for lane agent a while another agent runs in a's lane worktree (one agent in a lane): called
-// under the lane's restart lock once Locate found a not running, so every agent there is another. The refusal names
-// the occupant to stop by its label when the config names that agent, else (a person's label, a pane nobody labelled)
-// the pane to quit it in. Nothing is touched.
-func (s *Setup) laneFree(ctx context.Context, a agent) error {
-	running, err := s.T.Agents(ctx)
-	if err != nil {
-		return project.Failf("terminal agent list failed (is the terminal running?)")
-	}
-	for _, r := range running {
-		if r.Cwd != a.cwd {
-			continue
-		}
-		who := cmp.Or(r.Label, r.Agent) // its pane's label, else (a pane nobody labelled) its kind
-		if s.cfg.NamesOtherAgent(r.Label, a.name) {
-			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, r.Label)
-		}
-		return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, a.lane, r.ID, r.ID)
-	}
-	return nil
-}
-
 // placed is a start's outcome (obor init's summary reads it): the agent's pane, and what was there or done.
 type placed struct {
 	pane    string
@@ -364,10 +342,8 @@ func (s *Setup) paneOnly(ctx context.Context, l Launcher, a agent, w where, what
 		s.say("OK %s: %s already running", what, a.name)
 		return placed{pane: loc.Pane, running: true}, nil
 	}
-	if a.lane != "" {
-		if err := s.laneFree(ctx, a); err != nil {
-			return placed{}, err
-		}
+	if err := l.LaneFree(ctx, a.name, a.lane, a.cwd); err != nil { // the launcher's one decision (Launch's NoStop too)
+		return placed{}, err
 	}
 	if w.pane == "" && loc.Pane != "" { // a rerun: the pane is there, labelled, with no agent
 		s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, loc.Pane)
