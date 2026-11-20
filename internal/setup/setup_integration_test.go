@@ -314,7 +314,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 		switch {
 		case strings.HasPrefix(r, "pane.send_input"):
 			got[i] = "<env line>"
-		case strings.HasPrefix(r, "pane.wait_for_output"):
+		case strings.HasPrefix(r, "pane.read"):
 			got[i] = "<env wait>"
 		}
 	}

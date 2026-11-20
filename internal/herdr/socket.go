@@ -307,6 +307,10 @@ type Pane struct {
 	port.Pane
 	Workspace, Tab string
 	Name           string
+	// Launched is herdr's word that no agent launch it made in the pane is pending (launch_pending false, or
+	// interactive_ready true): read after a start herdr accepted, an agent listed with it is the one that start
+	// launched, however stale its status (the start's evidence rule, start.go). false while the launch is pending.
+	Launched bool
 }
 
 // labelled is p as the core sees it, its Group the label of its workspace in labels (workspace id → label).
@@ -541,26 +545,6 @@ func (s *Socket) Screen(ctx context.Context, pane string, lines int) (string, er
 	return r.Read.Text, nil
 }
 
-// WaitForOutput is pane.wait_for_output: the pane's recent unwrapped text, once a line of it matches regex (text
-// already printed matches at once); herdr's error code "timeout" after timeout. Not "visible": that was stale in a
-// shell after an agent exited, while "recent" had the line; unwrapped keeps a long typed line whole.
-func (s *Socket) WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error) {
-	var r struct {
-		Read *struct {
-			Text string `json:"text"`
-		} `json:"read"`
-	}
-	p := map[string]any{"pane_id": pane, "source": "recent_unwrapped", "timeout_ms": timeout.Milliseconds(),
-		"match": map[string]string{"type": "regex", "value": regex}}
-	if err := s.call(ctx, timeout+waitGrace, &r, "pane.wait_for_output", p); err != nil {
-		return "", err
-	}
-	if r.Read == nil {
-		return "", &Error{Kind: BadAnswer, Op: "pane.wait_for_output", Msg: "no read in the answer", reached: true}
-	}
-	return r.Read.Text, nil
-}
-
 // RenamePane is pane.rename; label "" clears it. Labels are obor's agent identity (R-28 §2).
 func (s *Socket) RenamePane(ctx context.Context, pane, label string) error {
 	return s.call(ctx, 0, nil, "pane.rename", map[string]any{"pane_id": pane, "label": orNil(label)})
@@ -607,16 +591,16 @@ func (s *Socket) Named(ctx context.Context, name string) (port.Pane, error) {
 	return a.Pane, nil
 }
 
-// Start is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
+// startAgent is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
 // shell. herdr answers at once, before the agent runs (launch_pending, live): the answer is no proof the agent
-// came up, the caller polls for it (launch.started). herdr lags in noticing an exit and holds a name from a pane that
+// came up, the caller polls for it (started). herdr lags in noticing an exit and holds a name from a pane that
 // ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared, said on say, and
-// the start retried once (a clear that fails warns on say too). Start decides no identity: a live agent in another
+// the start retried once (a clear that fails warns on say too). startAgent decides no identity: a live agent in another
 // pane holding the name (a start that lost a race) is a refusal, nothing cleared, the error port.NameHeld's with the
 // holder's pane. The holder lookup is Named: only its not-found means no holder, any other error ends the start with
 // it, nothing cleared and no retry. Sent once otherwise, never retried: a request that timed out may have been typed
 // (Reached).
-func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
+func (s *Socket) startAgent(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error) {
 	a, err := s.start(ctx, name, kind, pane, args...)
 	var e *Error
 	if !errors.As(err, &e) || !e.nameTaken() {
@@ -660,13 +644,12 @@ func sayf(say func(format string, args ...any), format string, args ...any) {
 }
 
 // start is agent.start as sent.
-func (s *Socket) start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
+func (s *Socket) start(ctx context.Context, name, kind, pane string, args ...string) (Pane, error) {
 	p := map[string]any{"name": name, "kind": kind, "pane_id": pane}
 	if len(args) > 0 {
 		p["args"] = args
 	}
-	a, err := s.agentResult(ctx, 0, "agent.start", p)
-	return a.Pane, err
+	return s.agentResult(ctx, 0, "agent.start", p)
 }
 
 // Panes is pane.list.
@@ -1172,7 +1155,7 @@ func observed(snap Snapshot) map[string]Pane {
 
 func paneAgent(p Pane) Pane {
 	return Pane{Pane: port.Pane{ID: p.ID, Status: p.Status, Cwd: p.Cwd, Agent: p.Agent, Session: p.Session,
-		Transcript: p.Transcript, Label: p.Label, Launched: p.Launched}, Workspace: p.Workspace}
+		Transcript: p.Transcript, Label: p.Label}, Workspace: p.Workspace, Launched: p.Launched}
 }
 
 // same: a and b differ in nothing obor watches (herdr's state_change_seq is not read: it grows with every change, even
@@ -1273,9 +1256,8 @@ func (w Wire) transcript() string {
 // pane is a herdr pane as the adapter reads it: herdr's pane and agent answers share this Wire.
 func (w Wire) pane() Pane {
 	return Pane{Pane: port.Pane{ID: w.ID, Terminal: w.Terminal, Cwd: trimSlash(w.Cwd), Label: w.Label, Agent: w.Kind,
-		Status: w.Status, Transcript: w.transcript(), Session: w.session(),
-		Launched: !w.LaunchPending || w.InteractiveReady},
-		Workspace: w.Workspace, Tab: w.Tab, Name: w.Name}
+		Status: w.Status, Transcript: w.transcript(), Session: w.session()},
+		Workspace: w.Workspace, Tab: w.Tab, Name: w.Name, Launched: !w.LaunchPending || w.InteractiveReady}
 }
 
 func trimSlash(p string) string {

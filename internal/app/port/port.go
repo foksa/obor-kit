@@ -2,7 +2,7 @@
 // through and the plain types they exchange. It is a leaf below package app, so an adapter reaches the core's contract
 // without importing the core: the terminal's events and snapshot (Pane, Snapshot, Event, Stream, Panes) and the one
 // value cmd/obor builds of them (Terminal), the lane table (Lane, Lanes) and the effects of effects.go (Agents,
-// Prompter, PaneControl, Starter, Scratch, LaneSetup and their types).
+// Prompter, PaneControl, AgentStarter, Starter, Scratch, LaneSetup and their types).
 package port
 
 import (
@@ -31,12 +31,6 @@ type Pane struct {
 	// Terminal is the terminal's own id of what runs in the pane, kept when the pane moves (herdr: terminal_id): the
 	// identity table's key (registry.go); "" when the terminal reports none. Kept when an event has none.
 	Terminal string
-	// Launched is the terminal's word that no agent launch it made in the pane is pending (herdr:
-	// launch_pending false, or interactive_ready true): read after a start the terminal accepted, an agent listed with
-	// it is the one that start launched, however stale its status. false while the launch is pending, and for a
-	// terminal that reports no such fact: a start never counts a listing without it (it fails at its bound), so the
-	// default never reads "up".
-	Launched bool
 }
 
 // Ready: the pane's agent is idle: it takes a prompt now (done is idle with an unviewed reply).

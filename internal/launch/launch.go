@@ -26,14 +26,12 @@
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
 //	Shell    a restart whose pane ran an agent waits after the stop for the pane to be a shell again (ShellWait:
-//	         herdr answers agent_pane_busy until the old agent's exit is reaped), and a start herdr answers
-//	         agent_pane_busy is retried like that within the same bound; past it, no start and a FAIL naming the pane.
-//	         RESTARTED only when the start succeeded and its agent is seen.
+//	         the terminal refuses a start, PaneBusy, until the old agent's exit is reaped), and a start the terminal
+//	         refuses as PaneBusy is retried like that within the same bound; past it, no start and a FAIL naming the
+//	         pane. RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
-//	         obor setup): the pane labelled <agent>, herdr agent start (a name herdr kept with no live agent behind
-//	         it: cleared and retried once), a look for a startup dialog. The start ends when its agent runs in the
-//	         pane, not at herdr's own bound for an agent ready for input. herdr's agent name is neither required nor
-//	         renamed back.
+//	         obor setup): the pane labelled <agent>, the terminal's agent start (port.AgentStarter), a look for a
+//	         startup dialog. The start ends when the terminal says its agent runs in the pane.
 //	Self     the caller's own pane (project.Pane): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
@@ -71,11 +69,11 @@ type Launcher struct {
 	H    port.PaneControl
 	Out  io.Writer     // progress lines
 	Wait time.Duration // for an agent to exit after /exit, the shell to run the env line (default OBOR_RESTART_WAIT, else 20 s)
-	Up   time.Duration // for a started agent to come up in its pane (default 30 s: herdr's own startup bound)
+	Up   time.Duration // for a started agent to come up in its pane (the terminal's start's bound; default 30 s)
 	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default port.StopIdle)
 	Poll time.Duration // how often it looks (default 1 s)
-	// Shell is how long a restart waits after its stop for the pane to be a shell again, and retries a start herdr
-	// answered agent_pane_busy: herdr keeps the pane no available shell until the old agent's exit is reaped (default
+	// Shell is how long a restart waits after its stop for the pane to be a shell again, and retries a start the
+	// terminal refused as PaneBusy: it keeps the pane no available shell until the old agent's exit is reaped (default
 	// ShellWait).
 	Shell time.Duration
 	// Bound is the most a stop may take: its idle wait, its quit wait and the terminate together (default StopBound,
@@ -113,8 +111,9 @@ type Launcher struct {
 	Background func(search func())
 	// Log is where a background search says what it found (none, or several open); nil: nowhere.
 	Log io.Writer
-	// Diag is where a start's terminal-adapter lines go (the name herdr kept, cleared and retried, and a failed
-	// clear's warning): the diagnostics a serve start's discarded Out would swallow. nil: Out.
+	// Diag is where a start's terminal-adapter lines go (port.AgentStart.Say: a name the terminal kept, cleared and
+	// retried, a failed clear's warning, a start it counts though its own answer failed): the diagnostics a serve
+	// start's discarded Out would swallow. nil: Out.
 	Diag io.Writer
 	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
@@ -615,14 +614,18 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
 	}
-	// The start runs only once the pane is a shell again: until the old agent's exit is reaped, herdr answers
-	// agent.start with agent_pane_busy, and the env line would fail in a pane that still runs it. One bound covers this
-	// wait and the start's retries; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is
-	// waited on (Await): a pane at a shell, or one running a person's program, is setEnv's to refuse.
+	// The start runs only once the pane is a shell again: until the old agent's exit is reaped, the terminal refuses
+	// the start (PaneBusy), and the env line would fail in a pane that still runs it. One bound covers this wait and the
+	// start's retries; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is waited on (Await):
+	// a pane at a shell, or one running a person's program, is setEnv's to refuse.
 	st := Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
 		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane, Shell: l.shellWait(), Await: t.entry.Agent != "",
-		Env: func(ctx context.Context) error { return l.setEnv(ctx, t) }}
+		Env:   func(ctx context.Context) error { return l.setEnv(ctx, t) },
+		Whose: AgentEnv{Agent: t.agent, Role: t.info.Role, Lane: t.info.Lane, Cwd: t.info.Cwd, Vars: t.env}}
 	seen, err := l.start(ctx, st)
+	if seen.ID != "" && seen.ID != t.pane { // the terminal ran the agent in another pane: it runs there
+		t.pane, t.entry.Terminal = seen.ID, seen.Terminal
+	}
 	var se *StartError
 	var trust *port.TrustDialog
 	switch {
@@ -779,10 +782,10 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.H.Write(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed, true); err != nil {
 		return project.Failf("terminal pane run %s (env) failed", t.pane)
 	}
-	// One server-owned wait for either mark (the echoed words, which the typed line's quoted forms never match): its
-	// timeout is the env line's bound, and the text read says which mark the shell printed.
-	screen, err := l.H.WaitForOutput(ctx, t.pane, okMark.echoed+"|"+badMark.echoed, l.wait())
-	if err != nil {
+	// The pane's screen read every Poll for either mark (the echoed words, which the typed line's quoted forms never
+	// match), within the env line's bound: the mark on it says which one the shell printed.
+	screen, ok := l.screenShows(ctx, t.pane, l.wait(), okMark.echoed, badMark.echoed)
+	if !ok {
 		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started; the env line may have failed: check the pane)",
 			t.pane, l.wait())
 	}
@@ -790,6 +793,28 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 		return l.giveUp(ctx, t, "the env line in %s failed (nothing started; check the pane)", t.pane)
 	}
 	return nil
+}
+
+// screenLines is how many of a pane's last screen lines a look for an echoed mark reads.
+const screenLines = 60
+
+// screenShows reads pane's screen every Poll for at most d until one of words is on it, and returns that screen;
+// false when none showed (a screen that cannot be read shows none).
+func (l *Launcher) screenShows(ctx context.Context, pane string, d time.Duration, words ...string) (string, bool) {
+	var screen string
+	shows := func() bool {
+		var err error
+		if screen, err = l.H.Screen(ctx, pane, screenLines); err != nil {
+			return false
+		}
+		for _, w := range words {
+			if strings.Contains(screen, w) {
+				return true
+			}
+		}
+		return false
+	}
+	return screen, l.until(ctx, d, shows)
 }
 
 // envOrOS is the launcher's env, the process's own when it has none.
@@ -824,10 +849,7 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 // every other var of the registry unset (a stale OBOR_AGENT; another kind's OBOR_OPENCODE_MODEL), so
 // nothing of an earlier start in the pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
 func envLine(t *target) string {
-	role := t.info.Role
-	if r, ok := roles.Lookup(role); ok {
-		role = r.EnvValue
-	}
+	role := roleEnv(t.info.Role)
 	var keep []string
 	if !t.known && role == "" {
 		keep = []string{agents.RoleVar}
@@ -845,6 +867,14 @@ func envLine(t *target) string {
 		line = "cd " + shellQuote(t.info.Cwd) + " && " + line
 	}
 	return line
+}
+
+// roleEnv is role's env value (OBOR_ROLE's) for a role obor knows, else role as it is ("": none).
+func roleEnv(role string) string {
+	if r, ok := roles.Lookup(role); ok {
+		return r.EnvValue
+	}
+	return role
 }
 
 // mark is a word the env line echoes (its success word, or its failure word when the line failed): the

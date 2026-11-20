@@ -191,7 +191,8 @@ process (`plugin.Local`).
 **adapters** — one outside system each.
 - `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `port.Panes`,
   `port.PaneControl` (a pane read by its id, the two ways to type: `Write` into a pane, `Prompt` to its agent) with
-  `port.Prompter`, and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
+  `port.Prompter`, `port.AgentStarter` (`start.go`: herdr's agent start, its name-taken retry and the evidence rule on
+  `launch_pending`), and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
   workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids, the name herdr runs an agent under) stays
   here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
   helper).
@@ -207,7 +208,7 @@ process (`plugin.Local`).
   workflow contract table (`testkit.WorkflowContract`, run on internal/app's `FakeWorkflow` too) and the real-git cases
   are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_integration_test.go`).
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
-  `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
+  `app.PaneControl`, the agent's start itself the terminal's `port.AgentStarter`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
   `RestartLock`); `locate.go`: `Locate`, the one decision before a start or stop touches a pane (serve's `where`
   answer, the pane list, the terminal's holder of the name), under that lock; the restore after the terminal restarts (`Restorer`: serve's run for its project, after a
   lost connection or at its first connect after a herdr restart, under its `RestoreLock`); `session.go`: the id obor names a fresh Claude

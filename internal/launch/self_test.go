@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"obor/internal/app/port"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 )
 
@@ -56,9 +54,9 @@ func (x *fx) self(own string, scheduled bool, req launch.Request, stop bool, tun
 // idleAfter makes pane p's agent go idle after n agent looks; *got counts them. The status changes under the fake's
 // lock: the fake's server writes the pane while the launcher polls it.
 type idleAfter struct {
-	port.PaneControl
-	f   *herdrtest.Fake
-	p   *herdrtest.Pane
+	control
+	f   *term
+	p   *mpane
 	n   int
 	got *int
 }
@@ -66,10 +64,10 @@ type idleAfter struct {
 func (w idleAfter) Pane(ctx context.Context, target string) (port.Pane, error) {
 	if target == w.p.ID {
 		if *w.got++; *w.got > w.n {
-			w.f.Set(w.p.ID, func(p *herdrtest.Pane) { p.Status = "idle" })
+			w.f.Set(w.p.ID, func(p *mpane) { p.Status = "idle" })
 		}
 	}
-	return w.PaneControl.Pane(ctx, target)
+	return w.control.Pane(ctx, target)
 }
 
 // obor restart of the caller's own pane schedules a detached run that restarts the agent once it is idle.
@@ -103,8 +101,8 @@ func TestRestartOwnPane(t *testing.T) {
 				eq(t, spawns[0].args, c.args, "detached args")
 				eq(t, spawns[0].out, filepath.Join(x.p.Root, ".obor", "state", "restart-pj-l-01.log"), "its output")
 				eq(t, spawns[0].dir, x.p.Root, "its cwd: this project's main checkout (T-301)")
-				if len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-					t.Errorf("nothing typed, stopped or started: %q", x.srv.Calls())
+				if len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+					t.Errorf("nothing typed, stopped or started: %q", x.f.Calls())
 				}
 			})
 		}
@@ -125,7 +123,7 @@ func TestRestartOwnPane(t *testing.T) {
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		got := 0
-		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 3, &got} }
+		x.wrap = func(h control) control { return idleAfter{h, x.f, a, 3, &got} }
 		out, ok, spawns := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, false, func(l *launch.Launcher) {
 			l.Sched = time.Minute
 		})
@@ -136,7 +134,7 @@ func TestRestartOwnPane(t *testing.T) {
 			t.Fatalf("restarted once idle:\n%s", out)
 		}
 		contains(t, out, "waiting for pj-l-01 to go idle", "said")
-		lacks(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_keys keys=[esc] pane_id=w1:p3", "no Escape: it went idle by itself")
+		lacks(t, strings.Join(x.f.Calls(), "\n"), "SendKeys keys=[esc] pane=w1:p3", "no Escape: it went idle by itself")
 		eqInt(t, len(spawns), 0, "not scheduled again")
 	})
 	t.Run("the detached run: background tasks (the exit dialog) fail it", func(t *testing.T) {
@@ -144,7 +142,7 @@ func TestRestartOwnPane(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.agent("w1:p3", "pj-l-01", "claude", "idle")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnQuit = "dialog" })
+		x.f.Set("w1:p3", func(p *mpane) { p.OnQuit = "dialog" })
 		out, ok, _ := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, false, nil)
 		eq(t, failLine(out), "FAIL pj-l-01 has background tasks (finish them, or --force to stop them)", "result")
 		if ok || x.startCall() != "" {
@@ -166,8 +164,8 @@ func TestRestartOwnPane(t *testing.T) {
 			}
 			want := "FAIL pj-l-01 still working after 30ms: scheduled " + word + " not run (pane w1:p3)"
 			eq(t, failLine(out), want, "result")
-			if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-				t.Errorf("nothing typed or started: %q", x.srv.Calls())
+			if ok || len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+				t.Errorf("nothing typed or started: %q", x.f.Calls())
 			}
 			log, err := os.ReadFile(filepath.Join(x.p.Root, ".obor", "state", "launch.log"))
 			if err != nil {
@@ -187,7 +185,7 @@ func TestRestartOwnPane(t *testing.T) {
 		if ok || len(spawns) != 0 {
 			t.Errorf("nothing scheduled: %v", spawns)
 		}
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Status = "idle" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Status = "idle" })
 		out, ok, spawns = x.self("w1:p9", false, launch.Request{Agent: "pj-l-01"}, false, nil)
 		if !ok || last(out) != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" || len(spawns) != 0 {
 			t.Errorf("restarted in place, nothing scheduled: %v\n%s", spawns, out)
@@ -198,8 +196,8 @@ func TestRestartOwnPane(t *testing.T) {
 // polled runs hook before the n-th agent look of pane p (its error, if any, is the call's: herdr unavailable), and
 // keeps p's agent status at each /exit typed into p.
 type polled struct {
-	port.PaneControl
-	p      *herdrtest.Pane
+	control
+	p      *mpane
 	got    *int
 	hook   func(n int) error
 	atExit *[]string
@@ -212,14 +210,14 @@ func (w polled) Pane(ctx context.Context, target string) (port.Pane, error) {
 			return port.Pane{}, err
 		}
 	}
-	return w.PaneControl.Pane(ctx, target)
+	return w.control.Pane(ctx, target)
 }
 
 func (w polled) Write(ctx context.Context, pane, text string, submit bool) error {
 	if pane == w.p.ID && strings.Contains(text, "/exit") {
 		*w.atExit = append(*w.atExit, w.p.Status)
 	}
-	return w.PaneControl.Write(ctx, pane, text, submit)
+	return w.control.Write(ctx, pane, text, submit)
 }
 
 // a fresh restart from the agent's own pane, with no --force: SCHEDULED while it works (nothing stopped or typed), and
@@ -250,8 +248,8 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 				t.Fatalf("one detached run: %v\n%s", spawns, out)
 			}
 			eq(t, spawns[0].args, c.args, "detached args: no --force")
-			if len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-				t.Fatalf("nothing typed, stopped or started while it works: %q", x.srv.Calls())
+			if len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+				t.Fatalf("nothing typed, stopped or started while it works: %q", x.f.Calls())
 			}
 			req, err := launch.ParseRequest(strings.Fields(spawns[0].args)[1:])
 			if err != nil || req.Agent != c.agent || req.Pane != "w1:p3" || !req.Fresh || req.Handoff != c.req.Handoff ||
@@ -259,7 +257,7 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 				t.Fatalf("the detached argv: %+v, %v; want the agent, its pane and its flags", req, err)
 			}
 			got := 0
-			x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 2, &got} }
+			x.wrap = func(h control) control { return idleAfter{h, x.f, a, 2, &got} }
 			out, ok, spawns = x.self("w1:p3", true, req, false, func(l *launch.Launcher) { l.Sched = time.Minute })
 			if !ok || len(spawns) != 0 {
 				t.Fatalf("the detached run: %v, spawns %v\n%s", ok, spawns, out)
@@ -284,9 +282,9 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 	own := launch.Request{Agent: "pj-l-01", Pane: "w1:p3"}
 	// run is the detached run of req (stop: --stop) with hook on the agent's polls; got counts them, atExit is the
 	// status at each /exit.
-	run := func(x *fx, a *herdrtest.Pane, req launch.Request, stop bool, sched time.Duration, hook func(n int) error) (out string, ok bool, got int, atExit []string) {
+	run := func(x *fx, a *mpane, req launch.Request, stop bool, sched time.Duration, hook func(n int) error) (out string, ok bool, got int, atExit []string) {
 		x.t.Helper()
-		x.wrap = func(h port.PaneControl) port.PaneControl { return polled{h, a, &got, hook, &atExit} }
+		x.wrap = func(h control) control { return polled{h, a, &got, hook, &atExit} }
 		out, ok, spawns := x.self("w1:p3", true, req, stop, func(l *launch.Launcher) { l.Sched = sched })
 		if len(spawns) != 0 {
 			x.t.Errorf("not scheduled again: %v", spawns)
@@ -295,8 +293,8 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 	}
 	untouched := func(t *testing.T, x *fx) {
 		t.Helper()
-		if len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-			t.Errorf("nothing typed, stopped or started: %q", x.srv.Calls())
+		if len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+			t.Errorf("nothing typed, stopped or started: %q", x.f.Calls())
 		}
 	}
 	record := func(x *fx) string { return x.recorded("pj-l-01") + "\n" }
@@ -316,7 +314,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 						failed = true
 						return down
 					case n > 4:
-						x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Status = "idle" })
+						x.f.Set(a.ID, func(p *mpane) { p.Status = "idle" })
 					}
 					return nil
 				})
@@ -331,7 +329,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 				if !ok || len(atExit) != 1 || atExit[0] != "idle" {
 					t.Errorf("%s stop=%v: one /exit, once idle: %v\n%s", status, stop, atExit, out)
 				}
-				lacks(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_keys keys=[esc] pane_id=w1:p3", "no Escape")
+				lacks(t, strings.Join(x.f.Calls(), "\n"), "SendKeys keys=[esc] pane=w1:p3", "no Escape")
 			}
 		}
 	})
@@ -366,7 +364,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 			a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 			out, ok, got, atExit := run(x, a, own, stop, time.Minute, func(n int) error {
 				if n == 2 {
-					x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+					x.f.Set(a.ID, func(p *mpane) { p.Kind, p.Name, p.Status = "", "", "" })
 				}
 				return nil
 			})
@@ -385,10 +383,10 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-before")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "sid-before" })
+		x.f.Set(a.ID, func(p *mpane) { p.Session = "sid-before" })
 		out, ok, _, _ := run(x, a, own, false, time.Minute, func(n int) error {
 			if n > 2 {
-				x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Status, p.Session = "idle", "sid-after" })
+				x.f.Set(a.ID, func(p *mpane) { p.Status, p.Session = "idle", "sid-after" })
 			}
 			return nil
 		})
@@ -405,10 +403,10 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-before")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "sid-before" })
+		x.f.Set(a.ID, func(p *mpane) { p.Session = "sid-before" })
 		out, ok, _, _ := run(x, a, own, false, time.Minute, func(n int) error {
 			if n == 3 {
-				x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Status, p.Session = "idle", "sid-after" })
+				x.f.Set(a.ID, func(p *mpane) { p.Status, p.Session = "idle", "sid-after" })
 				x.sid("pj-l-01", "sid-after")
 			}
 			return nil
@@ -424,11 +422,11 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		x := setup(t)
 		x.sid("pj-l-01", "sid-before")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "sid-before" })
+		x.f.Set(a.ID, func(p *mpane) { p.Session = "sid-before" })
 		out, ok, _, _ := run(x, a, launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, false, time.Minute,
 			func(n int) error {
 				if n > 2 {
-					x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Status, p.Session = "idle", "sid-after" })
+					x.f.Set(a.ID, func(p *mpane) { p.Status, p.Session = "idle", "sid-after" })
 				}
 				return nil
 			})
@@ -444,10 +442,10 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		t.Parallel()
 		for _, c := range []struct {
 			name   string
-			change func(a *herdrtest.Pane)
+			change func(a *mpane)
 			fail   string
 		}{
-			{"relabelled for another configured agent", func(a *herdrtest.Pane) { a.Label, a.Name = "pj-rev", "pj-rev" },
+			{"relabelled for another configured agent", func(a *mpane) { a.Label, a.Name = "pj-rev", "pj-rev" },
 				"FAIL pane w1:p3 is labelled pj-rev, not pj-l-01"},
 		} {
 			for _, stop := range []bool{false, true} {
@@ -459,7 +457,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 					req.Force = force
 					out, ok, got, atExit := run(x, a, req, stop, time.Minute, func(n int) error {
 						if n == 2 {
-							x.f.Set(a.ID, func(p *herdrtest.Pane) { c.change(p); p.Status = "idle" })
+							x.f.Set(a.ID, func(p *mpane) { c.change(p); p.Status = "idle" })
 						}
 						return nil
 					})
@@ -486,15 +484,15 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 
 	// run is the detached run: the agent is working on poll 1; on poll 2 change(a) is applied and it goes idle; from
 	// poll 3 on (sameAgent's lookup) later(n) decides the answer. got counts the polls.
-	run := func(x *fx, k kind, req launch.Request, stop bool, change func(a *herdrtest.Pane), later func(n int) error) (out string, ok bool, got int, atExit []string) {
+	run := func(x *fx, k kind, req launch.Request, stop bool, change func(a *mpane), later func(n int) error) (out string, ok bool, got int, atExit []string) {
 		x.t.Helper()
 		a := x.agent(k.pane, k.agent, k.kind, "working")
-		x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Session = "sid-1" })
-		x.wrap = func(h port.PaneControl) port.PaneControl {
+		x.f.Set(a.ID, func(p *mpane) { p.Session = "sid-1" })
+		x.wrap = func(h control) control {
 			return polled{h, a, &got, func(n int) error {
 				switch {
 				case n == 2:
-					x.f.Set(a.ID, func(p *herdrtest.Pane) {
+					x.f.Set(a.ID, func(p *mpane) {
 						change(p)
 						p.Status = "idle"
 					})
@@ -522,8 +520,8 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 	}
 	untouched := func(t *testing.T, x *fx, atExit []string) {
 		t.Helper()
-		if len(atExit) != 0 || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-			t.Errorf("no /exit, /quit, Escape or start: %q", x.srv.Calls())
+		if len(atExit) != 0 || len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+			t.Errorf("no /exit, /quit, Escape or start: %q", x.f.Calls())
 		}
 	}
 	result := func(k kind, stop bool) string {
@@ -537,7 +535,7 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 		t.Parallel()
 		for _, stop := range []bool{false, true} {
 			x := setupFor(t, claude)
-			out, ok, _, _ := run(x, claude, launch.Request{Agent: claude.agent, Pane: claude.pane}, stop, func(*herdrtest.Pane) {}, nil)
+			out, ok, _, _ := run(x, claude, launch.Request{Agent: claude.agent, Pane: claude.pane}, stop, func(*mpane) {}, nil)
 			if !ok {
 				t.Fatalf("stop=%v: %s", stop, out)
 			}
@@ -549,7 +547,7 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 		for _, stop := range []bool{false, true} {
 			x := setupFor(t, claude)
 			out, ok, _, atExit := run(x, claude, launch.Request{Agent: claude.agent, Pane: claude.pane}, stop,
-				func(a *herdrtest.Pane) { a.Kind, a.Name, a.Status = "", "", "" }, nil)
+				func(a *mpane) { a.Kind, a.Name, a.Status = "", "", "" }, nil)
 			if !ok || len(atExit) != 0 {
 				t.Fatalf("stop=%v: no agent to exit: %v\n%s", stop, atExit, out)
 			}
@@ -568,7 +566,7 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 					name := fmt.Sprintf("%s stop=%v force=%v", k.kind, stop, force)
 					x := setupFor(t, k)
 					out, ok, _, atExit := run(x, k, launch.Request{Agent: k.agent, Pane: k.pane, Force: force}, stop,
-						func(a *herdrtest.Pane) { a.Name = "other-agent" }, func(int) error { return down })
+						func(a *mpane) { a.Name = "other-agent" }, func(int) error { return down })
 					contains(t, failLine(out), fmt.Sprintf("FAIL cannot confirm pane %s runs %s: ", k.pane, k.agent), name+" result")
 					contains(t, failLine(out), "herdr went away", name+" names the error")
 					contains(t, failLine(out), ": not stopped", name+" result")
@@ -589,7 +587,7 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 			{Agent: claude.agent, Pane: claude.pane, Fresh: true},
 		} {
 			x := setupFor(t, claude)
-			out, ok, _, atExit := run(x, claude, req, false, func(*herdrtest.Pane) {}, func(int) error { return down })
+			out, ok, _, atExit := run(x, claude, req, false, func(*mpane) {}, func(int) error { return down })
 			contains(t, failLine(out), "FAIL cannot confirm pane w1:p3 runs pj-l-01: ", "result")
 			contains(t, failLine(out), ": not stopped", "result")
 			if ok {
@@ -603,22 +601,22 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 // callerFg gives pane p's foreground to the caller (`obor restart`, pid 77) for its next n process-info
 // looks, then back to the shell; left counts the looks still to come.
 type callerFg struct {
-	port.PaneControl
-	f    *herdrtest.Fake
-	p    *herdrtest.Pane
+	control
+	f    *term
+	p    *mpane
 	left *int
 }
 
 func (w callerFg) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	if *w.left > 0 {
 		*w.left--
-		w.f.Set(w.p.ID, func(p *herdrtest.Pane) {
-			p.Foreground, p.Procs = 77, []herdr.Process{{PID: 77, Argv0: "obor"}}
+		w.f.Set(w.p.ID, func(p *mpane) {
+			p.Foreground, p.Procs = 77, []port.Process{{PID: 77, Argv0: "obor"}}
 		})
 	} else {
-		w.f.Set(w.p.ID, func(p *herdrtest.Pane) { p.Foreground, p.Procs = 0, nil })
+		w.f.Set(w.p.ID, func(p *mpane) { p.Foreground, p.Procs = 0, nil })
 	}
-	return w.PaneControl.ProcessInfo(ctx, pane)
+	return w.control.ProcessInfo(ctx, pane)
 }
 
 // waitScheduled does all the waiting of the scheduled run, one row of the spec's table each; the
@@ -628,8 +626,8 @@ func TestWaitScheduledTable(t *testing.T) {
 	const shellWait = "waiting for the shell of pane w1:p3 to have the foreground"
 	untouched := func(t *testing.T, x *fx) {
 		t.Helper()
-		if len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
-			t.Errorf("nothing typed, stopped or started: %q", x.srv.Calls())
+		if len(x.calls("Write")) > 0 || len(x.calls("SendKeys")) > 0 || x.startCall() != "" {
+			t.Errorf("nothing typed, stopped or started: %q", x.f.Calls())
 		}
 	}
 	t.Run("an agent, working: whenIdle, then the normal path", func(t *testing.T) {
@@ -638,7 +636,7 @@ func TestWaitScheduledTable(t *testing.T) {
 		x.sid("pj-l-01", "sid-1")
 		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		got := 0
-		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, x.f, a, 2, &got} }
+		x.wrap = func(h control) control { return idleAfter{h, x.f, a, 2, &got} }
 		out, ok, _ := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, false, func(l *launch.Launcher) { l.Sched = time.Minute })
 		if !ok || got <= 2 {
 			t.Fatalf("waited until idle (%d looks), then restarted:\n%s", got, out)
@@ -664,7 +662,7 @@ func TestWaitScheduledTable(t *testing.T) {
 		x := setup(t)
 		p := x.shell("w1:p3", "pj-l-01", x.lane)
 		left := 4
-		x.wrap = func(h port.PaneControl) port.PaneControl { return callerFg{h, x.f, p, &left} }
+		x.wrap = func(h control) control { return callerFg{h, x.f, p, &left} }
 		out, ok, _ := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01", Fresh: true}, false, nil)
 		if left != 0 {
 			t.Fatalf("precondition: the caller held the foreground for every planned look (%d left)\n%s", left, out)
@@ -703,7 +701,7 @@ func TestWaitScheduledTable(t *testing.T) {
 				x.wait = shortWait
 				p := x.shell("w1:p3", "pj-l-01", x.lane)
 				left := 1 << 30
-				x.wrap = func(h port.PaneControl) port.PaneControl { return callerFg{h, x.f, p, &left} }
+				x.wrap = func(h control) control { return callerFg{h, x.f, p, &left} }
 				out, ok, _ := x.self("w1:p3", true, c.req, c.stop, nil)
 				if ok {
 					t.Errorf("not run:\n%s", out)
@@ -721,7 +719,7 @@ func TestWaitScheduledTable(t *testing.T) {
 			x := setup(t)
 			p := x.shell("w1:p3", "pj-l-01", x.lane)
 			left := held
-			x.wrap = func(h port.PaneControl) port.PaneControl { return callerFg{h, x.f, p, &left} }
+			x.wrap = func(h control) control { return callerFg{h, x.f, p, &left} }
 			out, ok, spawns := x.self("w1:p3", true, launch.Request{Agent: "pj-l-01"}, true, nil)
 			if !ok || len(spawns) != 0 || left != 0 {
 				t.Fatalf("held %d: stopped, not scheduled again (%v, %d looks left):\n%s", held, spawns, left, out)

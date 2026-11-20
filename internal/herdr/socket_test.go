@@ -112,12 +112,12 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{Pane: port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02", Launched: true}, Workspace: "w1"}) {
+	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{Pane: port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}, Workspace: "w1", Launched: true}) {
 		t.Errorf("Snapshot = %+v", snap)
 	}
 	want := []port.Pane{
-		{ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa", Launched: true},
-		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude", Launched: true},
+		{ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa"},
+		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude"},
 	}
 	var got []port.Pane
 	for _, a := range snap.Agents {
@@ -135,7 +135,7 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if a, err := c.Pane(ctx, "w1:p1"); err != nil || a != want[0] {
 		t.Errorf("Pane of an agent's pane = %+v, %v; want %+v", a, err, want[0])
 	}
-	shell := port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02", Launched: true}
+	shell := port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}
 	if a, err := c.Pane(ctx, "w1:p2"); err != nil || a != shell {
 		t.Errorf("Pane of a shell = %+v, %v; want %+v (no agent)", a, err, shell)
 	}
@@ -186,7 +186,7 @@ func TestSocketRequestParams(t *testing.T) {
 	if began, err := c.Prompt(ctx, "w1:p1", "hello", false); err != nil || !began {
 		t.Errorf("Prompt = %v, %v", began, err)
 	}
-	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku"); err != nil || a.ID != "w1:p1" {
+	if a, err := c.StartAgent(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku"); err != nil || a.ID != "w1:p1" {
 		t.Errorf("Start = %+v, %v", a, err)
 	}
 	if id, err := c.Split(ctx, "w1:p1", "down", "/proj-wt/L-04", "OBOR_AGENT=pj-l-04"); err != nil || id != "w1:p9" {
@@ -258,7 +258,7 @@ func TestSocketStartSentOnce(t *testing.T) {
 	if count(srv, "agent.start") != 0 {
 		t.Fatal("precondition: no start yet")
 	}
-	_, err := slow.Start(ctx, "pj-l-04", "claude", "w1:p4", nil, "--model", "opus", "--", prompt)
+	_, err := slow.StartAgent(ctx, "pj-l-04", "claude", "w1:p4", nil, "--model", "opus", "--", prompt)
 	if !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "timed out after 50ms") {
 		t.Fatalf("a start answered after the bound = %v, want unavailable: timed out after 50ms", err)
 	}
@@ -333,7 +333,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
 			t.Fatal("precondition: no start or rename yet")
 		}
-		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku")
+		a, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku")
 		if err != nil || a.ID != "w1:p2" || f.Pane("w1:p2").Name != "pj-l-04" {
 			t.Fatalf("Start = %+v, %v; want the agent started in w1:p2 after the retry", a, err)
 		}
@@ -355,7 +355,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		t.Parallel()
 		srv := herdrtest.Serve(t, fixture())
 		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
-		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil); err != nil {
+		if _, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p2", nil); err != nil {
 			t.Fatalf("a start with no say = %v, want the silent retry to run", err)
 		}
 		if n := count(srv, "agent.start"); n != 2 {
@@ -369,7 +369,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "agent pj-l-04 not found"})
 		var said []string
 		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
-		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", say); err != nil {
+		if _, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p2", say); err != nil {
 			t.Fatalf("Start = %v; want the start retried after the failed clear", err)
 		}
 		if n := count(srv, "agent.start"); n != 2 {
@@ -395,7 +395,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		srv := herdrtest.Serve(t, f)
 		var said []string
 		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
-		_, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2", say)
+		_, err := srv.Client().StartAgent(ctx, "pj-l-01", "claude", "w1:p2", say)
 		pane, held := port.NameHeld(err)
 		if !held || pane != "w1:p1" {
 			t.Fatalf("Start = %v; NameHeld = pane %q, held %t; want the live holder w1:p1", err, pane, held)
@@ -428,7 +428,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
 		var said []string
 		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
-		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p4", say)
+		a, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p4", say)
 		if err != nil || a.ID != "w1:p4" || f.Pane("w1:p4").Name != "pj-l-04" {
 			t.Fatalf("Start = %+v, %v; want the agent restarted in its pane", a, err)
 		}
@@ -453,7 +453,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		srv := herdrtest.Serve(t, fixture())
 		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"}
 		srv.Once("agent.start", taken, taken)
-		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil); err == nil {
+		if _, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p2", nil); err == nil {
 			t.Fatal("a start refused twice succeeded")
 		}
 		if n := count(srv, "agent.start"); n != 2 {
@@ -476,7 +476,7 @@ func TestSocketStartHolderLookupFails(t *testing.T) {
 		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
 			t.Fatal("precondition: no start or rename yet")
 		}
-		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil)
+		a, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p2", nil)
 		if err == nil {
 			t.Fatalf("Start = %+v, nil; want the failed holder lookup's error", a)
 		}
@@ -505,7 +505,7 @@ func TestSocketStartHolderLookupFails(t *testing.T) {
 		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
 			t.Fatal("precondition: no start or rename yet")
 		}
-		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil)
+		a, err := srv.Client().StartAgent(ctx, "pj-l-04", "claude", "w1:p2", nil)
 		if err == nil {
 			t.Fatalf("Start = %+v, nil; want an error for an answer with no pane", a)
 		}
@@ -524,9 +524,8 @@ func TestSocketStartHolderLookupFails(t *testing.T) {
 	})
 }
 
-// herdr's own waits: agent.wait ends when the agent reaches the state asked for (text already on the screen
-// matches at once), times out while it does not, and ends agent_not_running when the agent leaves the pane;
-// pane.wait_for_output reads the text when the regex matches. Each is one request: obor does not poll.
+// herdr's own wait: agent.wait ends when the agent reaches the state asked for, times out while it does not, and ends
+// agent_not_running when the agent leaves the pane. Each is one request: obor does not poll.
 func TestSocketWaits(t *testing.T) {
 	t.Parallel()
 	f := fixture()
@@ -568,28 +567,8 @@ func TestSocketWaits(t *testing.T) {
 		t.Errorf("Wait on an agent that left = %v, want agent_not_running", err)
 	}
 
-	// Text on the screen matches at once; text printed during the wait matches when it comes.
-	f.Set("w1:p2", func(p *herdrtest.Pane) { p.Screen = "early EARLY_42\n" })
-	text, err := c.WaitForOutput(ctx, "w1:p2", "EARLY_42", time.Second)
-	if err != nil || !strings.Contains(text, "EARLY_42") {
-		t.Errorf("WaitForOutput of text on the screen = %q, %v", text, err)
-	}
-	if got, want := lastParams(t, srv, "pane.wait_for_output"),
-		`{"match":{"type":"regex","value":"EARLY_42"},"pane_id":"w1:p2","source":"recent_unwrapped","timeout_ms":1000}`; got != want {
-		t.Errorf("pane.wait_for_output params = %s\nwant %s", got, want)
-	}
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		f.Set("w1:p2", func(p *herdrtest.Pane) { p.Screen += "late LATE_42\n" })
-	}()
-	if text, err := c.WaitForOutput(ctx, "w1:p2", "LATE_42", 10*time.Second); err != nil || !strings.Contains(text, "LATE_42") {
-		t.Errorf("WaitForOutput of text printed during the wait = %q, %v", text, err)
-	}
-	if _, err := c.WaitForOutput(ctx, "w1:p2", "NEVER_42", 60*time.Millisecond); herdrErr(t, err).Code != "timeout" {
-		t.Errorf("WaitForOutput of text never printed = %v, want timeout", err)
-	}
-	if n, m := count(srv, "agent.wait"), count(srv, "pane.wait_for_output"); n != 5 || m != 3 {
-		t.Errorf("%d agent.wait and %d pane.wait_for_output requests, want one per wait: 5 and 3", n, m)
+	if n := count(srv, "agent.wait"); n != 5 {
+		t.Errorf("%d agent.wait requests, want one per wait: 5", n)
 	}
 }
 
@@ -678,7 +657,7 @@ func TestSubscribeEvents(t *testing.T) {
 	// a new pane (underscored, as herdr sends lifecycle events) gets its own status subscription
 	f.Shell("w1:p4", "new", "/tmp")
 	srv.Push("pane_created", map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p4", "label": "new", "cwd": "/tmp"}})
-	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New.Pane != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp", Launched: true}) {
+	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New.Pane != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp"}) {
 		t.Errorf("created event = %+v", ev)
 	}
 	srv.WaitSubscribed(t, "pane.agent_status_changed", "w1:p4")
@@ -1147,7 +1126,7 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	c := srv.Client()
 
 	panes, err := c.Panes(ctx)
-	if err != nil || len(panes) != 5 || panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02", Launched: true}) {
+	if err != nil || len(panes) != 5 || panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
 		t.Errorf("Panes = %+v, %v", panes, err)
 	}
 	if lastParams(t, srv, "pane.list") != "{}" {
@@ -1312,7 +1291,7 @@ func TestNotifyReadsShownAndReason(t *testing.T) {
 	}
 }
 
-// the adapter reads herdr's launch fact into port.Pane.Launched from the answers herdr 0.9.5 sends (live
+// the adapter reads herdr's launch fact into its Pane.Launched (the start's evidence rule) from the answers herdr 0.9.5 sends (live
 // H-L12, verbatim but the scratch cwd): pending while launch_pending is true (whatever its kind and status show), up
 // once launch_pending is gone and interactive_ready is true; herdr leaves a false one out, which reads not pending.
 func TestAgentLaunchFact(t *testing.T) {
@@ -1343,12 +1322,12 @@ func TestAgentLaunchFact(t *testing.T) {
 			}
 			srv.Reply(c.method, m)
 			c0 := srv.Client()
-			var a port.Pane
+			var a herdr.Pane
 			var err error
 			if c.method == "agent.start" {
-				a, err = c0.Start(ctx, "conf-ready-128", "claude", "w1:p1", nil)
+				a, err = c0.StartAgent(ctx, "conf-ready-128", "claude", "w1:p1", nil)
 			} else {
-				a, err = c0.Pane(ctx, "w1:p1")
+				a, err = c0.Read(ctx, "w1:p1")
 			}
 			if err != nil {
 				t.Fatal(err)

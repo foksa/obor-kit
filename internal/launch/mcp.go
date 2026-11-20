@@ -2,8 +2,8 @@ package launch
 
 import "strings"
 
-// oneLine is text with every run of newlines (and \r) one space: herdr refuses an agent.start argument with a newline
-// ("agent arguments cannot be encoded safely for the target shell"), and a typed job's text may be many lines.
+// oneLine is text with every run of newlines (and \r) one space: a start's argument is typed as one command line at
+// the pane's shell (herdr refuses one with a newline), and a typed job's text may be many lines.
 // The text is otherwise unchanged.
 func oneLine(text string) string {
 	var b strings.Builder

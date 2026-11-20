@@ -781,7 +781,7 @@ func (l *lab) start(name, kind, pane string, args []string, timeout time.Duratio
 // launch_pending) and when the agent took input; an at-once launch_pending answer is a fact of the run, not a failure.
 // the fact also says whether the answer came before or only when the agent was ready (H6).
 func reportStart(kind string, s started, readyAfter time.Duration) {
-	where := at("internal/herdr/socket.go", "func (s *Socket) Start") + ", " + at("internal/launch/start.go", "func (l *Launcher) started") + ", F3.4, H6"
+	where := at("internal/herdr/socket.go", "func (s *Socket) startAgent") + ", " + at("internal/herdr/start.go", "func started") + ", F3.4, H6"
 	fact := fmt.Sprintf("%s: agent.start (timeout_ms %d) answered after %.1fs", kind, s.timeout.Milliseconds(), s.took.Seconds())
 	fact += " with " + answer(s)
 	if readyAfter > 0 {

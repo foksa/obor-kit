@@ -19,7 +19,7 @@ func TestStartEffort(t *testing.T) {
 	for _, c := range []struct {
 		name, role, effort string   // the role's model ref (a role agent), the request's effort
 		row, typ           string   // the lane row's type, the request's type (a lane worker)
-		has, lacks         []string // in agent.start
+		has, lacks         []string // in Start
 		env, noEnv         string   // in, not in the env line
 	}{
 		{"a request's effort replaces the kinds args' own, once", "opus", "high",
@@ -65,20 +65,20 @@ func TestStartEffort(t *testing.T) {
 				t.Fatal(out)
 			}
 			start := x.startCall()
-			if !strings.HasPrefix(start, "agent.start args=[") {
-				t.Fatalf("no agent.start: %q", start)
+			if !strings.HasPrefix(start, "Start argv=[") {
+				t.Fatalf("no Start: %q", start)
 			}
 			for _, h := range c.has {
 				if n := strings.Count(start, h); n != 1 {
-					t.Errorf("agent.start %q has %q %d times, want once", start, h, n)
+					t.Errorf("Start %q has %q %d times, want once", start, h, n)
 				}
 			}
 			for _, l := range c.lacks {
 				if strings.Contains(start, l) {
-					t.Errorf("agent.start %q has %q", start, l)
+					t.Errorf("Start %q has %q", start, l)
 				}
 			}
-			line := strings.Join(x.calls("pane.send_input"), "\n")
+			line := strings.Join(x.calls("Write"), "\n")
 			if !strings.Contains(line, "export OBOR_ROLE=") {
 				t.Fatalf("no env line typed: %q", line)
 			}
@@ -108,7 +108,7 @@ func TestStartEffortRefused(t *testing.T) {
 		if ok || !strings.Contains(out, c.want) {
 			t.Errorf("%s at %s: %v %q; want a FAIL naming %q", c.role, c.effort, ok, out, c.want)
 		}
-		if n := len(x.calls("pane.send_input")) + len(x.calls("agent.start")); n != 0 {
+		if n := len(x.calls("Write")) + len(x.calls("Start")); n != 0 {
 			t.Errorf("%s at %s: %d calls typed or started, want none", c.role, c.effort, n)
 		}
 	}

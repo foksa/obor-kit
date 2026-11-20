@@ -15,7 +15,6 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/store"
 	"obor/internal/testkit"
@@ -83,7 +82,7 @@ func TestCodexStartReportsRollout(t *testing.T) {
 	t.Parallel()
 	x := setupRunning(t, "luna")
 	var fresh, other string
-	x.wrap = func(h port.PaneControl) port.PaneControl {
+	x.wrap = func(h control) control {
 		return onStart{h, func() {
 			fresh = writeRollout(x, "cx-new", x.lane, time.Now())
 			x.hold(2, fresh)
@@ -114,7 +113,7 @@ func TestCodexStartReportsRollout(t *testing.T) {
 		x.reset()
 		x.reported = nil
 		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-new" })
+		x.f.Set("w1:p3", func(p *mpane) { p.Session = "cx-new" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
@@ -137,7 +136,7 @@ func TestServeResumeReportsItsSession(t *testing.T) {
 	x := setupRunning(t, "luna")
 	x.background = true
 	x.shell("w1:p3", "pj-l-01", "")
-	x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Session = "cx-1" })
+	x.f.Set("w1:p3", func(p *mpane) { p.Session = "cx-1" })
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	if !ok {
 		t.Fatal(out)
@@ -176,7 +175,7 @@ func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 		}
 		return nil, nil
 	}
-	x.wrap = func(h port.PaneControl) port.PaneControl { return pids{h, x.f, map[string]int{"w1:p5": 205}} }
+	x.wrap = func(h control) control { return pids{h, x.f, map[string]int{"w1:p5": 205}} }
 	x.shell("w1:p5", "pj-int", "")
 	stranger := writeRollout(x, "cx-stranger", x.p.Root, time.Now())
 	var once sync.Once
@@ -199,32 +198,32 @@ func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 	}
 }
 
-// onStart runs fn once herdr's agent.start answered (the agent writes its rollout as it starts).
+// onStart runs fn once the terminal's start answered (the agent writes its rollout as it starts).
 type onStart struct {
-	port.PaneControl
+	control
 	fn func()
 }
 
-func (s onStart) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
-	a, err := s.PaneControl.Start(ctx, name, kind, pane, say, args...)
-	s.fn()
+func (o onStart) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
+	a, err := o.control.Start(ctx, s)
+	o.fn()
 	return a, err
 }
 
 // pids gives the agent in each pane of pid its own pid (herdr's process info: the foreground group's leader).
 type pids struct {
-	port.PaneControl
-	f   *herdrtest.Fake
+	control
+	f   *term
 	pid map[string]int
 }
 
 func (p pids) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
-	p.f.Set(pane, func(q *herdrtest.Pane) {
+	p.f.Set(pane, func(q *mpane) {
 		if q.Kind != "" && p.pid[pane] != 0 {
 			q.Foreground = p.pid[pane]
 		}
 	})
-	return p.PaneControl.ProcessInfo(ctx, pane)
+	return p.control.ProcessInfo(ctx, pane)
 }
 
 // awaitReports is the next n background reports, by agent (the test fails when they do not come within bound).
@@ -256,7 +255,7 @@ func TestCodexSessionsOfTwoStartsInOneCwd(t *testing.T) {
 			x := setup(t, testkit.Set("agents.roles", `{"integrator":"luna","lead":"luna"}`))
 			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 4)
 			pid := map[string]int{"pj-int": 205, "pj-lead": 206}
-			x.wrap = func(h port.PaneControl) port.PaneControl {
+			x.wrap = func(h control) control {
 				return pids{h, x.f, map[string]int{"w1:p5": pid["pj-int"], "w1:p6": pid["pj-lead"]}}
 			}
 			x.shell("w1:p5", "pj-int", "")
@@ -315,7 +314,7 @@ func TestCodexRolloutOfAChild(t *testing.T) {
 		return []byte("    2     1\n  302     2\n  303   302\n  402     1\n"), nil
 	}
 	var path string
-	x.wrap = func(h port.PaneControl) port.PaneControl {
+	x.wrap = func(h control) control {
 		return onStart{h, func() {
 			path = writeRollout(x, "cx-child", x.lane, time.Now())
 			x.hold(303, path)
@@ -349,7 +348,7 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setupRunning(t, "luna")
-			x.wrap = func(h port.PaneControl) port.PaneControl {
+			x.wrap = func(h control) control {
 				return onStart{h, func() { writeRollout(x, "cx-other", x.lane, time.Now()) }}
 			}
 			x.shell("w1:p3", "pj-l-01", "")
@@ -374,7 +373,7 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	run := func(t *testing.T, reportErr error) (*fx, string) {
 		x := setupRunning(t, "luna")
 		x.reportErr = reportErr
-		x.wrap = func(h port.PaneControl) port.PaneControl {
+		x.wrap = func(h control) control {
 			return onStart{h, func() { x.hold(2, writeRollout(x, "cx-new", x.lane, time.Now())) }}
 		}
 		x.shell("w1:p3", "pj-l-01", "")
@@ -427,7 +426,7 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 				return nil, nil
 			}
 			pid := map[string]int{"w1:p5": 205}
-			x.wrap = func(h port.PaneControl) port.PaneControl { return pids{h, x.f, pid} }
+			x.wrap = func(h control) control { return pids{h, x.f, pid} }
 			x.shell("w1:p5", "pj-int", "")
 			if out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true}); !ok {
 				t.Fatal(out)

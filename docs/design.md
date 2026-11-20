@@ -331,7 +331,15 @@ a `lanes` tab, the integrator and the reviewer in a `roles` tab. `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. Every herdr call
 goes through `internal/herdr`, and `pane` / `role` start the agent through `launch.Launcher.Start`, the one
-start `obor restart` uses too.
+start `obor restart` uses too. That start is two parts. launch does the work any terminal needs: it waits for the
+pane's shell, types the env and cwd line (its echoed mark read on the pane's screen), labels the pane and, after a
+failed start, looks at the screen for a startup dialog. The terminal starts the agent (`port.AgentStarter`, asked of
+its `PaneControl`; `AgentStart` carries the pane, the agent's name, kind, argv, the env and cwd, the first prompt and
+the bound): it returns once the agent runs, or an error matching `PaneBusy` (launch waits for the shell and starts
+again within the same bound), `NotReady`, `TimedOut`, `NameHeld` (a race lost: Locate's refusal) or `Accepted` (the
+terminal took the start: a trust dialog then holds a fresh start's agent). herdr's start (`internal/herdr/start.go`)
+is `agent.start`, a name herdr kept with no live agent behind it cleared and retried once, polled until a listing
+read after herdr accepted the start is up and no longer `launch_pending`, or works on its first prompt.
 
 ## Lane status (`obor status [--json]`)
 Reads the store's `lanes` table read-only (each lane's task and merge evidence) plus the worktree facts git answers
@@ -458,8 +466,8 @@ full check and the pause.
   `.obor/state/logs/<task|nightly|milestone>-<name>.log`, so a RED can be triaged without a re-run.
 - **dispatch** (obor serve, `internal/app`): branch from the root's current branch; refuse unless the lane is `free`
   (or `dirty-free` with `--force`) and its agent is not working/blocked; `checkout -B`; the `lanes` row records the
-  dispatch; **launch** a fresh worker (`agent.start`: `Agents.Launch(Launch{Fresh: true})` with env, label and the
-  dispatch's model's args) whose
+  dispatch; **launch** a fresh worker (`Agents.Launch(Launch{Fresh: true})` with env, label and the dispatch's
+  model's args; the one start below) whose
   first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool`. The worker's `job_next` is the
   delivery. No screen reading (R-28 §4). An undelivered wake is retried after 5 minutes, then becomes needs-you.
 - **drive** (owner 2026-11-03): the owner iterates by hand on a task's branch in a plain interactive agent (role

@@ -13,7 +13,6 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/project"
 )
@@ -26,7 +25,7 @@ func identified(pane, src, label string) func(wire.WhereReq) (wire.WhereReply, e
 }
 
 // A start whose agent is proven live in another pane is refused by Locate before anything is touched: no stop (no key,
-// no input), no label, no env line, no agent.start, no session recorded (Report) and no start reported (Started); the
+// no input), no label, no env line, no Start, no session recorded (Report) and no start reported (Started); the
 // holder and the target's own agent keep running. A plain restart (serve proves the holder by its start row), one with
 // --force into a pane that runs an unlabelled agent (only the terminal's name proves the holder), and a fresh one (its
 // session proves it; a fresh start would record the session obor chose before the agent runs).
@@ -59,18 +58,18 @@ func TestRestartRefusedTouchesNothing(t *testing.T) {
 			}
 			eq(t, failLine(out), "FAIL pj-l-01 already runs in pane w1:p3 (proof: "+tc.proof+"; label none): obor "+
 				"restart pj-l-01 --pane w1:p3 restarts it there, or quit it there first", "result")
-			for _, call := range []string{"pane.send_keys", "pane.send_input", "pane.rename", "agent.start", "agent.rename"} {
+			for _, call := range []string{"SendKeys", "Write", "RenamePane", "Start"} {
 				if n := len(x.calls(call)); n != 0 {
-					t.Errorf("%d %s calls on a refusal: %q", n, call, x.srv.Calls())
+					t.Errorf("%d %s calls on a refusal: %q", n, call, x.f.Calls())
 				}
 			}
 			if len(x.reported) != 0 || len(x.startReports()) != 0 {
 				t.Errorf("a refusal reported a session %+v or a start %q", x.reported, x.startReports())
 			}
-			if p := x.f.Pane("w1:p3"); p.Kind != "claude" || p.Name != "pj-l-01" {
+			if p := x.f.At("w1:p3"); p.Kind != "claude" || p.Name != "pj-l-01" {
 				t.Errorf("the holder = %+v, want it running under its name", p)
 			}
-			if p := x.f.Pane("w1:p8"); p.Kind != "claude" || p.Status != "working" {
+			if p := x.f.At("w1:p8"); p.Kind != "claude" || p.Status != "working" {
 				t.Errorf("the target's agent = %+v, want it running", p)
 			}
 		})
@@ -112,7 +111,7 @@ func TestLocateWaitsForTheRestartLock(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	eqInt(t, len(x.calls("pane.list")), 0, "no pane read while it waits")
+	eqInt(t, len(x.calls("Panes")), 0, "no pane read while it waits")
 	x.agent("w1:p3", "pj-l-01", "claude", "idle") // the first start's agent, up before it releases the lock
 	first.Unlock()
 	var r res
@@ -152,7 +151,7 @@ func TestStartInARelabelledPanePutsTheLabelBack(t *testing.T) {
 			x := setup(t)
 			x.sid(tc.agent, "sid-1")
 			a := x.agent("w1:p3", tc.agent, "claude", "idle")
-			x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Label = "notes" })
+			x.f.Set(a.ID, func(p *mpane) { p.Label = "notes" })
 			x.where = identified("w1:p3", "session", "notes")
 			out, ok := x.restart(tc.req)
 			if !ok {
@@ -161,8 +160,8 @@ func TestStartInARelabelledPanePutsTheLabelBack(t *testing.T) {
 			eq(t, last(out), tc.want, "result")
 			contains(t, out, "pane w1:p3 ("+tc.agent+" runs there: session)", "the pane Locate chose")
 			contains(t, out, "label of pane w1:p3 put back: "+tc.agent+" (it was notes)", "the label put back, said")
-			eqInt(t, len(x.calls("pane.rename label="+tc.agent+" pane_id=w1:p3")), 1, "the label put back")
-			eq(t, x.f.Pane("w1:p3").Label, tc.agent, "the pane's label")
+			eqInt(t, len(x.calls("RenamePane label="+tc.agent+" pane=w1:p3")), 1, "the label put back")
+			eq(t, x.f.At("w1:p3").Label, tc.agent, "the pane's label")
 		})
 	}
 }
@@ -173,7 +172,7 @@ func TestStopAsksLocate(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-	x.f.Set(a.ID, func(p *herdrtest.Pane) { p.Label = "notes" })
+	x.f.Set(a.ID, func(p *mpane) { p.Label = "notes" })
 	x.shell("w1:p8", "", x.lane)
 	x.where = identified("w1:p3", "session", "notes")
 	out, ok := x.stop("pj-l-01", "w1:p8", false)
@@ -182,8 +181,8 @@ func TestStopAsksLocate(t *testing.T) {
 	}
 	eq(t, failLine(out), "FAIL pj-l-01 already runs in pane w1:p3 (proof: session; label notes): obor restart "+
 		"pj-l-01 --pane w1:p3 restarts it there, or quit it there first", "refused")
-	if n := len(x.calls("pane.send_input")) + len(x.calls("pane.send_keys")); n != 0 {
-		t.Fatalf("a refused stop typed into a pane: %q", x.srv.Calls())
+	if n := len(x.calls("Write")) + len(x.calls("SendKeys")); n != 0 {
+		t.Fatalf("a refused stop typed into a pane: %q", x.f.Calls())
 	}
 	out, ok = x.stop("pj-l-01", "", false)
 	if !ok {
@@ -208,7 +207,7 @@ func TestRestartAndStopIntoAPaneLabelledNobody(t *testing.T) {
 		}
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "result")
 		contains(t, out, "label of pane w1:p4 put back: pj-l-01 (it was notes)", "the label put back, said")
-		eq(t, x.f.Pane("w1:p4").Label, "pj-l-01", "the pane's label")
+		eq(t, x.f.At("w1:p4").Label, "pj-l-01", "the pane's label")
 	})
 	t.Run("--stop: stopped there", func(t *testing.T) {
 		t.Parallel()
@@ -231,7 +230,7 @@ func TestStartRefusedWhileServeIsDownAndAnAgentIsUnaccounted(t *testing.T) {
 	x.sid("pj-l-01", "sid-1")
 	x.shell("w1:p3", "pj-l-01", x.lane)
 	x.f.Agent("w1:p1", "", "idle", x.p.Root)
-	x.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "notes" })
+	x.f.Set("w1:p1", func(p *mpane) { p.Label = "notes" })
 	var out bytes.Buffer
 	l := x.launcher(&out)
 	l.Where = nil // serve's socket at the project: none
@@ -242,8 +241,8 @@ func TestStartRefusedWhileServeIsDownAndAnAgentIsUnaccounted(t *testing.T) {
 	}
 	eq(t, failLine(got), "FAIL cannot tell whether the claude in pane w1:p1 (label notes) is pj-l-01: obor serve is "+
 		"not running. obor serve restart, then retry; or obor restart pj-l-01 --pane w1:p1 to replace it", "refused")
-	if n := len(x.calls("pane.send_input")) + len(x.calls("pane.rename")) + len(x.calls("agent.start")); n != 0 {
-		t.Errorf("a refused start touched a pane: %q", x.srv.Calls())
+	if n := len(x.calls("Write")) + len(x.calls("RenamePane")) + len(x.calls("Start")); n != 0 {
+		t.Errorf("a refused start touched a pane: %q", x.f.Calls())
 	}
 }
 
@@ -253,7 +252,7 @@ func TestStartLostRaceIsRefused(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	x.shell("w1:p3", "", x.lane)
-	x.wrap = func(h port.PaneControl) port.PaneControl { return raceStart{h, x} }
+	x.wrap = func(h control) control { return raceStart{h, x} }
 	l := x.launcher(io.Discard)
 	err := l.Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3",
 		Args: []string{"--model", "opus"}})
@@ -270,14 +269,14 @@ func TestStartLostRaceIsRefused(t *testing.T) {
 }
 
 // raceStart is a terminal whose start finds the name taken by a live agent in w1:p1 (labelled notes): it puts that
-// agent there, then answers the start as herdr's adapter does.
+// agent there, then answers the start as the terminal does.
 type raceStart struct {
-	port.PaneControl
+	control
 	x *fx
 }
 
-func (r raceStart) Start(ctx context.Context, name, kind, pane string, say func(string, ...any), args ...string) (port.Pane, error) {
-	r.x.f.Agent("w1:p1", name, "idle", r.x.lane)
-	r.x.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "notes" })
-	return r.PaneControl.Start(ctx, name, kind, pane, say, args...)
+func (r raceStart) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
+	r.x.f.Agent("w1:p1", s.Label, "idle", r.x.lane)
+	r.x.f.Set("w1:p1", func(p *mpane) { p.Label = "notes" })
+	return r.control.Start(ctx, s)
 }

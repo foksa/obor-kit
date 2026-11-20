@@ -71,8 +71,8 @@ func TestLaunchRefusesQuarantinedCodex(t *testing.T) {
 				!strings.Contains(refused.Line, fix) {
 				t.Fatalf("%s start: %v, want a refusal naming the file and %q", c.role, err, fix)
 			}
-			if x.startCall() != "" || len(x.calls("pane.send_input")) != 0 {
-				t.Errorf("the refused start typed or started something: %q", x.srv.Calls())
+			if x.startCall() != "" || len(x.calls("Write")) != 0 {
+				t.Errorf("the refused start typed or started something: %q", x.f.Calls())
 			}
 			if strings.Contains(out.String(), "RESTARTED") {
 				t.Errorf("a refused start said RESTARTED:\n%s", out.String())

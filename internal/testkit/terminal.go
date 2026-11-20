@@ -42,7 +42,7 @@ type Row struct {
 var Contract = []Row{
 	{Name: "start", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
 		const name = "obor-contract"
-		if _, err := t.Control.Start(ctx, name, "claude", pane, nil); err != nil {
+		if err := start(ctx, t, name, pane); err != nil {
 			return fmt.Errorf("start: %w", err)
 		}
 		if err := t.Control.WaitStatus(ctx, pane, []string{"idle", "done"}, 30*time.Second); err != nil {
@@ -150,19 +150,12 @@ var Contract = []Row{
 		}
 		return nil
 	}},
-	{Name: "wait", Run: func(ctx context.Context, t Terminal, pane string) error {
-		_, err := t.Control.WaitForOutput(ctx, pane, "obor-contract-never-printed", 300*time.Millisecond)
-		if !port.TimedOut(err) {
-			return fmt.Errorf("a wait for output never printed: %v; want a timed-out error", err)
-		}
-		return nil
-	}},
 	{Name: "pane busy", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
 		// A pane that runs an agent is not an available shell: a start there is refused as PaneBusy, never a start.
-		if _, err := t.Control.Start(ctx, "obor-contract-busy", "claude", pane, nil); err != nil {
+		if err := start(ctx, t, "obor-contract-busy", pane); err != nil {
 			return fmt.Errorf("a start into the pane's shell: %w", err)
 		}
-		if _, err := t.Control.Start(ctx, "obor-contract-busy-2", "claude", pane, nil); !port.PaneBusy(err) {
+		if err := start(ctx, t, "obor-contract-busy-2", pane); !port.PaneBusy(err) {
 			return fmt.Errorf("a start into the pane that runs an agent: %v; want a pane-busy error", err)
 		}
 		return nil
@@ -173,7 +166,7 @@ var Contract = []Row{
 		if _, err := t.Control.Named(ctx, name); !port.NotFound(err) {
 			return fmt.Errorf("the holder of a name no agent holds: %v; want a not-found error", err)
 		}
-		if _, err := t.Control.Start(ctx, name, "claude", pane, nil); err != nil {
+		if err := start(ctx, t, name, pane); err != nil {
 			return fmt.Errorf("start: %w", err)
 		}
 		a, err := t.Control.Named(ctx, name)
@@ -238,16 +231,37 @@ var Contract = []Row{
 // missing is a pane id no terminal has.
 const missing = "obor-contract-missing:p0"
 
-// typed types a command line at the pane's shell that prints obor-contract-<word>, and waits for that output. The
-// line quotes word, so only the shell's output matches, never the typed line itself.
+// start starts a claude agent named name in pane through the terminal's AgentStarter (launch asks its PaneControl
+// for one).
+func start(ctx context.Context, t Terminal, name, pane string) error {
+	st, ok := t.Control.(port.AgentStarter)
+	if !ok {
+		return fmt.Errorf("the terminal's PaneControl is no AgentStarter")
+	}
+	_, err := st.Start(ctx, port.AgentStart{Pane: pane, Label: name, Kind: "claude"})
+	return err
+}
+
+// typed types a command line at the pane's shell that prints obor-contract-<word>, and reads the pane's screen until
+// that output shows (10 s). The line quotes word, so only the shell's output matches, never the typed line itself.
 func typed(ctx context.Context, t Terminal, pane, word string) error {
 	if err := t.Control.Write(ctx, pane, "true && echo obor-contract-\""+word+"\"", true); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	if _, err := t.Control.WaitForOutput(ctx, pane, "obor-contract-"+word, 10*time.Second); err != nil {
-		return fmt.Errorf("wait for the typed line's output: %w", err)
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		text, err := t.Control.Screen(ctx, pane, 40)
+		if err == nil && strings.Contains(text, "obor-contract-"+word) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the typed line's output never showed: screen %q, %v", text, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	return nil
 }
 
 func find(panes []port.Pane, id string) (port.Pane, bool) {

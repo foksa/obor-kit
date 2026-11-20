@@ -422,18 +422,17 @@ func (l *Launcher) noAgent(ctx context.Context, pane string) bool {
 	return err != nil || a.Agent == ""
 }
 
-// ShellWait is how long a restart waits after its stop for the pane's shell, and how long it retries a start herdr
-// answered agent_pane_busy (Launcher.Shell overrides it; Start.Shell). herdr keeps the pane no available shell
-// (agent.start: agent_pane_busy) until the old agent's exit is reaped, so a start sent at once failed while the restart
-// still said RESTARTED.
+// ShellWait is how long a restart waits after its stop for the pane's shell, and how long it retries a start the
+// terminal refused as PaneBusy (Launcher.Shell overrides it; Start.Shell). The terminal keeps the pane no available
+// shell until the old agent's exit is reaped, so a start sent at once fails.
 const ShellWait = 30 * time.Second
 
 // shellPoll is the most a wait for a pane's shell sleeps between looks (Launcher.Poll when shorter): a new pane's
 // shell is up in moments (obor setup), and a look is one herdr call.
 const shellPoll = 100 * time.Millisecond
 
-// waitShell waits until pane is a shell (atShell), no longer than by: one poll first (herdr's agent.start answer is
-// newer than its process info), then a look each poll. false: the bound passed.
+// waitShell waits until pane is a shell (atShell), no longer than by: one poll first (the terminal's PaneBusy answer
+// is newer than its process info), then a look each poll. false: the bound passed.
 func (l *Launcher) waitShell(ctx context.Context, pane string, by time.Time) bool {
 	for {
 		left := time.Until(by)
