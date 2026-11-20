@@ -45,12 +45,15 @@ func TestKind(t *testing.T) {
 		in   agents.Start
 		want []string
 	}{
-		{"fresh, prompt", agents.Start{Kit: "/kit", Args: []string{"--auto"}, Prompt: "go"}, []string{"--auto", "--prompt", "go"}},
-		{"fresh, no prompt", agents.Start{Kit: "/kit", Args: []string{"--auto"}}, []string{"--auto"}},
-		{"a resume is no resume: nothing added", agents.Start{Kit: "/kit", Args: []string{"--auto"}, Resume: "s", Prompt: "go"},
-			[]string{"--auto"}},
-		{"the model is no flag of the TUI: dropped (the env carries it)", agents.Start{Args: []string{"--auto", "-m", "p/x",
-			"--model=p/y"}, Effort: "high"}, []string{"--auto"}},
+		{"fresh, prompt: the fixed flags first", agents.Start{Kit: "/kit", Args: []string{"--log-level", "DEBUG"}, Prompt: "go"},
+			[]string{"--auto", "--standalone", "--log-level", "DEBUG", "--prompt", "go"}},
+		{"fresh, no prompt, no args", agents.Start{Kit: "/kit"}, []string{"--auto", "--standalone"}},
+		{"a resume is no resume: nothing added", agents.Start{Kit: "/kit", Resume: "s", Prompt: "go"},
+			[]string{"--auto", "--standalone"}},
+		{"the model is no flag of the TUI: dropped (the env carries it)", agents.Start{Args: []string{"-m", "p/x",
+			"--model=p/y", "--log-level", "DEBUG"}, Effort: "high"}, []string{"--auto", "--standalone", "--log-level", "DEBUG"}},
+		{"a fixed flag the args repeat is not doubled", agents.Start{Args: []string{"--standalone", "--model", "p/x", "--auto",
+			"--log-level", "DEBUG"}, Prompt: "go"}, []string{"--auto", "--standalone", "--log-level", "DEBUG", "--prompt", "go"}},
 	} {
 		c.in.WriteState = write
 		if l, err := agents.StartOf(k, c.in); err != nil || !slices.Equal(l.Args, c.want) {
@@ -195,7 +198,7 @@ func TestStartEnvTrimsTheUserSkills(t *testing.T) {
 		t.Errorf("Vars %q lack %s: another kind's start would not unset it", k.Vars(), kind.SkillsVar)
 	}
 	start := func(trim bool) agents.Launch {
-		l, err := agents.StartOf(k, agents.Start{Args: []string{"--auto", "--model", "p/m"}, Prompt: "go", TrimUser: trim})
+		l, err := agents.StartOf(k, agents.Start{Args: []string{"--model", "p/m"}, Prompt: "go", TrimUser: trim})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +211,7 @@ func TestStartEnvTrimsTheUserSkills(t *testing.T) {
 	if v, set := whole.Env[kind.SkillsVar]; !set || v != "" {
 		t.Errorf("an untrimmed start: %s = %q (in the env: %v), want it there and empty (unset)", kind.SkillsVar, v, set)
 	}
-	if !slices.Equal(trimmed.Args, whole.Args) || !slices.Equal(whole.Args, []string{"--auto", "--prompt", "go"}) {
+	if !slices.Equal(trimmed.Args, whole.Args) || !slices.Equal(whole.Args, []string{"--auto", "--standalone", "--prompt", "go"}) {
 		t.Errorf("argv %q (trimmed) and %q: want the same, no switch on the command line", trimmed.Args, whole.Args)
 	}
 }
