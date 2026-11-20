@@ -534,8 +534,8 @@ func (s *Socket) Screen(ctx context.Context, pane string, lines int) (string, er
 }
 
 // Recent is pane.read of source recent_unwrapped: the pane's recent output, its last lines, without ANSI codes. Not
-// visible (T-970, again T-1356): after an agent exits, herdr's visible screen can still show the old agent while the
-// shell has printed the env line's mark in recent output. Unwrapped keeps a long typed line from splitting a mark.
+// visible: after an agent exits, herdr's visible screen can still show the old agent while the shell has printed the
+// env line's mark in recent output. Unwrapped keeps a long typed line from splitting a mark.
 func (s *Socket) Recent(ctx context.Context, pane string, lines int) (string, error) {
 	return s.paneRead(ctx, pane, "recent_unwrapped", lines)
 }
