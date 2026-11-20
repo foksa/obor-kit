@@ -458,3 +458,8 @@ conformance: 26 pass, 0 fail, 3 skip, 4 warn
   approved, close stopped the reviewer. No needs-you notification reached the owner: hc has none (T-1378). Unclear:
   codex was at its shell by the time obor stopped it (exited after its turn, or the stop's quit): watch at the next
   hc verify, which must resume that session.
+- Step 7: `hc server restart`: serve's stream ended (EOF), it subscribed again, no restore; agents kept. Pass.
+- Step 8: holder 94894 (all five hc-trial terminals) killed: serve restored only t5–t7 (free lanes and the
+  integrator: skipped, correctly) and never counted t8/t9 as lost although `terminal-runs` took their new pids; the
+  trial lead (t9, open work) stayed a bare shell. T-1379. Resumed by hand with `obor lead --resume` (from an obor pane
+  while the core runs: no env leak).
