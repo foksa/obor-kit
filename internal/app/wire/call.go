@@ -55,10 +55,11 @@ const (
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request (JobNextReq, TaskDoneReq,
-// VerdictReq).
+// MergePreviewReq, VerdictReq).
 const (
-	MethodJobNext  = "job_next"
-	MethodTaskDone = "task_done"
+	MethodJobNext      = "job_next"
+	MethodTaskDone     = "task_done"
+	MethodMergePreview = "merge_preview"
 )
 
 // JobReply is job_next's answer. State: "job" (the fields are set), "none", or "superseded" (Current names the

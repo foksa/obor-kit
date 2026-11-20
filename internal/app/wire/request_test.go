@@ -110,6 +110,9 @@ var goldenRequests = []requestLine{
 	// where is a method this release's serve answers: as started's, its row is the union's line with its own fields.
 	{&WhereReq{Envelope: env, Name: "pj-lead", Panes: []string{"w1:p1", "w1:p3"}},
 		`{"method":"where","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","name":"pj-lead","panes":["w1:p1","w1:p3"]}}`, []droppedKey{dropTask}},
+	// merge_preview is a method this release's serve answers: as where's, its row is the union's line with its own field.
+	{&MergePreviewReq{Envelope: env, Lane: "L-01"},
+		`{"method":"merge_preview","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01"}}`, []droppedKey{dropTask}},
 }
 
 // callerRequests is the same oracle for the requests a real caller builds with the fields it sets: the MCP
@@ -248,7 +251,8 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 		MethodResume, MethodDispatch, MethodWatch, MethodPause, MethodReview, MethodSession, MethodStarted, MethodSpecSet,
 		MethodConfig,
 		MethodBackup, MethodSend, MethodBrief, MethodStopped, MethodTurn, MethodRestartJob, MethodExit, MethodDrive,
-		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone, MethodWhere} {
+		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone, MethodMergePreview,
+		MethodWhere} {
 		if !methods[m] {
 			t.Errorf("no golden row for %s", m)
 		}

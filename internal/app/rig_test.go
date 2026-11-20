@@ -1069,6 +1069,29 @@ func ReplayLanes(root string, now time.Time) {
 // PickLane is pickLane for the external tests: the lane a dispatch takes of ls, its model ref, why none.
 var PickLane = pickLane
 
+// MergePreview is lane's scripted preview (SetPreview), else clean onto the target's head (branch main).
+func (s *FakeWorkflow) MergePreview(ctx context.Context, lane string) (port.Preview, error) {
+	if err := s.failing(ctx, "MergePreview"); err != nil {
+		return port.Preview{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.previews[lane]; ok {
+		return p, nil
+	}
+	return port.Preview{Target: "main", TargetSHA: s.head}, nil
+}
+
+// SetPreview scripts lane's merge preview.
+func (s *FakeWorkflow) SetPreview(lane string, p port.Preview) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.previews == nil {
+		s.previews = map[string]port.Preview{}
+	}
+	s.previews[lane] = p
+}
+
 // FakeWorkflow is the package's one port.Workflow for tests (as FakeScratch): the loop rig's (app_test)
 // and the concurrency rig's, and the in-memory row of the workflow contract table (testkit.WorkflowContract). It runs
 // no git and no command: shas are made up, the target is a head the test moves (Move, Land), pins and lane commits are
@@ -1102,10 +1125,11 @@ type FakeWorkflow struct {
 	inputs     []port.GateInput
 	subjects   []string // each Submit's lane commit subject ("<task>: <summary>"), a pinned one too
 	afterRuns  map[string]int
-	detached   map[string]string   // a role worktree's dir → the sha Detach put it on
-	closes     []port.ReviewCommit // the review closes committed, in order
-	open       *fakeCommit         // the conflicting merge left open in Dir (nil: none)
-	resolution string              // the merge the integrator committed in Dir ("": none)
+	detached   map[string]string       // a role worktree's dir → the sha Detach put it on
+	closes     []port.ReviewCommit     // the review closes committed, in order
+	open       *fakeCommit             // the conflicting merge left open in Dir (nil: none)
+	resolution string                  // the merge the integrator committed in Dir ("": none)
+	previews   map[string]port.Preview // a lane's scripted merge preview (SetPreview)
 	n          int
 
 	// The concurrency rig's: a gate of hold, a publish of holdPub, a resolved check of holdResolved block until
@@ -1844,11 +1868,11 @@ func (s *FakeWorkflow) Closed(_ context.Context, _, _, id string) (string, error
 var _ port.Workflow = (*FakeWorkflow)(nil)
 
 // WorkflowOf is a port.Workflow of a test's own fakes: each part takes over every piece of port.Workflow it
-// implements (port.Scratch, port.LaneSetup, port.Review, Target), a later
+// implements (port.Scratch, port.LaneSetup, port.Review, Target, MergePreview), a later
 // part over an earlier one; the pieces no part implements are a NewFakeWorkflow's. A nil part is skipped.
 func WorkflowOf(parts ...any) port.Workflow {
 	f := NewFakeWorkflow("")
-	w := &workflowOf{Scratch: f, LaneSetup: f, Review: f, targeter: f}
+	w := &workflowOf{Scratch: f, LaneSetup: f, Review: f, targeter: f, previewer: f}
 	for _, p := range parts {
 		if x, ok := p.(port.Scratch); ok {
 			w.Scratch = x
@@ -1862,6 +1886,9 @@ func WorkflowOf(parts ...any) port.Workflow {
 		if x, ok := p.(targeter); ok {
 			w.targeter = x
 		}
+		if x, ok := p.(previewer); ok {
+			w.previewer = x
+		}
 	}
 	return w
 }
@@ -1870,11 +1897,16 @@ type targeter interface {
 	Target(ctx context.Context, task string) (string, bool, error)
 }
 
+type previewer interface {
+	MergePreview(ctx context.Context, lane string) (port.Preview, error)
+}
+
 type workflowOf struct {
 	port.Scratch
 	port.LaneSetup
 	port.Review
 	targeter
+	previewer
 }
 
 // Integrator jobs start a fresh session each (Launch with Fresh, the job's wake its first prompt), not a wake

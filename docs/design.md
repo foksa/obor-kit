@@ -70,7 +70,9 @@ tests/                          Go probes (`go/`); the Go tests sit in their pac
 docs/                           this repo's own process — not shipped
 ```
 Subcommands: `obor help` lists them (`bin/go-commands`). The integrator's verdicts (`accept`, `reject`, `resolved`,
-`hold`, `sendback`) are MCP tools only; the lead's chat commands are `dispatch`, `resume`, `drop`, `spec`,
+`hold`, `sendback`) are MCP tools only, as are the worker's `job_next`, `task_done` and `merge_preview` (the lane's
+work, uncommitted changes included, merged onto the target's head now by `git merge-tree`: clean or the conflicted
+paths; read-only, the gate still decides); the lead's chat commands are `dispatch`, `resume`, `drop`, `spec`,
 `watch`, `pause`, `send` and `brief`; `pause`, `send` and `brief` are requests to obor serve. Every task command
 (`drop`, `resume`, `drive`, `land`, `watch`) takes a task id, never a lane: serve knows the lane. `obor resume
 <T-xx> ["<text>"] [--regate|--sendback]` is the one verb that sends the lead's word to a task: serve picks the action

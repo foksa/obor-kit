@@ -16,6 +16,7 @@ prints your lane, task and the protected files your spec unlocks (`obor whoami` 
   report naming it.
 - **No git writes** (commit, merge, rebase, reset, checkout, switch, stash, push …): denied. Leave changes
   uncommitted; the integrator commits. Reading git is fine. Tests may build throwaway repos in a temp dir. No installs.
+  The `merge_preview` tool shows whether your work (uncommitted changes included) merges cleanly onto the target now.
 - **Checks:** run them in the foreground, under a timeout, with progress output. While coding run the focused tests of
   the files you edit, test cache on — no `-race`, no `-count=N` loop, not the whole suite. Before you finish, run the
   tests your project's worker doc names; without such a rule, one run of the gate's check for your class (`obor run

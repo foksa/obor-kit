@@ -51,6 +51,12 @@ type gitReader interface {
 	Refs(prefix string) ([]string, error)
 	// Log is git log in the main checkout with args (MergeEvidenceBy's).
 	Log(args ...string) (string, error)
+	// Snapshot is dir's working tree as a commit on head (MergePreview's), built in a temporary index: its sha.
+	// It writes loose objects only, never a ref, dir's index or its worktree.
+	Snapshot(dir, head string) (string, error)
+	// MergeTree is merge-tree --write-tree --name-only --messages ours theirs in the main checkout: its output and
+	// whether the merge is clean. Loose objects only.
+	MergeTree(ours, theirs string) (out string, clean bool, err error)
 }
 
 // gitWriter is the git Scratch writes: each method one change to the repository or a worktree.
@@ -185,9 +191,20 @@ func (g realGit) Refs(prefix string) ([]string, error) {
 func (g realGit) Log(args ...string) (string, error) { return g.s.call(g.root(), args...) }
 
 func (g realGit) AddAll(dir string) error {
-	links, err := g.notIgnored(dir, project.LinksIn(g.s.Cfg, dir, g.s.call))
+	args, err := g.addAllArgs(dir)
 	if err != nil {
 		return err
+	}
+	_, err = g.s.call(dir, args...)
+	return err
+}
+
+// addAllArgs is git add -A in dir with obor's links (project.LinksIn, the ignored ones left to git) excluded: AddAll's
+// call, and Snapshot's in its temporary index.
+func (g realGit) addAllArgs(dir string) ([]string, error) {
+	links, err := g.notIgnored(dir, project.LinksIn(g.s.Cfg, dir, g.s.call))
+	if err != nil {
+		return nil, err
 	}
 	args := []string{"add", "-A"}
 	if len(links) > 0 {
@@ -196,8 +213,7 @@ func (g realGit) AddAll(dir string) error {
 			args = append(args, ":(top,exclude,literal)"+link)
 		}
 	}
-	_, err = g.s.call(dir, args...)
-	return err
+	return args, nil
 }
 
 // notIgnored is paths in dir without the ones git ignores there: add -A never stages an ignored path, and an exclude

@@ -24,7 +24,7 @@ func TestMcpCheck(t *testing.T) {
 		env []string
 		out string
 	}{
-		{[]string{"OBOR_ROLE=worker"}, "MCP OK (worker: job_next, task_done)\n"},
+		{[]string{"OBOR_ROLE=worker"}, "MCP OK (worker: job_next, merge_preview, task_done)\n"},
 		{[]string{"OBOR_ROLE=integrator"}, "MCP OK (integrator: accept, hold, job_next, reject, resolved, sendback)\n"},
 		{[]string{"OBOR_ROLE=lead"}, "MCP OK (lead: no tools)\n"},
 		{nil, "MCP OK (-: no tools)\n"},

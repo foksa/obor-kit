@@ -337,6 +337,15 @@ type TaskDoneReq struct {
 
 func (TaskDoneReq) Method() string { return MethodTaskDone }
 
+// MergePreviewReq is the MCP merge_preview tool's (the worker's): Lane the caller's lane (OBOR_LANE). The reply is the
+// lane's work merged onto the target's head now, clean or its conflicts (read-only: the gate still decides).
+type MergePreviewReq struct {
+	Envelope
+	Lane string `json:"lane,omitempty"`
+}
+
+func (MergePreviewReq) Method() string { return MethodMergePreview }
+
 // WhereReq is anyone's, as status is (launch's start decision): which pane runs agent Name in the envelope's Root's
 // project, and which agent each pane of Panes runs (pane ids: a start's target, a live pane labelled Name). Serve
 // answers from its identity table, rebuilt now: the reply is the JSON of a WhereReply. Refused: no agent named, no

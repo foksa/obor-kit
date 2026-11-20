@@ -36,7 +36,8 @@ type fakeGit struct {
 	msgs      map[string]string
 	dates     map[string]int64
 	answers   map[string]string
-	conflicts map[string][]string // a merge of this sha stops with these paths unmerged
+	conflicts map[string][]string // a merge of this sha stops with these paths unmerged (merge-tree's too)
+	snapshots map[string][]string // a Snapshot's commit → the paths it took (Dirt's)
 	failing   map[string]error    // a method that fails (before any effect)
 	before    map[string]func()   // run as a method is called (another process moving main meanwhile, say)
 	calls     []string
@@ -58,7 +59,7 @@ func newFakeGit(root, lane string) *fakeGit {
 	f := &fakeGit{root: root, refs: map[string]string{}, head: map[string]string{}, branch: map[string]string{},
 		status: map[string][]string{}, merging: map[string]string{}, unmerged: map[string][]string{},
 		parents: map[string][]string{}, msgs: map[string]string{}, dates: map[string]int64{}, answers: map[string]string{},
-		conflicts: map[string][]string{}, failing: map[string]error{}, before: map[string]func(){}}
+		conflicts: map[string][]string{}, snapshots: map[string][]string{}, failing: map[string]error{}, before: map[string]func(){}}
 	f.refs["refs/heads/main"], f.branch[root], f.dates["main0"] = "main0", "main", 100
 	f.refs["refs/heads/task/T-05"], f.branch[lane] = "main0", "task/T-05"
 	f.status[lane] = []string{"?? feature.txt"}
@@ -71,6 +72,7 @@ func (f *fakeGit) clone() *fakeGit {
 	g.refs, g.head, g.branch, g.merging = maps.Clone(f.refs), maps.Clone(f.head), maps.Clone(f.branch), maps.Clone(f.merging)
 	g.status, g.unmerged, g.parents = maps.Clone(f.status), maps.Clone(f.unmerged), maps.Clone(f.parents)
 	g.msgs, g.dates, g.answers, g.conflicts = maps.Clone(f.msgs), maps.Clone(f.dates), maps.Clone(f.answers), maps.Clone(f.conflicts)
+	g.snapshots = maps.Clone(f.snapshots)
 	g.failing, g.before = maps.Clone(f.failing), maps.Clone(f.before)
 	g.calls, g.cut = nil, 0
 	return &g
@@ -229,11 +231,46 @@ func (f *fakeGit) Status(dir string, paths ...string) ([]string, error) {
 	return out, nil
 }
 
+// Dirt is the status lines' paths but an ignored one's ("!! ": git status names none without --ignored).
 func (f *fakeGit) Dirt(dir string) ([]string, error) {
 	if err := f.call("Dirt", dir); err != nil {
 		return nil, err
 	}
-	return statusPaths(f.status[dir]), nil
+	return f.dirt(dir), nil
+}
+
+func (f *fakeGit) dirt(dir string) []string {
+	return statusPaths(slices.DeleteFunc(slices.Clone(f.status[dir]), func(l string) bool {
+		return strings.HasPrefix(l, "!! ")
+	}))
+}
+
+// Snapshot is a made-up commit on head of dir's dirt (Dirt's paths, kept in snapshots); nothing of dir changes.
+func (f *fakeGit) Snapshot(dir, head string) (string, error) {
+	if err := f.call("Snapshot", dir, head); err != nil {
+		return "", err
+	}
+	paths := f.dirt(dir)
+	sha := commitSha(append([]string{"snapshot", head}, paths...)...)
+	f.parents[sha], f.snapshots[sha] = []string{head}, paths
+	return sha, nil
+}
+
+// MergeTree is merge-tree's output for theirs onto ours: conflicted when conflicts names theirs (each path with git's
+// two lines for it), else clean.
+func (f *fakeGit) MergeTree(ours, theirs string) (string, bool, error) {
+	if err := f.call("MergeTree", ours, theirs); err != nil {
+		return "", false, err
+	}
+	paths := f.conflicts[theirs]
+	if len(paths) == 0 {
+		return "tree-" + theirs, true, nil
+	}
+	var msgs []string
+	for _, p := range paths {
+		msgs = append(msgs, "Auto-merging "+p, "CONFLICT (content): Merge conflict in "+p)
+	}
+	return "tree-" + theirs + "\n" + strings.Join(paths, "\n") + "\n\n" + strings.Join(msgs, "\n"), false, nil
 }
 
 func (f *fakeGit) Ancestor(dir, a, b string) (bool, error) {
