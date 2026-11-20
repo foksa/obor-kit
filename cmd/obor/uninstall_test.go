@@ -5,18 +5,29 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
+
+	"obor/internal/app/port"
 )
 
-// The names a prune reply's "would delete" lines carry are the merged task branches; its other lines are not.
-func TestPrunedBranches(t *testing.T) {
+// The branches uninstall deletes are the structured reply's merged list, with their tips: no line of text is read for
+// them (the reply here carries branch-looking lines that are no data), and a reply that is not structured is an error.
+func TestMergedBranchesReadsTheStructuredReply(t *testing.T) {
 	t.Parallel()
-	reply := "would delete task/T-1 (was abc1234)\nwould delete task/T-22 (was def5678)\n" +
-		"kept worktree /w/L-03: dirty (1 paths, as a)\nwould delete worktree /w/L-09 (was 1111111)\nPRUNE would delete 2 branches, 1 worktrees"
-	if got := prunedBranches(reply); !slices.Equal(got, []string{"task/T-1", "task/T-22"}) {
-		t.Errorf("branches %v, want task/T-1 and task/T-22", got)
+	sha := strings.Repeat("a", 40)
+	reply := `{"merged":[{"name":"task/T-1","sha":"` + sha + `"},{"name":"task/T-22","sha":"` + sha + `"}],` +
+		`"unmerged":[{"name":"task/T-3","sha":"` + sha + `"}]}`
+	got, err := mergedBranches(reply)
+	if err != nil || len(got) != 2 || got[0] != (port.PruneBranch{Name: "task/T-1", SHA: sha}) || got[1].Name != "task/T-22" {
+		t.Errorf("merged %v, %v, want task/T-1 and task/T-22 with their tips (not the unmerged task/T-3)", got, err)
+	}
+	if got, err := mergedBranches(`{"merged":[],"unmerged":[]}`); err != nil || len(got) != 0 {
+		t.Errorf("an empty reply: %v, %v", got, err)
+	}
+	text := "would delete task/T-1 (was abc1234)\nPRUNE would delete 1 branches, 0 worktrees"
+	if got, err := mergedBranches(text); err == nil || len(got) != 0 || !strings.Contains(err.Error(), "not structured") {
+		t.Errorf("a text reply: %v, %v, want an error and no branch", got, err)
 	}
 }
 

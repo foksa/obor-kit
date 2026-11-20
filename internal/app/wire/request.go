@@ -1,6 +1,11 @@
 package wire
 
-import "obor/internal/store"
+import (
+	"encoding/json"
+	"fmt"
+
+	"obor/internal/store"
+)
 
 // The app socket's requests: one type per method, each an Envelope and its method's fields only, its doc
 // comment the method's documented request. The JSON keys are the fields' wire names ("note" carries a hold's
@@ -188,15 +193,40 @@ func (BackupReq) Method() string { return MethodBackup }
 // of finished tasks and the worktrees of lanes and roles the config no longer names. DryRun lists and deletes nothing;
 // Unmerged adds the branches of tasks that ended unmerged over pruneUnmerged ago; Nightly is the nightly's own call
 // (branches of tasks merged over pruneNightly ago, never worktrees or Unmerged). Reply: one line per deletion
-// (`deleted task/T-982 (was 1a2b3c4)`), a kept worktree's line, and the summary line last (`PRUNE …`).
+// (`deleted task/T-982 (was 1a2b3c4)`), a kept worktree's line, and the summary line last (`PRUNE …`). Structured: the
+// reply is a PruneReply's JSON instead of those lines, for a caller that decides from it (obor uninstall).
 type PruneReq struct {
 	Envelope
-	DryRun   bool `json:"dry_run,omitempty"`
-	Unmerged bool `json:"unmerged,omitempty"`
-	Nightly  bool `json:"nightly,omitempty"`
+	DryRun     bool `json:"dry_run,omitempty"`
+	Unmerged   bool `json:"unmerged,omitempty"`
+	Nightly    bool `json:"nightly,omitempty"`
+	Structured bool `json:"structured,omitempty"`
 }
 
 func (PruneReq) Method() string { return MethodPrune }
+
+// PruneReply is a structured prune's reply: the task branches the request deletes (DryRun: would delete), Merged, and
+// the task branches it keeps, Unmerged (its task is open, dropped and not asked for, unknown, or git refused the
+// delete), each with its full tip sha. A branch checked out in a worktree and one outside task/ are in neither.
+type PruneReply struct {
+	Merged   []PruneRef `json:"merged"`
+	Unmerged []PruneRef `json:"unmerged"`
+}
+
+// PruneRef is a branch of a PruneReply with the sha of its tip.
+type PruneRef struct {
+	Name string `json:"name"`
+	SHA  string `json:"sha"`
+}
+
+// ParsePruneReply is a structured prune's reply read.
+func ParsePruneReply(reply string) (PruneReply, error) {
+	var r PruneReply
+	if err := json.Unmarshal([]byte(reply), &r); err != nil {
+		return PruneReply{}, fmt.Errorf("prune: reply is not structured (%v): serve is another version", err)
+	}
+	return r, nil
+}
 
 // SendReq is a line to another project's lead (obor send; messages.go): the envelope's Root the target project, From
 // the sender project's name, Text the text.

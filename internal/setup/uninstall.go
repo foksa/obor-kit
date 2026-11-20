@@ -4,9 +4,10 @@ package setup
 // Every step is idempotent: a second run reports each one "already". The summary lists each step as done, already,
 // skipped (why) or kept: <why>, like obor init's.
 //
-//	refusals   before anything changes: an open or waiting task (--force: as obor stop), a lane or role worktree
-//	           that is dirty or holds commits no branch holds, a task/* branch with commits the main checkout lacks
-//	           and serve's prune does not take (--discard removes those too). Nothing is changed when one stands.
+//	refusals   before anything changes: serve not answering while anything is set up (or with --purge), so the open
+//	           tasks are unknown (--force goes on); an open or waiting task (--force: as obor stop); a lane or role
+//	           worktree that is dirty; a task/* branch serve's prune does not list as merged (--discard removes
+//	           those too). Nothing is changed when one stands, --dry-run included.
 //	agents     the project's agents stopped (obor stop's path).
 //	serve      serve ended and its launchd agent uninstalled, obor.web with the machine's last one.
 //	panes      the terminal's panes (and the tabs they leave empty) of the project's agents closed; never another
@@ -27,6 +28,7 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -48,8 +50,9 @@ const UninstallUsage = "usage: obor uninstall [--dry-run] [--discard] [--purge] 
 type Teardown struct {
 	// Open is the open or waiting tasks, one line ("" none); known false: serve does not answer for the project.
 	Open func(ctx context.Context, cfg *config.Config) (tasks string, known bool)
-	// Merged is the names of the task branches serve's prune deletes (merged or landed tasks); an error: none known.
-	Merged func(ctx context.Context, cfg *config.Config) ([]string, error)
+	// Merged is the task branches serve's prune deletes (merged or landed tasks), from its structured reply; an
+	// error: none known.
+	Merged func(ctx context.Context, cfg *config.Config) ([]port.PruneBranch, error)
 	// Agents stops the project's agents but the caller's own (force: a working one too). With dry it stops none.
 	Agents func(ctx context.Context, cfg *config.Config, force, dry bool) (state, line string, err error)
 	// Serve ends the project's serve and uninstalls its launchd agent, and obor.web with the machine's last one.
@@ -168,14 +171,15 @@ type uninstallPlan struct {
 	branches []port.PruneBranch
 	merged   map[string]bool // branch names serve's prune takes
 	held     map[string]bool // branches checked out outside the worktrees uninstall removes (the main checkout's)
-	unmerged map[string]bool // task/* branches with commits the main checkout lacks and serve does not take
+	unmerged map[string]bool // task/* branches serve's prune does not take
 	links    bool            // a worktree holds the plugin's settings link
 }
 
 // uninstallPlan reads the project and lists everything that makes obor uninstall refuse. It changes nothing.
 func (s *Setup) uninstallPlan(ctx context.Context, g port.Pruner, o uninstallOpts) (*uninstallPlan, error) {
 	p := &uninstallPlan{merged: map[string]bool{}, held: map[string]bool{}, unmerged: map[string]bool{}}
-	if tasks, known := s.Down.Open(ctx, s.cfg); known && tasks != "" && !o.force {
+	tasks, known := s.Down.Open(ctx, s.cfg)
+	if known && tasks != "" && !o.force {
 		p.refusals = append(p.refusals, "tasks in progress: "+tasks+": finish or drop them, or obor uninstall --force "+
 			"(stops the agents; the tasks stay in the store)")
 	}
@@ -207,12 +211,20 @@ func (s *Setup) uninstallPlan(ctx context.Context, g port.Pruner, o uninstallOpt
 			p.refusals = append(p.refusals, fmt.Sprintf("worktree %s: %s (--discard removes it anyway)", t.Dir, dirt))
 		}
 	}
+	if !known && !o.force && (o.purge || s.setUp(ctx, p)) {
+		return nil, project.Failf("serve is not running, so open tasks cannot be checked: obor start, then obor uninstall " +
+			"(or --force to go ahead)")
+	}
 	if p.branches, err = g.Branches(ctx); err != nil {
 		return nil, project.Failf("git branches not listed: %v", err)
 	}
-	if merged, err := s.Down.Merged(ctx, s.cfg); err == nil {
-		for _, b := range merged {
-			p.merged[b] = true
+	mergedErr := errors.New("serve is not running")
+	if known { // a serve that does not answer would be retried to its deadline
+		var merged []port.PruneBranch
+		if merged, mergedErr = s.Down.Merged(ctx, s.cfg); mergedErr == nil {
+			for _, b := range merged {
+				p.merged[b.Name] = true
+			}
 		}
 	}
 	checked, err := g.CheckedOut(ctx)
@@ -230,27 +242,35 @@ func (s *Setup) uninstallPlan(ctx context.Context, g port.Pruner, o uninstallOpt
 		if p.merged[b.Name] || p.held[b.Name] {
 			continue
 		}
-		out, err := s.git().Git(s.root, "rev-list", "--count", b.Name, "^"+s.cfg.MainBranch())
-		if err != nil {
-			return nil, project.Failf("branch %s not read: %v", b.Name, err)
+		p.unmerged[b.Name] = true
+		if o.discard {
+			continue
 		}
-		if strings.TrimSpace(out) != "0" {
-			p.unmerged[b.Name] = true
-			if !o.discard {
-				p.refusals = append(p.refusals, fmt.Sprintf("branch %s (%s): %s commits no merge took (--discard deletes it)",
-					b.Name, short(b.SHA), strings.TrimSpace(out)))
-			}
+		why := "serve's prune does not list it as merged"
+		if mergedErr != nil {
+			why = fmt.Sprintf("serve's prune could not say if it is merged (%v)", mergedErr)
 		}
+		p.refusals = append(p.refusals, fmt.Sprintf("branch %s (%s): %s (--discard deletes it)", b.Name, short(b.SHA), why))
 	}
 	slices.Sort(p.refusals)
 	return p, nil
+}
+
+// setUp: something obor init set up is still there: a worktree under lanes.dir, the githooks, serve's job. A project
+// with none of it has nothing to tear down, so serve not answering costs it nothing.
+func (s *Setup) setUp(ctx context.Context, p *uninstallPlan) bool {
+	if state, _ := s.hooksState(); len(p.trees)+len(p.gone) > 0 || state == "obor" {
+		return true
+	}
+	state, _, err := s.Down.Serve(ctx, s.cfg, true)
+	return err != nil || state != "already"
 }
 
 func short(sha string) string { return sha[:min(7, len(sha))] }
 
 // uninstallPanes closes the project's panes in the terminal, but the one this command runs in.
 func (s *Setup) uninstallPanes(ctx context.Context, o uninstallOpts, add func(name, state, format string, a ...any) *ustep) error {
-	own, _ := project.Pane(s.Env)
+	own, _ := project.PaneOf(s.cfg, s.Env) // none: the caller runs in no pane
 	repo, _ := s.git().Find(s.Dir)
 	ownAgent := project.Self(repo, s.cfg, s.Env)
 	spared := ""
@@ -403,17 +423,30 @@ func (s *Setup) obRefs() ([][2]string, error) {
 	return refs, nil
 }
 
-// uninstallHooks is obor setup githooks --remove for a core.hooksPath that is obor's.
-func (s *Setup) uninstallHooks(o uninstallOpts, add func(name, state, format string, a ...any) *ustep) error {
+// hooksState is the project's core.hooksPath as uninstall sees it: "already" (not set), "kept" (not obor's, with its
+// value) or "obor" (obor's, or a chain obor set).
+func (s *Setup) hooksState() (state, cur string) {
 	dir := filepath.Join(s.Kit, "githooks")
-	cur, _ := s.git().Git(s.root, "config", "--local", "--get", "core.hooksPath")
+	cur, _ = s.git().Git(s.root, "config", "--local", "--get", "core.hooksPath")
 	cur = strings.TrimSpace(cur)
 	chain, _ := s.git().Git(s.root, "config", "--local", "--get", "obor.hooksChain")
 	chain = strings.TrimSpace(chain)
 	switch {
 	case cur == "" && chain == "":
-		add("githooks", "already", "core.hooksPath not set")
+		return "already", ""
 	case cur != "" && cur != dir && cur != filepath.Join(dir, "chain"):
+		return "kept", cur
+	}
+	return "obor", cur
+}
+
+// uninstallHooks is obor setup githooks --remove for a core.hooksPath that is obor's.
+func (s *Setup) uninstallHooks(o uninstallOpts, add func(name, state, format string, a ...any) *ustep) error {
+	state, cur := s.hooksState()
+	switch {
+	case state == "already":
+		add("githooks", "already", "core.hooksPath not set")
+	case state == "kept":
 		add("githooks", "kept", "core.hooksPath is %s, not obor's", cur)
 	case o.dry:
 		add("githooks", "done", "core.hooksPath would be removed")

@@ -14,8 +14,9 @@ import (
 // CloseProject kills every live terminal labelled obor.project=c.Name (`terminal.kill`), then closes in herdr-app's
 // space named c.Name the tabs that held one of them and hold no other terminal now (`tab.close`), and the space itself
 // when that leaves it no tab but an empty lead, lanes or roles tab (`space.close`). A tab or space with a terminal of
-// another project, or a tab a person made, stays. herdr-app not running (or no App) leaves its window: a line says
-// so. With c.Dry nothing is killed or closed.
+// another project, or a tab a person made, stays. A terminal c.Ours refuses (the caller's own; nil: none refused) is
+// not killed and counts as still in its tab and space, so neither closes under it. herdr-app not running (or no App)
+// leaves its window: a line says so. With c.Dry nothing is killed or closed.
 func (cl *Client) CloseProject(ctx context.Context, c port.CloseProject) ([]string, error) {
 	recs, err := cl.terminals(ctx)
 	if err != nil {
@@ -27,6 +28,9 @@ func (cl *Client) CloseProject(ctx context.Context, c port.CloseProject) ([]stri
 	for _, r := range recs {
 		if r.Labels[LabelProject] != c.Name {
 			continue
+		}
+		if c.Ours != nil && !c.Ours(r.pane()) {
+			continue // spared: not in gone, so its tab and space stay
 		}
 		if !c.Dry {
 			if err := cl.call(ctx, nil, "terminal.kill", map[string]any{"terminal": r.Address}); err != nil {

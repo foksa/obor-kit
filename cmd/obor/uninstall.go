@@ -36,14 +36,14 @@ func teardownOf(env project.Env, cwd string, t port.PaneControl) *setup.Teardown
 			}
 			return busyList(openTasks(ps)), true
 		},
-		Merged: func(ctx context.Context, cfg *config.Config) ([]string, error) {
-			req := &wire.PruneReq{DryRun: true}
+		Merged: func(ctx context.Context, cfg *config.Config) ([]port.PruneBranch, error) {
+			req := &wire.PruneReq{DryRun: true, Structured: true}
 			req.Envelope = caller(env, cwd, cfg)
 			reply, err := wire.Verdict(ctx, wire.SocketPath(cfg.Root), req)
 			if err != nil {
 				return nil, err
 			}
-			return prunedBranches(reply), nil
+			return mergedBranches(reply)
 		},
 		Agents: func(ctx context.Context, cfg *config.Config, force, dry bool) (string, string, error) {
 			var w bytes.Buffer
@@ -67,16 +67,17 @@ func teardownOf(env project.Env, cwd string, t port.PaneControl) *setup.Teardown
 	}
 }
 
-// prunedBranches is the task branches a prune reply's lines name ("would delete task/T-1 (was abc1234)").
-func prunedBranches(reply string) []string {
-	var out []string
-	for _, l := range strings.Split(reply, "\n") {
-		if name, ok := strings.CutPrefix(l, "would delete task/"); ok {
-			name, _, _ = strings.Cut(name, " ")
-			out = append(out, "task/"+name)
-		}
+// mergedBranches is the task branches a structured prune reply says serve takes (its tasks are merged), with their tips.
+func mergedBranches(reply string) ([]port.PruneBranch, error) {
+	r, err := wire.ParsePruneReply(reply)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	var out []port.PruneBranch
+	for _, b := range r.Merged {
+		out = append(out, port.PruneBranch{Name: b.Name, SHA: b.SHA})
+	}
+	return out, nil
 }
 
 // oneLine is out's lines joined with "; ", each without prefix.
@@ -97,7 +98,7 @@ func (s *sleeper) agentsWould(ctx context.Context) (string, string, error) {
 		return "", "", fmt.Errorf("the terminal's panes not listed (%v)", err)
 	}
 	repo, _ := project.Find(s.Cwd)
-	ownPane, _ := project.Pane(s.Env)
+	ownPane, _ := project.PaneOf(s.Cfg, s.Env) // none: no pane of the caller's to spare
 	ownAgent := project.Self(repo, s.Cfg, s.Env)
 	var names []string
 	for _, p := range panes {
