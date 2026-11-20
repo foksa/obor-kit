@@ -239,7 +239,9 @@ process (`plugin.Local`).
   starts agents through an `app.Starter` that `cmd/obor` injects, and asks the terminal for panes through
   `port.TerminalSetup`, whose adapter lays them out); `obor init`
   (`oborinit.go`: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
-  to `service`).
+  to `service`); `obor uninstall` (`uninstall.go`: those steps undone in reverse; serve, the agents and the main
+  repo's git through `Setup.Down`, which `cmd/obor/uninstall.go` wires to the stop path, `service` and `checks.GitPruner`;
+  the terminal closes the project's panes through `port.TerminalSetup.CloseProject`).
 - `service`: the launchd agents (darwin only, elsewhere each verb says to run `obor serve` yourself): each project's
   `~/Library/LaunchAgents/obor.serve.<name>.plist` and the machine's `obor.web.plist` (the page), with `launchctl`
   bootstrap / bootout / kickstart / print for `obor serve install|uninstall|restart` and `obor status`' serve and web

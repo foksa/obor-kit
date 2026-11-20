@@ -196,6 +196,30 @@ func (c *Client) RenameSpace(ctx context.Context, old, name string) (bool, error
 	return false, nil
 }
 
+// CloseSpace closes the space with this id and its tabs (`space.close`, confirmed: the app asks no question).
+func (c *Client) CloseSpace(ctx context.Context, id string) error {
+	if id == "" {
+		return &Error{Op: "space.close", Msg: "a closed space needs its id"}
+	}
+	if err := c.check(ctx); err != nil {
+		return err
+	}
+	_, err := c.do(ctx, "space.close", map[string]any{"id": id, "confirmed": true})
+	return err
+}
+
+// CloseTab closes the tab with this id (`tab.close`, confirmed).
+func (c *Client) CloseTab(ctx context.Context, id string) error {
+	if id == "" {
+		return &Error{Op: "tab.close", Msg: "a closed tab needs its id"}
+	}
+	if err := c.check(ctx); err != nil {
+		return err
+	}
+	_, err := c.do(ctx, "tab.close", map[string]any{"id": id, "confirmed": true})
+	return err
+}
+
 // ids are what a `do` command printed of what it made.
 type ids struct {
 	Space string `json:"space"`

@@ -25,6 +25,7 @@ nightly
 prune
 setup
 init
+uninstall
 status
 web
 restart

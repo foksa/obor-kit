@@ -81,6 +81,11 @@ then prints each step and the file to change (`.obor/config.json`). Run it once 
 With no pane of the project open yet, init creates a herdr workspace for it. The lead's first session shows the lane
 count and the models and asks you to confirm them (`agents.confirmed`).
 
+`obor uninstall` undoes it: the project's agents, serve, panes, lane and role worktrees, task branches, git hooks and
+plugin go, and `.obor/config.json`, the committed files and `.obor/state` stay (`--purge` removes the state too;
+`--dry-run` lists what it would do; `--discard` also takes dirty worktrees and unmerged branches, `--force` open tasks).
+`obor init` sets the project up again from the kept config.
+
 obor commits with `--no-verify`, so your own pre-commit and commit-msg hooks never run on its lane and merge commits:
 put formatting and secret scans in `merge.check` (the merge check) instead.
 

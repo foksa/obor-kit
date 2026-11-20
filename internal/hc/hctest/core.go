@@ -398,6 +398,13 @@ func (c *Core) answer(k *conn, method string, raw json.RawMessage) (any, string,
 		return c.write(method, raw)
 	case "terminal.run":
 		return c.start(raw)
+	case "terminal.kill":
+		for i := range c.recs {
+			if c.recs[i].Address == p.Terminal && c.recs[i].State == "live" {
+				c.recs[i].State, c.recs[i].Reason, c.recs[i].Status, c.recs[i].Foreground = "finished", "killed", nil, nil
+				return map[string]any{}, "", ""
+			}
+		}
 	default:
 		return nil, "unknown_method", "no method " + method
 	}

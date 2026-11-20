@@ -6,12 +6,16 @@
 package setup
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"obor/internal/app/port"
+	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/project"
 )
 
 // obor init in a plain directory (no repository) makes one on branch main, commits its own files as "obor init"
@@ -89,4 +93,64 @@ func TestOborInitRerunAfterAnInterruptedInit(t *testing.T) {
 			t.Error("the edited BACKLOG.md was touched")
 		}
 	})
+}
+
+// obor uninstall on a real repository after obor init: the main checkout is the only worktree left, the task branch
+// no merge needs is deleted, core.hooksPath is unset, and git status is as clean as it was before (nothing tracked is
+// touched); the config stays and the second run changes nothing.
+func TestUninstallAfterInitLeavesAPlainRepository(t *testing.T) {
+	t.Parallel()
+	x := newGitInitFx(t, true)
+	dir := x.Root
+	x.init(t)
+	x.Git(dir, "add", "-A")
+	x.Git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "after init", "--no-verify")
+	x.Git(dir, "branch", "task/T-9") // at main's head: no commit of its own
+	if got := strings.Count(x.Git(dir, "worktree", "list"), "\n"); got < 2 {
+		t.Fatalf("precondition: %d worktrees after obor init, want the main checkout and the lanes", got+1)
+	}
+	if x.Git(dir, "status", "--porcelain") != "" || x.Git(dir, "config", "--local", "--get", "core.hooksPath") == "" {
+		t.Fatalf("precondition: status %q, hooks path %q", x.Git(dir, "status", "--porcelain"),
+			x.Git(dir, "config", "--local", "--get", "core.hooksPath"))
+	}
+	down := &fakeDown{known: true}
+	run := func() (string, int) {
+		s, out := x.newSetup(t)
+		s.Dir = dir
+		td := down.teardown()
+		td.Pruner = func(cfg *config.Config) port.Pruner { return checks.GitPruner{Cfg: cfg} }
+		s.Down = td
+		rc := s.Run(context.Background(), []string{"obor-uninstall"})
+		return out.String(), rc
+	}
+
+	out, rc := run()
+	if rc != 0 {
+		t.Fatalf("uninstall: exit %d\n%s", rc, out)
+	}
+	if got := strings.TrimSpace(x.Git(dir, "worktree", "list")); strings.Count(got, "\n") != 0 || !strings.HasPrefix(got, project.Physical(dir)) {
+		t.Errorf("worktrees after uninstall:\n%s\nwant the main checkout only", got)
+	}
+	if got := x.Git(dir, "status", "--porcelain"); got != "" {
+		t.Errorf("git status after uninstall:\n%s", got)
+	}
+	if got, err := x.gitOut(dir, "config", "--local", "--get", "core.hooksPath"); err == nil {
+		t.Errorf("core.hooksPath still %q", got)
+	}
+	if got := x.Git(dir, "branch", "--list", "task/*"); got != "" {
+		t.Errorf("task branches left: %q", got)
+	}
+	has(t, out, "deleted task/T-9 (was ", "the branch line")
+	if !x.Exists(".obor/config.json") {
+		t.Error("the config is gone")
+	}
+	out, rc = run()
+	if rc != 0 {
+		t.Fatalf("second uninstall: exit %d\n%s", rc, out)
+	}
+	for step, state := range states(out) {
+		if state == "done" {
+			t.Errorf("second run: %s is done\n%s", step, out)
+		}
+	}
 }
