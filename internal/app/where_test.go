@@ -105,6 +105,12 @@ func TestWhere(t *testing.T) {
 				if !reflect.DeepEqual(got, tc.want) {
 					t.Errorf("where %s %q:\n got %+v\nwant %+v", tc.agent, tc.panes, got, tc.want)
 				}
+				// serve's own launchers ask the same table in process (Where): the same answer, no socket.
+				inProc, err := h.a.Where(t.Context(), wire.WhereReq{Envelope: wire.Envelope{Root: h.root},
+					Name: tc.agent, Panes: tc.panes})
+				if err != nil || !reflect.DeepEqual(inProc, tc.want) {
+					t.Errorf("Where %s %q in process:\n got %+v, %v\nwant %+v", tc.agent, tc.panes, inProc, err, tc.want)
+				}
 			})
 		})
 	}
@@ -127,6 +133,9 @@ func TestWhereRefuses(t *testing.T) {
 		} {
 			if _, err := s.Call(t, &c.req); err == nil || err.Error() != c.want {
 				t.Errorf("where %+v: err %v, want %q", c.req, err, c.want)
+			}
+			if _, err := h.a.Where(t.Context(), c.req); err == nil || err.Error() != c.want {
+				t.Errorf("Where %+v in process: err %v, want %q", c.req, err, c.want)
 			}
 		}
 	})

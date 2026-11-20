@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
@@ -404,85 +405,6 @@ func TestRestoreFreeLaneSkipped(t *testing.T) {
 	has(t, f.restoreLog(), " skip pj-l-01 (pane w1:p1): lane L-01 is free", "the free lane skipped")
 }
 
-// A restored lane worker and the integrator start with the wake of the job serve holds open for them (Restorer.Job)
-// as their first prompt; an agent with no open job, and a role that has no job (lead, reviewer), start with none. A
-// free lane's worker stays skipped, its job never asked for.
-func TestRestoreCarriesTheOpenJobsWake(t *testing.T) {
-	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
-	o1, o2 := f.p.Lane("L-01", "task/T-01"), f.p.Lane("L-03", "task/T-03")
-	f.p.Config(testkit.Set("agents.roles", `{"integrator": "", "reviewer": "opus"}`))
-	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
-	f.shell("w1:p1", o1, "pj-l-01")
-	f.shell("w1:p2", f.p.Root, "pj-int")
-	f.shell("w1:p3", f.p.Root, "pj-lead")
-	f.shell("w1:p4", f.p.Root, "pj-rev")
-	f.shell("w1:p5", o2, "pj-l-03")
-	f.pl.OpenWork = func(string, string) (bool, error) { return true, nil }
-	jobs := map[string]string{"pj-l-01": "T-01/1/work", "pj-int": "T-09/2/review"}
-	var asked []string
-	f.pl.Job = func(root, agent, role, lane string) (string, error) {
-		if root != f.p.Root {
-			t.Errorf("job asked for root %q, want %q", root, f.p.Root)
-		}
-		asked = append(asked, role+":"+agent+":"+lane)
-		return jobs[agent], nil
-	}
-	f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
-	for agent, want := range map[string]string{
-		"pj-l-01": wire.WakeLine("T-01/1/work"), // the working lane's worker: job N's wake
-		"pj-int":  wire.WakeLine("T-09/2/review"),
-		"pj-lead": "", // no job for a role that has none
-		"pj-rev":  "",
-	} {
-		got, ran := f.prompts[agent]
-		if !ran {
-			t.Errorf("%s was not restarted: calls %q", agent, f.calls)
-		} else if got != want {
-			t.Errorf("%s restarted with the prompt %q, want %q", agent, got, want)
-		}
-	}
-	if _, ran := f.prompts["pj-l-03"]; ran {
-		t.Errorf("the free lane's worker was restarted: %q", f.calls)
-	}
-	slices.Sort(asked)
-	if want := []string{"integrator:pj-int:", "worker:pj-l-01:L-01"}; !slices.Equal(asked, want) {
-		t.Errorf("the job was asked for %q, want %q (only a lane's worker and the integrator)", asked, want)
-	}
-	has(t, f.restoreLog(), " skip pj-l-03 (pane w1:p5): lane L-03 is free", "the free lane skipped")
-	has(t, f.restoreLog(), "(wake: "+wire.WakeLine("T-01/1/work")+")", "the wake is logged")
-}
-
-// A worker with no open job restarts with no prompt; a job that cannot be read restores the pane with no wake, and the
-// log says why.
-func TestRestoreWithNoJobOrAnUnreadableOne(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		job  func(root, agent, role, lane string) (string, error)
-		log  string
-	}{
-		{"no open job", func(string, string, string, string) (string, error) { return "", nil }, ""},
-		{"job unknown", func(string, string, string, string) (string, error) { return "", errors.New("no served project") },
-			"its open job is not known (no served project): restored with no wake"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			f := newRfx(t)
-			o1 := f.p.PlainLane("L-01", "task/T-01")
-			f.p.Config()
-			f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
-			f.shell("w1:p1", o1, "pj-l-01")
-			f.pl.Job = c.job
-			f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
-			f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
-			if p := f.prompts["pj-l-01"]; p != "" {
-				t.Errorf("restarted with the prompt %q, want none", p)
-			}
-			if c.log != "" {
-				has(t, f.restoreLog(), c.log, "the log's reason")
-			}
-		})
-	}
-}
-
 // a config naming keys this obor does not know (the promotion's) still loads for the
 // restore (paneConfig): its lead pane restarts, never skipping the project without a word.
 func TestRestoreLoadsAConfigWithUnknownKeys(t *testing.T) {
@@ -514,6 +436,54 @@ func TestRestoreProjectOnlyItsProject(t *testing.T) {
 		if strings.HasPrefix(c, other.Root+" ") {
 			t.Errorf("serve's run restarted the other project's pane: %q", c)
 		}
+	}
+}
+
+// namedKind is a plugin kind the registry holds by its name alone.
+type namedKind struct {
+	agents.Kind
+	name string
+}
+
+func (k namedKind) Name() string { return k.name }
+
+// loader is a PluginLoader whose kinds answer nothing but their names.
+type loader struct{}
+
+func (loader) Kind(name, _, _ string) agents.Kind { return namedKind{name: name} }
+
+func (loader) Check(name, _ string) (agents.Kind, error) { return namedKind{name: name}, nil }
+
+// A config load registers the project's plugin kinds as the process's (agents.SetPlugins), so a restore that loaded
+// another project's config would leave that project's kinds in serve's registry. The run reads its own project's
+// config alone: a labelled pane of another obor project is known by its cwd's repository before any config is loaded.
+// Not parallel: it owns the registry.
+func TestRestoreLoadsOnlyItsOwnProjectsConfig(t *testing.T) {
+	was := agents.Plugins
+	agents.Plugins = loader{}
+	t.Cleanup(func() {
+		agents.Plugins = was
+		agents.SetPlugins(nil)
+	})
+	f := newRfx(t)
+	f.p.Config(testkit.Set("agents.kinds.akind.plugin", "obor-kind-akind"))
+	other := testkit.NewPlain(t)
+	other.Config(testkit.Set("agents.kinds.bkind.plugin", "obor-kind-bkind"))
+	// The precondition: a load of the other project's config registers its kind, and a load of this one's replaces it.
+	if _, err := config.Load(other.Root); err != nil || !agents.IsPlugin("bkind") {
+		t.Fatalf("precondition: loading the other project's config registers its kind: %v, bkind %v", err, agents.IsPlugin("bkind"))
+	}
+	if _, err := config.Load(f.p.Root); err != nil || agents.IsPlugin("bkind") || !agents.IsPlugin("akind") {
+		t.Fatalf("precondition: loading this project's config replaces the kinds: %v, akind %v, bkind %v", err,
+			agents.IsPlugin("akind"), agents.IsPlugin("bkind"))
+	}
+	f.shell("w1:p1", f.p.Root, "pj-lead")
+	f.shell("w2:p1", other.Root, "pj-lead") // after this project's pane: a load for it would be the last one
+	f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
+	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh")
+	if agents.IsPlugin("bkind") || !agents.IsPlugin("akind") {
+		t.Errorf("after the run the registry holds akind %v, bkind %v; want this project's kind alone",
+			agents.IsPlugin("akind"), agents.IsPlugin("bkind"))
 	}
 }
 
@@ -568,7 +538,7 @@ func (f *rfx) resumedPane(pane, cwd, label string) {
 
 // After a herdr restart with herdr's own resume on, each lost labelled pane runs the agent herdr resumed, which obor did
 // not start: the restore treats it as a shell. The lead with a session is restarted by obor (resumed), a working
-// lane's worker with its job's wake; a free lane's worker and a role with no open work have herdr's agent stopped and
+// lane's worker, the restart of both asking its open job's wake itself (Launcher.Job); a free lane's worker and a role with no open work have herdr's agent stopped and
 // their shell left. With herdr's resume off (shells) the same panes restart as before and nothing is stopped.
 func TestRestoreReplacesTheTerminalsResumedAgents(t *testing.T) {
 	for _, resumed := range []bool{true, false} {
@@ -589,18 +559,14 @@ func TestRestoreReplacesTheTerminalsResumedAgents(t *testing.T) {
 				store.Session{Agent: "pj-lead", Kind: "claude", ID: "sid-lead", Started: time.Now().Unix()},
 				store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
 			f.pl.OpenWork = func(string, string) (bool, error) { return false, nil }
-			f.pl.Job = func(_, agent, _, _ string) (string, error) {
-				return map[string]string{"pj-l-01": "T-01/1/work"}[agent], nil
-			}
 			stops := f.stops()
 			f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
 
 			f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p3")
-			if got, want := f.prompts["pj-l-01"], wire.WakeLine("T-01/1/work"); got != want {
-				t.Errorf("the working lane's worker restarted with %q, want its job's wake %q", got, want)
-			}
-			if got := f.prompts["pj-lead"]; got != "" {
-				t.Errorf("the lead restarted with the prompt %q, want none", got)
+			for _, agent := range []string{"pj-l-01", "pj-lead"} {
+				if got, ran := f.prompts[agent]; !ran || got != "" {
+					t.Errorf("%s restarted with the prompt %q (ran %v), want none: a first prompt is the launcher's", agent, got, ran)
+				}
 			}
 			log := f.restoreLog()
 			if !resumed {
@@ -621,7 +587,7 @@ func TestRestoreReplacesTheTerminalsResumedAgents(t *testing.T) {
 				}
 			}
 			has(t, log, " restore pj-l-01 (pane w1:p1) in "+f.p.Root+" (the terminal resumed claude without obor's start: "+
-				"obor restart replaces it) (wake: "+wire.WakeLine("T-01/1/work")+")\n", "the worker's line says it replaces herdr's")
+				"obor restart replaces it)\n", "the worker's line says it replaces herdr's")
 			has(t, log, " restore pj-lead (pane w1:p3) in "+f.p.Root+" (the terminal resumed claude without obor's start: "+
 				"obor restart replaces it)\n", "the lead's line says it replaces herdr's")
 			has(t, log, " stop pj-l-03 (pane w1:p5): lane L-03 is free (dispatch starts its worker); the terminal resumed "+

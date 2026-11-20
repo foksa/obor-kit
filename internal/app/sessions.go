@@ -7,6 +7,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/version"
 
 	"obor/internal/store"
 )
@@ -66,6 +67,28 @@ func (a *App) sessionCall(c wire.SessionReq) (string, error) {
 			s.ID, cur.ID)
 	}
 	return reply, nil
+}
+
+// Sessions is agent's current session in the served project at root (ok false: none recorded, or no such project):
+// the fold serve holds, for the launchers serve itself runs (Launcher.Sessions).
+func (a *App) Sessions(root, agent string) (store.Session, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(root)
+	if p == nil {
+		return store.Session{}, false
+	}
+	return p.session(agent)
+}
+
+// Report records s in the served project at root as the session request does, for the launchers serve itself runs
+// (Launcher.Report): a session began, so the agent's skew entry ends as a request's would end it.
+func (a *App) Report(root string, s store.Session) error {
+	req := wire.SessionRequest(root, s)
+	req.Env().Version = version.Version
+	a.noteSkew(wire.MethodSession, req.Envelope)
+	_, err := a.sessionCall(*req)
+	return err
 }
 
 // foldSession folds r, a session fact, when the ownership rule admits it (one session id belongs to one agent; a

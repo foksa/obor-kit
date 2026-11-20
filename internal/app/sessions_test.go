@@ -369,3 +369,63 @@ func TestSessionCallShapeSkewRefusedByVersion(t *testing.T) {
 			older.Call.Agent, older.Call.Session)
 	}
 }
+
+// Serve's own launchers record and read sessions through the App in process, as the socket's session and started
+// requests do: a report records the session fact (a repeat none, another agent's id refused), Sessions reads the fold
+// of them, and a report or a start ends the agent's skew entry (the process before it is not the one running now).
+func TestSessionsAndReportsInProcess(t *testing.T) {
+	t.Parallel()
+	h, _ := newIdentHarness(t)
+	h.connect()
+	if _, ok := h.a.Sessions(h.root, "pj-l-01"); ok {
+		t.Fatal("precondition: no session recorded")
+	}
+	behind := func(agent string) bool {
+		h.a.mu.Lock()
+		defer h.a.mu.Unlock()
+		_, ok := h.a.behind[agent]
+		return ok
+	}
+	skew := func(agent string) {
+		h.a.mu.Lock()
+		h.a.behind = map[string]string{agent: "v0.1.0"}
+		h.a.mu.Unlock()
+	}
+	now := time.Now().Unix()
+	skew("pj-l-01")
+	if err := h.a.Report(h.root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "s1", Started: now}); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := h.a.Sessions(h.root, "pj-l-01"); !ok || s.ID != "s1" || s.Kind != "claude" || s.Started != now {
+		t.Errorf("Sessions after the report: %+v, %v; want s1", s, ok)
+	}
+	eqs(t, h.current("pj-l-01"), "s1", "the socket's reads see the in-process report")
+	if behind("pj-l-01") {
+		t.Error("a report left the agent's skew entry: a session began")
+	}
+	if err := h.a.Report(h.root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "s1", Started: now + 5}); err != nil ||
+		len(h.sessions("pj-l-01")) != 1 {
+		t.Errorf("a repeat of the session: %v, %d facts; want no error and one", err, len(h.sessions("pj-l-01")))
+	}
+	if err := h.a.Report(h.root, store.Session{Agent: "pj-l-02", Kind: "claude", ID: "s1"}); err == nil ||
+		!strings.Contains(err.Error(), refusedMark+"pj-l-01") {
+		t.Errorf("another agent's report of s1: %v, want it refused naming pj-l-01", err)
+	}
+	if _, ok := h.a.Sessions(h.root+"-other", "pj-l-01"); ok {
+		t.Error("Sessions answered for a project serve does not serve")
+	}
+	if err := h.a.Report(h.root+"-other", store.Session{Agent: "pj-l-01", ID: "s9"}); err == nil {
+		t.Error("a report for a project serve does not serve was accepted")
+	}
+
+	skew("pj-l-01")
+	if err := h.a.Started(h.root, "pj-l-01"); err != nil || behind("pj-l-01") {
+		t.Errorf("Started: %v, skew entry kept %v; want it ended", err, behind("pj-l-01"))
+	}
+	if err := h.a.Started(h.root, ""); err == nil {
+		t.Error("a start naming no agent was accepted")
+	}
+	if err := h.a.Started(h.root+"-other", "pj-l-01"); err == nil {
+		t.Error("a start in a project serve does not serve was accepted")
+	}
+}

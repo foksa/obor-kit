@@ -20,8 +20,8 @@ package launch
 // work open for it: its next brief or job starts it) has the terminal's agent stopped and its shell left. A pane with
 // no recorded session (serve's store) or a kind that resumes nothing starts --fresh (a role pane started fresh with no
 // prompt wrote no transcript either, so no restart could resume it). A lane's worker and the integrator start with
-// the wake of the job serve holds open for them (Restorer.Job) as their first prompt: typed once a resumed session is
-// up, the first prompt of a fresh one; no open job, no prompt. Log: ~/.obor/restore.log (last 200).
+// the wake of the job serve holds open for them (Launcher.Job: the restart's own) as their first prompt: typed once a
+// resumed session is up, the first prompt of a fresh one; no open job, no prompt. Log: ~/.obor/restore.log (last 200).
 
 import (
 	"bufio"
@@ -36,7 +36,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
-	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -46,7 +45,7 @@ import (
 // restoreKeep is how many lines restore.log keeps.
 const restoreKeep = 200
 
-// panesTimeout bounds the hook's one pane list.
+// panesTimeout bounds one pane list, and one pane's read.
 const panesTimeout = 5 * time.Second
 
 // Restorer is serve's restore's world: the environment, the panes and the clock.
@@ -54,7 +53,8 @@ type Restorer struct {
 	Env project.Env
 	H   port.PaneControl // only its Panes
 	Now func() time.Time // nil: time.Now
-	// Restart is `obor restart` in the loaded project: the result line, or the error (project.Fail) it failed with.
+	// Restart is `obor restart` in the loaded project: the result line, or the error (project.Fail) it failed with. Its
+	// launcher carries the open job's wake (Launcher.Job).
 	Restart func(ctx context.Context, cfg *config.Config, req Request, out io.Writer) (string, error)
 	// LaneState is the lane's state as the lane table says (free, dirty-free, working, …).
 	LaneState func(cfg *config.Config, l config.Lane) string
@@ -62,10 +62,6 @@ type Restorer struct {
 	// finished, the integrator's open job, the reviewer's open review or verify. An error restores the pane (a real
 	// job is never left stopped). Nil: every role pane is restored.
 	OpenWork func(agent, role string) (bool, error)
-	// Job is the open job (<task>/<attempt>/<step>) serve holds for a lane's worker (lane set) or the integrator
-	// (lane ""): "" none. The restored agent starts with that job's wake as its first prompt (a resumed session gets it
-	// typed once up). An error restores the pane without it, said in the log. Nil: no wake.
-	Job func(root, agent, role, lane string) (string, error)
 	// Stop is `obor restart --stop` in the loaded project (launch's Stop): it quits the agent the terminal resumed in
 	// pane, leaving its shell (a pane the restore skips); the result line, or the error it failed with. Nil: that
 	// agent is left running, said in the log.
@@ -90,18 +86,21 @@ func (p *Restorer) stamp() string {
 	return now().Format("2006-01-02 15:04:05")
 }
 
-// paneConfig is the loaded config of the obor project a pane with cwd belongs to: the main checkout of cwd's
-// repository (the cwd is no fallback; ok false otherwise). What the pane's label is made of is the caller's: an
-// agent's (config.AgentLookup).
-func paneConfig(cwd string) (cfg *config.Config, ok bool) {
+// paneConfig is the loaded config of the project at root, when cwd is in that project: the main checkout of cwd's
+// repository is root (the cwd is no fallback; ok false otherwise, and no config is read for another project's pane).
+// What the pane's label is made of is the caller's: an agent's (config.AgentLookup).
+func paneConfig(root, cwd string) (cfg *config.Config, ok bool) {
 	if cwd == "" {
 		return nil, false
 	}
 	repo, err := project.Find(cwd)
-	if err != nil || project.Stopped(repo.Root) { // a stopped project (obor stop): nothing to restore
+	if err != nil || filepath.Clean(repo.Root) != root {
 		return nil, false
 	}
-	if cfg, err = config.Load(repo.Root); err != nil {
+	if project.Stopped(root) { // obor stop: nothing to restore
+		return nil, false
+	}
+	if cfg, err = config.Load(root); err != nil {
 		return nil, false
 	}
 	return cfg, true
@@ -129,7 +128,7 @@ func (p *Restorer) RestoreProject(ctx context.Context, root string, lost port.Lo
 		if !lost.Has(pane.ID) {
 			continue
 		}
-		if cfg, ok := oborPane(pane); ok && filepath.Clean(cfg.Root) == root {
+		if _, ok := oborPane(root, pane); ok {
 			found = true
 			break
 		}
@@ -183,8 +182,8 @@ func (p *Restorer) restoreRoot(ctx context.Context, root string, lost port.Lost,
 		if !lost.Has(pane.ID) {
 			continue
 		}
-		cfg, ok := oborPane(pane)
-		if !ok || cfg.Root != root {
+		cfg, ok := oborPane(root, pane)
+		if !ok {
 			continue
 		}
 		appendLog(log, func(w io.Writer) {
@@ -201,14 +200,14 @@ func (p *Restorer) panes(ctx context.Context) ([]port.Pane, bool) {
 	return panes, err == nil
 }
 
-// oborPane is the config of the obor project whose agent pane's label names (paneConfig); false for an unlabelled
-// pane, one outside an obor project, a label the project has no agent for, or a drive agent's (the owner's: obor
-// drive <T-xx> starts it again).
-func oborPane(pane port.Pane) (*config.Config, bool) {
+// oborPane is the config of the project at root when pane is an agent pane of it (paneConfig): false for an unlabelled
+// pane, one outside root's project (its config is never read), a label the project has no agent for, or a drive
+// agent's (the owner's: obor drive <T-xx> starts it again).
+func oborPane(root string, pane port.Pane) (*config.Config, bool) {
 	if pane.Label == "" {
 		return nil, false
 	}
-	cfg, ok := paneConfig(pane.Cwd)
+	cfg, ok := paneConfig(root, pane.Cwd)
 	if !ok {
 		return nil, false
 	}
@@ -266,11 +265,6 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		req.Fresh, note = true, note+" ("+role+", kind "+kind+" resumes nothing: --fresh)"
 	case s.ID == "":
 		req.Fresh, note = true, note+" ("+role+", no recorded session: --fresh)"
-	}
-	if wake, err := p.wake(cfg.Root, agent, info); err != nil {
-		fmt.Fprintf(w, "%s %s: its open job is not known (%v): restored with no wake\n", now, agent, err)
-	} else if wake != "" {
-		req.Prompt, note = wake, note+" (wake: "+wake+")"
 	}
 	fmt.Fprintf(w, "%s restore %s (pane %s) in %s%s\n", now, agent, pane.ID, cfg.Root, note)
 	rctx, cancel := context.WithTimeout(ctx, limit)
@@ -377,19 +371,6 @@ func (p *Restorer) settle(ctx context.Context, pane port.Pane, by time.Time) (po
 	}
 }
 
-// wake is the first prompt of agent's restart: the wake of its open job (Job) for a lane's worker and the integrator,
-// "" for any other agent and for one with no job.
-func (p *Restorer) wake(root, agent string, info config.AgentInfo) (string, error) {
-	if p.Job == nil || info.Role != "integrator" && (info.Role != "worker" || info.Lane == "") {
-		return "", nil
-	}
-	job, err := p.Job(root, agent, info.Role, info.Lane)
-	if err != nil || job == "" {
-		return "", err
-	}
-	return wire.WakeLine(job), nil
-}
-
 // alwaysRestored: a pane's role is restored whatever serve's state says: the lead's always, a worker's by its lane.
 func alwaysRestored(role string) bool {
 	return role == "lead" || role == "worker"
@@ -425,7 +406,7 @@ func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
 }
 
 // appendLog runs write against the log file (created with its directory), then cuts the log to its last keep lines.
-// A log that cannot be opened: nothing runs (the hooks have nowhere to say anything).
+// A log that cannot be opened: nothing runs (the restore has nowhere to say anything).
 func appendLog(path string, write func(w io.Writer)) {
 	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
 		return

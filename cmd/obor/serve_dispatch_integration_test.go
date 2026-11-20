@@ -54,7 +54,7 @@ func TestSpecs(t *testing.T) {
 func TestDispatchTargetOffBranch(t *testing.T) {
 	t.Parallel()
 	p := servedGitProject(t)
-	l, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
+	l, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{}, noApp)(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
