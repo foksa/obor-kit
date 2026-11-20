@@ -262,7 +262,7 @@ func TestPlaceCases(t *testing.T) {
 					t.Fatalf("Place typed %q, terminals %q; want nothing typed in the app's %s alone", sent, k.live(), w.addr)
 				}
 				k.core.Program("claude", &hc.Status{State: "idle", App: "claude-code"})
-				if _, err := k.c.Start(ctx, port.AgentStart{Kind: "claude", Pane: w.addr, Label: "pj-l-01"}); err != nil {
+				if _, err := k.c.Start(ctx, port.AgentStart{Kind: "claude", Program: "claude", Pane: w.addr, Label: "pj-l-01"}); err != nil {
 					t.Fatalf("Start in %s = %v", w.addr, err)
 				}
 				if sent := k.core.Sent(w.addr); len(sent) != 1 || strings.Contains(sent[0], "export") {

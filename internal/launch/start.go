@@ -164,7 +164,8 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	return port.Pane{}, &StartError{Err: err}
 }
 
-// agentStart is s as the terminal's agent start takes it: its pane, the agent's name, kind, argv and first prompt,
+// agentStart is s as the terminal's agent start takes it: its pane, the agent's name, kind, the kind's program (of
+// l.Cfg, the pass's config; "" when it names no such kind), argv and first prompt,
 // the env and cwd its env line set (s.Whose), Up and Poll, and the terminal's lines through Diag (else Out).
 func (l *Launcher) agentStart(s Start) port.AgentStart {
 	say := l.say
@@ -178,8 +179,12 @@ func (l *Launcher) agentStart(s Start) port.AgentStart {
 			env = append(env, v.Name+"="+v.Value)
 		}
 	}
-	return port.AgentStart{Pane: s.Pane, Label: s.Agent, Kind: s.Kind, Argv: s.Args, Env: env, Cwd: s.Whose.Cwd,
-		Prompt: s.Prompt, Bound: l.upWait(), Poll: l.poll(), Say: say}
+	program := ""
+	if k, ok := l.Cfg.Kind(s.Kind); ok {
+		program = agents.Programs(k)[0]
+	}
+	return port.AgentStart{Pane: s.Pane, Label: s.Agent, Kind: s.Kind, Program: program, Argv: s.Args, Env: env,
+		Cwd: s.Whose.Cwd, Prompt: s.Prompt, Bound: l.upWait(), Poll: l.poll(), Say: say}
 }
 
 // done is a start's success path, the one for Start and restart: it records the start (recordStart: the restore's

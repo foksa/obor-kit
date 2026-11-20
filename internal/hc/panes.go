@@ -155,7 +155,7 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 		if err := s.call(ctx, "terminal.list", nil, &l); err != nil {
 			return err
 		}
-		out = snapshot(p.C.Kinds, s.hello, st, l.Terminals)
+		out = snapshot(p.C.kinds(), s.hello, st, l.Terminals)
 		return nil
 	})
 	return out, err

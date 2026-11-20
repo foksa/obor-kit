@@ -62,13 +62,16 @@ type AgentStarter interface {
 }
 
 // AgentStart is one agent start a terminal makes (AgentStarter): the pane, the agent's name (obor's label of the
-// pane), its kind and argv after the binary (the first prompt in it already, Prompt too), the env and cwd launch's env
+// pane), its kind and the kind's program, argv after the program (the first prompt in it already, Prompt too), the env and cwd launch's env
 // line gave the pane's shell (an adapter that starts a program with its own env and cwd may pass them; one that types
 // the command at the shell reads neither), how long the agent may take to come up and how often the adapter looks,
 // and where the adapter's own lines go.
 type AgentStart struct {
 	Pane, Label, Kind string
-	Argv              []string
+	// Program is the kind's executable (agents.Programs of the kind in the launching pass's config): an adapter that types
+	// the command line reads it, and looks no kind up.
+	Program string
+	Argv    []string
 	// Env is NAME=VALUE for each variable the env line exports; the registry's other variables it unsets.
 	Env    []string
 	Cwd    string        // the directory the env line changed to ("": the shell's)

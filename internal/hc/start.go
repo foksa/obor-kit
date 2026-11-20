@@ -12,7 +12,7 @@ import (
 	"obor/internal/project"
 )
 
-// Start is port.AgentStarter's start on hc: the agent's command line (the kind's program and s.Argv, each word
+// Start is port.AgentStarter's start on hc: the agent's command line (s.Program and s.Argv, each word
 // quoted) typed at the pane's shell, which has the agent's env and cwd already (launch's env line; s.Env and s.Cwd are
 // not read), after the pane is labelled with the agent's name and its kind (obor.agent, obor.kind). It returns once
 // the agent is up: a program other than the shell holds the foreground and reports a status naming s.Kind, idle or
@@ -24,9 +24,8 @@ import (
 // Codex's trust dialog; launch reads the screen for it), port.TimedOut when the shell still holds the foreground at
 // the bound. hc holds no agent names, so no start is refused as port.NameHeld.
 func (cl *Client) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
-	k, ok := cl.Kinds.Lookup(s.Kind)
-	if !ok {
-		return port.Pane{}, &Error{Op: "terminal.send", Msg: "no agent kind " + s.Kind}
+	if s.Program == "" {
+		return port.Pane{}, &Error{Op: "terminal.send", Msg: "no program for agent kind " + s.Kind}
 	}
 	r, err := cl.live(ctx, s.Pane)
 	if err != nil {
@@ -46,7 +45,7 @@ func (cl *Client) Start(ctx context.Context, s port.AgentStart) (port.Pane, erro
 	if err := cl.label(ctx, s.Pane, labels); err != nil {
 		return port.Pane{}, err
 	}
-	if err := cl.Write(ctx, s.Pane, commandLine(k, s.Argv), true); err != nil {
+	if err := cl.Write(ctx, s.Pane, commandLine(s.Program, s.Argv), true); err != nil {
 		var e *Error
 		if errors.As(err, &e) && e.sent && e.Kind == "" {
 			return port.Pane{}, &accepted{err}
@@ -60,10 +59,10 @@ func (cl *Client) Start(ctx context.Context, s port.AgentStart) (port.Pane, erro
 	return p, nil
 }
 
-// commandLine is k's program and argv as one shell command line. hc types it whole (a 16 KB line arrives as it is):
+// commandLine is program and argv as one shell command line. hc types it whole (a 16 KB line arrives as it is):
 // it needs no split.
-func commandLine(k agents.Kind, argv []string) string {
-	words := []string{project.ShellQuote(agents.Programs(k)[0])}
+func commandLine(program string, argv []string) string {
+	words := []string{project.ShellQuote(program)}
 	for _, a := range argv {
 		words = append(words, project.ShellQuote(a))
 	}
@@ -91,7 +90,7 @@ func (cl *Client) up(ctx context.Context, s port.AgentStart) (port.Pane, error) 
 		}
 		if err == nil {
 			last = r
-			if p, done, err := started(cl.Kinds, r, s); done {
+			if p, done, err := started(cl.kinds(), r, s); done {
 				return p, err
 			}
 		}
