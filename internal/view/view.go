@@ -35,7 +35,10 @@ import (
 // last full check, the pause, the lines not typed yet, the review line, the lead's watches, the queue and the recent
 // events.
 type Project struct {
-	Serve     Serve              `json:"serve"`
+	Serve Serve `json:"serve"`
+	// Web is the machine's obor web agent (darwin): one launchd agent for every project's page. A nil Web is a
+	// host without launchd, and the reader prints no line. The caller fills it (cmd/obor asks the service adapter).
+	Web       *Web               `json:"web,omitempty"`
 	Running   []Running          `json:"running"`
 	Pending   []wire.PendingStep `json:"pending"` // the open command steps whose effect does not run now
 	Lanes     []Lane             `json:"lanes"`
@@ -92,6 +95,15 @@ type Serve struct {
 	// caller fills PID and Launchd (cmd/obor asks the service adapter).
 	Launchd   string    `json:"launchd,omitempty"`
 	SinceTime time.Time `json:"-"` // Since, parsed (zero: unknown)
+}
+
+// Web is the machine's obor web page agent (darwin): one launchd agent, obor.web, for every project's page.
+// Launchd is "running" (PID is its process, URL the page) or "none" (its plist is missing or launchd does not have
+// it loaded). obor status prints its line; a nil Web is a host without launchd.
+type Web struct {
+	Launchd string `json:"launchd"`
+	PID     int    `json:"pid,omitempty"`
+	URL     string `json:"url,omitempty"`
 }
 
 // Lane is one configured lane: the lane table's row (port.Lane: its worktree as git and the store's row say, its task

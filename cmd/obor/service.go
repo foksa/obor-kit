@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strconv"
@@ -22,6 +24,54 @@ func serviceOf(cfg *config.Config, env project.Env) service.Service {
 	name := cfg.ProjectName()
 	return service.Service{Name: name, Root: cfg.Root, Kit: project.KitRoot(env), Home: env.Get("HOME"),
 		UID: os.Getuid(), GOOS: runtime.GOOS, Path: env.Get("PATH"), Env: terminalEnv(cfg, env)}
+}
+
+// webOf is the machine's obor web launchd agent: one per user, labelled obor.web, running the kit's bin/obor web
+// from the user's home with the caller's PATH and the terminal's variables.
+func webOf(cfg *config.Config, env project.Env) service.Web {
+	return service.Web{Kit: project.KitRoot(env), Home: env.Get("HOME"), UID: os.Getuid(), GOOS: runtime.GOOS,
+		Path: env.Get("PATH"), Env: terminalEnv(cfg, env)}
+}
+
+// launchdAgent is a launchd agent this binary asks about: serve's Service and the machine's Web both answer a pid.
+type launchdAgent interface {
+	PID(ctx context.Context) (int, bool)
+}
+
+// launched is whether launchd has a's label loaded with pid: the process is that agent's own run.
+func launched(ctx context.Context, a launchdAgent, pid int) bool {
+	lpid, loaded := a.PID(ctx)
+	return loaded && lpid == pid
+}
+
+// webAtServeStart installs the machine's obor web agent when serve runs under launchd (its label holds pid) and the
+// agent's plist is missing, so an upgraded kit brings the page with serve and no extra step. A present plist is left
+// alone: serve never restarts or replaces a loaded obor.web. One line says what happened; a failure never ends serve.
+func webAtServeStart(ctx context.Context, s service.Service, w service.Web, pid int, log io.Writer) {
+	if !s.Supported() || !w.Supported() {
+		return
+	}
+	if _, err := os.Stat(w.PlistPath()); !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if !launched(ctx, s, pid) {
+		return
+	}
+	line, err := w.Install(ctx)
+	if err != nil {
+		fmt.Fprintf(log, "obor serve: obor.web not installed (%v)\n", err)
+		return
+	}
+	fmt.Fprintf(log, "obor serve: %s\n", line)
+}
+
+// installWeb installs or refreshes the machine's web agent when it is missing or stale, with its line when it did;
+// "" when it is current or the host has no launchd.
+func installWeb(ctx context.Context, w service.Web) (string, error) {
+	if !w.Supported() || w.Current(ctx) {
+		return "", nil
+	}
+	return w.Install(ctx)
 }
 
 // serveService is `obor serve install|uninstall|restart` for the project around cwd: its line, or FAIL. Install
@@ -64,6 +114,22 @@ func serveService(verb, cwd string, env project.Env) int {
 		errf("FAIL obor serve %s: %v", verb, err)
 		return 1
 	}
+	// The machine's page agent: install brings it (and refreshes a stale plist), uninstall takes it with the
+	// machine's last serve agent. A current agent is left alone, so a reinstall does not restart the page.
+	web := webOf(cfg, env)
+	webLine := ""
+	switch verb {
+	case "install":
+		webLine, err = installWeb(ctx, web)
+	case "uninstall":
+		if web.Supported() {
+			webLine, err = web.UninstallLast(ctx)
+		}
+	}
+	if err != nil {
+		errf("FAIL obor serve %s: obor.web: %v", verb, err)
+		return 1
+	}
 	// launchd's restart returns when it has started the new serve; that one replays its log before it binds its
 	// socket, so a caller that asks it at once finds no serve. Wait for its answer. A serve in a pane
 	// is not waited for: install's launchd one waits on the pane's flock, nothing new answers yet.
@@ -81,6 +147,9 @@ func serveService(verb, cwd string, env project.Env) int {
 		ready = true
 	}
 	fmt.Fprintln(out, line)
+	if webLine != "" {
+		fmt.Fprintln(out, webLine)
+	}
 	if ready {
 		fmt.Fprintln(out, "serve ready")
 	}

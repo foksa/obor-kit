@@ -22,13 +22,15 @@ session.
 ## obor web
 `obor web` serves a page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen
 127.0.0.1:<port>` for another loopback port; a host that is not loopback is refused). Its own process, never inside
-serve; Ctrl-C ends it. The fleet page shows every project with its lanes, needs-you, queue and last full check, and
-their events together; a project's dashboard puts what needs you, the pipeline by stage, its lanes, watches, queue and
-role agents beside its live events; a task, an agent or a job opens as its own page — the
-task's state, spec rev, report, gate line and log, needs-you, records and the text of every job; the agent's sessions
-(transcript path and last write, never contents), briefs, lines and jobs; a job's whole prompt text in monospace.
-The only verbs are the Setup page's edits (below): answer a needs-you with the command the page shows, as before. Localhost
-only: remote access is an SSH tunnel.
+serve; on macOS launchd keeps it up as the machine's `obor.web` agent (`obor serve install` installs it, and a serve
+that launchd starts installs it at its start when its plist is missing), so there is no hand start: a `--listen` by
+hand is for another port, and one on the agent's port only makes the agent fail to bind (its log says so). The fleet
+page shows every project with its lanes, needs-you, queue and last full check, and their events together; a project's
+dashboard puts what needs you, the pipeline by stage, its lanes, watches, queue and role agents beside its live
+events; a task, an agent or a job opens as its own page — the task's state, spec rev, report, gate line and log,
+needs-you, records and the text of every job; the agent's sessions (transcript path and last write, never contents),
+briefs, lines and jobs; a job's whole prompt text in monospace. The only verbs are the Setup page's edits (below):
+answer a needs-you with the command the page shows, as before. Localhost only: remote access is an SSH tunnel.
 
 ## obor watch
 Clean merges stay quiet for you; a merge you must act on (restart serve after it, dispatch by hand, tell the owner)

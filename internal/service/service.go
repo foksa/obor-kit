@@ -1,6 +1,6 @@
-// Package service is the launchd adapter (phase 7 advice §2): one LaunchAgent per project runs its obor
-// serve, so serve outlives the pane (and herdr) it was typed in. Darwin only; elsewhere every verb says to run
-// obor serve yourself.
+// Package service is the launchd adapter (phase 7 advice §2): one LaunchAgent per project runs its obor serve, and
+// one per machine runs obor web, so both outlive the pane (and herdr) they were typed in. Darwin only; elsewhere
+// every verb says to run obor serve yourself.
 package service
 
 import (
@@ -37,6 +37,17 @@ type Service struct {
 	UID  int      // the gui/<uid> domain
 	GOOS string   // runtime.GOOS: launchd only on darwin
 	Path string   // the caller's PATH (launchd's own has no claude, codex, herdr or jq)
+	Env  []EnvVar // the terminal's variables as the caller has them (none: not written)
+}
+
+// Web is the machine's page agent: one LaunchAgent per machine (obor web's page covers every project), labelled
+// obor.web. It runs <Kit>/bin/obor web on its default listen and logs to ~/.obor/web.log, a machine path.
+type Web struct {
+	Kit  string   // the obor kit: the agent runs <Kit>/bin/obor web
+	Home string   // the user's home: the plist is in <Home>/Library/LaunchAgents, the log in <Home>/.obor
+	UID  int      // the gui/<uid> domain
+	GOOS string   // runtime.GOOS: launchd only on darwin
+	Path string   // the caller's PATH
 	Env  []EnvVar // the terminal's variables as the caller has them (none: not written)
 }
 
@@ -119,9 +130,20 @@ func RotateServeLog(root string) error {
 
 func (s Service) target() string { return fmt.Sprintf("gui/%d/%s", s.UID, s.Label()) }
 
-// Plist is the agent's plist: obor serve in the project, started at load, kept alive, its output in LogPath, the
-// caller's PATH and the terminal's own variables (Env).
-func (s Service) Plist() []byte {
+// agent is what a launchd agent's plist carries: its label, the program and its arguments, the working directory,
+// the file its stdout and stderr go to, and the caller's PATH and variables.
+type agent struct {
+	label string
+	args  []string
+	dir   string
+	log   string
+	path  string
+	env   []EnvVar
+}
+
+// plist is the agent's plist: started at load, kept alive, its output in log, run in its working directory, PATH
+// then the terminal's own variables (escaped, in the order the adapter names them); an entry with no name is left out.
+func (a agent) plist() []byte {
 	var b bytes.Buffer
 	str := func(indent, v string) { fmt.Fprintf(&b, "%s<string>%s</string>\n", indent, esc(v)) }
 	key := func(indent, k string) { fmt.Fprintf(&b, "%s<key>%s</key>\n", indent, k) }
@@ -131,27 +153,28 @@ func (s Service) Plist() []byte {
 <dict>
 `)
 	key("\t", "Label")
-	str("\t", s.Label())
+	str("\t", a.label)
 	key("\t", "ProgramArguments")
 	b.WriteString("\t<array>\n")
-	str("\t\t", filepath.Join(s.Kit, "bin", "obor"))
-	str("\t\t", "serve")
+	for _, arg := range a.args {
+		str("\t\t", arg)
+	}
 	b.WriteString("\t</array>\n")
 	key("\t", "WorkingDirectory")
-	str("\t", s.Root)
+	str("\t", a.dir)
 	key("\t", "RunAtLoad")
 	b.WriteString("\t<true/>\n")
 	key("\t", "KeepAlive")
 	b.WriteString("\t<true/>\n")
 	key("\t", "StandardOutPath")
-	str("\t", s.LogPath())
+	str("\t", a.log)
 	key("\t", "StandardErrorPath")
-	str("\t", s.LogPath())
+	str("\t", a.log)
 	key("\t", "EnvironmentVariables")
 	b.WriteString("\t<dict>\n")
 	key("\t\t", "PATH")
-	str("\t\t", s.Path)
-	for _, v := range s.Env {
+	str("\t\t", a.path)
+	for _, v := range a.env {
 		if v.Name == "" {
 			continue
 		}
@@ -161,6 +184,36 @@ func (s Service) Plist() []byte {
 	b.WriteString("\t</dict>\n</dict>\n</plist>\n")
 	return b.Bytes()
 }
+
+// Plist is the agent's plist: obor serve in the project, started at load, kept alive, its output in LogPath, the
+// caller's PATH and the terminal's own variables (Env).
+func (s Service) Plist() []byte {
+	return agent{label: s.Label(), args: []string{filepath.Join(s.Kit, "bin", "obor"), "serve"}, dir: s.Root,
+		log: s.LogPath(), path: s.Path, env: s.Env}.plist()
+}
+
+// Label is the web agent's launchd label: one agent per machine.
+func (w Web) Label() string { return "obor.web" }
+
+// Supported: launchd is there (darwin).
+func (w Web) Supported() bool { return w.GOOS == "darwin" }
+
+// PlistPath is the agent's plist: ~/Library/LaunchAgents/obor.web.plist.
+func (w Web) PlistPath() string {
+	return filepath.Join(w.Home, "Library", "LaunchAgents", w.Label()+".plist")
+}
+
+// LogPath is where the agent's web writes (stdout and stderr): ~/.obor/web.log, a machine path, not a project's.
+func (w Web) LogPath() string { return filepath.Join(w.Home, ".obor", "web.log") }
+
+// Plist is the agent's plist: obor web from the kit in the user's home, started at load, kept alive, its output in
+// LogPath, the caller's PATH and the terminal's own variables (Env).
+func (w Web) Plist() []byte {
+	return agent{label: w.Label(), args: []string{filepath.Join(w.Kit, "bin", "obor"), "web"}, dir: w.Home,
+		log: w.LogPath(), path: w.Path, env: w.Env}.plist()
+}
+
+func (w Web) target() string { return fmt.Sprintf("gui/%d/%s", w.UID, w.Label()) }
 
 func esc(v string) string {
 	var b strings.Builder
@@ -360,9 +413,14 @@ func (s Service) Restart(ctx context.Context) (string, error) {
 
 // poll reads the agent's pid until done says so or settle has passed, every pollEvery: the last read.
 func (s Service) poll(ctx context.Context, done func(pid int, loaded bool) bool) (int, bool) {
+	return poll(ctx, func() (int, bool) { return s.PID(ctx) }, done)
+}
+
+// poll reads a label's pid (pidFn) until done says so or settle has passed, every pollEvery: the last read.
+func poll(ctx context.Context, pidFn func() (int, bool), done func(pid int, loaded bool) bool) (int, bool) {
 	until := time.Now().Add(settle)
 	for {
-		pid, loaded := s.PID(ctx)
+		pid, loaded := pidFn()
 		if done(pid, loaded) || !time.Now().Before(until) {
 			return pid, loaded
 		}
@@ -379,10 +437,21 @@ var pidLine = regexp.MustCompile(`(?m)^\s*pid = (\d+)\s*$`)
 // PID is the agent's process (launchctl print): loaded says launchd knows the label (print exits 113 for one it
 // does not), pid its running process (0: none now). Off darwin: not loaded.
 func (s Service) PID(ctx context.Context) (pid int, loaded bool) {
-	if !s.Supported() {
+	return runPID(ctx, s.Supported(), s.target())
+}
+
+// PID is the agent's process: as Service.PID.
+func (w Web) PID(ctx context.Context) (pid int, loaded bool) {
+	return runPID(ctx, w.Supported(), w.target())
+}
+
+// runPID is a label's PID: launchctl print's pid while loaded (0: loaded, no process now); not loaded when launchd
+// does not know the label (or the host has no launchd).
+func runPID(ctx context.Context, supported bool, target string) (pid int, loaded bool) {
+	if !supported {
 		return 0, false
 	}
-	out, err := launchctl(ctx, callTimeout, "print", s.target())
+	out, err := launchctl(ctx, callTimeout, "print", target)
 	if err != nil {
 		return 0, false
 	}
@@ -390,6 +459,111 @@ func (s Service) PID(ctx context.Context) (pid int, loaded bool) {
 		pid, _ = strconv.Atoi(m[1])
 	}
 	return pid, true
+}
+
+// Current: the plist on disk is the one Install would write and launchd has the label loaded (obor serve install
+// leaves such a web agent alone instead of restarting its page).
+func (w Web) Current(ctx context.Context) bool {
+	if !w.Supported() {
+		return false
+	}
+	b, err := os.ReadFile(w.PlistPath())
+	if err != nil || !bytes.Equal(b, w.Plist()) {
+		return false
+	}
+	_, loaded := w.PID(ctx)
+	return loaded
+}
+
+// Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
+// new plist). A bootstrap launchd refuses is booted out and bootstrapped once more, as serve's install does; an
+// install that ends with the label not loaded is a FAIL naming launchd's state and the next step.
+func (w Web) Install(ctx context.Context) (string, error) {
+	if !w.Supported() {
+		return Elsewhere, nil
+	}
+	plist := w.PlistPath()
+	for _, dir := range []string{filepath.Dir(plist), filepath.Dir(w.LogPath())} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(plist, w.Plist(), 0o644); err != nil {
+		return "", err
+	}
+	if _, loaded := w.PID(ctx); loaded {
+		if err := w.bootout(ctx); err != nil {
+			return "", err
+		}
+	}
+	domain := fmt.Sprintf("gui/%d", w.UID)
+	_, err := launchctl(ctx, callTimeout, "bootstrap", domain, plist)
+	if err != nil {
+		_ = w.bootout(ctx) // not loaded at all: its error is the expected one
+		if _, again := launchctl(ctx, callTimeout, "bootstrap", domain, plist); again != nil {
+			err = fmt.Errorf("%v; after a bootout, again: %v", err, again)
+		} else {
+			err = nil
+		}
+	}
+	if _, loaded := w.PID(ctx); !loaded {
+		if err == nil {
+			err = fmt.Errorf("launchctl bootstrap %s %s returned", domain, plist)
+		}
+		return "", fmt.Errorf("%v: %s is not loaded in launchd: obor serve install again (log %s)", err, w.Label(), w.LogPath())
+	}
+	return fmt.Sprintf("INSTALLED %s (%s; log %s)", w.Label(), plist, w.LogPath()), nil
+}
+
+// bootout unloads the label (launchd stops its web first) and waits, up to settle, until launchd no longer knows it,
+// so a bootstrap after it does not meet the label half torn down.
+func (w Web) bootout(ctx context.Context) error {
+	_, err := launchctl(ctx, stopTimeout, "bootout", w.target())
+	poll(ctx, func() (int, bool) { return w.PID(ctx) }, func(_ int, loaded bool) bool { return !loaded })
+	return err
+}
+
+// Uninstall unloads the web agent (bootout, which stops its web) and removes its plist.
+func (w Web) Uninstall(ctx context.Context) (string, error) {
+	if !w.Supported() {
+		return Elsewhere, nil
+	}
+	plist := w.PlistPath()
+	_, loaded := w.PID(ctx)
+	_, statErr := os.Stat(plist)
+	if !loaded && errors.Is(statErr, os.ErrNotExist) {
+		return w.Label() + " is not installed", nil
+	}
+	if loaded {
+		if err := w.bootout(ctx); err != nil {
+			return "", err
+		}
+	}
+	if err := os.Remove(plist); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return "UNINSTALLED " + w.Label(), nil
+}
+
+// ServePlists is the project launch agents installed for a home: <Home>/Library/LaunchAgents/obor.serve.*.plist.
+func ServePlists(home string) ([]string, error) {
+	return filepath.Glob(filepath.Join(home, "Library", "LaunchAgents", "obor.serve.*.plist"))
+}
+
+// UninstallLast unloads and removes the web agent when no project's launch agent is left: the page goes with the
+// machine's last obor serve. "" (no error) when another project's agent is there and the page stays.
+func (w Web) UninstallLast(ctx context.Context) (string, error) {
+	if !w.Supported() {
+		return Elsewhere, nil
+	}
+	left, err := ServePlists(w.Home)
+	if err != nil {
+		return "", err
+	}
+	if len(left) > 0 {
+		return "", nil
+	}
+	return w.Uninstall(ctx)
 }
 
 // Deadline is the most a verb (Install, Uninstall, Restart) may take: each bootout and kickstart under stopTimeout,

@@ -340,6 +340,72 @@ func TestServeLineSkew(t *testing.T) {
 	}
 }
 
+// obor status' web line under serve's: launchd runs obor.web (its pid and the page's address), it is not running
+// (no agent, or launchd does not have it loaded), and there is no line at all on a host without launchd.
+func TestStatusWebLine(t *testing.T) {
+	up := view.Serve{Up: true, Terminal: true, Project: true, Merging: true}
+	for _, c := range []struct {
+		name string
+		web  *view.Web
+		want string // "" : no web line
+	}{
+		{"launchd", &view.Web{Launchd: "running", PID: 4242, URL: "http://127.0.0.1:8787"},
+			"web: launchd pid 4242 · http://127.0.0.1:8787"},
+		{"not running", &view.Web{Launchd: "none"}, "web: not running (obor serve install)"},
+		{"no launchd", nil, ""},
+	} {
+		var b bytes.Buffer
+		writeStatus(&b, view.Project{Serve: up, Web: c.web}, time.Now())
+		lines := strings.Split(b.String(), "\n")
+		if c.want == "" {
+			for _, l := range lines {
+				if strings.HasPrefix(l, "web:") {
+					t.Errorf("%s: unexpected web line %q (in\n%s)", c.name, l, b.String())
+				}
+			}
+			continue
+		}
+		if len(lines) < 2 || lines[1] != c.want {
+			t.Errorf("%s: line 2 is %q, want %q under serve's (in\n%s)", c.name, lines[0], c.want, b.String())
+		}
+	}
+}
+
+// obor status' view of the web agent: none while its plist is missing (launchd is not asked), none while launchd
+// does not have it loaded, and running with launchd's pid and the page's address once it does.
+func TestWebStatus(t *testing.T) {
+	ctx := context.Background()
+	callsLog, state := fakeLaunchctl(t)
+	home := t.TempDir()
+	env := testkit.MapEnv(map[string]string{"HOME": home, "PATH": "/usr/bin"})
+	w := webOf(nil, env)
+	if !w.Supported() {
+		t.Skip("launchd: darwin only")
+	}
+	if got := webStatus(ctx, env); got == nil || got.Launchd != "none" || got.PID != 0 {
+		t.Fatalf("no plist: %+v, want none", got)
+	}
+	if calls, _ := os.ReadFile(callsLog); len(calls) != 0 {
+		t.Errorf("launchd was asked while the plist is missing: %q", calls)
+	}
+	if err := os.MkdirAll(filepath.Dir(w.PlistPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.PlistPath(), w.Plist(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := webStatus(ctx, env); got == nil || got.Launchd != "none" {
+		t.Fatalf("plist, label not loaded: %+v, want none", got)
+	}
+	if err := os.WriteFile(state, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := webStatus(ctx, env); got == nil || got.Launchd != "running" || got.PID != 4242 ||
+		got.URL != "http://127.0.0.1:8787" {
+		t.Errorf("loaded: %+v, want running, pid 4242, http://127.0.0.1:8787", got)
+	}
+}
+
 // the running line right under serve's says what serve does without an agent: an open gate intent with the
 // command it runs and its elapsed time, two steps at once both, a publish (git alone) and the nightly check, a pending
 // self-restart, and `running: nothing` when none is open.

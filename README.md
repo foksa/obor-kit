@@ -76,10 +76,10 @@ obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, 
 ```
 
 `obor init` detects the check commands and the agent CLIs on your machine, writes the lane count and the models of each
-difficulty level it found, installs the plugin and the git hooks and its `obor serve` launchd agent, then prints each
-step and the file to change (`.obor/config.json`). Run it once on a machine with `claude` on PATH. With no pane of the
-project open yet, init creates a herdr workspace for it. The lead's first session shows the lane count and the models
-and asks you to confirm them (`agents.confirmed`).
+difficulty level it found, installs the plugin and the git hooks and its `obor serve` and `obor web` launchd agents,
+then prints each step and the file to change (`.obor/config.json`). Run it once on a machine with `claude` on PATH.
+With no pane of the project open yet, init creates a herdr workspace for it. The lead's first session shows the lane
+count and the models and asks you to confirm them (`agents.confirmed`).
 
 obor commits with `--no-verify`, so your own pre-commit and commit-msg hooks never run on its lane and merge commits:
 put formatting and secret scans in `merge.check` (the merge check) instead.
@@ -212,7 +212,7 @@ The Codex and OpenCode trims are best effort, not a project-only view: whatever 
 
 - `obor lead`: start the lead in its own tab
 - `obor status`: serve, lanes, agents, what needs you, the last full check
-- `obor web`: a localhost page for every project on this machine
+- `obor web`: a localhost page for every project on this machine (macOS keeps it up as its `obor.web` launchd agent)
 - `obor dispatch T-12`: run a task on the first free lane of its difficulty
 - `obor resume T-12 "<text>"`: answer a task's needs-you, send it back or re-run its gate; `obor resume nightly
   "<why>"` ends a RED full check
