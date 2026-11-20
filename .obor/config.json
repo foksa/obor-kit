@@ -107,7 +107,12 @@
             "cmd/**",
             "internal/**",
             "kinds/**",
-            "tools/**"
+            "tools/**",
+            "tests/budget.json",
+            "tests/budget/**",
+            "tests/conformance/**",
+            "tests/upgrade/**",
+            "tests/go/**"
           ],
           "run": [
             "check_affected"
