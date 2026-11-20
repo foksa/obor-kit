@@ -375,7 +375,7 @@ func (s *Setup) paneOnly(ctx context.Context, l Launcher, a agent, w where, what
 		return placed{pane: loc.Pane, idle: true}, nil
 	}
 	// The env of the agent's role and lane (no start is built, so none of a kind's own), by the one builder of a
-	// start's env (agents.StartVars): every registry var it does not set goes empty, so the pane inherits none of
+	// start's env (agents.Kinds.StartVars): every registry var it does not set goes empty, so the pane inherits none of
 	// setup's own (an OpenCode agent running setup; a stale OBOR_AGENT; the caller's OBOR_PANE).
 	var vars map[string]string
 	if a.lane != "" { // a lane's env: the generic facts and the project's lanes.env
@@ -383,7 +383,7 @@ func (s *Setup) paneOnly(ctx context.Context, l Launcher, a agent, w where, what
 	}
 	pane := loc.Pane // the --pane target
 	if pane == "" {
-		set, unset := agents.StartVars(a.role.EnvValue, a.lane, "", vars)
+		set, unset := s.cfg.Kinds().StartVars(a.role.EnvValue, a.lane, "", vars)
 		var env []string
 		for _, v := range set {
 			env = append(env, v.Name+"="+v.Value)

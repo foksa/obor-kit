@@ -22,26 +22,27 @@ const (
 	versionChars = 80
 )
 
-// CLIVersions is how each of kinds' CLI names its own version: the first line of `<kind> --version`, trimmed
-// ("2.1.322 (Claude Code)", "codex-cli 0.167.0"), by kind, for the CLIs on env's PATH. A kind has no entry when its
-// CLI is not on PATH, may not start on this machine (agents.StartRefusal: a quarantined install is not run), fails,
+// CLIVersions is how the CLI of each kind of names (of the project's kinds) names its own version: the first line of
+// `<kind> --version`, trimmed ("2.1.322 (Claude Code)", "codex-cli 0.167.0"), by kind, for the CLIs on env's PATH. A
+// kind has no entry when its CLI is not on PATH, may not start on this machine (agents.Kinds.StartRefusal: a
+// quarantined install is not run), fails,
 // prints nothing, or does not answer in versionTimeout: not read is not a version. The line is compared as text,
 // never parsed.
-func CLIVersions(ctx context.Context, env project.Env, kinds []string) map[string]string {
-	return cliVersions(ctx, env, kinds, versionTimeout)
+func CLIVersions(ctx context.Context, env project.Env, kinds agents.Kinds, names []string) map[string]string {
+	return cliVersions(ctx, env, kinds, names, versionTimeout)
 }
 
 // cliVersions is CLIVersions with each CLI bounded by timeout; the kinds run one after another.
-func cliVersions(ctx context.Context, env project.Env, kinds []string, timeout time.Duration) map[string]string {
+func cliVersions(ctx context.Context, env project.Env, kinds agents.Kinds, names []string, timeout time.Duration) map[string]string {
 	if env == nil {
 		env = project.OSEnv
 	}
 	path, _ := env("PATH")
 	host := project.InstallHost(env)
 	out := map[string]string{}
-	for _, kind := range kinds {
+	for _, kind := range names {
 		bin, err := project.LookPath(path, kind)
-		if err != nil || agents.StartRefusal(kind, host) != "" {
+		if err != nil || kinds.StartRefusal(kind, host) != "" {
 			continue
 		}
 		if v := cliVersion(ctx, bin, timeout); v != "" {

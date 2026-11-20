@@ -85,10 +85,16 @@ func TestTurn(t *testing.T) {
 		{"no agent", port.Pane{}, "", agents.Turn{}, false},
 		{"the recorded transcript wins", port.Pane{Agent: "codex", Session: "no-such-file"}, bigPath, t2, true},
 	} {
-		if got, ok := f.Turn(tc.pane, tc.transcript); ok != tc.ok || got != tc.want {
+		if got, ok := f.Turn(compiled(tc.pane.Agent), tc.pane, tc.transcript); ok != tc.ok || got != tc.want {
 			t.Errorf("%s: Turn = %.200v, %v; want %.200v, %v", tc.name, got, ok, tc.want, tc.ok)
 		}
 	}
+}
+
+// compiled is the compiled kind name (nil: none), the kind a pane of these tests runs.
+func compiled(name string) agents.Kind {
+	k, _ := agents.Kinds{}.Lookup(name)
+	return k
 }
 
 // Activity is when an agent last wrote its transcript: a kind's session id names the file under the home (Claude's
@@ -129,15 +135,15 @@ func TestActivity(t *testing.T) {
 		{"no session", port.Pane{Agent: "claude"}, time.Time{}, false},
 		{"no agent", port.Pane{}, time.Time{}, false},
 	} {
-		if last, known := f.Activity(tc.pane); known != tc.known || !last.Equal(tc.want) {
+		if last, known := f.Activity(compiled(tc.pane.Agent), tc.pane); known != tc.known || !last.Equal(tc.want) {
 			t.Errorf("%s: Activity = %v, %v; want %v, %v", tc.name, last, known, tc.want, tc.known)
 		}
 	}
 	// Each session id names its own file: another one in the same kind directory is not a fallback.
-	if got := f.Transcript(port.Pane{Agent: "claude", Session: "other"}); got != filepath.Join(home, ".claude/projects/-proj-wt-L-01/other.jsonl") {
+	if got := f.Transcript(compiled("claude"), port.Pane{Agent: "claude", Session: "other"}); got != filepath.Join(home, ".claude/projects/-proj-wt-L-01/other.jsonl") {
 		t.Errorf("transcript of another session = %q", got)
 	}
-	if got := f.Transcript(port.Pane{Agent: "claude", Session: "5e1d0c2b-aaaa"}); got != claude {
+	if got := f.Transcript(compiled("claude"), port.Pane{Agent: "claude", Session: "5e1d0c2b-aaaa"}); got != claude {
 		t.Errorf("transcript = %q, want %q", got, claude)
 	}
 }

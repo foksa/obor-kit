@@ -607,7 +607,7 @@ func (s *Setup) editConfig(edit func([]byte) (config.Write, error), note ...stri
 // detectedLine is the summary's "detected": the CLIs on PATH and the files the commands came from.
 func (s *Setup) detectedLine() string {
 	var clis []string
-	for _, k := range agents.Names() {
+	for _, k := range s.cfg.Kinds().Names() {
 		if _, err := project.LookPath(s.Env.Get("PATH"), k); err == nil {
 			clis = append(clis, k)
 		}

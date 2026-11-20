@@ -15,9 +15,9 @@ import (
 
 func kind(t *testing.T) agents.Split {
 	t.Helper()
-	k, ok := agents.Lookup("claude")
+	k, ok := agents.Kinds{}.Lookup("claude")
 	if !ok || k.Name() != "claude" {
-		t.Fatalf("claude not registered: %v", agents.Names())
+		t.Fatalf("claude not registered: %v", agents.Kinds{}.Names())
 	}
 	return k.(agents.Split)
 }

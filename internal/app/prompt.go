@@ -75,7 +75,7 @@ func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.K
 // agent's record is the session live in w's pane (liveSession) or names none); false for a typed
 // one when fx has no Prompter.
 func (a *App) via(fx *Loop, p *proj, w Where, agent string) (post string, inboxed bool) {
-	if w.State == Identified && posted(w.Pane.Agent) {
+	if w.State == Identified && p.posted(w.Pane.Agent) {
 		return w.Pane.Agent, fx.Inbox != nil && a.inboxedAt(p, agent, w)
 	}
 	return "", fx.Prompter != nil

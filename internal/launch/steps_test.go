@@ -9,19 +9,19 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/store"
+	"obor/internal/testkit"
 )
 
 // The session step: the session a start resumes and where it came from, or a fresh start, or the refusal of a start
 // with none to resume.
 func TestLaunchSessionStep(t *testing.T) {
 	t.Parallel()
-	if agents.Resumes("opencode") || !agents.Resumes("codex") || agents.NamedSession("codex") || !agents.NamedSession("claude") {
+	if k := testkit.Kinds(); k.Resumes("opencode") || !k.Resumes("codex") || k.NamedSession("codex") || !k.NamedSession("claude") {
 		t.Fatal("precondition: opencode resumes nothing, codex resumes sessions it does not name, claude names its own")
 	}
 	x := setup(t)

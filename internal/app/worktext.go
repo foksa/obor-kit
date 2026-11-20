@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -166,7 +165,7 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.Model) (string
 // would run without obor's hooks and MCP tools (no job_next).
 func pluginNote(cfg *config.Config, l port.Lane, typ string) string {
 	kind := project.RunningKind(cfg, config.AgentInfo{Type: typ})
-	if k, known := agents.Lookup(kind); !known || !k.Caps().ProjectPlugin || config.PluginEnabledIn(l.Dir) {
+	if k, known := cfg.Kind(kind); !known || !k.Caps().ProjectPlugin || config.PluginEnabledIn(l.Dir) {
 		return ""
 	}
 	return fmt.Sprintf("\nWARN lane %s has no enabled obor plugin (%s/.claude/settings.json): obor setup lane or obor init links it", l.Name, l.Dir)

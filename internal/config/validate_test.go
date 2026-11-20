@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/spec"
@@ -514,8 +513,8 @@ func TestValidateProjectFiles(t *testing.T) {
 	}
 }
 
-// TestPluginKind: agents.kinds.<name>.plugin registers a plugin kind on load (agents.Lookup finds it, a model may
-// name it); validate runs its describe: a command that answers passes, one that is not executable, answers for another
+// TestPluginKind: agents.kinds.<name>.plugin makes a plugin kind of the loaded config (Config.Kind finds it, a
+// model may name it); validate runs its describe: a command that answers passes, one that is not executable, answers for another
 // kind, or takes a compiled kind's name fails.
 func TestPluginKind(t *testing.T) {
 	p := newPlainProject(t)
@@ -535,11 +534,15 @@ func TestPluginKind(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("a plugin kind that answers: %q, want OK", got)
 	}
-	if !agents.IsPlugin("mine") {
-		t.Fatal("kinds.mine.command: no plugin kind mine registered on load")
+	c, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := agents.Lookup("mine"); !ok {
-		t.Error("agents.Lookup(mine): none")
+	if !c.Kinds().IsPlugin("mine") {
+		t.Fatal("kinds.mine.plugin: no plugin kind mine in the loaded config")
+	}
+	if _, ok := c.Kind("mine"); !ok {
+		t.Error("Kind(mine): none")
 	}
 	for _, c := range []struct {
 		name string
@@ -558,14 +561,53 @@ func TestPluginKind(t *testing.T) {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
-	validate(t, p) // a load without agents.kinds.<name>.plugin: no plugin kind left
-	if _, ok := agents.Lookup("mine"); ok {
-		t.Error("a config without kinds.mine: the last load's plugin kind is still registered")
+	validate(t, p) // a load without agents.kinds.<name>.plugin: no plugin kind mine
+	without, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := without.Kind("mine"); ok {
+		t.Error("a config without kinds.mine has kind mine")
+	}
+}
+
+// Each config holds its own kinds: Load(a), whose config names a plugin kind mykind, then Load(b), whose config
+// names none, leaves a's config answering mykind, b's not, and each its own OpenCode (bound to its own state dir):
+// a load changes nothing outside the config it returns.
+func TestKindsPerConfig(t *testing.T) {
+	a, b := newPlainProject(t), newPlainProject(t)
+	a.Config(set("agents.kinds.mykind", map[string]any{"plugin": "kinds/obor-kind-mykind"}))
+	b.Config()
+	ca, err := config.Load(a.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ca.Kind("mykind"); !ok || !ca.Kinds().IsPlugin("mykind") {
+		t.Fatal("precondition: a's config has the plugin kind mykind")
+	}
+	ocA, _ := ca.Kind("opencode")
+	cb, err := config.Load(b.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ca.Kind("mykind"); !ok {
+		t.Error("a's config lost mykind to the load of b")
+	}
+	if !slices.Contains(ca.Kinds().Names(), "mykind") {
+		t.Errorf("a's kinds %q lack mykind after the load of b", ca.Kinds().Names())
+	}
+	if _, ok := cb.Kind("mykind"); ok || slices.Contains(cb.Kinds().Names(), "mykind") {
+		t.Error("b's config, naming no mykind, has it")
+	}
+	ocA2, _ := ca.Kind("opencode")
+	ocB, _ := cb.Kind("opencode")
+	if ocA == nil || ocB == nil || ocA2 != ocA || ocB == ocA {
+		t.Errorf("OpenCode: a's %p (after b's load %p), b's %p; want a's kept and b's its own", ocA, ocA2, ocB)
 	}
 }
 
 // the model-id WARN names the model's own kind, for a plugin kind other than OpenCode too (its manifest's model_arg),
-// and the "kind required" FAIL lists the registered kinds, the plugin kind among them.
+// and the "kind required" FAIL lists the config's kinds, the plugin kind among them.
 func TestValidateModelArgWarnNamesItsKind(t *testing.T) {
 	p := newPlainProject(t)
 	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
@@ -593,7 +635,7 @@ func TestValidateModelArgWarnNamesItsKind(t *testing.T) {
 	}
 	got = validate(t, p, append(mine, set("agents.models.m2", map[string]any{"id": "x"}))...)
 	if want := "FAIL .agents.models.m2.kind: required (claude, codex, mine, opencode)"; !slices.Contains(got, want) {
-		t.Errorf("a model without a kind: %q, want the line %q (the registered kinds, mine among them)", got, want)
+		t.Errorf("a model without a kind: %q, want the line %q (the config's kinds, mine among them)", got, want)
 	}
 }
 
@@ -626,8 +668,10 @@ func TestPluginKindEffortsFromDescribe(t *testing.T) {
 	if got := validate(t, p, mine...); len(got) != 0 {
 		t.Errorf("no cached manifest: %q, want the effort taken (the describe declares high)", got)
 	}
-	if err := agents.CheckEffort("mine", "high"); err == nil {
-		t.Error("precondition: with no cache the registry's kind declares no effort")
+	if c, err := config.Load(p.Root); err != nil {
+		t.Fatal(err)
+	} else if err := c.Kinds().CheckEffort("mine", "high"); err == nil {
+		t.Error("precondition: with no cache the config's kind declares no effort")
 	}
 
 	answer(`["low"]`) // the cache setup wrote before the command added high

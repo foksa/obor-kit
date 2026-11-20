@@ -136,8 +136,12 @@ func roleAgent(cfg *config.Config, agent string) bool {
 
 // poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster):
 // the session's inbox socket as its SessionStart hook recorded it in the project at root (the record of the agent's
-// slot), the kind's lines (agents.Kind.Deliver). Nothing is typed into a pane.
-type poster struct{ root string }
+// slot), the kind's lines (agents.Kind.Deliver), the kind one of kinds (the pass's config's). Nothing is typed into a
+// pane.
+type poster struct {
+	root  string
+	kinds agents.Kinds
+}
 
 // postWait bounds one post: the dial, the write, and the wait for the session to close its end after reading.
 const postWait = 3 * time.Second
@@ -146,7 +150,7 @@ const postWait = 3 * time.Second
 // lines from it, one dial, the lines written, then close. began: a byte of it went out (a refusal before is safe to
 // retry). No ack comes back.
 func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool, err error) {
-	k, ok := agents.Lookup(kind)
+	k, ok := p.kinds.Lookup(kind)
 	if !ok || !k.Caps().Inbox {
 		return false, fmt.Errorf("%s: kind %s posts through no inbox", agent, kind)
 	}

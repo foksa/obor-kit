@@ -80,7 +80,7 @@ The compiled kinds get three Go functions; a process gets data instead.
 
 A kind's `start` owns its own fixed flags: it puts them in the `args` it returns; obor's tables hold none for a plugin kind.
 
-Every variable in `env` must be among the manifest's `vars` (`agents.Vars`: a start unsets every registry var
+Every variable in `env` must be among the manifest's `vars` (`agents.Kinds.Vars`: a start unsets every registry var
 it does not set).
 
 `trim_user` (`agents.Start.TrimUser`) is true for every agent but a lead: the kind switches off its default part of

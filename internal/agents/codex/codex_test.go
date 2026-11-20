@@ -18,7 +18,7 @@ import (
 func TestKind(t *testing.T) {
 	k, ok := split()
 	if !ok || k.Name() != "codex" {
-		t.Fatalf("codex not registered: %v", agents.Names())
+		t.Fatalf("codex not registered: %v", agents.Kinds{}.Names())
 	}
 	mcp := []string{"-c", `mcp_servers.obor.command="/kit/bin/obor"`, "-c", `mcp_servers.obor.args=["mcp"]`,
 		"-c", `mcp_servers.obor.env_vars=["OBOR_ROLE","OBOR_LANE","OBOR_PANE","OBOR_STATE_HOME"]`,
@@ -722,7 +722,7 @@ func TestInstallWarnings(t *testing.T) {
 // the user-approved bit (0x0040), naming them and the fix; an approved file, none, no codex, or another OS: no refusal.
 // It is the same read of the install as TestInstallWarnings, and it runs no process.
 func TestStartRefusal(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := agents.Kinds{}.Lookup("codex")
 	c, ok := k.(agents.StartChecker)
 	if !ok {
 		t.Fatal("precondition: codex is a StartChecker")
@@ -775,7 +775,7 @@ func TestStartRefusal(t *testing.T) {
 
 // split is the registered codex kind with its two start methods (agents.Split); ok false: none registered.
 func split() (agents.Split, bool) {
-	k, ok := agents.Lookup("codex")
+	k, ok := agents.Kinds{}.Lookup("codex")
 	s, _ := k.(agents.Split)
 	return s, ok
 }

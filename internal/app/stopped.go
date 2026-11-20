@@ -105,7 +105,7 @@ func (a *App) stoppedCall(c wire.StoppedReq) (string, error) {
 	}
 	if w != nil {
 		a.workerStop(p, &d, said, task, w, pane)
-		d.NeedsYou.Limit, d.NeedsYou.Reset = limitOf(pane.Agent, d.Error, c.Details, time.Time{}, a.opt.Now())
+		d.NeedsYou.Limit, d.NeedsYou.Reset = p.limitOf(pane.Agent, d.Error, c.Details, time.Time{}, a.opt.Now())
 	}
 	a.mu.Unlock()
 
@@ -149,7 +149,7 @@ func (a *App) roleStop(p *proj, d *outbox.Stopped, said, kind string, turn time.
 	if b == nil {
 		return
 	}
-	limit, reset := limitOf(kind, d.Error, d.Details, turn, a.opt.Now())
+	limit, reset := p.limitOf(kind, d.Error, d.Details, turn, a.opt.Now())
 	if !limit {
 		d.Ends = d.Agent // the brief is over: this line, not a finished line
 		return
@@ -160,9 +160,9 @@ func (a *App) roleStop(p *proj, d *outbox.Stopped, said, kind string, turn time.
 // limitOf reads an agent's stop on errText (details), seen at at, by its agent's kind (agents.Kind.Reset): limit,
 // it is a usage or rate limit; reset, when it resets as Unix seconds (the transcript's, turn, when it records one;
 // 0: unknown).
-func limitOf(kind, errText, details string, turn, at time.Time) (limit bool, reset int64) {
-	k, ok := agents.Lookup(cmp.Or(kind, agents.Default))
-	if !ok {
+func (p *proj) limitOf(kind, errText, details string, turn, at time.Time) (limit bool, reset int64) {
+	k := p.kind(cmp.Or(kind, agents.Default))
+	if k == nil {
 		return false, 0
 	}
 	r, limit := k.Reset(errText, details, at)
@@ -176,9 +176,9 @@ func limitOf(kind, errText, details string, turn, at time.Time) (limit bool, res
 }
 
 // turnsRead: the agents of kind have their turns read from their transcripts (agents.TurnsRead: Caps.Status transcript).
-func turnsRead(kind string) bool {
-	k, ok := agents.Lookup(kind)
-	return ok && agents.TurnsRead(k)
+func (p *proj) turnsRead(kind string) bool {
+	k := p.kind(kind)
+	return k != nil && agents.TurnsRead(k)
 }
 
 // turnAct is what a turn's evidence does (turnDecide).
@@ -258,7 +258,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 	d, said := newStop(cmp.Or(w.lane.Agent, a.shownAs(p, o)), e.turn.Error, e.turn.Details, callID)
 	a.workerStop(p, &d, said, task, w, o)
 	d.NeedsYou.Turn = e.turn.ID
-	d.NeedsYou.Limit, d.NeedsYou.Reset = limitOf(o.Agent, e.turn.Error, e.turn.Details, e.turn.Reset, a.opt.Now())
+	d.NeedsYou.Limit, d.NeedsYou.Reset = p.limitOf(o.Agent, e.turn.Error, e.turn.Details, e.turn.Reset, a.opt.Now())
 	data, _ := json.Marshal(d) // plain structs: cannot fail
 	r, err := p.log.Append(event.Record{Task: event.MsgTask, Step: event.StepStopped, Kind: event.KindFact, Data: data}, a.opt.Now())
 	if err != nil {

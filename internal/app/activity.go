@@ -28,16 +28,16 @@ var ErrUnknown = errors.New("obor: unknown activity")
 // child runs under its pane's agent. agentFiles implements it from the agent's files and the machine's process table;
 // a test scripts it (Options.Activity).
 type AgentActivity interface {
-	// Transcript is pane's transcript file: the path the terminal reports, else the file the pane's session id names
-	// under the agent's home ("" when none is found).
-	Transcript(pane port.Pane) string
-	// Activity is when pane's agent last wrote its transcript; known is false when obor cannot tell (no session, a
-	// kind whose transcripts obor cannot find, the file not there: unknown, not inactive).
-	Activity(pane port.Pane) (last time.Time, known bool)
-	// Turn is the last turn pane's agent's transcript records, for a kind whose turns are read (agents.TurnsRead):
+	// Transcript is pane's transcript file, its agent of kind k (the project's kind of pane.Agent; nil: none): the path
+	// the terminal reports, else the file the pane's session id names under the agent's home ("" when none is found).
+	Transcript(k agents.Kind, pane port.Pane) string
+	// Activity is when pane's agent (of kind k) last wrote its transcript; known is false when obor cannot tell (no
+	// session, a kind whose transcripts obor cannot find, the file not there: unknown, not inactive).
+	Activity(k agents.Kind, pane port.Pane) (last time.Time, known bool)
+	// Turn is the last turn pane's agent's transcript records, for a kind k whose turns are read (agents.TurnsRead):
 	// the file transcript names (its agent's recorded session's), else the one the pane's session names; ok false
 	// when obor cannot tell.
-	Turn(pane port.Pane, transcript string) (agents.Turn, bool)
+	Turn(k agents.Kind, pane port.Pane, transcript string) (agents.Turn, bool)
 	// Busy: the agent in pane still runs a child besides the agent CLI (a command, a background job). An error means
 	// unknown, not idle.
 	Busy(ctx context.Context, pane port.Pane) (bool, error)
@@ -54,8 +54,8 @@ type agentFiles struct {
 var _ AgentActivity = (*agentFiles)(nil)
 
 // Activity is when pane's agent last wrote its transcript.
-func (a *agentFiles) Activity(pane port.Pane) (time.Time, bool) {
-	path := a.Transcript(pane)
+func (a *agentFiles) Activity(k agents.Kind, pane port.Pane) (time.Time, bool) {
+	path := a.Transcript(k, pane)
 	if path == "" {
 		return time.Time{}, false
 	}
@@ -73,14 +73,13 @@ const turnChunk = 256 << 10
 // Turn is the last turn pane's agent's transcript records: the file transcript names (its recorded session's), else
 // the one the pane's session names; ok false when obor cannot tell: no session, a kind whose turns are not read, no
 // file, no turn event in it.
-func (a *agentFiles) Turn(pane port.Pane, transcript string) (agents.Turn, bool) {
-	k, ok := agents.Lookup(pane.Agent)
-	if !ok || !agents.TurnsRead(k) {
+func (a *agentFiles) Turn(k agents.Kind, pane port.Pane, transcript string) (agents.Turn, bool) {
+	if k == nil || !agents.TurnsRead(k) {
 		return agents.Turn{}, false
 	}
 	path := transcript
 	if path == "" {
-		path = a.Transcript(pane)
+		path = a.Transcript(k, pane)
 	}
 	if path == "" {
 		return agents.Turn{}, false
@@ -128,12 +127,11 @@ func lastTurn(k agents.Kind, path string) (agents.Turn, bool) {
 // Transcript is pane's transcript file: the path the terminal reports, else the file its session id names under home
 // (agents.Kind.Transcript: .claude/projects/*/<id>.jsonl, .codex/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl; the newest
 // if several); "" when none is found.
-func (a *agentFiles) Transcript(pane port.Pane) string {
+func (a *agentFiles) Transcript(k agents.Kind, pane port.Pane) string {
 	if pane.Transcript != "" {
 		return pane.Transcript
 	}
-	k, ok := agents.Lookup(pane.Agent)
-	if pane.Session == "" || strings.ContainsAny(pane.Session, "/*?[\\") || !ok || !k.Caps().Transcript {
+	if pane.Session == "" || strings.ContainsAny(pane.Session, "/*?[\\") || k == nil || !k.Caps().Transcript {
 		return ""
 	}
 	home := a.home

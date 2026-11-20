@@ -31,10 +31,18 @@ import (
 )
 
 // OpenCode is a plugin kind: a test binary has no built obor-kind-opencode, so its kind answers in process
-// (plugin.Local) with the handler the binary runs, registered from the start as a config load registers it.
-func init() {
-	plugin.Local[ockind.Name] = ockind.Handle
-	agents.SetPlugins([]agents.Kind{agents.Plugins.Kind(ockind.Name, config.KitKinds[ockind.Name], "")})
+// (plugin.Local) with the handler the binary runs; a loaded config's kinds hold it (config.Config.Kinds), and Kinds
+// are the kinds of a test that has no config.
+func init() { plugin.Local[ockind.Name] = ockind.Handle }
+
+// Kinds are the compiled kinds and the kit's plugin kinds (OpenCode) as a config naming none of its own has them,
+// for a test with no project.
+func Kinds() agents.Kinds {
+	var ks []agents.Kind
+	for name, bin := range config.KitKinds {
+		ks = append(ks, agents.Plugins.Kind(name, bin, ""))
+	}
+	return agents.WithPlugins(ks)
 }
 
 // Main runs a package's tests isolated (Isolate) and removes the project template after them (Run). Call it from

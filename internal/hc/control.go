@@ -131,7 +131,7 @@ func (cl *Client) Named(ctx context.Context, name string) (port.Pane, error) {
 		if rec.State != "live" || rec.Labels[LabelAgent] != name {
 			continue
 		}
-		if p := rec.pane(); p.Agent != "" {
+		if p := rec.pane(cl.Kinds); p.Agent != "" {
 			p.Group = ""
 			return p, nil
 		}

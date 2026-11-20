@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
@@ -177,15 +176,15 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 	for _, name := range cfg.ModelNames() {
 		m, _ := cfg.Model(name)
 		efforts := []string{}
-		if k, ok := agents.Lookup(m.Kind); ok {
+		if k, ok := cfg.Kind(m.Kind); ok {
 			efforts = append(efforts, k.Efforts()...)
 		}
 		_, builtin := config.BuiltinModelNamed(name)
 		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Builtin: builtin, Efforts: efforts,
 			Paused: v.ModelPauses[name]})
 	}
-	for _, kind := range agents.Names() {
-		k := cfg.Kind(kind)
+	for _, kind := range cfg.Kinds().Names() {
+		k := cfg.KindEntry(kind)
 		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), JobNote: k.JobNote != ""})
 	}
 	s.Paused = v.Paused

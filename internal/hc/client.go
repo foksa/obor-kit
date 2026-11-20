@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/herdrapp"
 	"obor/internal/project"
@@ -119,6 +120,8 @@ type Client struct {
 	// Conn, when set, opens each connection in place of dialing Path: a core served in memory (hctest.Core), whose
 	// connections a testing/synctest bubble can wait on. Production leaves it nil.
 	Conn func(ctx context.Context) (net.Conn, error)
+	// Kinds are the project's agent kinds (config.Config.Kinds): a status's app names one of them, a start runs one.
+	Kinds agents.Kinds
 }
 
 func (cl *Client) timeout() time.Duration {
@@ -318,7 +321,7 @@ func (cl *Client) Pane(ctx context.Context, pane string) (port.Pane, error) {
 	if err != nil {
 		return port.Pane{}, err
 	}
-	p := r.pane()
+	p := r.pane(cl.Kinds)
 	p.Group = ""
 	return p, nil
 }
@@ -346,7 +349,7 @@ func (cl *Client) Panes(ctx context.Context) ([]port.Pane, error) {
 	out := []port.Pane{}
 	for _, rec := range r.Terminals {
 		if rec.State == "live" {
-			p := rec.pane()
+			p := rec.pane(cl.Kinds)
 			p.Group = ""
 			out = append(out, p)
 		}

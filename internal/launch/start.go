@@ -91,7 +91,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 			l.say("labelled pane %s %s", s.Pane, s.Agent)
 		}
 	}
-	if _, ok := agents.Lookup(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind
+	if _, ok := l.Cfg.Kind(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind
 		return port.Pane{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
 	starter, ok := l.H.(port.AgentStarter)
@@ -100,7 +100,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	// A quarantined install that reaches the start is the lead's or a drive's (Launch refuses every other one): the
 	// owner is at its screen, so it warns — the Gatekeeper dialog can be answered there.
-	if why := agents.StartRefusal(s.Kind, l.installHost()); why != "" {
+	if why := l.Cfg.Kinds().StartRefusal(s.Kind, l.installHost()); why != "" {
 		l.say("warning: " + why)
 	}
 	// The session obor chose for a kind whose sessions it names (Built.Session): recorded before the agent runs.
@@ -151,7 +151,8 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Trust: port.Accepted(err) && s.Resume == "",
 			Hint: agents.TrustHint(s.Kind, s.Agent, s.Pane)}
 	}
-	if hint, retry := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
+	k, _ := l.Cfg.Kind(s.Kind)
+	if hint, retry := notReady(screen, k, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint, Retry: retry}
 	}
 	if port.NotReady(err) {
@@ -170,7 +171,7 @@ func (l *Launcher) agentStart(s Start) port.AgentStart {
 	}
 	var env []string
 	if s.Whose.Agent != "" {
-		set, _ := agents.StartVars(roleEnv(s.Whose.Role), s.Whose.Lane, s.Pane, s.Whose.Vars)
+		set, _ := l.Cfg.Kinds().StartVars(roleEnv(s.Whose.Role), s.Whose.Lane, s.Pane, s.Whose.Vars)
 		for _, v := range set {
 			env = append(env, v.Name+"="+v.Value)
 		}
@@ -187,7 +188,7 @@ func (l *Launcher) agentStart(s Start) port.AgentStart {
 func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
 	l.recordStart(ctx, s, s.Pane)
 	l.reportStarted(ctx, s)
-	if k, ok := agents.Lookup(s.Kind); !ok || !k.Caps().Sessions {
+	if k, ok := l.Cfg.Kind(s.Kind); !ok || !k.Caps().Sessions {
 		return a
 	}
 	if s.Resume != "" {
@@ -245,13 +246,13 @@ func sameSid(live, sid string) bool {
 }
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start, a screen with no trust
-// dialog (start's own case): what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none
-// shows. The hint names the command that starts the agent again (project.RestartCmd, which retry says the hint
+// dialog (start's own case): what the kind k sees on it (agents.Kind.NotReady: Codex's self-update); "" when none
+// shows (or k is nil, no kind). The hint names the command that starts the agent again (project.RestartCmd, which retry says the hint
 // carries).
-func notReady(screen, kind, name, pane, again string, hasSession bool) (hint string, retry bool) {
-	if k, ok := agents.Lookup(kind); ok {
+func notReady(screen string, k agents.Kind, name, pane, again string, hasSession bool) (hint string, retry bool) {
+	if k != nil {
 		if why := k.NotReady(screen); why != "" {
-			return kind + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane), true
+			return k.Name() + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane), true
 		}
 	}
 	return "", false

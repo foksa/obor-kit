@@ -3960,13 +3960,13 @@ func (f *fakePanes) Busy(_ context.Context, pane port.Pane) (bool, error) {
 	return f.busy, f.busyErr
 }
 
-func (f *fakePanes) Activity(port.Pane) (time.Time, bool) {
+func (f *fakePanes) Activity(agents.Kind, port.Pane) (time.Time, bool) {
 	return f.last, !f.last.IsZero()
 }
 
 // Transcript is the path the test's pane reports, if any (the fake panes have no session id: the file's lookup is
 // agentFiles').
-func (f *fakePanes) Transcript(pane port.Pane) string { return pane.Transcript }
+func (f *fakePanes) Transcript(_ agents.Kind, pane port.Pane) string { return pane.Transcript }
 
 // Screen is what the pane shows, its last lines raw (lines is honoured, as herdr's pane.read does): the question a
 // blocked pane shows sits above the TUI's blank rows and footer.
@@ -3983,7 +3983,7 @@ func (f *fakePanes) Screen(_ context.Context, pane string, lines int) (string, e
 	return text, f.screenErr
 }
 
-func (f *fakePanes) Turn(port.Pane, string) (agents.Turn, bool) {
+func (f *fakePanes) Turn(agents.Kind, port.Pane, string) (agents.Turn, bool) {
 	return f.turn, f.turned
 }
 

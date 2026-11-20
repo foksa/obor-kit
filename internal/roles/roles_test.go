@@ -122,7 +122,7 @@ func TestCustomRoles(t *testing.T) {
 	if dd, _ := Lookup("deep_dive"); dd.DocFile() != "deep-dive.md" {
 		t.Errorf("table doc file = %q, want deep-dive.md", dd.DocFile())
 	}
-	if LaneBound("ux_buddy") || r.Dispatchable || r.Stoppable || r.StartPrompt("claude") != "" {
+	if LaneBound("ux_buddy") || r.Dispatchable || r.Stoppable || r.Prompt != "" {
 		t.Errorf("a custom role is lane-bound, dispatchable, stoppable or has a first prompt: %+v", r)
 	}
 	if _, ok := Lookup("ux_buddy"); ok {

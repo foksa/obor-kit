@@ -5,7 +5,7 @@
 //	         (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_ROLE (the role's env value, triage's too; no role: unset), OBOR_LANE (no lane:
-//	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.StartVars,
+//	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.Kinds.StartVars,
 //	         a stale OBOR_AGENT or another kind's OBOR_OPENCODE_MODEL);
 //	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
 //	         launch's, else a lane agent's lane row model), else the role / lead's model (config.Model: base args, model id, kinds args, then --settings for
@@ -657,7 +657,7 @@ func carries(req Request) bool { return !req.Fresh && req.Prompt != "" }
 // is a new one.
 func (l *Launcher) sessionOf(t *target, req Request) (sid, src string, err error) {
 	sid, src = t.sid, "record"
-	if !agents.Resumes(t.kind) {
+	if !l.Cfg.Kinds().Resumes(t.kind) {
 		if t.sid != "" {
 			l.say("warning: no resume for kind %s: new session", t.kind)
 		}
@@ -668,7 +668,7 @@ func (l *Launcher) sessionOf(t *target, req Request) (sid, src string, err error
 		case sid != "" && !req.Fresh:
 			l.say("warning: the terminal reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
 				sid, sid)
-		case sid == "" && !agents.NamedSession(t.kind):
+		case sid == "" && !l.Cfg.Kinds().NamedSession(t.kind):
 			sid, src = live, "herdr"
 		}
 	}
@@ -740,9 +740,10 @@ func (l *Launcher) firstPrompt(ctx context.Context, t *target, req Request, sid 
 		// starts presents the state and options. Only a handoff restart, which asks for it (Request.Handoff), continues
 		// from a Handoff (`/obor:lead handoff`).
 		if rc, ok := l.Cfg.Role(t.info.Role); ok {
-			o.prompt = rc.Role.StartPrompt(t.kind)
+			k, _ := l.Cfg.Kind(t.kind)
+			o.prompt = rc.Role.StartPrompt(k)
 			if req.Handoff {
-				o.prompt = rc.Role.HandoffPrompt(t.kind)
+				o.prompt = rc.Role.HandoffPrompt(k)
 			}
 		}
 	}
@@ -787,7 +788,7 @@ func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) 
 // that pane's facts (its terminal id) from the pane list. A pane just placed is the project's and runs nothing, so
 // resolve's checks of a found pane (inProject, suspended) do not apply. An empty pane id is a Fail.
 func (l *Launcher) place(ctx context.Context, t *target, p *port.Placer) error {
-	pane, err := p.Place(ctx, paneEnv(t))
+	pane, err := p.Place(ctx, paneEnv(l.Cfg.Kinds(), t))
 	if err != nil {
 		return err
 	}
@@ -810,10 +811,11 @@ func (l *Launcher) place(ctx context.Context, t *target, p *port.Placer) error {
 }
 
 // paneEnv is t's start env for a new pane's shell, NAME=VALUE, by the one builder of a start's env
-// (agents.StartVars): every registry var the start does not set goes empty ("NAME="), so the pane inherits none of
-// its placer's (a stale OBOR_AGENT, the caller's OBOR_PANE: the new pane's id is exported by the env line).
-func paneEnv(t *target) []string {
-	set, unset := agents.StartVars(roleEnv(t.info.Role), t.info.Lane, "", t.env)
+// (agents.Kinds.StartVars of the project's kinds): every registry var the start does not set goes empty ("NAME="), so
+// the pane inherits none of its placer's (a stale OBOR_AGENT, the caller's OBOR_PANE: the new pane's id is exported by
+// the env line).
+func paneEnv(kinds agents.Kinds, t *target) []string {
+	set, unset := kinds.StartVars(roleEnv(t.info.Role), t.info.Lane, "", t.env)
 	env := make([]string, 0, len(set)+len(unset))
 	for _, v := range set {
 		env = append(env, v.Name+"="+v.Value)
@@ -849,12 +851,12 @@ func (l *Launcher) laneFree(ctx context.Context, t *target) error {
 	return nil
 }
 
-// quarantined is why t's kind may not start on this machine (agents.StartRefusal), and whether the start may
+// quarantined is why t's kind may not start on this machine (agents.Kinds.StartRefusal), and whether the start may
 // still be made with a warning: the lead or the owner's drive agent, whose owner is at its screen and can answer
 // Gatekeeper's dialog. A worker's or role's start is refused (the line names the files and the fix), so no unattended
 // pane waits on it.
 func (l *Launcher) quarantined(t *target) (why string, owners bool) {
-	why = agents.StartRefusal(t.kind, l.installHost())
+	why = l.Cfg.Kinds().StartRefusal(t.kind, l.installHost())
 	return why, why != "" && (t.info.Role == "lead" || t.info.Role == roles.Driver)
 }
 
@@ -875,7 +877,7 @@ func (l *Launcher) installHost() agents.InstallHost {
 // resumes when the kind's own file of that id is somewhere. Other kinds are not checked: their sessions are not
 // obor's to check (Codex's rollout, which launch records itself).
 func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error) {
-	k, ok := agents.Lookup(t.kind)
+	k, ok := l.Cfg.Kind(t.kind)
 	if !ok || !k.Caps().NamedSession {
 		l.say("recorded session %s not checked (%s's sessions are not obor's)", sid, t.kind)
 		return false, nil
@@ -944,7 +946,7 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 		return err
 	}
 	// The line's own success word or failure word says how it ended (project.RunEnvLine).
-	res, err := project.RunEnvLine(ctx, l.H, t.pane, envLine(t), l.poll(), l.wait())
+	res, err := project.RunEnvLine(ctx, l.H, t.pane, envLine(l.Cfg.Kinds(), t), l.poll(), l.wait())
 	switch {
 	case err != nil:
 		return project.Failf("terminal pane run %s (env) failed", t.pane)
@@ -1000,16 +1002,16 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 }
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does, from the one builder of a start's
-// env (agents.StartVars) by the one builder of the line (project.EnvLine): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id) and the kind's vars exported,
+// env (agents.Kinds.StartVars of the project's kinds) by the one builder of the line (project.EnvLine): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id) and the kind's vars exported,
 // every other var of the registry unset (a stale OBOR_AGENT; another kind's OBOR_OPENCODE_MODEL), so
 // nothing of an earlier start in the pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
-func envLine(t *target) string {
+func envLine(kinds agents.Kinds, t *target) string {
 	role := roleEnv(t.info.Role)
 	var keep []string
 	if !t.known && role == "" {
 		keep = []string{agents.RoleVar}
 	}
-	set, unset := agents.StartVars(role, t.info.Lane, t.pane, t.env, keep...)
+	set, unset := kinds.StartVars(role, t.info.Lane, t.pane, t.env, keep...)
 	env := make([]string, 0, len(unset)+len(set))
 	for _, v := range unset {
 		env = append(env, v+"=")
@@ -1042,7 +1044,7 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 		b.Kind, b.Args = lt.Kind, lt.Args
 	}
 	if !b.Bare {
-		if err := agents.CheckEffort(b.Kind, effort); err != nil { // one the args cannot carry: the start's error
+		if err := l.Cfg.Kinds().CheckEffort(b.Kind, effort); err != nil { // one the args cannot carry: the start's error
 			return nil, project.Failf("%s: %v (obor config validate)", t.agent, err)
 		}
 		rc, _ := l.Cfg.Role(t.info.Role)
@@ -1086,7 +1088,7 @@ type Built struct {
 // The model's start (config.Model.Launch), or b.Bare the kind's start over no launch args. An unknown kind: the
 // args as given (start refuses it).
 func (l *Launcher) Build(b Build) (Built, error) {
-	k, ok := agents.Lookup(b.Kind)
+	k, ok := l.Cfg.Kind(b.Kind)
 	if !ok {
 		return Built{Args: append([]string(nil), b.Args...)}, nil
 	}

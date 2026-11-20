@@ -11,7 +11,7 @@
 //	        <prefix>-<lane lower>; where it goes is app/layout's rule, asked by the terminal adapter's Place, with
 //	        --tab, --new-tab or --pane as the person's say; its refusals print after FAIL); cwd the lane, env
 //	        OBOR_ROLE / OBOR_LANE (and with --start the kind's vars), every other var of the registry empty
-//	        (agents.StartVars; no OBOR_AGENT: a name is derived); then the pane label (= the agent). --start is the
+//	        (agents.Kinds.StartVars; no OBOR_AGENT: a name is derived); then the pane label (= the agent). --start is the
 //	        launcher's one start (port.Launcher.Launch, shared with obor restart and serve): a fresh session, the
 //	        model's kind and args (+ Claude --settings), refused rather than stopping what runs (NoStop), the new
 //	        pane placed by this command once the start is built (port.Launch.Place); a pane a new tab or a split made

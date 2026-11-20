@@ -290,7 +290,7 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 		c.Close()
 		got <- string(b)
 	}()
-	p := poster{pj.Root}
+	p := poster{pj.Root, testkit.Kinds()}
 	ctx := context.Background()
 
 	if began, err := p.Post(ctx, agents.Default, "pj-lead", "x"); began || err == nil || !strings.Contains(err.Error(), "no session recorded for pj-lead") {
@@ -337,8 +337,9 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 func TestPosterUsesTheGivenKind(t *testing.T) {
 	t.Parallel()
 	var withInbox, without string
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	kinds := testkit.Kinds()
+	for _, name := range kinds.Names() {
+		k, _ := kinds.Lookup(name)
 		if k.Caps().Inbox && withInbox == "" {
 			withInbox = name
 		} else if !k.Caps().Inbox && without == "" {
@@ -346,7 +347,7 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 		}
 	}
 	if withInbox == "" || without == "" {
-		t.Fatalf("kinds %v: want one with an inbox and one without", agents.Names())
+		t.Fatalf("kinds %v: want one with an inbox and one without", kinds.Names())
 	}
 	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
 	if err != nil {
@@ -374,7 +375,7 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 			c.Close()
 		}
 	}()
-	p := poster{pj.Root}
+	p := poster{pj.Root, testkit.Kinds()}
 	ctx := context.Background()
 
 	if began, err := p.Post(ctx, withInbox, "pj-l-01", "x"); began || err == nil ||
@@ -455,7 +456,7 @@ func TestPosterKeepsProjectsWithOnePrefixApart(t *testing.T) {
 	ctx := context.Background()
 	for i, s := range sides {
 		name := []string{"one", "two"}[i]
-		if began, err := (poster{s.root}).Post(ctx, agents.Default, "pj-lead", "to "+name); !began || err != nil {
+		if began, err := (poster{s.root, testkit.Kinds()}).Post(ctx, agents.Default, "pj-lead", "to "+name); !began || err != nil {
 			t.Fatalf("project %s: began %v, %v", name, began, err)
 		}
 		select {

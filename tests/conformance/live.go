@@ -100,6 +100,31 @@ func skipAll(kind, why string) {
 }
 
 // lab is one kind's throwaway herdr session and its scratch dir.
+// config is the scratch project's config (its kinds: the compiled ones and its plugin kinds, OpenCode's manifest as
+// makeProject cached it); nil when it does not load.
+func (l *lab) config() *config.Config {
+	cfg, err := config.Load(l.main)
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
+// kinds are the scratch project's kinds (config; the compiled ones alone when it does not load).
+func (l *lab) kinds() agents.Kinds { return l.config().Kinds() }
+
+// noStarted is a launcher's Started that reports to no serve: obor's starts in the lab leave its stub serve alone.
+func noStarted(context.Context, string) error { return nil }
+
+// kindOf is the scratch project's kind name (kinds), a plugin kind too.
+func (l *lab) kindOf(name string) agents.Kind {
+	k, ok := l.kinds().Lookup(name)
+	if !ok {
+		panic("conformance: no agent kind " + name + " in the scratch project's config")
+	}
+	return k
+}
+
 type lab struct {
 	kind      string
 	herdr     string     // the herdr binary
@@ -229,13 +254,10 @@ func (l *lab) makeProject() error {
 	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
 		return err
 	}
-	if l.kind == "opencode" { // its manifest cached as obor setup agents caches it, then the config registers the kind
+	if l.kind == "opencode" { // its manifest cached as obor setup agents caches it: the config's kind carries it
 		cfg, err := config.Load(l.main)
 		if err == nil {
 			_, err = plugin.Cache("opencode", cfg.KindCommand("opencode"), cfg.StateDir())
-		}
-		if err == nil {
-			_, err = config.Load(l.main)
 		}
 		if err != nil {
 			return fmt.Errorf("the opencode kind: %v", err)

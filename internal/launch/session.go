@@ -114,7 +114,7 @@ func (l *Launcher) running(p proc) bool {
 // start with no prompt writes none: the line says so). say is where it says so.
 func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane string, p proc, prompted bool,
 	say func(format string, args ...any)) {
-	k, ok := agents.Lookup(kind)
+	k, ok := l.Cfg.Kind(kind)
 	if !ok || !k.Caps().Sessions {
 		return
 	}

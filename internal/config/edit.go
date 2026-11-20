@@ -9,8 +9,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-
-	"obor/internal/agents"
 )
 
 // The setup edit: the owner changes one setup value from obor web's Setup page (the lead with obor
@@ -134,8 +132,8 @@ func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) 
 // editKindArgs sets agents.kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty
 // list drops the key.
 func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Change, error) {
-	if _, ok := agents.Lookup(kind); !ok {
-		return Change{}, fmt.Errorf("%s is not a kind (kinds: %s)", Compact(kind), strings.Join(agents.Names(), ", "))
+	if _, ok := c.Kind(kind); !ok {
+		return Change{}, fmt.Errorf("%s is not a kind (kinds: %s)", Compact(kind), strings.Join(c.kinds.Names(), ", "))
 	}
 	var args []string
 	if err := json.Unmarshal(val, &args); err != nil {

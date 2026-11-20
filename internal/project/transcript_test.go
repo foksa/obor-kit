@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"obor/internal/agents"
 	"obor/internal/store"
 )
 
@@ -17,7 +18,7 @@ func TestTranscriptOfRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := func(string) (string, bool) { return "", false }
-	if got := TranscriptOf(root, "sid-12345678", env); got != "" {
+	if got := TranscriptOf(root, "sid-12345678", env, agents.Kinds{}); got != "" {
 		t.Fatalf("precondition: nothing recorded, no file: %q", got)
 	}
 	db, err := store.OpenRW(store.File(root))
@@ -29,16 +30,16 @@ func TestTranscriptOfRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	if got := TranscriptOf(root, "sid-12345678", env); got != "" {
+	if got := TranscriptOf(root, "sid-12345678", env, agents.Kinds{}); got != "" {
 		t.Errorf("recorded but no file: %q, want none", got)
 	}
 	if err := os.WriteFile(tr, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := TranscriptOf(root, "sid-12345678", env); got != tr {
+	if got := TranscriptOf(root, "sid-12345678", env, agents.Kinds{}); got != tr {
 		t.Errorf("recorded: %q, want %q", got, tr)
 	}
-	if got := TranscriptOf("", "sid-12345678", env); got == tr {
+	if got := TranscriptOf("", "sid-12345678", env, agents.Kinds{}); got == tr {
 		t.Error("no project: the store is not read")
 	}
 }

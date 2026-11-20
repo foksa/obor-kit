@@ -161,8 +161,8 @@ func (s *Setup) agentsCmd(args []string) error {
 	if _, err := s.cachePlugins(); err != nil {
 		return err
 	}
-	for _, name := range agents.Names() {
-		k, _ := agents.Lookup(name)
+	for _, name := range s.cfg.Kinds().Names() {
+		k, _ := s.cfg.Kind(name)
 		if _, err := agents.InstallOf(k, s.Kit, s.Env.Get); err != nil {
 			return project.Failf("agents %s: %v", name, err)
 		}
@@ -172,8 +172,8 @@ func (s *Setup) agentsCmd(args []string) error {
 }
 
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config; a
-// config that fails to load is its own error) and caches its manifest, then reloads the config so the
-// registry's plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step). A kit
+// config that fails to load is its own error) and caches its manifest, then reloads the config (Setup.cfg) so its
+// plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step). A kit
 // kind the config names no plugin for (config.KitKinds: the kit's binary is the default) is cached as that
 // default and the config is left as it is (a value obor derives needs no edit).
 func (s *Setup) cachePlugins() (cached []string, err error) {
@@ -189,7 +189,7 @@ func (s *Setup) cachePlugins() (cached []string, err error) {
 		s.say("OK agents %s: manifest of %s cached (%s)", name, cmd, s.rel(plugin.CacheFile(cfg.StateDir(), name)))
 		cached = append(cached, name)
 	}
-	if _, err := config.Load(s.root); err != nil {
+	if s.cfg, err = config.Load(s.root); err != nil {
 		return nil, project.Failf("%v", err)
 	}
 	return cached, nil

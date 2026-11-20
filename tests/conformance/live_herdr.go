@@ -702,8 +702,9 @@ func hL13(l *lab, pane string) {
 		return
 	}
 	var out bytes.Buffer
-	ln := &launch.Launcher{H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}, Out: &out, Poll: 200 * time.Millisecond,
-		Up: 30 * time.Second, Install: func() agents.InstallHost { return agents.InstallHost{} }}
+	ln := &launch.Launcher{Cfg: l.config(), H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}, Out: &out,
+		Poll: 200 * time.Millisecond, Up: 30 * time.Second, Install: func() agents.InstallHost { return agents.InstallHost{} },
+		Started: noStarted}
 	k := kindOf("claude")
 	var facts []string
 	ok := true
@@ -860,8 +861,9 @@ func hL14(l *lab, kind, pane string, argv []string, turn bool) {
 // herdr lists the agent working (its launch still pending, if H-L14's raw runs hold).
 func hL14Obor(l *lab, kind, pane string, argv []string) (string, bool) {
 	var out bytes.Buffer
-	ln := &launch.Launcher{H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}, Out: &out, Poll: 200 * time.Millisecond,
-		Up: 30 * time.Second, Install: func() agents.InstallHost { return agents.InstallHost{} },
+	ln := &launch.Launcher{Cfg: l.config(), H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}, Out: &out,
+		Poll: 200 * time.Millisecond, Up: 30 * time.Second, Install: func() agents.InstallHost { return agents.InstallHost{} },
+		Started:    noStarted,
 		Background: func(func()) {}} // no session search: the start's result is what is read
 	t0 := time.Now()
 	err := ln.Start(l.ctx, launch.Start{Agent: fmt.Sprintf("conf-obor-%d", l.seq.Add(1)), Kind: kind, Pane: pane,
@@ -896,7 +898,7 @@ func halt(l *lab, kind, pane string) {
 		_ = l.keys(pane, "esc")
 		time.Sleep(time.Second)
 	}
-	if _, err := l.quit(pane, kindOf(kind).Stop()); err != nil {
+	if _, err := l.quit(pane, l.kindOf(kind).Stop()); err != nil {
 		l.stopAgent(pane)
 	}
 }

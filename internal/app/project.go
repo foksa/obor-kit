@@ -39,6 +39,8 @@ func (a *App) load(root string) (*proj, error) {
 		tests: map[string]event.Key{}, testCmd: map[string]string{},
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, cuts: map[event.Key]*cutWait{},
 		reg: identity.New(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
+	kinds := cfg.Kinds()
+	p.kinds.Store(&kinds)
 	for _, r := range recs {
 		p.foldRecord(r)
 	}
@@ -61,6 +63,29 @@ func (a *App) load(root string) (*proj, error) {
 	a.logf("project %s (%s): replayed %d records in %.2f s, %d tasks with watchdog facts, %d merge tasks, %d lanes, %d pending intents (%d settled)",
 		name, root, len(recs), time.Since(start).Seconds(), len(p.folded.active), len(p.folded.loop), len(p.folded.lr.rows), pending, settled)
 	return p, nil
+}
+
+// refreshKinds makes p's kinds (proj.kinds) those of its config as it reads now; a config that does not load keeps
+// the last good ones (as wtAgentsNow does). Outside mu: it reads the config.
+func (p *proj) refreshKinds() {
+	if cfg, err := config.Load(p.root); err == nil {
+		kinds := cfg.Kinds()
+		p.kinds.Store(&kinds)
+	}
+}
+
+// kindsNow are p's kinds (proj.kinds).
+func (p *proj) kindsNow() agents.Kinds {
+	if k := p.kinds.Load(); k != nil {
+		return *k
+	}
+	return agents.Kinds{}
+}
+
+// kind is p's kind of name (kindsNow); nil: none.
+func (p *proj) kind(name string) agents.Kind {
+	k, _ := p.kindsNow().Lookup(name)
+	return k
 }
 
 // openLog opens root's database as its one writer and replays its event log.

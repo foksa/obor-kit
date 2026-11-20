@@ -35,7 +35,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -269,7 +268,7 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		s, _ = p.Sessions(cfg.Root, agent)
 	}
 	switch kind := project.RunningKind(cfg, info); {
-	case !agents.Resumes(kind):
+	case !cfg.Kinds().Resumes(kind):
 		req.Fresh, note = true, note+" ("+role+", kind "+kind+" resumes nothing: --fresh)"
 	case s.ID == "":
 		req.Fresh, note = true, note+" ("+role+", no recorded session: --fresh)"

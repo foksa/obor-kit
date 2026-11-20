@@ -6,10 +6,11 @@ import (
 )
 
 // Fallback is the config of root with every default and nothing from its files: what a hook guards with when
-// .obor/config.json exists but does not load.
+// .obor/config.json exists but does not load. Its kinds are the compiled ones and the kit's (Kinds).
 func Fallback(root string) *Config {
 	c := &Config{Root: root, Data: Defaults()}
 	c.Data.derive(filepath.Base(root))
 	c.json, _ = json.Marshal(c.Data)
+	c.kinds = c.buildKinds()
 	return c
 }

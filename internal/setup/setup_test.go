@@ -1310,7 +1310,7 @@ func TestKitManifestMCPServers(t *testing.T) {
 		t.Errorf("plugin.json mcpServers: %s", b)
 	}
 	// the bridge's entry is the shipped one.
-	k, _ := agents.Lookup("claude")
+	k, _ := agents.Kinds{}.Lookup("claude")
 	m := k.Install(kit, nil).MCP
 	if state, path, err := registration(m); state != entryPinned || err != nil || path != filepath.Join(kit, ".claude-plugin", "plugin.json") {
 		t.Errorf("registration of the kit's manifest = %d, %s, %v", state, path, err)

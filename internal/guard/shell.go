@@ -677,7 +677,7 @@ loop:
 	case "hc", "herdr-app":
 		g.terminalCLI(name, W[k+1:])
 	default:
-		if kind, ok := agents.ByProgram(name); ok {
+		if kind, ok := g.cfg.Kinds().ByProgram(name); ok {
 			// a plugin kind with no manifest has no headless forms to check: its program is denied
 			if u, ok := kind.(agents.Uncached); ok && u.Uncached() != nil {
 				deny(name + " is the CLI of plugin kind " + kind.Name() + ", whose manifest is not cached, so its " +
@@ -957,7 +957,7 @@ func (s *shell) net(W []string, from, to int, env map[string]string) {
 	for j := from; j < to; j++ {
 		f := s.splitS(W[j])
 		for x := range f {
-			if _, agent := agents.ByProgram(base(f[x])); agent || oneOf(base(f[x]), "git", "pkill", "killall") {
+			if _, agent := s.g.cfg.Kinds().ByProgram(base(f[x])); agent || oneOf(base(f[x]), "git", "pkill", "killall") {
 				c := s.clone()
 				c.segment(append(append([]string{}, f[x:]...), W[j+1:]...), maps.Clone(env))
 			}
