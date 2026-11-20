@@ -182,6 +182,11 @@ on a file missing from this table or a listed file that is gone); the entry is t
   effects (`Agents`, `Prompter`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
   interface: those three and the dispatch's `Target`). Adapters import it instead of `app`.
+- `app/layout` (core, a leaf below `app`): the one placement decision of every terminal adapter, pure: `Place` (an
+  `Ask`: the new pane's kind, `Group`/`In`, the group's `Tab`s with their `Pane`s' kinds → an `Answer`: which tab, a new
+  tab of which name, or the refusal's text), `Label` (a new tab's name for a kind) and `Home` (whether the caller's pane
+  qualifies as the lead's home, from a `Caller`'s facts, else why not). No terminal call: each adapter reads its facts
+  into these types and does what the answer says. It imports `app/port` only (`PaneKind`).
 - `app/event` (core, a leaf below `app`): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
   types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
