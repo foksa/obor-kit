@@ -46,7 +46,7 @@ func setupCmd(args []string) int {
 		return 1
 	}
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, T: t.Setup, Check: t.Check, Out: out, McpCheck: mcp.Check,
-		Starter: launcherFor(project.OSEnv, kit, t.Control, out, nil), Serve: serveInstaller(project.OSEnv),
+		Launcher: launcherFor(project.OSEnv, kit, t.Control, out, nil), Serve: serveInstaller(project.OSEnv),
 		Installed: serveInstalled(project.OSEnv), Down: teardownOf(project.OSEnv, cwd, t.Control)}
 	return s.Run(context.Background(), args)
 }
@@ -123,8 +123,8 @@ func serveInstaller(env project.Env) func(context.Context, *config.Config) (stri
 
 // launcherFor is how obor setup starts an agent (setup does not import launch): a launch.Launcher for the config it
 // loaded; tune (nil: none) adjusts it.
-func launcherFor(env project.Env, kit string, h port.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) port.Starter {
-	return func(cfg *config.Config) port.Starter {
+func launcherFor(env project.Env, kit string, h port.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) setup.Launcher {
+	return func(cfg *config.Config) setup.Launcher {
 		l := &launch.Launcher{Cfg: cfg, Env: env, Kit: kit, H: h, Out: w}
 		if tune != nil {
 			tune(l)

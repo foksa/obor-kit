@@ -41,7 +41,7 @@ func TestSetupPaneUsesTheHerdrSocket(t *testing.T) {
 	for _, req := range srv.Requests() {
 		methods = append(methods, req.Method)
 	}
-	for _, want := range []string{"agent.list", "pane.list", "pane.layout", "pane.split", "agent.start"} {
+	for _, want := range []string{"pane.list", "agent.get", "pane.layout", "pane.split", "agent.start"} {
 		if !strings.Contains(strings.Join(methods, " "), want) {
 			t.Errorf("no %s on the socket: %v", want, methods)
 		}

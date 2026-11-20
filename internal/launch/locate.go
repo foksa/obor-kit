@@ -31,7 +31,7 @@ const whereWait = 3 * time.Second
 // table's sources (session, start, label).
 const proofName = "name"
 
-// Located is Locate's answer, the core's type (port.Starter), so setup asks Locate without importing launch.
+// Located is Locate's answer, the core's type (port.Located), so setup asks Locate without importing launch.
 type Located = port.Located
 
 // locateIn is what decide decides from.

@@ -135,14 +135,15 @@ type Launcher struct {
 	Where func(ctx context.Context, req wire.WhereReq) (wire.WhereReply, error)
 }
 
-// Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
+// Request is one `obor restart` (the core's port.Launch: Launcher is a port.Launcher).
 type Request = port.Launch
 
-var _ port.Agents = (*Launcher)(nil)
+var _ port.Launcher = (*Launcher)(nil)
 
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
-// ParseRequest reads that back, so a flag cannot be carried on one side only. The Prompt, Effort and Type are not
-// restart's (a brief's or a dispatch's start): a scheduled run is the CLI's restart, which carries none of them.
+// ParseRequest reads that back, so a flag cannot be carried on one side only. The Prompt, Effort, Type, Place, NoStop
+// and Again are not restart's (a brief's, a dispatch's or obor setup's start): a scheduled run is the CLI's restart, which
+// carries none of them.
 // Handoff is carried: the detached run asks for the lead's handoff form only if its argv names --handoff.
 func Args(r Request) []string {
 	args := []string{r.Agent}
@@ -496,7 +497,7 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 	return s.Line, err
 }
 
-// Launch is Restart (port.Agents): its line, and the agent it started there with its session id: herdr's for it, else
+// Launch is Restart (port.Launcher): its line, and the agent it started there with its session id: herdr's for it, else
 // the id obor named it (the identity serve records for a later rename; none for a scheduled restart of the caller's
 // own pane). A fresh start held by a trust dialog returns both too, with a *port.TrustDialog (its pane: Started's):
 // started, its first prompt taken once a person answers the dialog. A resumed one is a failed start (NotReady).
@@ -535,7 +536,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return port.Started{}, err
 	}
 	if why, lead := l.quarantined(t); why != "" {
-		if lead { // the owner is at the lead's screen: the Gatekeeper dialog can be answered there
+		if lead { // the owner is at the lead's (or its drive's) screen: the Gatekeeper dialog can be answered there
 			l.say("warning: " + why)
 		} else {
 			return port.Started{}, port.Refused{Line: why}
@@ -603,7 +604,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	// pane just placed (its shell may still be coming up): a pane at a shell, or one running a person's program, is
 	// setEnv's to refuse.
 	st := Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Session: t.session, Prompt: first.prompt, Lane: t.info.Lane, Shell: l.shellWait(),
+		Resume: sid, Session: t.session, Prompt: first.prompt, Again: req.Again, Lane: t.info.Lane, Shell: l.shellWait(),
 		Await: t.entry.Agent != "" || placing,
 		Env:   func(ctx context.Context) error { return l.setEnv(ctx, t) },
 		Whose: AgentEnv{Agent: t.agent, Role: t.info.Role, Lane: t.info.Lane, Cwd: t.info.Cwd, Vars: t.env}}
@@ -750,7 +751,8 @@ func (l *Launcher) firstPrompt(ctx context.Context, t *target, req Request, sid 
 
 // outcome is what start's error err means for the launch of t (st the start made): nil, nothing; a fresh start held by
 // a trust dialog (start's Trust) is started, its success path run (done), and returned as the *port.TrustDialog a
-// caller adopts or fails on; any other StartError is the launch's FAIL with evidence; another error is returned as it
+// caller adopts or fails on; any other StartError is the launch's FAIL with evidence, marked project.RetryHint when
+// its line names the command that starts the agent again (st.Again, else a restart); another error is returned as it
 // is. A resumed start at the dialog is NotReady: its wake is not typed, so it failed.
 func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) (*port.TrustDialog, error) {
 	var se *StartError
@@ -763,16 +765,20 @@ func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) 
 		l.done(ctx, st, port.Pane{})
 		return &port.TrustDialog{Hint: se.Hint}, nil
 	case errors.As(err, &se) && se.NoShell:
-		return nil, l.giveUp(ctx, t, "pane %s is not a shell after %s (the old agent has not left): nothing started",
-			t.pane, l.shellWait())
+		return nil, project.RetryHint(l.giveUp(ctx, t, "pane %s is not an available shell after %s: start the agent there with %s",
+			t.pane, l.shellWait(), l.retry(t, st.Again)))
 	case errors.As(err, &se) && se.NotReady:
-		return nil, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
+		fail := l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
+		if se.Retry {
+			return nil, project.RetryHint(fail)
+		}
+		return nil, fail
 	case errors.As(err, &se) && port.PaneBusy(se.Err):
-		return nil, l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
-			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t))
+		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
+			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t, st.Again)))
 	case errors.As(err, &se):
-		return nil, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
-			t.pane, l.retry(t))
+		return nil, project.RetryHint(l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
+			t.pane, l.retry(t, st.Again)))
 	}
 	return nil, err
 }
@@ -844,11 +850,12 @@ func (l *Launcher) laneFree(ctx context.Context, t *target) error {
 }
 
 // quarantined is why t's kind may not start on this machine (agents.StartRefusal), and whether the start may
-// still be made with a warning: the lead, whose owner is at its screen and can answer Gatekeeper's dialog. A worker's
-// or role's start is refused (the line names the files and the fix), so no unattended pane waits on it.
-func (l *Launcher) quarantined(t *target) (why string, lead bool) {
+// still be made with a warning: the lead or the owner's drive agent, whose owner is at its screen and can answer
+// Gatekeeper's dialog. A worker's or role's start is refused (the line names the files and the fix), so no unattended
+// pane waits on it.
+func (l *Launcher) quarantined(t *target) (why string, owners bool) {
 	why = agents.StartRefusal(t.kind, l.installHost())
-	return why, why != "" && t.info.Role == "lead"
+	return why, why != "" && (t.info.Role == "lead" || t.info.Role == roles.Driver)
 }
 
 // installHost is the machine the kind checks read (Install; else project.InstallHost of this launcher's env).
@@ -921,8 +928,8 @@ func transcriptElsewhere(wild string) (bool, error) {
 // AgentEnv is port.AgentEnv.
 type AgentEnv = port.AgentEnv
 
-// SetEnv types the env line of e at pane's shell, as a restart does (obor setup in a pane that already exists: its
-// shell may hold the env of the agent that ran there before).
+// SetEnv types the env line of e at pane's shell, as a restart does (obor setup's pane with no agent, in a pane that
+// already exists: its shell may hold the env of the agent that ran there before).
 func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
 	return l.setEnv(ctx, &target{agent: e.Agent, known: true, pane: pane,
 		info: config.AgentInfo{Role: e.Role, Lane: e.Lane, Cwd: e.Cwd}, env: e.Vars})
@@ -1028,21 +1035,20 @@ func roleEnv(role string) string {
 // neither type nor role starts with no launch args: the kind's start over none, still with its env (OpenCode: its
 // generated config). An effort the start cannot carry is a Fail (nothing stopped yet).
 func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, error) {
-	b := port.Build{Agent: t.agent, Kind: t.kind, Role: t.info.Role, Effort: effort, Dir: t.info.Cwd, Resume: resume,
-		Prompt: prompt}
-	bare := t.info.Type == "" && t.info.Role == ""
+	b := Build{Agent: t.agent, Kind: t.kind, Role: t.info.Role, Effort: effort, Dir: t.info.Cwd, Resume: resume,
+		Prompt: prompt, Bare: t.info.Type == "" && t.info.Role == ""}
 	if t.info.Type != "" {
 		lt, _ := l.Cfg.Model(t.info.Type)
 		b.Kind, b.Args = lt.Kind, lt.Args
 	}
-	if !bare {
+	if !b.Bare {
 		if err := agents.CheckEffort(b.Kind, effort); err != nil { // one the args cannot carry: the start's error
-			return nil, project.Failf("%s: %v", t.agent, err)
+			return nil, project.Failf("%s: %v (obor config validate)", t.agent, err)
 		}
 		rc, _ := l.Cfg.Role(t.info.Role)
 		b.WriteDirs = l.Cfg.RoleWriteDirs(rc.Role)
 	}
-	built, err := l.startOf(b, bare)
+	built, err := l.Build(b)
 	if err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
@@ -1050,32 +1056,47 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 	return built.Args, nil
 }
 
-// Build is the agent's one start (port.Starter), built once at the launch boundary: the complete agents.Start
+// Build is an agent's start to build: its type (the model's kind and args), its role ("": none), effort ("": the
+// type's), cwd, the dirs outside it the agent writes, and the session to resume or the first prompt. Bare: the kind's
+// start over no launch args (an agent with neither type nor role: no settings, not strict).
+type Build struct {
+	Agent, Kind       string
+	Args              []string // the model's args (config.Model.Args)
+	Role, Effort, Dir string
+	WriteDirs         []string
+	Resume, Prompt    string
+	Bare              bool
+}
+
+// Built is a start as its kind built it from the complete start, in one call of a plugin kind: the argv after the
+// binary, the start's own env (Vars; "" unsets one) and the session id obor chose for it ("": none, or a resume).
+type Built struct {
+	Args    []string
+	Vars    map[string]string
+	Session string
+}
+
+// Build is the agent's one start, built once at the launch boundary: the complete agents.Start
 // (the kit, the model's args with the role's settings and strictness, the project's override files of the kind, the
 // effort, the cwd, the dirs the agent writes,
 // which it makes, the resume or the first prompt as one line, the session obor names for a kind that takes one, the
 // env and state writer), handed to the kind once (config.Model.Launch, agents.StartOf): the argv, the env and the files
 // a plugin kind writes come from one start call. The kind is the one of this moment (agents.AsNow: a plugin kind whose
 // command changed is described again here, once), so the override files read and the start call are of one manifest.
-// An unknown kind: the args as given (Start refuses it).
-func (l *Launcher) Build(b port.Build) (port.Built, error) {
-	return l.startOf(b, false)
-}
-
-// startOf is b's complete start: the model's (config.Model.Launch), or bare the kind's start over no launch args (no
-// settings, not strict).
-func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
+// The model's start (config.Model.Launch), or b.Bare the kind's start over no launch args. An unknown kind: the
+// args as given (start refuses it).
+func (l *Launcher) Build(b Build) (Built, error) {
 	k, ok := agents.Lookup(b.Kind)
 	if !ok {
-		return port.Built{Args: append([]string(nil), b.Args...)}, nil
+		return Built{Args: append([]string(nil), b.Args...)}, nil
 	}
 	k, err := agents.AsNow(k)
 	if err != nil {
-		return port.Built{}, err
+		return Built{}, err
 	}
 	for _, d := range b.WriteDirs { // a dir a start lets the agent write (Codex's --add-dir) must be there
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return port.Built{}, err
+			return Built{}, err
 		}
 	}
 	kit := l.Kit
@@ -1092,7 +1113,7 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 		WriteDirs: b.WriteDirs, Dir: b.Dir, Root: l.Cfg.Root, Read: os.ReadFile, Env: l.envOrOS().Get,
 		Dirs: project.SubDirs, WriteState: project.StateWriter(l.Cfg.Root)}
 	var r agents.Launch
-	if bare {
+	if b.Bare {
 		r, err = agents.StartOf(k, in)
 	} else {
 		var overrides map[string]string
@@ -1101,9 +1122,9 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 		}
 	}
 	if err != nil {
-		return port.Built{}, err
+		return Built{}, err
 	}
-	return port.Built{Args: r.Args, Vars: r.Env, Session: session}, nil
+	return Built{Args: r.Args, Vars: r.Env, Session: session}, nil
 }
 
 func (l *Launcher) kill(pgid int, sig syscall.Signal) error {

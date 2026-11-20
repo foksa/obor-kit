@@ -40,7 +40,7 @@ from its panes' labels; a tab with a shell in it is no kind's. `--tab <id>` spli
 `--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<project.agent_prefix>-<lane lower>` (`<project.agent_prefix>-int`,
 `<project.agent_prefix>-rev`, `<project.agent_prefix>-lead`); Claude agents except leads start with Remote Control and auto memory off, on a settings file obor writes (`.obor/state/settings/<agent>.json`: the user's settings with the project's `.obor/claude/settings_override.json` merged over them; a lead keeps Remote Control, auto memory and the user's settings as they are).
 - `FAIL tab … holds the lead's pane` → drop `--tab`, or use `--new-tab <label>`.
-- `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
+- `FAIL start failed in <pane> (… Trust this folder? …)` → ask the user to answer the dialog in that pane (Enter = trust,
   once per repo). `… updated itself and exited …` → run the command the hint prints (`obor restart <agent> [--fresh] --pane <id>`,
   or `obor drive <T-xx>`).
 Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … already running`).

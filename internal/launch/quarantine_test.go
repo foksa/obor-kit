@@ -100,22 +100,29 @@ func TestLaunchRefusesQuarantinedCodex(t *testing.T) {
 	}
 }
 
-// the lead's start is not refused — the owner is at its screen, so the Gatekeeper dialog can be answered: it
-// warns with the same line and starts, for `obor lead` (setup's Start, the owner's own start) and for a restart.
+// the lead's start and the owner's drive agent's are not refused — the owner is at its screen, so the Gatekeeper
+// dialog can be answered: each warns with the same line and starts, in setup's form (NoStop: `obor setup role lead
+// --start` for obor lead, obor drive's start) and, for the lead, as a restart.
 func TestLaunchLeadWarnsQuarantinedCodex(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.Set("agents.roles", `{"integrator":"opus","lead":"luna","reviewer":"luna"}`))
 	x.install = quarantineHost("darwin", 0x0181)
 	const fix = "xattr -dr com.apple.quarantine /c/0.167.0"
 
-	// obor lead: cmd/obor/lead.go runs `obor setup role lead --start`, the starter's Start.
-	x.shell("w1:p8", "pj-lead", "")
-	var out bytes.Buffer
-	if err := x.launcher(&out).Start(context.Background(), launch.Start{Agent: "pj-lead", Kind: "codex", Pane: "w1:p8"}); err != nil {
-		t.Fatalf("obor lead with a quarantined codex: %v", err)
-	}
-	if !strings.Contains(out.String(), "warning: codex is quarantined:") || !strings.Contains(out.String(), fix) {
-		t.Errorf("obor lead's start, want the quarantine warning and %q:\n%s", fix, out.String())
+	for _, c := range []struct{ what, agent, pane, cwd, typ, prompt string }{
+		{"obor lead", "pj-lead", "w1:p8", "", "", ""},
+		{"obor drive", "pj-l-01-drive", "w1:p9", x.lane, "luna", "drive T-07"},
+	} {
+		x.shell(c.pane, c.agent, c.cwd)
+		var out bytes.Buffer
+		started, err := x.launcher(&out).Launch(context.Background(), launch.Request{Agent: c.agent, Fresh: true,
+			NoStop: true, Type: c.typ, Prompt: c.prompt})
+		if err != nil || started.Pane != c.pane || started.Kind != "codex" {
+			t.Fatalf("%s with a quarantined codex: %+v, %v\n%s", c.what, started, err, out.String())
+		}
+		if !strings.Contains(out.String(), "warning: codex is quarantined:") || !strings.Contains(out.String(), fix) {
+			t.Errorf("%s's start, want the quarantine warning and %q:\n%s", c.what, fix, out.String())
+		}
 	}
 
 	// obor restart pj-lead: the same warning, the start made.

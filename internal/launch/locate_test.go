@@ -255,7 +255,7 @@ func TestStartLostRaceIsRefused(t *testing.T) {
 	x.shell("w1:p3", "", x.lane)
 	x.wrap = func(h control) control { return raceStart{h, x} }
 	l := x.launcher(io.Discard)
-	err := l.Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3",
+	_, err := l.StartSeen(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3",
 		Args: []string{"--model", "opus"}})
 	var refused port.Refused
 	if !errors.As(err, &refused) {

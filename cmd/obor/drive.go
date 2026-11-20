@@ -127,7 +127,7 @@ func startDrive(ctx context.Context, cfg *config.Config, d wire.DriveReply, env 
 	}
 	cwd, _ := os.Getwd()
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, T: t.Setup, Out: out, McpCheck: mcp.Check,
-		Starter: launcherFor(env, kit, t.Control, out, nil)}
+		Launcher: launcherFor(env, kit, t.Control, out, nil)}
 	return s.StartDrive(ctx, setup.Drive{Task: d.Task, Agent: d.Agent, Lane: d.Lane, Cwd: dir, Type: typ, Effort: effort,
 		Prompt: drivePrompt(cfg, d)})
 }

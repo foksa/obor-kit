@@ -126,7 +126,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		if rc, _ := cfg.Role("lead"); rc.Type == "" {
 			return fail("roles.lead is not set (a model ref, e.g. <model>[:<effort>]): a new lead pane needs it")
 		}
-		s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: r.t.Setup, Out: r.out, Starter: launcherFor(r.env, r.kit, r.t.Control, r.out, r.tune)}
+		s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: r.t.Setup, Out: r.out, Launcher: launcherFor(r.env, r.kit, r.t.Control, r.out, r.tune)}
 		here, line, err := s.LeadHere(ctx)
 		if err != nil {
 			return launchResult(r.out, "", err)
