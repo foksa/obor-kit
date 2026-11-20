@@ -275,21 +275,28 @@ type TerminalSetup interface {
 	// c.Dry it closes nothing and says what it would. A pane or tab that is not the project's is never touched.
 	CloseProject(ctx context.Context, c CloseProject) ([]string, error)
 	// TakeLead makes the caller's pane (p.Pane) the lead's home when it qualifies: a pane of this terminal, at its
-	// shell (no agent runs in it), alone in its tab, and (herdr) in a group that holds no pane of another project.
-	// Taken, the pane is labelled p.Agent, its tab named lead and its group named after the project; not taken,
-	// nothing is touched and Line says why.
+	// shell (no agent runs in it; the command offering the pane, p.Caller, may hold its foreground), alone in its
+	// tab, and (herdr) in a group that holds no pane of another project. Taken, the pane is labelled p.Agent, its tab
+	// named lead and its group named after the project; not taken, nothing is touched and Line says why.
 	TakeLead(ctx context.Context, p LeadPane) (LeadTaken, error)
+	// LeadSpace readies the caller's group for the lead before anything is placed (obor init): when the pane
+	// qualifies as TakeLead would take it, the group placement uses is made the caller's (hc: the caller's space named
+	// after the project), so the project's panes go there and TakeLead takes the pane after them. Only the group is
+	// touched; Taken says the group is the caller's, Line what was done or why not.
+	LeadSpace(ctx context.Context, p LeadPane) (LeadTaken, error)
 }
 
-// LeadPane is the caller's pane offered as the lead's home (obor lead): its id, the lead's agent name and the
-// project.
+// LeadPane is the caller's pane offered as the lead's home (obor lead): its id, the lead's agent name, the project
+// and Caller, the process group of the command that offers it (0: none): a foreground of that group is that command
+// itself, which exits before the lead starts there, never another program.
 type LeadPane struct {
 	Pane, Agent string
 	Project     PlaceProject
+	Caller      int
 }
 
-// LeadTaken is TakeLead's outcome: whether the pane is now the lead's, and Line: what was done, or why the pane does
-// not qualify.
+// LeadTaken is TakeLead's (and LeadSpace's) outcome: whether the pane is now the lead's (the group the caller's), and
+// Line: what was done, or why the pane does not qualify.
 type LeadTaken struct {
 	Taken bool
 	Line  string

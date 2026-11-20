@@ -355,6 +355,12 @@ func (h *Setup) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken, 
 	return port.LeadTaken{Taken: true, Line: did}, nil
 }
 
+// LeadSpace touches nothing (port.TerminalSetup): placement takes the caller's workspace for the project by its panes'
+// cwd (projectWorkspace), the rule TakeLead checks, so there is nothing to ready before the panes are placed.
+func (h *Setup) LeadSpace(ctx context.Context, p port.LeadPane) (port.LeadTaken, error) {
+	return port.LeadTaken{Line: "herdr places the project's panes by their cwd"}, nil
+}
+
 // --- closing the project ----------------------------------------------------------------------------------------
 
 // CloseProject closes every labelled pane that is the project's (c.Ours): a pane with no label, or another project's,

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,18 +140,67 @@ func (cl *Client) adopt(ctx context.Context, recs []Record, pr port.PlaceProject
 	return n, nil
 }
 
-// TakeLead makes the caller's terminal p.Pane the lead's home (port.TerminalSetup) when it is a live terminal of this
-// core, at its shell (no agent reported, no program in the foreground), shown in a herdr-app tab and alone in it.
+// TakeLead makes the caller's terminal p.Pane the lead's home (port.TerminalSetup) when it qualifies (leadCaller).
 // Taken: labelled as Place labels a lead's terminal (the project, the lead's kind, p.Agent) and kept; its tab named
-// lead; its space named after the project unless another space already is (the project's tabs are there: not
-// taken). herdr-app closed (or no App): not taken, the tab cannot be read.
+// lead; its space named after the project.
 func (cl *Client) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken, error) {
-	no := func(format string, a ...any) (port.LeadTaken, error) {
-		return port.LeadTaken{Line: fmt.Sprintf(format, a...)}, nil
+	c, why, err := cl.leadCaller(ctx, p)
+	if err != nil || why != "" {
+		return port.LeadTaken{Line: why}, err
 	}
-	recs, err := cl.terminals(ctx)
+	labels := map[string]string{LabelProject: p.Project.Name, LabelPlace: string(port.KindLead), LabelAgent: p.Agent}
+	if err := cl.label(ctx, p.Pane, labels); err != nil {
+		return port.LeadTaken{}, err
+	}
+	if !c.me.Keep {
+		if err := cl.call(ctx, nil, "terminal.keep", map[string]any{"terminal": p.Pane, "keep": true}); err != nil {
+			return port.LeadTaken{}, err
+		}
+	}
+	if _, err := cl.App.RenameTab(ctx, c.tab, kindLabel(port.KindLead)); err != nil {
+		return port.LeadTaken{}, err
+	}
+	did := fmt.Sprintf("terminal %s labelled %s, tab %s named %s", p.Pane, p.Agent, c.tab, kindLabel(port.KindLead))
+	if line, err := cl.nameSpace(ctx, c.space, p.Project.Name); err != nil {
+		return port.LeadTaken{}, err
+	} else if line != "" {
+		did += ", " + line
+	}
+	return port.LeadTaken{Taken: true, Line: did}, nil
+}
+
+// LeadSpace makes the caller's space the project's before anything is placed (port.TerminalSetup) when the caller's
+// terminal qualifies (leadCaller): named after the project, so Place's EnsureSpace finds it and puts the project's
+// tabs there. The terminal and its tab are not touched.
+func (cl *Client) LeadSpace(ctx context.Context, p port.LeadPane) (port.LeadTaken, error) {
+	c, why, err := cl.leadCaller(ctx, p)
+	if err != nil || why != "" {
+		return port.LeadTaken{Line: why}, err
+	}
+	line, err := cl.nameSpace(ctx, c.space, p.Project.Name)
 	if err != nil {
 		return port.LeadTaken{}, err
+	}
+	return port.LeadTaken{Taken: true, Line: cmp.Or(line, fmt.Sprintf("space %s is the project's", c.space.Name))}, nil
+}
+
+// caller is the caller's terminal that qualifies as the lead's home: its record, its tab and its space.
+type caller struct {
+	me    Record
+	tab   string
+	space herdrapp.Space
+}
+
+// leadCaller is the caller's terminal p.Pane when it qualifies as the lead's home, else why it does not: a live
+// terminal of this core with no agent reported and nothing in the foreground but its shell or the command offering it
+// (p.Caller's process group: it exits before the lead starts), shown in a herdr-app tab and alone in it, in a space of
+// this computer that holds no terminal of another project, while no other space is named after the project (the
+// project's tabs are there). herdr-app closed (or no App): not qualified, the tab cannot be read.
+func (cl *Client) leadCaller(ctx context.Context, p port.LeadPane) (caller, string, error) {
+	no := func(format string, a ...any) (caller, string, error) { return caller{}, fmt.Sprintf(format, a...), nil }
+	recs, err := cl.terminals(ctx)
+	if err != nil {
+		return caller{}, "", err
 	}
 	var me *Record
 	for i := range recs {
@@ -161,8 +211,10 @@ func (cl *Client) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken
 	switch {
 	case me == nil:
 		return no("terminal %s is not a live terminal of this hc", p.Pane)
-	case me.Status != nil || me.programRuns():
-		return no("terminal %s runs a program", p.Pane)
+	case me.Status != nil:
+		return no("terminal %s runs an agent (%s)", p.Pane, cmp.Or(me.Status.App, me.Status.State))
+	case me.programRuns() && (p.Caller == 0 || me.Foreground.PID != p.Caller):
+		return no("terminal %s runs a program (%s)", p.Pane, cmp.Or(me.Foreground.Name, strconv.Itoa(me.Foreground.PID)))
 	case me.Labels[herdrapp.LabelTab] == "":
 		return no("terminal %s is in no herdr-app tab", p.Pane)
 	case cl.App == nil:
@@ -172,12 +224,18 @@ func (cl *Client) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken
 	if n := len(inTab(recs, tab)); n > 1 {
 		return no("terminal %s shares its tab with %d other terminal(s)", p.Pane, n-1)
 	}
+	for _, r := range recs {
+		if pr := r.Labels[LabelProject]; r.Labels[herdrapp.LabelSpace] == me.Labels[herdrapp.LabelSpace] && pr != "" &&
+			pr != p.Project.Name {
+			return no("its space holds terminal %s of another project (%s)", r.Address, pr)
+		}
+	}
 	spaces, err := cl.App.Spaces(ctx)
 	switch {
 	case port.NotRunning(err):
 		return no("herdr-app is not running: its tab cannot be named")
 	case err != nil:
-		return port.LeadTaken{}, err
+		return caller{}, "", err
 	}
 	var mine *herdrapp.Space
 	for i, s := range spaces {
@@ -193,26 +251,18 @@ func (cl *Client) TakeLead(ctx context.Context, p port.LeadPane) (port.LeadTaken
 			return no("the %s space is another than this terminal's (%s)", p.Project.Name, mine.Name)
 		}
 	}
-	labels := map[string]string{LabelProject: p.Project.Name, LabelPlace: string(port.KindLead), LabelAgent: p.Agent}
-	if err := cl.label(ctx, p.Pane, labels); err != nil {
-		return port.LeadTaken{}, err
+	return caller{me: *me, tab: tab, space: *mine}, "", nil
+}
+
+// nameSpace names space sp name unless it is named so: what it did ("" when nothing).
+func (cl *Client) nameSpace(ctx context.Context, sp herdrapp.Space, name string) (string, error) {
+	if sp.Name == name {
+		return "", nil
 	}
-	if !me.Keep {
-		if err := cl.call(ctx, nil, "terminal.keep", map[string]any{"terminal": p.Pane, "keep": true}); err != nil {
-			return port.LeadTaken{}, err
-		}
+	if err := cl.App.NameSpace(ctx, sp.ID, name); err != nil {
+		return "", err
 	}
-	if _, err := cl.App.RenameTab(ctx, tab, kindLabel(port.KindLead)); err != nil {
-		return port.LeadTaken{}, err
-	}
-	did := fmt.Sprintf("terminal %s labelled %s, tab %s named %s", p.Pane, p.Agent, tab, kindLabel(port.KindLead))
-	if mine.Name != p.Project.Name {
-		if err := cl.App.NameSpace(ctx, mine.ID, p.Project.Name); err != nil {
-			return port.LeadTaken{}, err
-		}
-		did += fmt.Sprintf(", space %s named %s", mine.Name, p.Project.Name)
-	}
-	return port.LeadTaken{Taken: true, Line: did}, nil
+	return fmt.Sprintf("space %s named %s", sp.Name, name), nil
 }
 
 // errNoApp is spot's error for a client with no App: no window, as with herdr-app closed.

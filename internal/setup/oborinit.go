@@ -16,6 +16,10 @@ package setup
 //	           with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
+//	space      the caller's pane, decided before any pane is placed: when it qualifies as the lead's (no OBOR_ROLE,
+//	           TakeLead's rules, the obor command itself in its foreground), the terminal readies its group for the
+//	           project (port.TerminalSetup.LeadSpace; hc: the caller's space named after the project), so the panes
+//	           go there and the lead's start takes the pane; listed only when it did something.
 //	setup      setup.confirmed: false when the config has no key: the models, effort and lanes obor init left
 //	           are a starting point the lead goes through with the owner at its first session.
 //	projects   the project in the machine's list of obor projects by name (project.Register): obor send <name>
@@ -158,6 +162,14 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Name(), s.cfg.Prefix())
+
+	// the caller's pane, decided before any pane is placed: when it qualifies as the lead's, the panes go to its
+	// group (hc: its space, named after the project) and the lead's start takes it
+	if line, err := s.initLeadSpace(ctx); err != nil {
+		return err
+	} else if line != "" {
+		add("space", "done", "%s", line)
+	}
 
 	// setup: models, effort and difficulty are a starting point until the lead confirms them with the owner.
 	confirmed, err := s.initConfirmed()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"obor/internal/app/port"
@@ -120,7 +121,8 @@ func TestLeadNewTabWhenTheCallersPaneDoesNotQualify(t *testing.T) {
 }
 
 // hcCaller is an hc project whose caller sits in terminal addr (HC_TERMINAL_ID), a shell herdr-app started in the
-// project root in tab tb of space "work", the obor lead at its prompt.
+// project root in tab tb1 of space "work", obor lead in its foreground: this test process's own process group, as a
+// shell runs a typed command (docs/research/hc-probes.md P9).
 type hcCaller struct {
 	*leadFx
 	core *hctest.Core
@@ -138,6 +140,7 @@ func newHCCaller(t *testing.T) *hcCaller {
 	k.cl.App = k.app.Client()
 	k.app.AddSpace(herdrapptest.Space{ID: "sp1", Name: "work", Folder: x.p.Root, Tabs: []herdrapptest.Tab{{ID: "tb1", Name: "1"}}})
 	k.addr = k.core.AppTerminals(false)("sp1", "tb1", x.p.Root)
+	k.core.SetForeground(k.addr, hc.Foreground{PID: syscall.Getpgrp(), Name: "obor", Argv: []string{"obor", "lead"}, Cwd: x.p.Root})
 	x.env = []string{"HC_TERMINAL_ID=" + k.addr}
 	return k
 }
@@ -171,6 +174,9 @@ func TestLeadTakesTheCallersHCTerminal(t *testing.T) {
 	if l := k.core.Labels(k.addr); l[hc.LabelAgent] != "" || len(k.app.Spaces()) != 1 {
 		t.Fatalf("precondition: an unlabelled terminal in the one space, got %v, %d spaces", l, len(k.app.Spaces()))
 	}
+	if r := k.core.Live()[0]; r.Foreground == nil || r.Foreground.PID == r.PID {
+		t.Fatalf("precondition: obor lead, not the shell, in the caller's foreground: %+v", r)
+	}
 	out, rc := k.run(t)
 	want := "STARTING pj-lead in this pane (" + k.addr + ") once obor lead exits"
 	if rc != 0 || lastLine(out) != want {
@@ -193,6 +199,31 @@ func TestLeadTakesTheCallersHCTerminal(t *testing.T) {
 	}
 	if n := len(k.core.Live()); n != 1 {
 		t.Errorf("%d live terminals, want the caller's alone (no new tab's)", n)
+	}
+}
+
+// An hc terminal whose foreground is another program than obor lead (an editor) stays as it is: the lead gets a new
+// lead tab, the caller's terminal and tab untouched.
+func TestLeadNewTabWhenTheCallersHCTerminalRunsAProgram(t *testing.T) {
+	t.Parallel()
+	k := newHCCaller(t)
+	k.core.SetForeground(k.addr, hc.Foreground{PID: 99999, Name: "vim", Argv: []string{"vim"}, Cwd: k.p.Root})
+	k.core.Program("claude", &hc.Status{State: "idle", App: "claude-code"})
+	out, rc := k.run(t)
+	if rc != 0 || !strings.HasPrefix(lastLine(out), "OK pj-lead runs in space proj, tab lead (pane ") {
+		t.Fatalf("exit %d, want the lead in a new tab:\n%s", rc, out)
+	}
+	if !strings.Contains(out, "this pane stays as it is: terminal "+k.addr+" runs a program (vim)") {
+		t.Errorf("no line saying why the terminal stays:\n%s", out)
+	}
+	if l := k.core.Labels(k.addr); l[hc.LabelAgent] != "" || l[hc.LabelProject] != "" {
+		t.Errorf("terminal %s labels %v: want it untouched", k.addr, l)
+	}
+	if got := k.tabName("tb1"); got != "1" {
+		t.Errorf("tab tb1 named %q, want it untouched", got)
+	}
+	if len(k.spawn) != 0 {
+		t.Errorf("detached runs %v, want none", k.spawn)
 	}
 }
 

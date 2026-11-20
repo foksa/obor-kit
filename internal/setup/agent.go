@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"obor/internal/agents"
@@ -214,22 +215,49 @@ func (s *Setup) LeadHere(ctx context.Context) (string, string, error) {
 	if err := s.load(); err != nil {
 		return "", "", err
 	}
-	if role := s.Env.Get(agents.RoleVar); role != "" {
-		return "", "this pane is a " + role + "'s (" + agents.RoleVar + " is set)", nil
+	p, why := s.leadPane()
+	if why != "" {
+		return "", why, nil
 	}
-	pane, err := project.PaneOf(s.cfg, s.Env)
-	if err != nil {
-		return "", "this shell runs in no pane of terminal " + s.cfg.TerminalKind(), nil
-	}
-	t, err := s.T.TakeLead(ctx, port.LeadPane{Pane: pane, Agent: s.cfg.AgentName("lead", ""),
-		Project: PlaceProjectOf(s.cfg, s.root)})
+	t, err := s.T.TakeLead(ctx, p)
 	if err != nil {
 		return "", "", err
 	}
 	if !t.Taken {
 		return "", t.Line, nil
 	}
-	return pane, t.Line, nil
+	return p.Pane, t.Line, nil
+}
+
+// leadPane is the caller's pane as offered to the lead (port.LeadPane, Caller this process's group: the obor command
+// holding the pane's foreground), or why it is not offered: the caller is an agent (OBOR_ROLE), or it runs in no pane
+// of the project's terminal (project.PaneOf).
+func (s *Setup) leadPane() (port.LeadPane, string) {
+	if role := s.Env.Get(agents.RoleVar); role != "" {
+		return port.LeadPane{}, "this pane is a " + role + "'s (" + agents.RoleVar + " is set)"
+	}
+	pane, err := project.PaneOf(s.cfg, s.Env)
+	if err != nil {
+		return port.LeadPane{}, "this shell runs in no pane of terminal " + s.cfg.TerminalKind()
+	}
+	return port.LeadPane{Pane: pane, Agent: s.cfg.AgentName("lead", ""), Project: PlaceProjectOf(s.cfg, s.root),
+		Caller: syscall.Getpgrp()}, ""
+}
+
+// initLeadSpace is obor init's decision on the caller's pane, made before any pane is placed: when the pane qualifies
+// as the lead's (leadPane, port.TerminalSetup.LeadSpace), the terminal readies its group for the project (hc: the
+// caller's space named after it), so the lanes and roles are placed there and the lead's start takes the pane. What
+// it did, "" when nothing.
+func (s *Setup) initLeadSpace(ctx context.Context) (string, error) {
+	p, why := s.leadPane()
+	if why != "" {
+		return "", nil
+	}
+	t, err := s.T.LeadSpace(ctx, p)
+	if err != nil || !t.Taken {
+		return "", err
+	}
+	return t.Line, nil
 }
 
 // copyFile copies src to rel under the root unless rel exists.
