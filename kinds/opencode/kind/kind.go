@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -143,8 +144,13 @@ func describe() map[string]any {
 	}
 }
 
-// start: the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to obor's plugin),
-// then --prompt <prompt> (OpenCode has no resume, so a resume adds nothing). Env: ConfigVar, the path of the start's
+// FixedArgs are the flags every start of this kind carries: --auto (permissions granted) and --standalone (the TUI's own
+// server, with the pane's env and cwd: a shared background server would run the agent's commands elsewhere).
+var FixedArgs = []string{"--auto", "--standalone"}
+
+// start: FixedArgs, then the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to
+// obor's plugin) and but a FixedArgs flag they repeat, then --prompt <prompt> (OpenCode has no resume, so a resume adds
+// nothing). Env: ConfigVar, the path of the start's
 // generated config (Config of the kit; on a start that trims the user's settings with the override file: Overridden;
 // no kit: none), and ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
@@ -155,7 +161,13 @@ func describe() map[string]any {
 // first turn (a live probe). obor never guesses a model: args without --model set none, so OpenCode's own choice
 // stands, and an effort on them is the start's error.
 func start(in request) map[string]any {
-	args, model := splitModel(in.Args)
+	rest, model := splitModel(in.Args)
+	args := slices.Clone(FixedArgs)
+	for _, a := range rest {
+		if !slices.Contains(FixedArgs, a) {
+			args = append(args, a)
+		}
+	}
 	if in.Effort != "" && model == "" {
 		return map[string]any{"error": fmt.Sprintf("effort %s needs a model id (models.<name>.model, provider/model)",
 			in.Effort)}

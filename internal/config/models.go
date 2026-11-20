@@ -34,19 +34,19 @@ var BuiltinModels = []BuiltinModel{
 	{"luna", "codex", "gpt-6-luna"},
 }
 
-// KindBaseArgs are the args every start of a kind begins with (kinds.<kind>.args are appended after the model).
-// Codex's --no-daemon: its shared background server would give the MCP server and hooks the daemon's env and cwd, not
-// the lane's.
+// KindBaseArgs are the args every start of a compiled kind begins with (kinds.<kind>.args are appended after the
+// model). Codex's --no-daemon: its shared background server would give the MCP server and hooks the daemon's env and
+// cwd, not the lane's. A plugin kind's start adds its own fixed flags (docs/agents/kind-protocol.md).
 var KindBaseArgs = map[string][]string{
-	"claude":   {"--permission-mode", "auto"},
-	"codex":    {"-s", "workspace-write", "-a", "never", "--no-daemon"},
-	"opencode": {"--auto", "--standalone"},
+	"claude": {"--permission-mode", "auto"},
+	"codex":  {"-s", "workspace-write", "-a", "never", "--no-daemon"},
 }
 
-// HCRequiredArgs are the flags a kind's start must carry on an hc project (project.terminal "hc"), by kind: each turns
-// off the kind's shared background server, whose commands would run outside the agent's hc terminal with another env
-// and cwd (docs/research/hc-probes.md P1). KindBaseArgs carries both; obor config validate refuses a model without.
-var HCRequiredArgs = map[string]string{"codex": "--no-daemon", "opencode": "--standalone"}
+// HCRequiredArgs are the flags a compiled kind's start must carry on an hc project (project.terminal "hc"), by kind:
+// each turns off the kind's shared background server, whose commands would run outside the agent's hc terminal with
+// another env and cwd (docs/research/hc-probes.md P1). KindBaseArgs carries it; obor config validate refuses a model
+// without.
+var HCRequiredArgs = map[string]string{"codex": "--no-daemon"}
 
 // KindEntry is agents.kinds.<kind>: Args are extra args for every start of that CLI, JobNote the text added to every
 // work job an agent of that kind gets. Plugin makes it a plugin kind: the executable answering obor's kind

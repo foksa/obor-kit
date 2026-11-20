@@ -78,6 +78,8 @@ The compiled kinds get three Go functions; a process gets data instead.
    with its path.
 3. **Whether a lane's start gets obor's MCP server** (`MCPRegistration.Lane`): the manifest's `mcp_lane`.
 
+A kind's `start` owns its own fixed flags: it puts them in the `args` it returns; obor's tables hold none for a plugin kind.
+
 Every variable in `env` must be among the manifest's `vars` (`agents.Vars`: a start unsets every registry var
 it does not set).
 

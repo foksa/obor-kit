@@ -251,7 +251,7 @@ func (v *validator) models() {
 	for _, k := range a.Models.Keys {
 		e := a.Models.M[k]
 		if _, isBuiltin := BuiltinModelNamed(k); e.Kind == "" && !isBuiltin {
-			v.fail(".agents.models"+key(k)+".kind", "required (claude, codex, opencode)")
+			v.fail(".agents.models"+key(k)+".kind", "required ("+strings.Join(agents.Names(), ", ")+")")
 			continue
 		}
 		if e.Kind != "" {
@@ -690,11 +690,11 @@ func (c *Config) warnings(o ValidateOptions) []string {
 			}
 		}
 	}
-	for _, name := range c.ModelNames() { // opencode's own default model may refuse requests, and effort needs one
+	for _, name := range c.ModelNames() { // a kind's own default model may refuse requests, and effort needs one
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
-			out = append(out, "WARN agents.models."+name+": opencode model without a model id (opencode's own default "+
-				"may not work, and an effort needs one): set its \"id\", e.g. \"opencode-go/deepseek-v4.1-flash\"")
+			out = append(out, "WARN agents.models."+name+": "+m.Kind+" model without a model id (the kind's own default "+
+				"may not work, and an effort needs one): set its \"id\"")
 		}
 	}
 	return out

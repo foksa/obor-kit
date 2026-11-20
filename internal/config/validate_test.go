@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,10 +95,10 @@ func TestValidate(t *testing.T) {
 		{name: "every supported kind is accepted", edits: []edit{
 			set("agents.models.a", map[string]any{"kind": "claude", "id": "a"}), set("agents.models.b", map[string]any{"kind": "codex", "id": "b"}),
 			set("agents.models.c", map[string]any{"kind": "opencode", "id": "go/ds"})}},
-		// a used opencode model without a model id warns (not fails): opencode's own default may not work.
+		// a used opencode model without a model id warns (not fails): the kind's own default may not work.
 		{name: "a used opencode model without a model id warns", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}), set("agents.difficulty.simple", []any{"oc"})},
-			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`}},
+			want: []string{`WARN agents.models.oc: opencode model without a model id (the kind's own default may not work, and an effort needs one): set its "id"`}},
 		{name: "an unused opencode model without a model id is fine", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""})}},
 		// a kit kind's binary is the default (no FAIL for a missing plugin): a config that uses OpenCode (the
@@ -140,7 +141,7 @@ func TestValidate(t *testing.T) {
 		{name: "an opencode effort needs the model's id", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}),
 			set("agents.difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
-			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`,
+			want: []string{`WARN agents.models.oc: opencode model without a model id (the kind's own default may not work, and an effort needs one): set its "id"`,
 				`FAIL .agents.difficulty.hard[1]: oc:high: kind opencode: start: effort high needs a model id (models.<name>.model, provider/model)`}},
 		{name: "difficulty with an unknown model and an effort", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"ghost:high"}})},
 			want: []string{`FAIL .agents.difficulty.hard[0]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
@@ -197,7 +198,7 @@ func TestValidate(t *testing.T) {
 		{name: "workflow unknown kind", edits: []edit{set("merge.workflow", "x")},
 			want: []string{`FAIL .merge.workflow: must be one of scratch-ff, got "x"`}},
 		{name: "terminal herdr", edits: []edit{set("project.terminal", "herdr")}},
-		// hc: every built-in codex and opencode model starts with its kind's flag (HCRequiredArgs), so none is refused.
+		// hc: every built-in codex model starts with its kind's flag (HCRequiredArgs), so none is refused.
 		{name: "terminal hc", edits: []edit{set("project.terminal", "hc")}},
 		{name: "terminal unknown kind", edits: []edit{set("project.terminal", "x")},
 			want: []string{`FAIL .project.terminal: must be one of herdr, hc, got "x"`}},
@@ -563,6 +564,39 @@ func TestPluginKind(t *testing.T) {
 	}
 }
 
+// the model-id WARN names the model's own kind, for a plugin kind other than OpenCode too (its manifest's model_arg),
+// and the "kind required" FAIL lists the registered kinds, the plugin kind among them.
+func TestValidateModelArgWarnNamesItsKind(t *testing.T) {
+	p := newPlainProject(t)
+	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
+	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncat >/dev/null\necho '{\"version\":1,\"name\":\"mine\",\"status\":\"hooks\"," +
+		"\"caps\":{\"model_arg\":true},\"stop\":{\"quit\":\"/q\"}}'\n"
+	if err := os.WriteFile(cmd, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := []edit{set("agents.kinds.mine", map[string]any{"plugin": "kinds/obor-kind-mine"}),
+		set("agents.models.m1", map[string]any{"kind": "mine", "id": ""})}
+	if _, err := plugin.Cache("mine", cmd, filepath.Join(p.Root, ".obor", "state")); err != nil { // obor setup agents
+		t.Fatal(err)
+	}
+	if got := validate(t, p, mine...); len(got) != 0 {
+		t.Fatalf("precondition: an unused model of a model_arg plugin kind validates %q, want OK", got)
+	}
+	got := validate(t, p, append(mine, set("agents.difficulty.simple", []any{"m1"}))...)
+	want := []string{`WARN agents.models.m1: mine model without a model id (the kind's own default may not work, and an ` +
+		`effort needs one): set its "id"`}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("a used model of kind mine without an id: %q, want %q", got, want)
+	}
+	got = validate(t, p, append(mine, set("agents.models.m2", map[string]any{"id": "x"}))...)
+	if want := "FAIL .agents.models.m2.kind: required (claude, codex, mine, opencode)"; !slices.Contains(got, want) {
+		t.Errorf("a model without a kind: %q, want the line %q (the registered kinds, mine among them)", got, want)
+	}
+}
+
 // TestPluginKindEffortsFromDescribe: validate checks a role's and a difficulty level's effort on a
 // plugin kind against the manifest its describe just answered: with no cached manifest (before obor setup agents), and
 // with a stale one (the command since added the effort), the effort is taken; one the manifest lacks still fails.
@@ -754,9 +788,8 @@ func TestReloadLineNamesLeadModelKind(t *testing.T) {
 	}
 }
 
-// On an hc project a codex or opencode model whose start lacks the kind's flag (Codex --no-daemon, OpenCode
-// --standalone) is refused, one line per model; the same config on herdr passes. Not parallel: it takes the flags out of
-// config.KindBaseArgs for its run.
+// On an hc project a codex model whose start lacks the kind's flag (Codex --no-daemon) is refused, one line per model;
+// the same config on herdr passes. Not parallel: it takes the flags out of config.KindBaseArgs for its run.
 func TestValidateHCRequiresNoSharedServer(t *testing.T) {
 	saved := map[string][]string{}
 	for kind, flag := range config.HCRequiredArgs {
@@ -787,7 +820,7 @@ func TestValidateHCRequiresNoSharedServer(t *testing.T) {
 		}
 	}
 	if len(want) < 2 {
-		t.Fatalf("precondition: the built-in models hold %d codex/opencode models, want one of each at least", len(want))
+		t.Fatalf("precondition: the built-in models hold %d models with an hc-required flag, want two at least", len(want))
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("validate on hc = %q\nwant %q", got, want)

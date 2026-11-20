@@ -23,7 +23,7 @@ func TestBuiltinModelsResolve(t *testing.T) {
 		"sonnet":   {"claude", "sonnet", []string{"--permission-mode", "auto", "--model", "sonnet"}},
 		"haiku":    {"claude", "haiku", []string{"--permission-mode", "auto", "--model", "haiku"}},
 		"fable":    {"claude", "fable", []string{"--permission-mode", "auto", "--model", "fable"}},
-		"deepseek": {"opencode", "opencode-go/deepseek-v4.1-flash", []string{"--auto", "--standalone", "--model", "opencode-go/deepseek-v4.1-flash"}},
+		"deepseek": {"opencode", "opencode-go/deepseek-v4.1-flash", []string{"--model", "opencode-go/deepseek-v4.1-flash"}},
 		"terra":    {"codex", "gpt-6.1-terra", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-terra"}},
 		"sol":      {"codex", "gpt-6.1-sol", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-sol"}},
 		"luna":     {"codex", "gpt-6-luna", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6-luna"}},
@@ -143,8 +143,8 @@ func TestModelsOverride(t *testing.T) {
 		args           []string
 	}{
 		{"opus", "claude", "claude-opus-5-5", []string{"--permission-mode", "auto", "--model", "claude-opus-5-5"}},
-		{"muse", "opencode", "", []string{"--auto", "--standalone"}},
-		{"deepseek", "opencode", "opencode-go/kimi", []string{"--auto", "--standalone", "--model", "opencode-go/kimi"}},
+		{"muse", "opencode", "", []string{}},
+		{"deepseek", "opencode", "opencode-go/kimi", []string{"--model", "opencode-go/kimi"}},
 		{"gem", "codex", "gpt-x", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-x"}},
 	} {
 		m, ok := c.Model(tc.name)

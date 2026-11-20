@@ -186,8 +186,8 @@ func TestStartArgsTable(t *testing.T) {
 		{"Codex: its own registration, prompt last", "codex", []string{"-a", "never"}, prompt, slices.Concat(codexReg, []string{prompt})},
 		{"Codex, no prompt: still registered", "codex", []string{"-a", "never"}, "", codexReg},
 		{"OpenCode: --prompt, no registration", "opencode", []string{"--auto"}, prompt,
-			[]string{"--auto", "--prompt", prompt}},
-		{"OpenCode resume", "opencode", []string{"--auto"}, "", []string{"--auto"}},
+			[]string{"--auto", "--standalone", "--prompt", prompt}},
+		{"OpenCode resume", "opencode", []string{"--auto"}, "", []string{"--auto", "--standalone"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
