@@ -133,7 +133,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 
 	// project
 	existed := s.configExists()
-	if !existed && prefix == "" {
+	if prefix == "" && !s.configHasPrefix() {
 		prefix = uniquePrefix(defaultPrefix(nameOr(name, s.root)), running)
 	}
 	s.wrote = false
@@ -833,4 +833,11 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		}
 	}
 	return doneOr(changed), project.PluginSettings + " is untracked: in lanes.links, linked into the lanes and, as each is made, the role worktrees (commit it to share it by git instead)", nil
+}
+
+// configHasPrefix: the config init finds sets project.agent_prefix (a new config, or one this obor cannot read, has none
+// to keep).
+func (s *Setup) configHasPrefix() bool {
+	cfg, err := config.Load(s.root)
+	return err == nil && cfg.Prefix() != ""
 }

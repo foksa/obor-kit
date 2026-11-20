@@ -52,6 +52,9 @@ func (s *Setup) initProject(name, prefix string) error {
 	if err := s.writeConfig(name, prefix); err != nil {
 		return err
 	}
+	if err := s.fillProject(name, prefix); err != nil {
+		return err
+	}
 	if err := s.load(); err != nil {
 		return err
 	}
@@ -409,4 +412,26 @@ func writeJSON(path string, doc []byte) error {
 		return err
 	}
 	return project.WriteAtomic(path, b)
+}
+
+// fillProject writes the project keys a config init finds lacks (writeConfig writes both into a new one): project.name
+// and project.agent_prefix, each from the arguments as for a new config. A key the config has is kept.
+func (s *Setup) fillProject(name, prefix string) error {
+	cfg, err := config.Load(s.root)
+	if err != nil {
+		return project.Failf("%v", err)
+	}
+	if cfg.Prefix() == "" {
+		if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.SetProjectPrefix(doc, prefix) }); err != nil {
+			return err
+		}
+		s.wrote = true
+	}
+	if cfg.Name() == "" {
+		if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.SetProjectName(doc, name) }); err != nil {
+			return err
+		}
+		s.wrote = true
+	}
+	return nil
 }

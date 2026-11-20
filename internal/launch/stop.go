@@ -27,7 +27,7 @@ const StopBound = port.StopBound
 // No session check, no start. Returns the STOPPED line.
 func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
 	if !config.AgentNameRE.MatchString(agent) {
-		return "", project.Failf("bad agent name %q", agent)
+		return "", project.Failf("%s", config.BadAgentName(l.Cfg, agent))
 	}
 	waited, err := l.waitScheduled(ctx, agent, pane)
 	if err != nil {
