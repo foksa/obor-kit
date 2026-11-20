@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -673,6 +674,8 @@ loop:
 		}
 	case "sed":
 		s.sed(W, k)
+	case "hc", "herdr-app":
+		g.terminalCLI(name, W[k+1:])
 	default:
 		if kind, ok := agents.ByProgram(name); ok {
 			// a plugin kind with no manifest has no headless forms to check: its program is denied
@@ -682,6 +685,34 @@ loop:
 			}
 			headless(kind.Headless(), name, W[k+1:])
 		}
+	}
+}
+
+// hcWrites are the hc verbs that create, end, type into or relabel terminals, or run or update the core (`hc --help`):
+// terminalCLI denies them.
+var hcWrites = []string{"run", "kill", "rm", "send", "keys", "interrupt", "label", "attach", "server", "update"}
+
+// terminalCLI: in every agent's session but the lead's (restricted), the hc and herdr-app commands that make, end, type
+// into or relabel terminals are denied: hc's verbs of hcWrites, a bare `hc` (it attaches) and `herdr-app do` (any
+// window command). Any terminal of the session is reachable from inside one, so they are a way around dispatch and the
+// role's write limits. Reads stay allowed: hc ls, get, read, wait, schema, events, an option alone (--version), any
+// --help; herdr-app ls, status, commands.
+func (g *guard) terminalCLI(name string, args []string) {
+	if !g.restricted || slices.Contains(args, "--help") || slices.Contains(args, "-h") {
+		return
+	}
+	verb := subcommand(args, nil)
+	switch {
+	case name == "hc" && (len(args) == 0 || slices.Contains(hcWrites, verb)):
+		what := "hc " + verb
+		if verb == "" {
+			what = "hc (it attaches to a terminal)"
+		}
+		deny(what + " creates, ends, types into or relabels terminals — a way around dispatch and the " + g.role +
+			"'s write limits; only the lead drives terminals (reads are fine: hc ls, get, read, wait, schema, --help)")
+	case name == "herdr-app" && verb == "do":
+		deny("herdr-app do runs a window command (spaces, tabs, terminals) — a way around dispatch and the " + g.role +
+			"'s write limits; only the lead drives the window (reads are fine: herdr-app ls, status, commands, --help)")
 	}
 }
 

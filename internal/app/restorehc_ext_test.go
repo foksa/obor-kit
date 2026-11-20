@@ -273,3 +273,41 @@ func TestServeOnHCRecordsACreatedPanesRun(t *testing.T) {
 		r.restored("serve's first connect, the created pane's pid changed", "t4")
 	})
 }
+
+// A terminal kind change (project.terminal, read at serve's start) drops the records serve kept for the old terminal:
+// at the first connect under the new kind its instance and panes' runs are removed (the new terminal's are recorded
+// after), so a pane whose run differs from
+// the old record restores nothing (the same change under one kind restores it: TestServeOnHCFirstConnect), the log
+// says so once, and terminal-kind names the new kind; the next serve under that kind drops nothing.
+func TestServeKindChangeDropsTheOldTerminalsRecords(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newHCRig(t) // its config names no terminal: herdr's records
+		r.start()
+		r.stop()
+		b, err := os.ReadFile(app.KindFile(r.root))
+		runs, rerr := os.ReadFile(app.RunsFile(r.root))
+		if err != nil || string(b) != "herdr\n" || rerr != nil || !strings.Contains(string(runs), `"t2":"41002"`) {
+			t.Fatalf("precondition: kind %q (%v), runs %s (%v); want herdr and t2's run", b, err, runs, rerr)
+		}
+		write(t, app.InstanceFile(r.root), "2026-11-20T10:00:00.123456789Z\n")
+		write(t, filepath.Join(r.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","terminal":"hc"}}`)
+		r.shells("t2")
+		r.start()
+		r.noRestore("the first connect after the kind change")
+		if !strings.Contains(r.out.String(), "terminal: the project's terminal is hc, its records were herdr's") {
+			t.Errorf("no line for the kind change:\n%s", r.out)
+		}
+		if b, err := os.ReadFile(app.KindFile(r.root)); err != nil || string(b) != "hc\n" {
+			t.Errorf("terminal-kind = %q, %v; want hc", b, err)
+		}
+		if b, err := os.ReadFile(app.InstanceFile(r.root)); err != nil || strings.Contains(string(b), "2026-11-20") {
+			t.Errorf("terminal-instance = %q, %v; want the old terminal's dropped (the new one's recorded)", b, err)
+		}
+		r.stop()
+		r.start()
+		if n := strings.Count(r.out.String(), "its records were"); n != 0 {
+			t.Errorf("the next serve under hc dropped records again (%d lines):\n%s", n, r.out)
+		}
+	})
+}

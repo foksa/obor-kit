@@ -15,6 +15,7 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -88,6 +89,53 @@ func RunsFile(root string) string {
 	return filepath.Join(project.StateDir(root), "terminal-runs")
 }
 
+// KindFile is where serve keeps the terminal kind (config.TerminalKind) its InstanceFile and RunsFile belong to:
+// <root>/.obor/state/terminal-kind, one line. None: herdr's, the one kind there was before it was kept.
+func KindFile(root string) string {
+	return filepath.Join(project.StateDir(root), "terminal-kind")
+}
+
+// dropOtherKind runs at serve's first connect, before the records are read: when the project's terminal kind (read at
+// serve's start) is another than the one its records belong to (KindFile), the old terminal's instance and panes' runs
+// are removed, so neither restores nor skips anything on the new terminal and serve watches it afresh; then KindFile
+// names the project's kind. The identity table's start rows name the old terminal's pane and terminal ids, which no
+// pane of the new one has (herdr's wN:pN and term_…, hc's tN), so every agent is identified afresh by its label and
+// session; each agent's next start replaces its row.
+func (a *App) dropOtherKind() {
+	a.mu.Lock()
+	kind := ""
+	if a.p != nil {
+		kind = a.p.terminal
+	}
+	a.mu.Unlock()
+	if kind == "" {
+		return
+	}
+	was := config.DefaultTerminal
+	b, err := os.ReadFile(KindFile(a.opt.Root))
+	switch {
+	case err == nil:
+		was = strings.TrimSpace(string(b))
+	case !errors.Is(err, os.ErrNotExist):
+		a.logf("terminal: %v: read as %s's records", err, was)
+	}
+	if was != kind {
+		for _, f := range []string{InstanceFile(a.opt.Root), legacyInstanceFile(a.opt.Root), RunsFile(a.opt.Root)} {
+			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+				a.logf("terminal: %s's record %s not removed: %v", was, filepath.Base(f), err)
+			}
+		}
+		a.logf("terminal: the project's terminal is %s, its records were %s's: the old terminal's instance and panes' runs "+
+			"dropped, its panes identified afresh", kind, was)
+	}
+	if err == nil && was == kind {
+		return
+	}
+	if err := project.WriteAtomic(KindFile(a.opt.Root), []byte(kind+"\n")); err != nil {
+		a.logf("terminal: kind not recorded: %v", err)
+	}
+}
+
 // legacyInstanceFile is where serve kept it under the name that named herdr: a serve that finds no InstanceFile reads
 // this one once, so an upgrade is not read as a terminal restart. The sweep retires it.
 func legacyInstanceFile(root string) string {
@@ -142,6 +190,9 @@ func (a *App) noteWoke(p *proj) {
 func (a *App) restoreWhy(snap port.Snapshot, first, lost bool) restoreCall {
 	if a.opt.Restore == nil || a.opt.Root == "" {
 		return restoreCall{}
+	}
+	if first {
+		a.dropOtherKind()
 	}
 	if snap.PaneRuns {
 		return a.runsLost(snap, first)

@@ -64,10 +64,11 @@ test:
 # go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
 # KIND=herdr|claude|codex|opencode (default: all), TIER=static (default; no session, no model) or live (one throwaway
 # herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call
-# per kind). Prints PASS/FAIL/SKIP/WARN lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line
+# per kind), TERMINAL=hc (live: the agent kinds start in a throwaway hc session instead, non-gating). Prints
+# PASS/FAIL/SKIP/WARN lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line
 # (commands.conformance).
 conformance:
-	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" $(GO) run -tags conformance ./tests/conformance
+	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" TERMINAL="$(TERMINAL)" $(GO) run -tags conformance ./tests/conformance
 
 # trim-go-cache (commands.trim_go_cache) deletes every file in the Go build cache and prints
 # "go cache: freed <size>, <size> left". The owner's decision (2026-11-08): the nightly empties the cache, not by age —

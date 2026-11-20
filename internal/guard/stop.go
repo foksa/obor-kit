@@ -120,7 +120,7 @@ func (h *stopHook) background() string {
 	if h.ev.SessionID == "" || h.root == "" {
 		return ""
 	}
-	pane, _ := project.Pane(h.env) // "" when this session has none: a call that names no agent is then not its own
+	pane, _ := project.PaneOf(h.cfg, h.env) // "" when this session has none: a call that names no agent is then not its own
 	calls := background.Mine(project.BackgroundCalls(h.root), project.SelfAgent(h.cfg, h.role), h.ev.SessionID, pane)
 	if len(calls) == 0 {
 		return ""

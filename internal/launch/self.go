@@ -27,7 +27,7 @@ const ScheduledEnv = "OBOR_RESTART_SCHEDULED"
 
 // ownPane: t's pane is the caller's (project.Pane; none: the caller runs in no pane).
 func (l *Launcher) ownPane(t *target) bool {
-	p, err := project.Pane(l.envOrOS())
+	p, err := project.PaneOf(l.Cfg, l.envOrOS())
 	return err == nil && p == t.pane
 }
 

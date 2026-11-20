@@ -29,7 +29,15 @@ const HeartbeatLost = 45 * time.Second
 //     its new pid, the evidence serve's restore restarts its agent on);
 //   - as a lost connection (port.NotRunning): the connection closed (a restart or an update, a stop, a stalled reader
 //     hc dropped), no line for HeartbeatLost, or `lost` with reason server_stop (a stop).
+//
+// With Core set, the subscribe first makes sure the core runs and its environment is clean (Core.ready): its refusal is
+// the subscribe's error.
 func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
+	if p.Core != nil {
+		if err := p.Core.ready(ctx, p.C); err != nil {
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	s, err := p.C.open(ctx, "events.subscribe")
 	if err != nil {

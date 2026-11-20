@@ -386,12 +386,30 @@ func (v *validator) workflow() {
 	}
 }
 
-// terminal: project.terminal names a terminal obor has an adapter for.
+// terminal: project.terminal names a terminal obor has an adapter for; on hc every model of a kind with a shared
+// background server starts without it (HCRequiredArgs).
 func (v *validator) terminal() {
-	if k := v.d.Project.Terminal; k != "" && !slices.Contains(TerminalKinds, k) {
+	k := v.d.Project.Terminal
+	if k != "" && !slices.Contains(TerminalKinds, k) {
 		v.fail(".project.terminal", "must be one of "+strings.Join(TerminalKinds, ", ")+", got "+Compact(k))
 	}
+	if k != TerminalHC {
+		return
+	}
+	for _, name := range v.c.ModelNames() {
+		m, ok := v.c.Model(name)
+		if flag := HCRequiredArgs[m.Kind]; ok && flag != "" && !slices.Contains(m.Args, flag) {
+			v.fail(".agents.models"+key(name), fmt.Sprintf("a %s start on an hc project (project.terminal) needs %s: "+
+				"its shared background server runs the agent's commands outside hc's terminal, with another env and cwd",
+				m.Kind, flag))
+		}
+	}
 }
+
+// HCRequiredArgs are the flags a kind's start must carry on an hc project, by kind: each turns off the kind's shared
+// background server, whose commands would run outside the agent's hc terminal (docs/research/hc-probes.md P1).
+// KindBaseArgs carries both.
+var HCRequiredArgs = map[string]string{"codex": "--no-daemon", "opencode": "--standalone"}
 
 // nonNegative: absent, or not negative (the decode made it an integer).
 func (v *validator) nonNegative(path string, n *int64) {

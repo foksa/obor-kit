@@ -28,7 +28,7 @@ func setupCmd(args []string) int {
 		errf("FAIL obor setup: %v", err)
 		return 1
 	}
-	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, T: t.Setup, Out: out, McpCheck: mcp.Check,
+	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, T: t.Setup, Check: t.Check, Out: out, McpCheck: mcp.Check,
 		Starter: launcherFor(project.OSEnv, kit, t.Control, out, nil), Serve: serveInstaller(project.OSEnv),
 		Installed: serveInstalled(project.OSEnv)}
 	return s.Run(context.Background(), args)

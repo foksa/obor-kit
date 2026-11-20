@@ -8,6 +8,7 @@ package hc
 var Sent = map[string][]string{
 	"hello":            {"generation"},
 	"server.status":    nil,
+	"machine.exec":     {"argv"},
 	"terminal.list":    nil,
 	"terminal.get":     {"terminal"},
 	"terminal.read":    {"terminal", "lines"},
@@ -24,6 +25,7 @@ var Read = map[string][]string{
 	"HelloResult":     {"generation", "version", "methods"},
 	"StatusResult":    {"core"},
 	"CoreInfo":        {"id"},
+	"ExecResult":      {"code", "stdout"},
 	"ListResult":      {"terminals"},
 	"SubscribeResult": {"seq", "terminals"},
 	"ReadResult":      {"text"},

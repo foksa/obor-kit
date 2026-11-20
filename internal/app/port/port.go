@@ -97,11 +97,13 @@ func Refreshed(err error) bool {
 // Terminal is the project's terminal as cmd/obor builds it from the project's terminal kind (config.TerminalKind): the
 // panes and their events (Panes), the pane operations launch needs and the wakes and lines typed to agents
 // (PaneControl, a Prompter) and what setup asks of it (TerminalSetup). They are fields, not one interface: an adapter
-// may answer them from separate values (herdr's Setup is one setup run's); a terminal implements all three.
+// may answer them from separate values (herdr's Setup is one setup run's); a terminal implements all three. Check is
+// the terminal's own check, `obor setup check`'s line or its refusal (nil: the terminal has none).
 type Terminal struct {
 	Panes   Panes
 	Control PaneControl
 	Setup   TerminalSetup
+	Check   func(ctx context.Context) (string, error)
 }
 
 // Panes is the terminal's panes and events, as the core uses it.
