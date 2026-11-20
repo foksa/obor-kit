@@ -116,22 +116,3 @@ func TestPauseReplayAndExpiry(t *testing.T) {
 		r.mustDispatch("d2")
 	})
 }
-
-// A --types dispatch under a held pause is refused with the reason and records nothing.
-func TestPauseRefusesTypesDispatch(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := startWithT2(t)
-		if reply, err := r.pause("lead", "p1", wire.PauseReq{Why: "quota"}); err != nil || reply != "PAUSED until cleared" {
-			t.Fatalf("pause: %q, %v", reply, err)
-		}
-		_, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
-			CallID: "t1"}, Task: "T-1", Types: []string{"sonnet"}})
-		if err == nil || !strings.Contains(err.Error(), "paused: quota") {
-			t.Fatalf("types dispatch while paused: %v, want refused with the reason", err)
-		}
-		if n := r.taskStep("T-1", "fact dispatch"); n != 0 {
-			t.Fatalf("T-1 recorded %d dispatch facts while paused: %q", n, r.steps())
-		}
-	})
-}

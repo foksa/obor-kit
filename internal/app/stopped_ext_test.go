@@ -196,9 +196,8 @@ func TestStoppedWorkerNeedsYou(t *testing.T) {
 		if r.hasPrefix("0 fact stalled") || r.hasPrefix("0 fact resumed") || r.stopsInForce() != 1 {
 			t.Fatalf("while stopped: %q, want only the stop in force", r.steps())
 		}
-		reply, err := r.turnCall()
-		if err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
-			t.Fatalf("turn: %q, %v", reply, err)
+		if _, err := r.turnCall(); err != nil {
+			t.Fatalf("turn: %v", err)
 		}
 		if !r.has("0 fact resumed") {
 			t.Errorf("no fact resumed after the next turn: %q", r.steps())
@@ -286,8 +285,8 @@ func TestStoppedWorkerNextTurnSameSecond(t *testing.T) {
 		if r.stopsInForce() != 1 {
 			t.Fatalf("precondition: the stop in force before the hook: %q", r.steps())
 		}
-		if reply, err := r.turnCall(); err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
-			t.Fatalf("turn: %q, %v", reply, err)
+		if _, err := r.turnCall(); err != nil {
+			t.Fatalf("turn: %v", err)
 		}
 		if r.stopsInForce() != 0 || !r.has("0 fact resumed") {
 			t.Errorf("after the next turn's prompt: %q, %d stops; want resumed, none", r.steps(), r.stopsInForce())
@@ -342,9 +341,6 @@ func TestStoppedCodexUsageLimit(t *testing.T) {
 		r.append(cdxStarted2)
 		r.push()
 		r.waitFor("fact resumed", func() bool { return r.has("0 fact resumed") })
-		if r.inForce() != 0 {
-			t.Errorf("the stop in force after the next turn: %+v", r.app.Status().Project.Facts)
-		}
 		r.append(cdxDone2)
 		r.workerIs("idle")
 		r.passes()

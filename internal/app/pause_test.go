@@ -94,4 +94,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "paused: quota") {
 		t.Errorf("dispatch after PAUSED: %v, want refused with the reason", err)
 	}
+	if n := dispatchFacts(t, p.root, "T-9"); n != 0 {
+		t.Errorf("T-9 recorded %d dispatch facts while paused, want none", n)
+	}
 }

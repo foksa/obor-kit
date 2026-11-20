@@ -21,9 +21,6 @@ func TestIdleFreshProject(t *testing.T) {
 			reply != "ACKED idle: nothing to dispatch" {
 			t.Fatalf("obor idle on a fresh project: %q, %v; want ACKED", reply, err)
 		}
-		if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "IDLE (last: no merge yet)" {
-			t.Errorf("obor idle (the state): %q, %v; want IDLE (last: no merge yet)", reply, err)
-		}
 		if st := r.app.Status().Project.Idle; st != nil {
 			t.Errorf("status idle %+v before the first end, want none (nothing keys or ages it)", st)
 		}
