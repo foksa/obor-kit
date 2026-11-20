@@ -18,10 +18,11 @@ import (
 
 // fakeApp is serve's App as its launchers see it (serveApp): each answer is counted in asked, as "<answer> <what>".
 type fakeApp struct {
-	mu    sync.Mutex
-	asked []string
-	jobs  map[string]string // agent → the open job RestartJob answers ("": none)
-	open  bool              // OpenWork's answer
+	mu     sync.Mutex
+	asked  []string
+	jobs   map[string]string // agent → the open job RestartJob answers ("": none)
+	open   bool              // OpenWork's answer
+	jobErr error             // RestartJob's error ("" job)
 }
 
 func (f *fakeApp) ask(format string, args ...any) {
@@ -65,6 +66,9 @@ func (f *fakeApp) Started(root, agent string) error {
 
 func (f *fakeApp) RestartJob(root, agent, role, lane string) (string, error) {
 	f.ask("job %s %s %s %s", root, agent, role, lane)
+	if f.jobErr != nil {
+		return "", f.jobErr
+	}
 	return f.jobs[agent], nil
 }
 

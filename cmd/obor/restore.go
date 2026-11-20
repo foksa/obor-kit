@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"obor/internal/app"
@@ -51,7 +52,12 @@ func restorer(term port.Terminal, env project.Env, s serveApp) *launch.Restorer 
 		Restart: func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
 			l := serveLauncher(cfg, env, term.Control, w, s)
 			l.Job = func(_ context.Context, role, lane string) (string, error) {
-				return s.RestartJob(cfg.Root, req.Agent, role, lane)
+				job, err := s.RestartJob(cfg.Root, req.Agent, role, lane)
+				if err != nil { // the restore's rule: an error restores the pane, with no wake (obor restart refuses)
+					fmt.Fprintf(w, "job read for %s failed, restored with no wake: %v\n", req.Agent, err)
+					return "", nil
+				}
+				return job, nil
 			}
 			return l.Restart(ctx, req)
 		},
