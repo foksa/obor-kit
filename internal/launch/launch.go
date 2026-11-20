@@ -12,7 +12,8 @@
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
 //	Where    Locate (locate.go), under the agent's restart lock, before anything is stopped, labelled, typed or
 //	         recorded: the pane serve's identity table proves the agent runs in (a restart in place, its label put
-//	         back), else its home (the pane labelled <agent> at its shell, in this project), else --pane. Refused: a
+//	         back), else its home (the pane labelled <agent> at its shell, in this project), else --pane, else a pane
+//	         the caller places (port.Launch.Place, once the start is built: it takes the start's env). Refused: a
 //	         target other than the pane the agent runs in, an ambiguous agent, a pane serve gives to another agent or
 //	         labelled for another agent the config names, a second pane labelled <agent>, and with serve down a start
 //	         beside a live agent of the project no label accounts for. Never a known agent's pane whose cwd is outside
@@ -23,8 +24,9 @@
 //	         sid resumes from the transcript the session itself reported (the SessionStart hook's path); none
 //	         anywhere (never prompted): starts fresh, said. A session of another kind than the dispatch's type
 //	         starts fresh, said.
-//	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
-//	         anything is stopped or typed: no fg resume.
+//	Stop     see Stop; port.Launch.NoStop refuses instead (the agent already running, another agent in its lane
+//	         worktree, another program in its pane), nothing stopped. A child the pane's shell stopped (Ctrl+Z: herdr
+//	         then sees an idle shell) → FAIL with a hint, before anything is stopped or typed: no fg resume.
 //	Shell    a restart whose pane ran an agent waits after the stop for the pane to be a shell again (ShellWait:
 //	         the terminal refuses a start, PaneBusy, until the old agent's exit is reaped), and a start the terminal
 //	         refuses as PaneBusy is retried like that within the same bound; past it, no start and a FAIL naming the
@@ -38,6 +40,7 @@
 package launch
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -302,23 +305,9 @@ type target struct {
 // port.Launch.Type, a dispatch's); nothing is typed. An agent no config entry, lane cwd or recorded session knows is
 // started only in the pane the caller named.
 func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) (*target, error) {
-	t := &target{agent: agent}
-	if l.Cfg != nil {
-		t.info, t.known = l.Cfg.AgentLookup(agent, "")
-		if !t.known {
-			// An agent whose pane has a lane worktree as cwd: that lane's agent.
-			if cwd := l.paneCwd(ctx, pane); cwd != "" {
-				if info, ok := l.Cfg.AgentLookup(agent, cwd); ok {
-					t.info, t.known = info, true
-					l.say("lane %s (pane %s cwd)", info.Lane, pane)
-				}
-			}
-		}
-	}
-	rec, _ := l.session(agent)
-	t.sid, t.sidKind, t.transcript = rec.ID, rec.Kind, rec.Transcript
-	if !t.known && t.sid == "" && asked == "" {
-		return nil, project.Failf("unknown agent %s (no lane, role or recorded session)", agent)
+	t, err := l.who(ctx, agent, asked, pane)
+	if err != nil {
+		return nil, err
 	}
 	if pane == "" {
 		return nil, project.Failf("no pane labelled %s (pass --pane)", agent)
@@ -337,11 +326,46 @@ func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) 
 	if err := l.inProject(ctx, t); err != nil {
 		return nil, err
 	}
+	if err := l.model(t, typ); err != nil {
+		return nil, err
+	}
+	return t, l.suspended(ctx, t)
+}
+
+// who is the agent's config entry and recorded session, pane its pane ("": none; an agent the config does not name is
+// its pane's lane agent when that pane's cwd is a lane worktree). An agent neither the config nor a recorded session
+// knows, with no pane asked (--pane), is a Fail.
+func (l *Launcher) who(ctx context.Context, agent, asked, pane string) (*target, error) {
+	t := &target{agent: agent}
+	if l.Cfg != nil {
+		t.info, t.known = l.Cfg.AgentLookup(agent, "")
+		if !t.known {
+			// An agent whose pane has a lane worktree as cwd: that lane's agent.
+			if cwd := l.paneCwd(ctx, pane); cwd != "" {
+				if info, ok := l.Cfg.AgentLookup(agent, cwd); ok {
+					t.info, t.known = info, true
+					l.say("lane %s (pane %s cwd)", info.Lane, pane)
+				}
+			}
+		}
+	}
+	rec, _ := l.session(agent)
+	t.sid, t.sidKind, t.transcript = rec.ID, rec.Kind, rec.Transcript
+	if !t.known && t.sid == "" && asked == "" {
+		return nil, project.Failf("unknown agent %s (no lane, role or recorded session)", agent)
+	}
+	return t, nil
+}
+
+// model is t's model and kind, their one resolution: the dispatch's type (typ, else a lane agent's lane row:
+// dispatchType), else the configured one; the kind is that model's, else (no model) the kind the terminal reports
+// for t's pane, else agents.Default. A model the config does not have is a Fail.
+func (l *Launcher) model(t *target, typ string) error {
 	l.dispatchType(t, typ)
 	if t.info.Type != "" {
 		lt, ok := l.Cfg.Model(t.info.Type)
 		if !ok || lt.Kind == "" {
-			return nil, project.Failf("unknown model %s (models: %s)", t.info.Type, strings.Join(l.Cfg.ModelNames(), ", "))
+			return project.Failf("unknown model %s (models: %s)", t.info.Type, strings.Join(l.Cfg.ModelNames(), ", "))
 		}
 		t.kind = lt.Kind
 	}
@@ -351,20 +375,28 @@ func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) 
 	if t.kind == "" {
 		t.kind = agents.Default
 	}
-	if pi, err := l.H.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
-		// herdr's process info lists only the foreground group: a stopped child of the shell (Ctrl+Z) is not in it.
-		out, err := l.ps("-A", "-o", "ppid=,stat=,pid=,comm=")
-		if err != nil {
-			l.say("warning: cannot check pane %s for a suspended agent (ps: %v)", pane, err)
-		}
-		for _, line := range strings.Split(string(out), "\n") {
-			if f := strings.Fields(line); len(f) >= 4 && f[0] == strconv.Itoa(pi.ShellPID) && strings.HasPrefix(f[1], "T") {
-				l.say("pane %s: %s (pid %s) is stopped", pane, strings.Join(f[3:], " "), f[2])
-				return nil, project.Failf("%s is suspended in pane %s (Ctrl+Z): fg it and /exit, or close the pane", agent, pane)
-			}
+	return nil
+}
+
+// suspended refuses t when its pane's shell holds a stopped child (Ctrl+Z: the terminal then sees an idle shell),
+// before anything is stopped or typed.
+func (l *Launcher) suspended(ctx context.Context, t *target) error {
+	pi, err := l.H.ProcessInfo(ctx, t.pane)
+	if err != nil || !pi.AtShell() {
+		return nil
+	}
+	// herdr's process info lists only the foreground group: a stopped child of the shell (Ctrl+Z) is not in it.
+	out, err := l.ps("-A", "-o", "ppid=,stat=,pid=,comm=")
+	if err != nil {
+		l.say("warning: cannot check pane %s for a suspended agent (ps: %v)", t.pane, err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(line); len(f) >= 4 && f[0] == strconv.Itoa(pi.ShellPID) && strings.HasPrefix(f[1], "T") {
+			l.say("pane %s: %s (pid %s) is stopped", t.pane, strings.Join(f[3:], " "), f[2])
+			return project.Failf("%s is suspended in pane %s (Ctrl+Z): fg it and /exit, or close the pane", t.agent, t.pane)
 		}
 	}
-	return t, nil
+	return nil
 }
 
 // dispatchType puts the type a dispatch chose into t.info (a lane is a pool, the task's type picks the
@@ -468,6 +500,9 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 // the id obor named it (the identity serve records for a later rename; none for a scheduled restart of the caller's
 // own pane). A fresh start held by a trust dialog returns both too, with a *port.TrustDialog (its pane: Started's):
 // started, its first prompt taken once a person answers the dialog. A resumed one is a failed start (NotReady).
+// req.Place places the pane of an agent that has none (called once, the start goes there). req.NoStop refuses rather
+// than stop: its agent already running (a *port.Running), another agent in its lane (laneFree), another program in
+// its pane (otherProgram).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
 		return port.Started{}, project.Failf("%s", config.BadAgentName(l.Cfg, req.Agent))
@@ -482,7 +517,20 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return port.Started{}, err
 	}
 	defer end()
-	t, err := l.resolve(ctx, req.Agent, req.Pane, loc.Pane, req.Type)
+	if req.NoStop && loc.Runs {
+		return port.Started{}, &port.Running{Agent: req.Agent, Pane: loc.Pane}
+	}
+	// No pane is the agent's and the caller places one: who it is and its model now, its pane once the start is built
+	// (the placement takes the start's env).
+	placing := loc.Pane == "" && req.Place != nil
+	var t *target
+	if placing {
+		if t, err = l.who(ctx, req.Agent, req.Pane, ""); err == nil {
+			err = l.model(t, req.Type)
+		}
+	} else {
+		t, err = l.resolve(ctx, req.Agent, req.Pane, loc.Pane, req.Type)
+	}
 	if err != nil {
 		return port.Started{}, err
 	}
@@ -498,58 +546,18 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			return port.Started{}, err
 		}
 	}
-
-	// The session, checked before anything is stopped: none and no --fresh → FAIL.
-	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode) always starts fresh: serve records its
-	// session, but there is nothing obor resumes. The recorded session wins: herdr's live one for the pane is a
-	// cross-check, said when it differs. A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude)
-	// never adopts herdr's: obor chose the recorded id, and a session with no record is a new one.
-	sid, src := t.sid, "record"
-	// A first prompt on a request that may resume (serve's: a lane worker started again with its outstanding job's
-	// wake, or the integrator with its job's): no session to resume starts fresh with it, a resumed session
-	// gets it typed once up, as a job's wake.
-	carry := !req.Fresh && req.Prompt != ""
-	if !agents.Resumes(t.kind) {
-		sid, src = "", ""
-		if t.sid != "" {
-			l.say("warning: no resume for kind %s: new session", t.kind)
-		}
-	} else {
-		if live := t.entry.Session; live != "" && !sameSid(live, sid) {
-			switch {
-			case sid != "" && !req.Fresh:
-				l.say("warning: the terminal reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
-					sid, sid)
-			case sid == "" && !agents.NamedSession(t.kind):
-				sid, src = live, "herdr"
-			}
-		}
-		if req.Fresh {
-			sid = ""
-		}
-		fresh := false
-		// A dispatch's type of another kind than the session's (the lane's last task ran another kind): that
-		// session is not this kind's to resume, so a new one.
-		if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Agent}[src]; sid != "" && t.dispatched &&
-			was != "" && was != t.kind {
-			l.say("session %s is %s's, the type %s is %s's: new session", sid, was, t.info.Type, t.kind)
-			sid, fresh = "", true
-		}
-		if sid != "" && src == "record" {
-			var err error
-			if fresh, err = l.checkTranscript(t, sid); err != nil {
-				return port.Started{}, err
-			}
-			if fresh {
-				sid = ""
-			}
-		}
-		if sid == "" && !req.Fresh && !fresh && !carry {
-			return port.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
+	if req.NoStop {
+		if err := l.laneFree(ctx, t); err != nil {
+			return port.Started{}, err
 		}
 	}
-	// The caller's own pane: schedule a detached run; that run waited for the agent to go idle (waitScheduled).
-	if l.ownPane(t) && !waited {
+	sid, src, err := l.sessionOf(t, req)
+	if err != nil {
+		return port.Started{}, err
+	}
+	// The caller's own pane: schedule a detached run; that run waited for the agent to go idle (waitScheduled). A
+	// NoStop start stops nothing, so it has nothing to schedule (otherProgram refuses the pane its caller holds).
+	if !placing && !req.NoStop && l.ownPane(t) && !waited {
 		line, err := l.schedule(t, req, false)
 		return port.Started{Line: line}, err
 	}
@@ -560,103 +568,62 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if effort == "" {
 		effort = t.info.Effort
 	}
-	// An agent restarted with no first prompt of its own while serve holds a job for it: that job's
-	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. A lane's worker asks for its
-	// lane's job (a work or fix job), the integrator for a task's open review or resolve job. Resolved before the stop
-	// a lane with a task whose job serve cannot tell refuses the restart, the old agent untouched.
-	job := ""
-	if req.Prompt == "" && l.Job != nil && (t.info.Role == "integrator" || t.info.Role == "worker" && t.info.Lane != "") {
-		if job, err = l.Job(ctx, t.info.Role, t.info.Lane); err != nil {
-			var fail project.Fail
-			if errors.As(err, &fail) { // restart's own refusal: the whole FAIL line (serve down for the integrator)
-				return port.Started{}, err
-			}
-			return port.Started{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
-		}
-	}
-	wake, what := "", "the first prompt"
-	switch {
-	case job != "":
-		wake, what = wire.WakeLine(job), "job "+job
-	case carry:
-		wake = req.Prompt
-	}
-	prompt := req.Prompt
-	switch {
-	case sid != "":
-		prompt = "" // a resume carries no first prompt: the wake is typed once it is up
-	case job != "":
-		prompt = wake
-	case prompt == "":
-		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead: a session the owner
-		// starts presents the state and options. Only a handoff restart, which asks for it (Request.Handoff), continues
-		// from a Handoff (`/obor:lead handoff`).
-		if rc, ok := l.Cfg.Role(t.info.Role); ok {
-			prompt = rc.Role.StartPrompt(t.kind)
-			if req.Handoff {
-				prompt = rc.Role.HandoffPrompt(t.kind)
-			}
-		}
+	first, err := l.firstPrompt(ctx, t, req, sid)
+	if err != nil {
+		return port.Started{}, err
 	}
 	// The start, built once before anything is stopped: its argv and its env from one complete start.
-	args, err := l.build(t, effort, sid, prompt)
+	args, err := l.build(t, effort, sid, first.prompt)
 	if err != nil {
 		return port.Started{}, err
 	}
 	if t.info.Lane != "" { // a lane's env: the generic facts and the project's lanes.env
 		t.env = config.WithLaneEnv(t.env, l.Cfg)
 	}
-	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
-		return port.Started{}, err
+	switch {
+	case placing:
+		if err := l.place(ctx, t, req.Place); err != nil {
+			return port.Started{}, err
+		}
+	case req.NoStop: // in place of the stop: a pane running another program than its shell is refused
+		if err := l.otherProgram(ctx, t.pane); err != nil {
+			return port.Started{}, err
+		}
+	default:
+		if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
+			return port.Started{}, err
+		}
 	}
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
 	}
 	// The start runs only once the pane is a shell again: until the old agent's exit is reaped, the terminal refuses
 	// the start (PaneBusy), and the env line would fail in a pane that still runs it. One bound covers this wait and the
-	// start's retries; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is waited on (Await):
-	// a pane at a shell, or one running a person's program, is setEnv's to refuse.
+	// start's retries; past it, no start and a FAIL naming the pane. A pane that ran an agent is waited on (Await), and a
+	// pane just placed (its shell may still be coming up): a pane at a shell, or one running a person's program, is
+	// setEnv's to refuse.
 	st := Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane, Shell: l.shellWait(), Await: t.entry.Agent != "",
+		Resume: sid, Session: t.session, Prompt: first.prompt, Lane: t.info.Lane, Shell: l.shellWait(),
+		Await: t.entry.Agent != "" || placing,
 		Env:   func(ctx context.Context) error { return l.setEnv(ctx, t) },
 		Whose: AgentEnv{Agent: t.agent, Role: t.info.Role, Lane: t.info.Lane, Cwd: t.info.Cwd, Vars: t.env}}
 	seen, err := l.start(ctx, st)
 	if seen.ID != "" && seen.ID != t.pane { // the terminal ran the agent in another pane: it runs there
 		t.pane, t.entry.Terminal = seen.ID, seen.Terminal
 	}
-	var se *StartError
-	var trust *port.TrustDialog
-	switch {
-	case errors.As(err, &se) && se.Trust:
-		// Started (a fresh start only, start's Trust): the agent runs at the dialog and takes its first prompt (in its
-		// args) once a person answers it. The start's success path (done) and its Started, with the dialog as the error
-		// a caller adopts or fails on. A resumed start at the dialog is NotReady below: its wake is not typed, so it failed.
-		l.say("started: %s", se.Hint)
-		l.done(ctx, st, port.Pane{})
-		trust, err = &port.TrustDialog{Hint: se.Hint}, nil
-	case errors.As(err, &se) && se.NoShell:
-		return port.Started{}, l.giveUp(ctx, t, "pane %s is not a shell after %s (the old agent has not left): nothing started",
-			t.pane, l.shellWait())
-	case errors.As(err, &se) && se.NotReady:
-		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
-	case errors.As(err, &se) && port.PaneBusy(se.Err):
-		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
-			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t))
-	case errors.As(err, &se):
-		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
-			t.pane, l.retry(t))
-	case err != nil:
+	trust, err := l.outcome(ctx, t, st, err)
+	if err != nil {
 		return port.Started{}, err
 	}
 	switch {
-	case wake != "" && sid != "":
-		if _, err := l.H.Prompt(ctx, t.pane, wake, false); err != nil {
-			l.say("warning: %s's wake not typed into pane %s: %v (type it there: %s)", what, t.pane, err, wake)
+	case first.wake != "" && sid != "":
+		if _, err := l.H.Prompt(ctx, t.pane, first.wake, false); err != nil {
+			l.say("warning: %s's wake not typed into pane %s: %v (type it there: %s)", first.what, t.pane, err, first.wake)
 		} else {
-			l.say("%s: its wake typed", what)
+			l.say("%s: its wake typed", first.what)
 		}
-	case job != "":
-		l.say("%s: its wake is the first prompt", what)
+	case first.job != "":
+		l.say("%s: its wake is the first prompt", first.what)
 	}
 	if sid == "" {
 		sid = "new"
@@ -673,6 +640,207 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return started, trust
 	}
 	return started, nil
+}
+
+// carries: req's first prompt goes with a request that may resume (serve's: a lane worker started again with its
+// outstanding job's wake, or the integrator with its job's): no session to resume starts fresh with it, a resumed
+// session gets it typed once up, as a job's wake.
+func carries(req Request) bool { return !req.Fresh && req.Prompt != "" }
+
+// sessionOf is the start's session decision, made before anything is stopped: the session to resume (sid; "": a
+// fresh start) and where it came from (src: record or herdr). None to resume, with neither req.Fresh nor a first
+// prompt the request carries (carries), is a Fail. A kind that resumes nothing (agents.Caps.Resume false: OpenCode)
+// always starts fresh: serve records its session, but there is nothing obor resumes. The recorded session wins:
+// herdr's live one for the pane is a cross-check, said when it differs. A kind whose sessions obor names itself
+// (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the recorded id, and a session with no record
+// is a new one.
+func (l *Launcher) sessionOf(t *target, req Request) (sid, src string, err error) {
+	sid, src = t.sid, "record"
+	if !agents.Resumes(t.kind) {
+		if t.sid != "" {
+			l.say("warning: no resume for kind %s: new session", t.kind)
+		}
+		return "", "", nil
+	}
+	if live := t.entry.Session; live != "" && !sameSid(live, sid) {
+		switch {
+		case sid != "" && !req.Fresh:
+			l.say("warning: the terminal reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
+				sid, sid)
+		case sid == "" && !agents.NamedSession(t.kind):
+			sid, src = live, "herdr"
+		}
+	}
+	if req.Fresh {
+		sid = ""
+	}
+	fresh := false
+	// A dispatch's type of another kind than the session's (the lane's last task ran another kind): that
+	// session is not this kind's to resume, so a new one.
+	if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Agent}[src]; sid != "" && t.dispatched &&
+		was != "" && was != t.kind {
+		l.say("session %s is %s's, the type %s is %s's: new session", sid, was, t.info.Type, t.kind)
+		sid, fresh = "", true
+	}
+	if sid != "" && src == "record" {
+		if fresh, err = l.checkTranscript(t, sid); err != nil {
+			return "", "", err
+		}
+		if fresh {
+			sid = ""
+		}
+	}
+	if sid == "" && !req.Fresh && !fresh && !carries(req) {
+		return "", "", project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
+	}
+	return sid, src, nil
+}
+
+// opening is a start's first prompt decision (firstPrompt): the prompt its argv carries ("": none, a resume's), the
+// wake typed into a resumed session once it is up (what names it in the lines said), and the open job whose wake it
+// is ("": none).
+type opening struct {
+	prompt, wake, what, job string
+}
+
+// firstPrompt is the start's first prompt, sid the session it resumes ("": fresh). An agent restarted with no first
+// prompt of its own while serve holds a job for it: that job's wake, the first prompt of a fresh session, typed into a
+// resumed one once it is up. A lane's worker asks for its lane's job (a work or fix job), the integrator for a task's
+// open review or resolve job. Resolved before the stop: a lane with a task whose job serve cannot tell refuses the
+// restart, the old agent untouched. A fresh start with no prompt and no job gets its role's (a handoff restart:
+// the role's handoff form).
+func (l *Launcher) firstPrompt(ctx context.Context, t *target, req Request, sid string) (opening, error) {
+	o := opening{what: "the first prompt"}
+	if req.Prompt == "" && l.Job != nil && (t.info.Role == "integrator" || t.info.Role == "worker" && t.info.Lane != "") {
+		job, err := l.Job(ctx, t.info.Role, t.info.Lane)
+		if err != nil {
+			var fail project.Fail
+			if errors.As(err, &fail) { // restart's own refusal: the whole FAIL line (serve down for the integrator)
+				return opening{}, err
+			}
+			return opening{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
+		}
+		o.job = job
+	}
+	switch {
+	case o.job != "":
+		o.wake, o.what = wire.WakeLine(o.job), "job "+o.job
+	case carries(req):
+		o.wake = req.Prompt
+	}
+	o.prompt = req.Prompt
+	switch {
+	case sid != "":
+		o.prompt = "" // a resume carries no first prompt: the wake is typed once it is up
+	case o.job != "":
+		o.prompt = o.wake
+	case o.prompt == "":
+		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead: a session the owner
+		// starts presents the state and options. Only a handoff restart, which asks for it (Request.Handoff), continues
+		// from a Handoff (`/obor:lead handoff`).
+		if rc, ok := l.Cfg.Role(t.info.Role); ok {
+			o.prompt = rc.Role.StartPrompt(t.kind)
+			if req.Handoff {
+				o.prompt = rc.Role.HandoffPrompt(t.kind)
+			}
+		}
+	}
+	return o, nil
+}
+
+// outcome is what start's error err means for the launch of t (st the start made): nil, nothing; a fresh start held by
+// a trust dialog (start's Trust) is started, its success path run (done), and returned as the *port.TrustDialog a
+// caller adopts or fails on; any other StartError is the launch's FAIL with evidence; another error is returned as it
+// is. A resumed start at the dialog is NotReady: its wake is not typed, so it failed.
+func (l *Launcher) outcome(ctx context.Context, t *target, st Start, err error) (*port.TrustDialog, error) {
+	var se *StartError
+	switch {
+	case err == nil:
+		return nil, nil
+	case errors.As(err, &se) && se.Trust:
+		// The agent runs at the dialog and takes its first prompt (in its args) once a person answers it.
+		l.say("started: %s", se.Hint)
+		l.done(ctx, st, port.Pane{})
+		return &port.TrustDialog{Hint: se.Hint}, nil
+	case errors.As(err, &se) && se.NoShell:
+		return nil, l.giveUp(ctx, t, "pane %s is not a shell after %s (the old agent has not left): nothing started",
+			t.pane, l.shellWait())
+	case errors.As(err, &se) && se.NotReady:
+		return nil, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
+	case errors.As(err, &se) && port.PaneBusy(se.Err):
+		return nil, l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
+			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t))
+	case errors.As(err, &se):
+		return nil, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
+			t.pane, l.retry(t))
+	}
+	return nil, err
+}
+
+// place puts t's start in a pane p places (t's agent has none), the start's env for its shell (paneEnv), then reads
+// that pane's facts (its terminal id) from the pane list. A pane just placed is the project's and runs nothing, so
+// resolve's checks of a found pane (inProject, suspended) do not apply. An empty pane id is a Fail.
+func (l *Launcher) place(ctx context.Context, t *target, p *port.Placer) error {
+	pane, err := p.Place(ctx, paneEnv(t))
+	if err != nil {
+		return err
+	}
+	if pane == "" {
+		return project.Failf("no pane placed for %s (the placement named none)", t.agent)
+	}
+	l.say("pane %s (placed)", pane)
+	t.pane, t.entry = pane, port.Pane{ID: pane}
+	panes, err := l.H.Panes(ctx)
+	if err != nil {
+		return project.Failf("terminal pane list failed (is the terminal running?)")
+	}
+	t.panes = panes
+	for _, q := range panes {
+		if q.ID == pane {
+			t.entry = q
+		}
+	}
+	return nil
+}
+
+// paneEnv is t's start env for a new pane's shell, NAME=VALUE, by the one builder of a start's env
+// (agents.StartVars): every registry var the start does not set goes empty ("NAME="), so the pane inherits none of
+// its placer's (a stale OBOR_AGENT, the caller's OBOR_PANE: the new pane's id is exported by the env line).
+func paneEnv(t *target) []string {
+	set, unset := agents.StartVars(roleEnv(t.info.Role), t.info.Lane, "", t.env)
+	env := make([]string, 0, len(set)+len(unset))
+	for _, v := range set {
+		env = append(env, v.Name+"="+v.Value)
+	}
+	for _, v := range unset {
+		env = append(env, v+"=")
+	}
+	return env
+}
+
+// laneFree refuses a NoStop start of lane agent t while another agent runs in its lane worktree (one agent in a lane):
+// called once Locate found t's agent not running, so every agent there is another. The refusal names the occupant to
+// stop by its label when the config names that agent, else (a person's label, a pane nobody labelled) the pane to quit
+// it in. Nothing is touched.
+func (l *Launcher) laneFree(ctx context.Context, t *target) error {
+	if t.info.Lane == "" || t.info.Cwd == "" {
+		return nil
+	}
+	panes, err := l.H.Panes(ctx)
+	if err != nil {
+		return project.Failf("terminal agent list failed (is the terminal running?)")
+	}
+	for _, p := range panes {
+		if p.Agent == "" || p.Cwd != t.info.Cwd {
+			continue
+		}
+		who := cmp.Or(p.Label, p.Agent) // its pane's label, else (a pane nobody labelled) its kind
+		if l.Cfg.NamesOtherAgent(p.Label, t.agent) {
+			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, t.info.Lane, p.ID, p.Label)
+		}
+		return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, t.info.Lane, p.ID, p.ID)
+	}
+	return nil
 }
 
 // quarantined is why t's kind may not start on this machine (agents.StartRefusal), and whether the start may
@@ -762,12 +930,8 @@ func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
 
 // setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
 func (l *Launcher) setEnv(ctx context.Context, t *target) error {
-	if pi, err := l.H.ProcessInfo(ctx, t.pane); err == nil && !pi.AtShell() {
-		prog := pi.Foreground()
-		if prog == "" {
-			prog = "unknown"
-		}
-		return project.Failf("%s runs another program (%s)", t.pane, prog)
+	if err := l.otherProgram(ctx, t.pane); err != nil {
+		return err
 	}
 	if err := l.roleWorktree(ctx, t); err != nil {
 		return err
@@ -784,6 +948,20 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 		return l.giveUp(ctx, t, "the env line in %s failed (nothing started; check the pane)", t.pane)
 	}
 	return nil
+}
+
+// otherProgram refuses pane when its foreground is another program than its shell (an agent, a person's program):
+// nothing is typed there. A process info that cannot be read refuses nothing.
+func (l *Launcher) otherProgram(ctx context.Context, pane string) error {
+	pi, err := l.H.ProcessInfo(ctx, pane)
+	if err != nil || pi.AtShell() {
+		return nil
+	}
+	prog := pi.Foreground()
+	if prog == "" {
+		prog = "unknown"
+	}
+	return project.Failf("%s runs another program (%s)", pane, prog)
 }
 
 // envOrOS is the launcher's env, the process's own when it has none.

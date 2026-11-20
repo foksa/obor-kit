@@ -41,3 +41,39 @@ func MCPArgs(kind, kit string, args []string) []string {
 
 // StartSeen is Start with the agent the start ended with (the case table asserts the observation returned).
 func (l *Launcher) StartSeen(ctx context.Context, s Start) (port.Pane, error) { return l.start(ctx, s) }
+
+// Target is a launch's target as its steps read it (the external tests of sessionOf, firstPrompt and outcome): the
+// agent, its pane, kind and config facts, its recorded session (Sid, SidKind, Transcript), the session and kind the
+// terminal reports for its pane (Live, LiveKind), and whether its type is a dispatch's.
+type Target struct {
+	Agent, Pane, Kind, Role, Lane, Type string
+	Sid, SidKind, Transcript            string
+	Live, LiveKind                      string
+	Dispatched                          bool
+}
+
+func (x Target) target() *target {
+	t := &target{agent: x.Agent, known: true, pane: x.Pane, kind: x.Kind, sid: x.Sid, sidKind: x.SidKind,
+		transcript: x.Transcript, dispatched: x.Dispatched}
+	t.info.Role, t.info.Lane, t.info.Type = x.Role, x.Lane, x.Type
+	t.entry = port.Pane{ID: x.Pane, Session: x.Live, Agent: x.LiveKind}
+	return t
+}
+
+// SessionOf is the launch's session step for x.
+func (l *Launcher) SessionOf(x Target, req Request) (sid, src string, err error) {
+	return l.sessionOf(x.target(), req)
+}
+
+// FirstPrompt is the launch's first prompt step for x, resuming sid ("": fresh): the prompt in the start's argv, the
+// wake typed once a resumed session is up, and the job whose wake it is.
+func (l *Launcher) FirstPrompt(ctx context.Context, x Target, req Request, sid string) (prompt, wake, job string, err error) {
+	o, err := l.firstPrompt(ctx, x.target(), req, sid)
+	return o.prompt, o.wake, o.job, err
+}
+
+// Outcome is the launch's start outcome step for x, start's error err (s the start it made: its agent and pane x's).
+func (l *Launcher) Outcome(ctx context.Context, x Target, s Start, err error) (*port.TrustDialog, error) {
+	s.Agent, s.Pane = x.Agent, x.Pane
+	return l.outcome(ctx, x.target(), s, err)
+}
