@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { fleetRoles, projectState } from "./fleet";
+import { fleetRoles, projectState, waitingText } from "./fleet";
 import type { ProjectsEntry } from "./types";
 
 // project is one /api/projects row: up, free and quiet unless a test says otherwise.
 const project = (over: Partial<ProjectsEntry> = {}): ProjectsEntry => ({
   name: "pj", root: "/work/pj", up: true, busy: 0, working: 0, free: 2, needs_you: 0, queue: 0, running: [],
-  roles: [], background: 0, lanes: [], events: [], ...over,
+  roles: [], waiting: [], background: 0, lanes: [], events: [], ...over,
 });
 
 const lead = { role: "lead", agent: "pj-lead", status: "working", age: 90 };
@@ -32,6 +32,27 @@ describe("the nav's project state", () => {
     const down = project({ up: false, busy: 1, working: 1, needs_you: 2, roles: [lead] });
     expect(projectState(down)).toBe("down");
     expect(projectState({ ...down, error: "serve: no answer" })).toBe("fail");
+  });
+});
+
+describe("the agents waiting for you", () => {
+  const blocked = { agent: "pj-lead", role: "lead", since: 1000 };
+  it("make a project with nothing else in it needs-you, not free", () => {
+    const quiet = project();
+    expect(projectState(quiet)).toBe("free");
+    const p = project({ waiting: [blocked] });
+    expect(p.needs_you).toBe(0);
+    expect(projectState(p)).toBe("needs-you");
+  });
+  it("make a working project needs-you", () => {
+    expect(projectState(project({ busy: 1, free: 1, working: 1, roles: [lead], waiting: [blocked] }))).toBe("needs-you");
+  });
+  it("render the card's line with the agent and its age", () => {
+    expect(waitingText(blocked, 1021)).toBe("waiting for you: pj-lead 21s");
+    expect(waitingText({ agent: "pj-l1", role: "worker", lane: "L-01", since: 1000 }, 1300)).toBe("waiting for you: pj-l1 5m");
+  });
+  it("render the line without an age when since is unknown", () => {
+    expect(waitingText({ agent: "pj-rev", role: "reviewer" }, 1300)).toBe("waiting for you: pj-rev");
   });
 });
 

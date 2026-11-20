@@ -1,14 +1,15 @@
 <script lang="ts">
   // The fleet, obor web's home: what runs now across every project (the busy lanes with their tasks, the agents at
-  // work — the lead and the role agents —, the steps running), the counts across them, a card per project, and their
-  // events together.
+  // work — the lead and the role agents —, the steps running), the counts across them, a card per project (with the
+  // agents waiting for the owner's input), and their events together.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
   import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { dur, human, now, tone, unixOf } from "../lib/format";
-  import { fleetRoles } from "../lib/fleet";
+  import { fleetRoles, waitingText } from "../lib/fleet";
+  import { tick } from "../lib/clock.svelte";
   import { stageOf } from "../lib/stages";
   import { reviewBadge, reviewTone } from "../lib/review";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
@@ -130,6 +131,13 @@
               {:else if p.paused}<Pill state="paused" text="paused" />
               {:else}<Pill state={p.up ? "up" : "down"} text={p.up ? "serve up" : "serve down"} />{/if}
             </div>
+            {#if p.waiting?.length}
+              <div class="waiting" aria-label="Waiting for you">
+                {#each p.waiting as w (w.agent)}
+                  <a href={href.agent(p.name, w.agent)} title="{w.role}{w.lane ? ' on ' + w.lane : ''}: its pane waits at a prompt"><Pill state="needs-you" text={waitingText(w, Math.max(tick.now, Date.now() / 1000))} /></a>
+                {/each}
+              </div>
+            {/if}
             {#if p.error}
               <p class="err small">{p.error}</p>
             {:else}
@@ -211,6 +219,7 @@
   .pname { font-size: 16px; font-weight: 600; color: var(--fg); }
   .path { font-size: 11px; color: var(--muted); }
   .err { margin: 0; color: var(--bad); }
+  .waiting { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
   .strip { display: flex; gap: 4px; }
   .lane-dot {
     flex: 1; min-width: 0; height: 24px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
