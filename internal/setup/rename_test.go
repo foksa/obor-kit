@@ -1,8 +1,6 @@
 package setup
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,85 +240,6 @@ func TestRenameRelabelsTheMappedPanesOnly(t *testing.T) {
 	}
 	if !strings.Contains(out, "OK 4 terminal: workspace w9: proj → newp; pane labels w9:p1 pj-int → ob-int, w9:p2 pj-lead → ob-lead") {
 		t.Errorf("step 4 line missing:\n%s", out)
-	}
-}
-
-// A lane worktree's opencode.json that names another obor kit's shim is pointed at this kit's bin/obor; its other
-// members and a lane without one stay.
-func TestRenameRewritesALanesOpencodeKitPath(t *testing.T) {
-	x := renameProject(t)
-	x.stubHerdr(t, "proj")
-	path := filepath.Join(x.LaneDir("L-01"), "opencode.json")
-	x.Write(path, `{"$schema": "https://opencode.ai/config.json", "model": "m/x", "mcp": {"servers": {"obor": {"type": "local", "command": ["/gone/obor-kit/bin/obor", "mcp"]}}}}`+"\n")
-	shim := filepath.Join(kit, "bin", "obor")
-	out := x.rename(t)
-	got := x.Read(path)
-	if !strings.Contains(got, `"command": ["`+shim+`", "mcp"]`) || strings.Contains(got, "/gone/") {
-		t.Errorf("opencode.json = %s, want the command at %s", got, shim)
-	}
-	if !strings.Contains(got, `"model": "m/x"`) || !strings.Contains(got, `"$schema"`) {
-		t.Errorf("opencode.json = %s, want its other members as they were", got)
-	}
-	if !strings.Contains(out, "OK 3 files: kit path in L-01/opencode.json") {
-		t.Errorf("step 3 line missing:\n%s", out)
-	}
-	if again := x.rename(t); !strings.Contains(again, "OK 3 files: no kit path to correct (already)") {
-		t.Errorf("a rerun changes nothing:\n%s", again)
-	}
-}
-
-// A lane's opencode.json that is there but cannot be read refuses the rename after step 0, before the config moves:
-// nothing changed, no herdr call. Once it is readable a rerun completes the whole rename, workspace and pane labels
-// included; only a missing file is skipped (a lane without one is normal).
-func TestRenameRefusesAnUnreadableLaneOpencode(t *testing.T) {
-	x := renameProject(t)
-	dir := x.stubHerdr(t, "proj")
-	panes := `{"result":{"panes":[{"pane_id":"w9:p1","workspace_id":"w9","label":"pj-int"}]}}`
-	if err := os.WriteFile(filepath.Join(dir, "panes"), []byte(panes+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(x.LaneDir("L-01"), "opencode.json")
-	if err := os.Mkdir(path, 0o755); err != nil { // a directory: ReadFile answers, but not a not-exist error
-		t.Fatal(err)
-	}
-	if _, err := os.ReadFile(path); err == nil || errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("precondition: reading %s = %v, want an error other than not-exist", path, err)
-	}
-	cfgBefore, localBefore := x.Read(".obor/config.json"), x.Read(".obor/local.json")
-	out, rc := x.run(t, "rename", "--name", "newp", "--prefix", "ob")
-	if rc != 1 || !strings.HasPrefix(last(out), "FAIL ") || !strings.Contains(last(out), path) {
-		t.Fatalf("exit %d, last line %q, want FAIL naming %s\n%s", rc, last(out), path, out)
-	}
-	if strings.Contains(out, "OK 1 config") || strings.Contains(out, "OK 3 files") {
-		t.Errorf("a step ran past the unreadable file:\n%s", out)
-	}
-	if x.Read(".obor/config.json") != cfgBefore || x.Read(".obor/local.json") != localBefore {
-		t.Error("the config changed although a lane opencode.json could not be read")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "herdr.log")); err == nil {
-		t.Error("herdr was called although a lane opencode.json could not be read")
-	}
-
-	// The repair path: the file readable again, the rerun renames the old workspace and its pane labels too.
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	x.Write(path, `{"mcp": {"servers": {"obor": {"type": "local", "command": ["/gone/obor-kit/bin/obor", "mcp"]}}}}`+"\n")
-	out = x.rename(t)
-	for _, want := range []string{"OK 1 config: ", "OK 3 files: kit path in L-01/opencode.json",
-		"OK 4 terminal: workspace w9: proj → newp", "pane labels w9:p1 pj-int → ob-int"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("rerun lacks %q:\n%s", want, out)
-		}
-	}
-	if cfg, err := config.Load(x.Root); err != nil || cfg.Data.Project.Name != "newp" {
-		t.Errorf("config name = %v, %v; want newp", cfg, err)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "label")); strings.TrimSpace(string(b)) != "newp" {
-		t.Errorf("workspace label = %q, want newp", b)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "herdr.log")); !strings.Contains(string(b), "pane rename w9:p1 ob-int") {
-		t.Errorf("herdr calls lack the pane relabel:\n%s", b)
 	}
 }
 

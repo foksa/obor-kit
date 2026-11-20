@@ -44,7 +44,7 @@
 //	agents  caches each plugin kind's manifest and runs every kind's install, whose answer `obor setup mcp`
 //	        checks; a kind installs nothing user-global.
 //
-//	rename --name N --prefix P  rename the project and its agents (config, lane opencode.json kit paths, the herdr
+//	rename --name N --prefix P  rename the project and its agents (config, the herdr
 //	        workspace); refused while its serve LaunchAgent is installed: see rename.go.
 //
 //	show  the setup table, read-only: per difficulty level each model ref, in order, with its kind, model id
