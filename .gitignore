@@ -4,6 +4,7 @@
 .obor/local.json
 .DS_Store
 dist/
+/obor
 .gocache/
 .task-run
 .obor/drafts/
