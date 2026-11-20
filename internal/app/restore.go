@@ -352,6 +352,9 @@ func (a *App) lastActivity() time.Time {
 // since the restore asks this app's state (launch.Restorer.OpenWork).
 func (a *App) SetRestore(r port.Restorer) { a.opt.Restore = r }
 
+// SetAdopt wires the adoption of hidden terminals serve runs after each connect (Options.Adopt; nil: none).
+func (a *App) SetAdopt(f func(ctx context.Context) (int, error)) { a.opt.Adopt = f }
+
 // restore starts the restore of call's panes of the served project (call.why: why the connect restores), or asks the
 // run in progress for one more with them; wg is Serve's: its end waits for the run, canceled with ctx.
 func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, call restoreCall) {

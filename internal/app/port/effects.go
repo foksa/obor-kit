@@ -246,6 +246,13 @@ func (l Lost) Add(m Lost) Lost {
 	return out
 }
 
+// Adopter is an optional capability of a terminal's setup (hc has it, herdr does not): it places the project's live
+// terminals that no window shows yet (made while the window was closed) by the placement rules, and returns how many it
+// placed. A window still closed is a NotRunning error with nothing placed. Serve calls it after each connect.
+type Adopter interface {
+	Adopt(ctx context.Context, pr PlaceProject) (int, error)
+}
+
 // TerminalSetup is what obor setup and obor init ask of the terminal, in terminal-neutral terms: the pane
 // operations launch needs, the panes that run an agent now, a new pane for an agent placed by the adapter's own
 // layout, the terminal's own setting for a restart, and a project rename's share. The herdr adapter (herdr.Setup)

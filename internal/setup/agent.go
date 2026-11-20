@@ -435,9 +435,16 @@ func (s *Setup) placement(a agent, w where, env []string) port.Placement {
 		kind = port.KindLead
 	}
 	return port.Placement{Kind: kind, Cwd: a.cwd, Env: env, Group: w.newTab, In: w.tab,
-		Say: func(line string) { s.say("%s", line) },
-		Project: port.PlaceProject{Name: s.cfg.ProjectName(), Root: s.root, MaxPanes: maxPanesPerTab, Has: s.inProject,
-			KindOf: s.paneKind}}
+		Say:     func(line string) { s.say("%s", line) },
+		Project: PlaceProjectOf(s.cfg, s.root)}
+}
+
+// PlaceProjectOf is the project at root as a terminal places its panes (serve's adoption of hidden terminals asks the
+// same of the terminal as setup does).
+func PlaceProjectOf(cfg *config.Config, root string) port.PlaceProject {
+	s := &Setup{cfg: cfg, root: root}
+	return port.PlaceProject{Name: cfg.ProjectName(), Root: root, MaxPanes: maxPanesPerTab, Has: s.inProject,
+		KindOf: s.paneKind}
 }
 
 // paneKind is the kind of the pane labelled label: a lane's (its worker, its drive agent), the lead's, another role's;

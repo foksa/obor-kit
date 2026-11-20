@@ -78,3 +78,16 @@ func TestTerminalEnvByKind(t *testing.T) {
 		t.Errorf("herdr's serve env %q, want its socket only", got)
 	}
 }
+
+// Serve's adoption of hidden terminals exists for hc, whose setup offers the capability, and not for herdr: nothing is
+// called there.
+func TestAdopterOnlyWhereTheTerminalOffersIt(t *testing.T) {
+	t.Parallel()
+	if f := adopter(fakeTerminal(&herdr.Socket{}, nil), t.TempDir()); f != nil {
+		t.Errorf("adopter for herdr is set, want nil")
+	}
+	cl := hc.New(project.Env(func(string) (string, bool) { return "", false }))
+	if f := adopter(port.Terminal{Setup: cl}, t.TempDir()); f == nil {
+		t.Errorf("adopter for hc is nil, want the capability")
+	}
+}

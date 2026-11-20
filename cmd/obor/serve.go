@@ -118,6 +118,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		Info: term.Control.ProcessInfo, Screen: term.Control.Screen},
 		term.Panes, checks.Lanes{})
 	a.SetRestore(restorer(term, paneless(env), a))
+	a.SetAdopt(adopter(term, root))
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
