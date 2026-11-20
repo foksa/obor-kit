@@ -29,7 +29,13 @@ type Pane struct {
 	// Foreground is the pane's foreground process group (pane process-info; the shell is pid 1): 0 = the agent's (2)
 	// when one runs, else the shell's.
 	Foreground int
-	Screen     string // what pane read shows; agent read shows it above the input box
+	// Screen is what pane read of source visible shows (a recent source shows it, then Later); agent read shows it
+	// above the input box.
+	Screen string
+	// Stale: the visible screen went stale (after an agent exited, T-970): what the shell prints from now on reaches
+	// the pane's recent output only (Later), never Screen.
+	Stale bool
+	Later string // what the shell printed while Stale: a recent read shows it after Screen, a visible read never
 	// OnQuit is what /exit (Claude) or /quit (Codex) does: "" the agent exits (herdr drops it and its name, keeps the
 	// session); "stay": nothing; "linger": it exits, but herdr still lists it and its name for now; "dialog": Claude's
 	// background-task dialog opens on the Screen, its "1. Exit and stop tasks" exits, esc closes it.
@@ -301,14 +307,33 @@ func (p *Pane) run(text string) {
 		switch p.OnRun {
 		case "":
 			if w := echoWord(text, "&& echo "); w != "" {
-				p.Screen += w + "\n% \n"
+				p.print(w + "\n% \n")
 			}
 		case "fail":
 			if w := echoWord(text, "|| echo "); w != "" {
-				p.Screen += w + "\n% \n"
+				p.print(w + "\n% \n")
 			}
 		}
 	}
+}
+
+// print is text the pane's shell printed: on the Screen, or only in its recent output (Later) while the Screen is
+// Stale.
+func (p *Pane) print(text string) {
+	if p.Stale {
+		p.Later += text
+		return
+	}
+	p.Screen += text
+}
+
+// read is what pane.read (and pane.wait_for_output) of source shows: the Screen for visible, the Screen then Later for
+// a recent source.
+func (p *Pane) read(source string) string {
+	if source == "visible" {
+		return p.Screen
+	}
+	return p.Screen + p.Later
 }
 
 // echoWord is the word line echoes after sep ("&& echo " when it succeeded, "|| echo " when it failed), quotes

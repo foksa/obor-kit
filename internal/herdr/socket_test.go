@@ -1201,6 +1201,21 @@ func TestSocketPaneInput(t *testing.T) {
 	_, err := c.Screen(ctx, "w9:x", 40)
 	notFound(t, err, "pane.read", "pane_not_found")
 
+	// Recent reads recent_unwrapped, not visible (T-970, T-1356): the shell's output after the visible screen went
+	// stale is there; the visible read lacks it.
+	f.Set("w1:p1", func(p *herdrtest.Pane) { p.Stale, p.Later = true, "obor-env-ok\n% \n" })
+	if s, err := c.Recent(ctx, "w1:p1", 60); err != nil || s != "line 1\nline 2\nobor-env-ok\n% \n" {
+		t.Errorf("Recent = %q, %v", s, err)
+	}
+	if got := lastParams(t, srv, "pane.read"); got != `{"lines":60,"pane_id":"w1:p1","source":"recent_unwrapped","strip_ansi":true}` {
+		t.Errorf("pane.read params of Recent = %s", got)
+	}
+	if s, _ := c.Screen(ctx, "w1:p1", 40); strings.Contains(s, "obor-env-ok") {
+		t.Errorf("Screen of a stale visible screen shows the later output: %q", s)
+	}
+	_, err = c.Recent(ctx, "w9:x", 60)
+	notFound(t, err, "pane.read", "pane_not_found")
+
 	// Write without submit types the text and sends no key: it waits in the pane, nothing runs.
 	if err := c.Write(ctx, "w1:p1", "/exit", false); err != nil {
 		t.Fatal(err)

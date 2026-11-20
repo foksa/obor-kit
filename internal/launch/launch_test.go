@@ -1534,7 +1534,7 @@ func TestStartAgentNeverUp(t *testing.T) {
 
 // the start's command is typed only once the shell has run the env line and is back at its prompt (zsh runs a
 // line with the tty in cooked mode, where a long command typed at once is cut off): the mark it echoes, read on the
-// pane's screen until it shows, then a start.
+// pane's recent output until it shows, then a start.
 func TestRestartWaitsForTheEnvLine(t *testing.T) {
 	t.Parallel()
 	t.Run("the shell back: the start after the mark shows", func(t *testing.T) {
@@ -1547,7 +1547,7 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 			switch {
 			case strings.HasPrefix(call, "Write pane=w1:p3 submit=true text=") && okWord == "":
 				okWord, _ = envWords(t, call)
-			case call == "Screen pane=w1:p3" && okWord != "":
+			case call == "Recent pane=w1:p3" && okWord != "":
 				if looks++; looks == 3 {
 					x.f.Set("w1:p3", func(p *mpane) { p.Screen += okWord + "\n% \n" })
 				}
@@ -1562,12 +1562,12 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 		env, start := x.index("Write pane=w1:p3"), x.index("Start")
 		reads := 0
 		for _, c := range calls[max(env, 0):max(start, 0)] {
-			if c == "Screen pane=w1:p3" {
+			if c == "Recent pane=w1:p3" {
 				reads++
 			}
 		}
 		if env < 0 || start < env || reads < 3 {
-			t.Errorf("env line %d, start %d, %d screen reads between: want the start after the reads up to the mark:\n%s",
+			t.Errorf("env line %d, start %d, %d recent reads between: want the start after the reads up to the mark:\n%s",
 				env, start, reads, strings.Join(calls, "\n"))
 		}
 	})
@@ -1584,6 +1584,78 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 		}
 		eq(t, failLine(out), "FAIL the shell in w1:p3 did not finish the env line in 200ms (nothing started; the env line may have failed: check the pane)", "result")
 		eq(t, x.startCall(), "", "no start")
+	})
+}
+
+// staleScreen makes pane's visible screen stale, as herdr's after Claude exited (T-970): it still shows the old agent,
+// and what the shell prints from now on reaches the pane's recent output only.
+func staleScreen(x *fx, pane string) {
+	x.f.Set(pane, func(p *mpane) { p.Screen, p.Stale = "╭─ Claude Code ─╮\n❯ a half-typed line", true })
+}
+
+// wantMarkInRecentOnly: the shell printed the env line's success mark into pane's recent output, never onto its stale
+// visible screen (the precondition of a stale-visible case: a look at the screen would not have seen it).
+func wantMarkInRecentOnly(t *testing.T, x *fx, pane string) {
+	t.Helper()
+	runs := x.calls("Write pane=" + pane)
+	if len(runs) == 0 {
+		t.Fatalf("precondition: no env line typed in %s", pane)
+	}
+	okWord, _ := envWords(t, runs[0])
+	p := x.f.At(pane)
+	lacks(t, p.Screen, okWord, "precondition: the stale visible screen, the mark")
+	contains(t, p.Later, okWord, "precondition: the recent output, the mark")
+}
+
+// The env-line handshake reads the pane's recent output, not its visible screen (T-970, T-1356): a stale visible
+// screen with the mark only in recent output still starts the agent, at every entry point that types an env line
+// in launch: obor restart, serve's launch (dispatch), and the restore (each through Launcher.Launch → setEnv).
+func TestEnvLineSeenInRecentOutputWhenTheScreenIsStale(t *testing.T) {
+	t.Parallel()
+	t.Run("obor restart: sees the mark, starts", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p3", "pj-l-01", "")
+		staleScreen(x, "w1:p3")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+		wantMarkInRecentOnly(t, x, "w1:p3")
+		if !ok {
+			t.Fatalf("restart failed:\n%s", out)
+		}
+		contains(t, x.startCall(), "pane=w1:p3", "started in the pane")
+	})
+	t.Run("serve's launch (dispatch): sees the mark, starts", func(t *testing.T) {
+		t.Parallel()
+		x := setupRunning(t, "opus")
+		x.background = true
+		x.shell("w1:p3", "pj-l-01", "")
+		staleScreen(x, "w1:p3")
+		var out bytes.Buffer
+		s, err := x.launcher(&out).Launch(context.Background(),
+			launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true, Prompt: "the brief"})
+		wantMarkInRecentOnly(t, x, "w1:p3")
+		if err != nil {
+			t.Fatalf("launch failed: %v\n%s", err, out.String())
+		}
+		contains(t, s.Line, "RESTARTED pj-l-01", "the launch's line")
+		contains(t, x.startCall(), "pane=w1:p3", "started in the pane")
+	})
+	t.Run("restore: sees the mark, starts", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
+		x.shell("w1:p3", "pj-l-01", x.lane)
+		staleScreen(x, "w1:p3")
+		r := &launch.Restorer{Env: x.p.Env(), H: x.f, Now: func() time.Time { return time.Unix(0, 0) },
+			LaneState: func(*config.Config, config.Lane) string { return port.LaneWorking },
+			Restart: func(ctx context.Context, _ *config.Config, req launch.Request, w io.Writer) (string, error) {
+				return x.launcher(w).Restart(ctx, req)
+			}}
+		r.RestoreProject(context.Background(), x.p.Root)
+		log, _ := os.ReadFile(launch.RestoreLog(r.Env))
+		wantMarkInRecentOnly(t, x, "w1:p3")
+		contains(t, string(log), "RESTARTED pj-l-01", "the restore's restart")
+		contains(t, x.startCall(), "pane=w1:p3", "started in the pane")
 	})
 }
 

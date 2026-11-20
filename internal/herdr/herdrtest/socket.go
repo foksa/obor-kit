@@ -784,7 +784,8 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		return ok(map[string]any{"type": "pane_list", "panes": panes}), nil
 	case "pane.wait_for_output":
 		// herdr's server-side wait: a line of the source's text that matches now, else again until it does or
-		// timeout_ms runs out. The fake has the one screen; every source reads it, one line at a time.
+		// timeout_ms runs out. A visible wait reads the pane's Screen, a recent one its Screen then Later (Pane.read),
+		// one line at a time.
 		var p struct {
 			Pane   string `json:"pane_id"`
 			Source string `json:"source"`
@@ -813,11 +814,11 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 				f.mu.Unlock()
 				return fail("pane_not_found", "pane "+p.Pane+" not found"), nil
 			}
-			screen := pane.Screen
+			screen := pane.read(p.Source)
 			f.mu.Unlock()
 			if line, hit := outputLine(screen, p.Match.Type, p.Match.Value, re); hit {
 				return ok(map[string]any{"type": "output_matched", "pane_id": p.Pane, "revision": 1, "matched_line": line,
-					"read": map[string]any{"pane_id": p.Pane, "source": "visible", "text": screen}}), nil
+					"read": map[string]any{"pane_id": p.Pane, "source": p.Source, "text": screen}}), nil
 			}
 			if !deadline.IsZero() && !time.Now().Before(deadline) {
 				return fail("timeout", "timed out waiting for output match"), nil
@@ -826,10 +827,11 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		}
 	case "pane.layout", "pane.read", "pane.send_input", "pane.send_keys", "pane.rename":
 		var p struct {
-			Pane  string   `json:"pane_id"`
-			Text  string   `json:"text"`
-			Keys  []string `json:"keys"`
-			Label *string  `json:"label"`
+			Pane   string   `json:"pane_id"`
+			Text   string   `json:"text"`
+			Keys   []string `json:"keys"`
+			Label  *string  `json:"label"`
+			Source string   `json:"source"`
 		}
 		_ = json.Unmarshal(params, &p)
 		f.mu.Lock()
@@ -842,8 +844,8 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		case "pane.layout":
 			return ok(map[string]any{"type": "pane_layout", "layout": f.layout(pane)}), nil
 		case "pane.read":
-			return ok(map[string]any{"type": "pane_read", "read": map[string]any{"pane_id": pane.ID, "source": "visible",
-				"text": pane.Screen}}), nil
+			return ok(map[string]any{"type": "pane_read", "read": map[string]any{"pane_id": pane.ID, "source": p.Source,
+				"text": pane.read(p.Source)}}), nil
 		case "pane.send_input":
 			// The text is typed into the pane and waits there: only Enter submits it (running it as the command recipe
 			// does), and the other keys act on it as typed keys do (Escape clears it).

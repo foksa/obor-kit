@@ -782,8 +782,8 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.H.Write(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed, true); err != nil {
 		return project.Failf("terminal pane run %s (env) failed", t.pane)
 	}
-	// The pane's screen read every Poll for either mark (the echoed words, which the typed line's quoted forms never
-	// match), within the env line's bound: the mark on it says which one the shell printed.
+	// The pane's recent output read every Poll for either mark (the echoed words, which the typed line's quoted forms
+	// never match), within the env line's bound: the mark in it says which one the shell printed.
 	screen, ok := l.screenShows(ctx, t.pane, l.wait(), okMark.echoed, badMark.echoed)
 	if !ok {
 		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started; the env line may have failed: check the pane)",
@@ -795,16 +795,17 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	return nil
 }
 
-// screenLines is how many of a pane's last screen lines a look for an echoed mark reads.
+// screenLines is how many of a pane's last lines of output a look for an echoed mark reads.
 const screenLines = 60
 
-// screenShows reads pane's screen every Poll for at most d until one of words is on it, and returns that screen;
-// false when none showed (a screen that cannot be read shows none).
+// screenShows reads pane's recent output (not its visible screen, which can be stale after an agent exits: T-970)
+// every Poll for at most d until one of words is in it, and returns that output; false when none showed (output that
+// cannot be read shows none).
 func (l *Launcher) screenShows(ctx context.Context, pane string, d time.Duration, words ...string) (string, bool) {
 	var screen string
 	shows := func() bool {
 		var err error
-		if screen, err = l.H.Screen(ctx, pane, screenLines); err != nil {
+		if screen, err = l.H.Recent(ctx, pane, screenLines); err != nil {
 			return false
 		}
 		for _, w := range words {

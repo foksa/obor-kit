@@ -764,7 +764,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
-		"pane.read lines=60 pane_id=w1:n1 source=visible strip_ansi=true",
+		"pane.read lines=60 pane_id=w1:n1 source=recent_unwrapped strip_ansi=true",
 		"pane.rename label=pj-l-01 pane_id=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	marks := regexp.MustCompile(`obor-env-"?[0-9a-z]+"?`)
@@ -1082,6 +1082,58 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 		}
 		has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=[--permission-mode auto --model opus "+settings+" --session-id NEW] kind=claude name=pj-int pane_id=w1:p3",
 			"the agent starts after the env line succeeded")
+	})
+}
+
+// The env-line handshake reads the pane's recent output, not its visible screen (T-970, T-1356): a stale visible
+// screen (herdr's after Claude exited) with the mark only in recent output still starts the agent, in a reused pane
+// (SetEnv before the start) and in a fresh pane (the start's Env step).
+func TestSetupSeesTheEnvLineInRecentOutputWhenTheScreenIsStale(t *testing.T) {
+	t.Parallel()
+	// markInRecentOnly: the precondition of the stale case, the success mark in pane's recent output only.
+	markInRecentOnly := func(t *testing.T, x *fx, pane string) {
+		t.Helper()
+		lines := x.envLines()
+		if len(lines) != 1 {
+			t.Fatalf("one env line typed, got %q", lines)
+		}
+		okWord, _ := envWords(t, lines[0])
+		p := x.h.Pane(pane)
+		if p == nil || strings.Contains(p.Screen, okWord) || !strings.Contains(p.Later, okWord) {
+			t.Fatalf("precondition: the mark %q in pane %s's recent output only, got %+v", okWord, pane, p)
+		}
+	}
+	t.Run("reused pane (SetEnv): sees the mark, starts", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, testkit.Set("agents.roles", `{"integrator": "opus"}`))
+		x.h.Tab("w1:t1", 200, 50, "w1:p3")
+		x.h.Set("w1:p3", func(p *herdrtest.Pane) { p.Screen, p.Stale = "╭─ Claude Code ─╮\n❯ a half-typed line", true })
+		out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start")
+		markInRecentOnly(t, x, "w1:p3")
+		if last(out) != "OK integrator: pj-int in pane w1:p3" {
+			t.Errorf("last line %q", last(out))
+		}
+		has(t, named(strings.Join(x.reqs(), "\n")), "agent.start", "the agent starts")
+	})
+	t.Run("fresh pane (Start.Env): sees the mark, starts", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.lane(t, "L-01")
+		x.reset()
+		// the new pane's visible screen goes stale just before the env line is typed there
+		x.srv.Before(func(r herdrtest.Request) {
+			var p struct {
+				Pane string `json:"pane_id"`
+			}
+			if r.Method == "pane.send_input" && json.Unmarshal(r.Params, &p) == nil {
+				x.h.Set(p.Pane, func(p *herdrtest.Pane) { p.Stale = true })
+			}
+		})
+		out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t2")
+		has(t, strings.Join(x.reqs(), "\n"), "OBOR_PANE=,", "precondition: a new pane, made without a pane id")
+		markInRecentOnly(t, x, "w1:n1")
+		has(t, last(out), "pane w1:n1", "the result")
+		has(t, named(strings.Join(x.reqs(), "\n")), "agent.start", "the agent starts")
 	})
 }
 

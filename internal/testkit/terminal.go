@@ -19,13 +19,16 @@ import (
 
 // Terminal is a terminal adapter as the contract drives it: the core's ports onto it (PaneControl for launch and
 // setup, Panes for serve, TerminalSetup for a placement). Group is the group its pane is in, as a person reads it
-// (port.Pane.Group); Cwd is that pane's cwd, where a placement puts a new pane.
+// (port.Pane.Group); Cwd is that pane's cwd, where a placement puts a new pane. Stale, a test terminal's hook (nil on a
+// live one), makes pane's visible screen stale: what its shell prints from then on reaches its recent output only, as
+// a terminal's visible screen after an agent exited (T-970); an error when it has no such pane.
 type Terminal struct {
 	Control port.PaneControl
 	Panes   port.Panes
 	Setup   port.TerminalSetup
 	Group   string
 	Cwd     string
+	Stale   func(pane string) error
 }
 
 // Row is one row of the terminal contract: Run checks it against a pane that is a shell, in t's group, with a known
@@ -150,6 +153,25 @@ var Contract = []Row{
 		}
 		return nil
 	}},
+	{Name: "recent output", Run: func(ctx context.Context, t Terminal, pane string) error {
+		// The env-line handshake's semantics: a line the shell printed is in the pane's recent output, also when the
+		// visible screen went stale (Stale; a live terminal has no hook, its row reads a fresh screen's recent output).
+		if t.Stale != nil {
+			if err := t.Stale(pane); err != nil {
+				return fmt.Errorf("make the visible screen stale: %w", err)
+			}
+		}
+		if err := typed(ctx, t, pane, "recent"); err != nil {
+			return err
+		}
+		if t.Stale != nil {
+			if text, err := t.Control.Screen(ctx, pane, 40); err != nil || strings.Contains(text, "obor-contract-recent") {
+				return fmt.Errorf("the stale visible screen = %q, %v; want it without the line printed after it went stale",
+					text, err)
+			}
+		}
+		return nil
+	}},
 	{Name: "pane busy", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
 		// A pane that runs an agent is not an available shell: a start there is refused as PaneBusy, never a start.
 		if err := start(ctx, t, "obor-contract-busy", pane); err != nil {
@@ -242,19 +264,20 @@ func start(ctx context.Context, t Terminal, name, pane string) error {
 	return err
 }
 
-// typed types a command line at the pane's shell that prints obor-contract-<word>, and reads the pane's screen until
-// that output shows (10 s). The line quotes word, so only the shell's output matches, never the typed line itself.
+// typed types a command line at the pane's shell that prints obor-contract-<word>, and reads the pane's recent output
+// (the env-line handshake's read, not the visible screen: T-970) until that output shows (10 s). The line quotes word,
+// so only the shell's output matches, never the typed line itself.
 func typed(ctx context.Context, t Terminal, pane, word string) error {
 	if err := t.Control.Write(ctx, pane, "true && echo obor-contract-\""+word+"\"", true); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
 	for deadline := time.Now().Add(10 * time.Second); ; {
-		text, err := t.Control.Screen(ctx, pane, 40)
+		text, err := t.Control.Recent(ctx, pane, 40)
 		if err == nil && strings.Contains(text, "obor-contract-"+word) {
 			return nil
 		}
 		if !time.Now().Before(deadline) {
-			return fmt.Errorf("the typed line's output never showed: screen %q, %v", text, err)
+			return fmt.Errorf("the typed line's output never showed: recent output %q, %v", text, err)
 		}
 		select {
 		case <-ctx.Done():
