@@ -1070,7 +1070,7 @@ func TestRestartNoSessionFailsFreshStartsNew(t *testing.T) {
 		t.Errorf("nothing typed or started: %q", x.f.Calls())
 	}
 	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session new)", "--fresh")
+	restarted(t, last(out), "pj-l-01", "w1:p4", "new")
 	lacks(t, x.startCall(), "--resume", "--fresh: no --resume")
 	contains(t, x.startCall(), "pane=w1:p4", "started in the labelled pane")
 }
@@ -1196,7 +1196,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		t.Parallel()
 		x, axis, axisWt := fixtures(t)
 		out, ok := restart(x, axis)
-		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
+		if !ok || !isRestarted(last(out), "l-02", "w2:pF", "new") {
 			t.Fatalf("restarted:\n%s", out)
 		}
 		contains(t, strings.Join(x.calls("Write"), "\n"), "cd "+axisWt+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-02",
@@ -1208,7 +1208,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		x, _, _ := fixtures(t)
 		x.f.Set("w2:pF", func(p *mpane) { p.Cwd = x.p.LaneDir("L-02") })
 		out, ok := restart(x, nil)
-		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
+		if !ok || !isRestarted(last(out), "l-02", "w2:pF", "new") {
 			t.Fatalf("restarted:\n%s", out)
 		}
 		contains(t, strings.Join(x.calls("Write"), "\n"), "cd "+x.p.LaneDir("L-02")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker",
@@ -1221,7 +1221,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		x.p.Worktree(stable, "")
 		x.f.Set("w2:pF", func(p *mpane) { p.Cwd = stable })
 		out, ok := restart(x, nil)
-		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
+		if !ok || !isRestarted(last(out), "l-02", "w2:pF", "new") {
 			t.Fatalf("restarted:\n%s", out)
 		}
 	})
@@ -1236,7 +1236,7 @@ func TestRestartLabel(t *testing.T) {
 	x.shell("w1:p3", "pj-l-01", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p3 (from label)", "the pane is found by its label")
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "started in the labelled pane")
+	restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	if !ok {
 		t.Errorf("restarted:\n%s", out)
 	}
@@ -1244,7 +1244,7 @@ func TestRestartLabel(t *testing.T) {
 	x.reset()
 	x.shell("w1:p4", "", "")
 	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p4"})
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "an unlabelled --pane is fine")
+	restarted(t, last(out), "pj-l-01", "w1:p4", "sid-1")
 	contains(t, out, "labelled pane w1:p4 pj-l-01", "said")
 	eq(t, x.f.All[0].Label, "pj-l-01", "label set in herdr")
 	env, ren, start := x.index("Write pane=w1:p4 submit=true text=cd "), x.index("RenamePane label=pj-l-01 pane=w1:p4"), x.lastIndex("Start")
@@ -1326,7 +1326,7 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 			t.Errorf("the wake typed once after the start: %q", x.f.Calls())
 		}
 		contains(t, out, "job T-1/1/work: its wake typed", "said")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		eqInt(t, len(x.calls("Write text=[obor job")), 0, "wakes sent through send_input")
 	})
 	t.Run("resumed, agent blocked: warning, nothing typed (T-800)", func(t *testing.T) {
@@ -1342,7 +1342,7 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		contains(t, out, "(type it there: "+wake+")", "the line to type by hand")
 		lacks(t, out, "its wake typed", "no success line")
 		eqInt(t, len(x.calls("Write text=[obor job")), 0, "wakes sent through send_input")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 	t.Run("no job: no wake", func(t *testing.T) {
 		t.Parallel()
@@ -1427,7 +1427,7 @@ func TestRestartIntegratorWithItsJob(t *testing.T) {
 				t.Errorf("the wake typed once after the start: %q", x.f.Calls())
 			}
 			contains(t, out, "job "+c.job+": its wake typed", "said")
-			eq(t, last(out), "RESTARTED pj-int (pane w1:p5, session sid-int)", "result")
+			restarted(t, last(out), "pj-int", "w1:p5", "sid-int")
 		})
 	}
 	t.Run("no job: no wake", func(t *testing.T) {
@@ -1471,7 +1471,7 @@ func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
 			t.Errorf("the wake typed once after the start: %q", x.f.Calls())
 		}
 		contains(t, out, "the first prompt: its wake typed", "said")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 	t.Run("no session to resume: fresh, the prompt its first", func(t *testing.T) {
 		t.Parallel()
@@ -1484,7 +1484,7 @@ func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
 		lacks(t, x.startCall(), "--resume", "a new session")
 		contains(t, x.startCall(), " "+wake+"]", "the wake as the start's first prompt")
 		eqInt(t, len(typed(x)), 0, "wakes typed besides the start")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 	})
 }
 
@@ -1787,7 +1787,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		if e, s := x.index("Write pane=w1:p3 submit=true text=/exit"), x.index("Start"); e < 0 || e > s {
 			t.Errorf("/exit before the start: %q", x.f.Calls())
 		}
@@ -1817,7 +1817,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 			t.Errorf("nothing typed or started: %q", x.f.Calls())
 		}
 		out, ok = x.restart(launch.Request{Agent: "pj-l-01", Force: true})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "--force restarts")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		esc, exit := x.index("SendKeys keys=[esc] pane=w1:p3"), x.index("Write pane=w1:p3 submit=true text=/exit")
 		if !(ok && esc >= 0 && esc < exit) {
 			t.Errorf("--force: Escape, then /exit: %q", x.f.Calls())
@@ -1829,7 +1829,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		a := x.agent("w1:p7", "pj-rev", "codex", "idle")
 		x.f.Set(a.ID, func(p *mpane) { p.Session = "cx-9" })
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
-		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
+		restarted(t, last(out), "pj-rev", "w1:p7", "cx-9")
 		contains(t, strings.Join(x.calls("Write"), "\n"), "Write pane=w1:p7 submit=true text=/quit", "Codex quits with /quit")
 		// the reviewer's Codex start writes the main checkout's reviews dir too (made for it).
 		reviews := filepath.Join(x.p.Root, "docs", "reviews")
@@ -1908,7 +1908,7 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		x.f.Set("w1:p3", func(p *mpane) { p.Says = said })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		contains(t, out, said, "said")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		if !ok {
 			t.Errorf("restarted:\n%s", out)
 		}
@@ -1923,7 +1923,7 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		l := x.launcher(&out) // serve's launcher discards Out: what reaches it is no diagnostic
 		l.Diag = &log
 		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01"})
-		if err != nil || line != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" {
+		if err != nil || !isRestarted(line, "pj-l-01", "w1:p3", "sid-1") {
 			t.Fatalf("restart = %q, %v; want the start in its pane", line, err)
 		}
 		eq(t, log.String(), said+"\n", "serve's log")
@@ -2023,14 +2023,14 @@ func TestRestartSuspended(t *testing.T) {
 	atSh(x)
 	x.shell("w1:p3", "pj-l-01", "")
 	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a running child: starts")
+	restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 
 	// No child the shell stopped (the fake herdr's shell, pid 1, with the real ps): starts.
 	x = setup(t)
 	x.ps = nil
 	x.shell("w1:p3", "pj-l-01", "")
 	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "no stopped child: starts")
+	restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 
 	// ps cannot say (denied, as in a sandbox): a warning, and it starts.
 	x = setup(t)
@@ -2038,7 +2038,7 @@ func TestRestartSuspended(t *testing.T) {
 	x.shell("w1:p3", "pj-l-01", "")
 	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	contains(t, out, "warning: cannot check pane w1:p3 for a suspended agent (ps: operation not permitted)", "warned")
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "ps denied: starts")
+	restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 
 	// An agent in the foreground: ps is not asked.
 	x = setup(t)
@@ -2046,7 +2046,7 @@ func TestRestartSuspended(t *testing.T) {
 	x.ps = func(...string) ([]byte, error) { asked++; return []byte("1 T 9 claude\n"), nil }
 	x.agent("w1:p3", "pj-l-01", "claude", "idle")
 	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "agent running: restarted")
+	restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 	eqInt(t, asked, 0, "ps asked only at a shell")
 }
 
@@ -2064,7 +2064,7 @@ func TestRestartRecordedSession(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		contains(t, out, "resuming sid-x (from record)", "source printed")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "the recorded path: resumes")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-x")
 		lacks(t, out, "is not from", "no cwd refusal")
 		if !ok {
 			t.Fatal(out)
@@ -2086,7 +2086,7 @@ func TestRestartRecordedSession(t *testing.T) {
 			t.Fatal(out)
 		}
 		contains(t, out, "resuming sid-s (from record)", "the recorded path, not a slug of the symlink")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-s)", "resumed")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-s")
 		lacks(t, out, "is not from", "no cwd refusal")
 	})
 	t.Run("a transcript gone: fresh, said", func(t *testing.T) {
@@ -2099,7 +2099,7 @@ func TestRestartRecordedSession(t *testing.T) {
 			t.Fatal(out)
 		}
 		contains(t, out, "recorded session sid-y has no transcript ("+filepath.Join(x.claude, "projects", "-gone", "sid-y.jsonl")+"): starting fresh", "said")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a new session")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 		lacks(t, x.startCall(), "--resume", "no resume")
 	})
 	t.Run("no recorded path, the kind's file of that id: resumes", func(t *testing.T) {
@@ -2112,7 +2112,7 @@ func TestRestartRecordedSession(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-z)", "searched by id")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-z")
 		lacks(t, out, "starting fresh", "no fresh start")
 	})
 	t.Run("config dir with glob metacharacters, no recorded path: the search still finds it", func(t *testing.T) {
@@ -2129,7 +2129,7 @@ func TestRestartRecordedSession(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-g)", "found without a glob")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-g")
 	})
 	t.Run("Codex's sessions are not obor's: not checked", func(t *testing.T) {
 		t.Parallel()
@@ -2160,7 +2160,7 @@ func TestSessionResumeRule(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "resumed")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		contains(t, x.startCall(), "--resume sid-1", "the transcript's session")
 		lacks(t, out, "starting fresh", "no fresh start")
 	})
@@ -2175,7 +2175,7 @@ func TestSessionResumeRule(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "the recorded path resumes")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-x")
 		lacks(t, out, "is not from", "no cwd refusal")
 	})
 	t.Run("restart: unreadable projects dir, no recorded path: refused, never fresh", func(t *testing.T) {
@@ -2214,7 +2214,7 @@ func TestSessionResumeRule(t *testing.T) {
 			t.Fatal(out)
 		}
 		contains(t, out, "recorded session sid-x has no transcript (never prompted): starting fresh", "said")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a new session")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 		lacks(t, x.startCall(), "--resume", "no resume")
 	})
 	t.Run("restore: a role with no recorded session: fresh, said", func(t *testing.T) {
@@ -2494,7 +2494,7 @@ func TestStopForceTerminates(t *testing.T) {
 		eq(t, strings.Join(x.kills, ","), "2 terminated,2 terminated", "TERM to the agent, then TERM to its leftovers")
 		contains(t, out, "terminated pj-l-01 (claude pid 2, SIGTERM)", "agent terminated")
 		contains(t, out, "stopped 1 leftover process(es) of pj-l-01 (uvx)", "leftover line")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 	t.Run("--force, TERM and KILL ignored: FAIL with evidence, no start", func(t *testing.T) {
 		t.Parallel()
@@ -2724,7 +2724,7 @@ func TestConcurrentRestartWaits(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, out.String())
 	}
-	eq(t, r.line, "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+	restarted(t, r.line, "pj-l-01", "w1:p3", "sid-1")
 	eqInt(t, len(x.calls("Start")), 1, "started once the first ended")
 }
 
@@ -3013,7 +3013,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to the group")
 		contains(t, out, "stopped 2 leftover process(es) of pj-l-01 (uvx, python)", "leftover line")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 	t.Run("leader still alive after the wait: FAIL as today, no kill", func(t *testing.T) {
 		t.Parallel()
@@ -3228,7 +3228,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-1" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -3245,7 +3245,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 			store.Session{Agent: "pj-l-02", ID: "sid-3", Started: now.Add(time.Hour).Unix()})
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-2)", "the newest of its own")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-2")
 		if !ok {
 			t.Fatal(out)
 		}
@@ -3258,7 +3258,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-rec")
 		if !ok {
 			t.Fatal(out)
 		}
@@ -3278,7 +3278,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 			t.Fatal(out)
 		}
 		contains(t, out, "recorded session sid-old has no transcript (never prompted): starting fresh", "said")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a new session")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 		eq(t, record(x), "sid-old\n", "record kept")
 	})
 	t.Run("no record, herdr set: never herdr's for claude", func(t *testing.T) {
@@ -3308,7 +3308,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 			t.Fatal("precondition: no record")
 		}
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
-		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session sid-h)", "result")
+		restarted(t, last(out), "pj-rev", "w1:p7", "sid-h")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -3321,7 +3321,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
 		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "--fresh result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 		if strings.Contains(out, "warning: recorded session") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -3608,7 +3608,7 @@ func TestLaunchReportsIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the start: %v", err)
 	}
-	eq(t, s.Line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "the start's line")
+	restarted(t, s.Line, "pj-l-01", "w1:p3", "new")
 	eq(t, s.Pane+" "+s.Kind+" "+s.Session, "w1:p3 claude original-task-session", "the identity the start reports")
 }
 
@@ -3827,4 +3827,27 @@ func TestStartCarriesTheKindsProgram(t *testing.T) {
 		t.Fatalf("start = %+v; want the claude start in w1:p3", got)
 	}
 	eq(t, got.Program, "claude", "the start's program")
+}
+
+// restartedRE is the reply's success line: the agent, its pane and its session ("new" for a fresh one).
+var restartedRE = regexp.MustCompile(`^RESTARTED (\S+) \(pane (\S+), session (\S+)\)$`)
+
+// restarted asserts that line says the agent was restarted in its pane with the session (or "new"); the line's
+// wording is pinned once, by the table of TestRestartWho's lines.
+func restarted(t *testing.T, line, agent, pane, session string) {
+	t.Helper()
+	m := restartedRE.FindStringSubmatch(line)
+	if m == nil {
+		t.Errorf("not a RESTARTED line: %q", line)
+		return
+	}
+	eq(t, m[1], agent, "restarted agent of "+line)
+	eq(t, m[2], pane, "restarted pane of "+line)
+	eq(t, m[3], session, "restarted session of "+line)
+}
+
+// isRestarted is restarted as a condition, for a test that branches on the outcome.
+func isRestarted(line, agent, pane, session string) bool {
+	m := restartedRE.FindStringSubmatch(line)
+	return m != nil && m[1] == agent && m[2] == pane && m[3] == session
 }

@@ -130,7 +130,7 @@ func TestRestartOwnPane(t *testing.T) {
 		if got <= 3 {
 			t.Errorf("precondition: polled while working (%d agent gets)", got)
 		}
-		if !ok || last(out) != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" {
+		if !ok || !isRestarted(last(out), "pj-l-01", "w1:p3", "sid-1") {
 			t.Fatalf("restarted once idle:\n%s", out)
 		}
 		contains(t, out, "waiting for pj-l-01 to go idle", "said")
@@ -187,7 +187,7 @@ func TestRestartOwnPane(t *testing.T) {
 		}
 		x.f.Set("w1:p3", func(p *mpane) { p.Status = "idle" })
 		out, ok, spawns = x.self("w1:p9", false, launch.Request{Agent: "pj-l-01"}, false, nil)
-		if !ok || last(out) != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" || len(spawns) != 0 {
+		if !ok || !isRestarted(last(out), "pj-l-01", "w1:p3", "sid-1") || len(spawns) != 0 {
 			t.Errorf("restarted in place, nothing scheduled: %v\n%s", spawns, out)
 		}
 	})
@@ -265,7 +265,7 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 			if got <= 2 {
 				t.Errorf("the detached run polled %d times: it did not wait for idle", got)
 			}
-			eq(t, last(out), "RESTARTED "+c.agent+" (pane w1:p3, session new)", "result: a fresh session")
+			restarted(t, last(out), c.agent, "w1:p3", "new")
 			switch {
 			case c.prompt != "" && !strings.Contains(x.startCall(), c.prompt):
 				t.Errorf("the start: %q, want the first prompt %q", x.startCall(), c.prompt)
@@ -321,11 +321,11 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 				if !failed || got <= 4 {
 					t.Fatalf("%s stop=%v precondition: one error, then polled while %s (%d polls)\n%s", status, stop, status, got, out)
 				}
-				want := "RESTARTED pj-l-01 (pane w1:p3, session sid-1)"
 				if stop {
-					want = "STOPPED pj-l-01 (pane w1:p3)"
+					eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", status+" result")
+				} else {
+					restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 				}
-				eq(t, last(out), want, status+" result")
 				if !ok || len(atExit) != 1 || atExit[0] != "idle" {
 					t.Errorf("%s stop=%v: one /exit, once idle: %v\n%s", status, stop, atExit, out)
 				}
@@ -368,11 +368,11 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 				}
 				return nil
 			})
-			want := "RESTARTED pj-l-01 (pane w1:p3, session sid-1)"
 			if stop {
-				want = "STOPPED pj-l-01 (pane w1:p3, already at a shell)"
+				eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3, already at a shell)", "result")
+			} else {
+				restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 			}
-			eq(t, last(out), want, "result")
 			if !ok || len(atExit) != 0 || got < 2 {
 				t.Errorf("stop=%v: no /exit, waited until gone (%d polls): %v\n%s", stop, got, atExit, out)
 			}
@@ -390,7 +390,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 			}
 			return nil
 		})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-before)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-before")
 		if !ok {
 			t.Fatal(out)
 		}
@@ -411,7 +411,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 			}
 			return nil
 		})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-after)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-after")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -430,7 +430,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 				}
 				return nil
 			})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 		if !ok || strings.Contains(out, "warning: recorded session") {
 			t.Errorf("no session warning: %q", out)
 		}
@@ -643,7 +643,7 @@ func TestWaitScheduledTable(t *testing.T) {
 		}
 		contains(t, out, "waiting for pj-l-01 to go idle", "idle wait")
 		lacks(t, out, shellWait, "no shell wait for an agent")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 	t.Run("an agent, idle: nothing more, the normal path", func(t *testing.T) {
 		t.Parallel()
@@ -655,7 +655,7 @@ func TestWaitScheduledTable(t *testing.T) {
 			t.Fatalf("restarted:\n%s", out)
 		}
 		lacks(t, out, shellWait, "no shell wait for an agent")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
 	})
 	t.Run("no agent, the caller in the foreground: wait for the shell, then the normal path", func(t *testing.T) {
 		t.Parallel()
@@ -671,7 +671,7 @@ func TestWaitScheduledTable(t *testing.T) {
 			t.Fatalf("started once the shell had the foreground:\n%s", out)
 		}
 		contains(t, out, shellWait, "shell wait")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 	})
 	t.Run("no agent, the shell already in the foreground: no wait, the normal path", func(t *testing.T) {
 		t.Parallel()
@@ -682,7 +682,7 @@ func TestWaitScheduledTable(t *testing.T) {
 			t.Fatalf("started:\n%s", out)
 		}
 		lacks(t, out, shellWait, "no shell wait")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
 	})
 	t.Run("no agent, the foreground never returns: give up naming the operation, no input", func(t *testing.T) {
 		t.Parallel()

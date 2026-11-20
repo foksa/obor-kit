@@ -42,7 +42,7 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 		}
 		eq(t, td.Hint, trustHint, "hint")
 		eq(t, s.Pane, "w1:p3", "Started's pane")
-		eq(t, s.Line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "Started's line")
+		restarted(t, s.Line, "pj-l-01", "w1:p3", "new")
 		if len(reported) != 1 || reported[0] != "pj-l-01" {
 			t.Errorf("reported starts %q, want pj-l-01's", reported)
 		}

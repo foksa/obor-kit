@@ -143,9 +143,9 @@ func TestStartInARelabelledPanePutsTheLabelBack(t *testing.T) {
 		req         launch.Request
 		want        string
 	}{
-		{"obor restart", "pj-l-01", launch.Request{Agent: "pj-l-01"}, "RESTARTED pj-l-01 (pane w1:p3, session sid-1)"},
+		{"obor restart", "pj-l-01", launch.Request{Agent: "pj-l-01"}, "sid-1"},
 		{"serve's fresh start of a job", "pj-int", launch.Request{Agent: "pj-int", Fresh: true, Prompt: "[obor job T-1/1/review]"},
-			"RESTARTED pj-int (pane w1:p3, session new)"},
+			"new"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -158,7 +158,7 @@ func TestStartInARelabelledPanePutsTheLabelBack(t *testing.T) {
 			if !ok {
 				t.Fatalf("not started in its pane:\n%s", out)
 			}
-			eq(t, last(out), tc.want, "result")
+			restarted(t, last(out), tc.agent, "w1:p3", tc.want)
 			contains(t, out, "pane w1:p3 ("+tc.agent+" runs there: session)", "the pane Locate chose")
 			contains(t, out, "label of pane w1:p3 put back: "+tc.agent+" (it was notes)", "the label put back, said")
 			eqInt(t, len(x.calls("RenamePane label="+tc.agent+" pane=w1:p3")), 1, "the label put back")
@@ -206,7 +206,7 @@ func TestRestartAndStopIntoAPaneLabelledNobody(t *testing.T) {
 		if !ok {
 			t.Fatalf("not started:\n%s", out)
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "result")
+		restarted(t, last(out), "pj-l-01", "w1:p4", "sid-1")
 		contains(t, out, "label of pane w1:p4 put back: pj-l-01 (it was notes)", "the label put back, said")
 		eq(t, x.f.At("w1:p4").Label, "pj-l-01", "the pane's label")
 	})
