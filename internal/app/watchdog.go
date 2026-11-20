@@ -32,7 +32,6 @@ func (a *App) check(ctx context.Context, full bool) {
 	if p != nil {
 		if full {
 			a.scan(ctx, p)
-			p.refreshKinds()
 		}
 		a.decideLanes(ctx, p)
 	}

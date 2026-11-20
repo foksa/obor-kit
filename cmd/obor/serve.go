@@ -117,8 +117,8 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	term = serveTerminal(cfg, term)
 	var a *app.App // the merge loop's launchers ask it, in process: set before serve runs
 	a = app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed,
-		Loop:    mergeLoop(env, term, end, kinds, func() serveApp { return a }),
-		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
+		Loop:  mergeLoop(env, term, end, kinds, func() serveApp { return a }),
+		Kinds: kinds.now, Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
 		Info: term.Control.ProcessInfo, Screen: term.Control.Screen},
 		term.Panes, checks.Lanes{})
 	a.SetRestore(restorer(term, paneless(env), a))
@@ -228,7 +228,8 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 // failure is said once per kind until it changes or heals: the guard denies that kind's program meanwhile.
 //
 // It also holds the kinds of the last pass's config (use, now): the one value the terminal adapter reads its kinds
-// through (hc's status-to-kind mapping), so a kind added to the config counts from the next pass on.
+// through (hc's status-to-kind mapping) and the app's watchdogs read theirs through (app.Options.Kinds): one
+// refresh path, mergeLoop's use at each pass, so a kind added to the config counts from the next pass on, in both.
 type kindCache struct {
 	mu   sync.Mutex
 	said map[string]string // kind → the failure last said
