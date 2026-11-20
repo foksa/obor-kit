@@ -456,7 +456,7 @@ func Dash(s string) string {
 // l's first prompt (a job's wake, "": none) and Force: the start (its line "running" when it runs already: nothing
 // started).
 // l.Fresh (a job's first start): a new session, also in place of one that runs.
-func (a *App) startIntegrator(ctx context.Context, agents port.Launcher, root string, l port.Launch) (port.Started, error) {
+func (a *App) startIntegrator(ctx context.Context, fx *Loop, root string, l port.Launch) (port.Started, error) {
 	a.mu.Lock()
 	p := a.projAt(root)
 	var w Where
@@ -474,14 +474,11 @@ func (a *App) startIntegrator(ctx context.Context, agents port.Launcher, root st
 	case w.State == Ambiguous:
 		return port.Started{}, fmt.Errorf("integrator %s", notIdentified(p.integrator, w))
 	}
-	cfg, err := p.cfgNow() // the call's one read of the config
-	if err != nil {
-		return port.Started{}, err
-	}
+	cfg := fx.Cfg // the pass's config
 	if rc, _ := cfg.Role("integrator"); unbridged(cfg, rc.Type) != "" {
 		return port.Started{}, fmt.Errorf("integrator %s: its kind %s has no bridge (obor config validate)", p.integrator,
 			unbridged(cfg, rc.Type))
 	}
 	l.Agent, l.Pane = p.integrator, ""
-	return agents.Launch(ctx, l)
+	return fx.Agents.Launch(ctx, l)
 }
