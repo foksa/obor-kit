@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -45,16 +44,17 @@ func launched(ctx context.Context, a launchdAgent, pid int) bool {
 }
 
 // webAtServeStart installs the machine's obor web agent when serve runs under launchd (its label holds pid) and the
-// agent's plist is missing, so an upgraded kit brings the page with serve and no extra step. A present plist is left
-// alone: serve never restarts or replaces a loaded obor.web. One line says what happened; a failure never ends serve.
+// agent is not installed as loaded-and-current: a plist launchd does not have loaded counts as missing, so an install
+// an earlier start left unloaded is tried again. A loaded current agent is left alone: serve never restarts its page.
+// One line says what happened; a failure never ends serve.
 func webAtServeStart(ctx context.Context, s service.Service, w service.Web, pid int, log io.Writer) {
 	if !s.Supported() || !w.Supported() {
 		return
 	}
-	if _, err := os.Stat(w.PlistPath()); !errors.Is(err, os.ErrNotExist) {
+	if !launched(ctx, s, pid) {
 		return
 	}
-	if !launched(ctx, s, pid) {
+	if w.Current(ctx) {
 		return
 	}
 	line, err := w.Install(ctx)

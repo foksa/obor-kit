@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -303,8 +306,49 @@ func TestWebOf(t *testing.T) {
 	}
 }
 
-// webAtServeStart installs the missing web agent when serve is launchd's own run (the label holds its pid) and says
-// so; a plist that is there is left exactly as it is; a serve not under launchd installs nothing.
+// webLaunchd answers launchctl in process with one loaded state per label: a loaded label prints pid 4242, a
+// bootstrap loads it, a bootout unloads it, and every call is a line in the file it returns. Serve's start asks about
+// two labels at once (obor.serve's must stay loaded while obor.web's is installed), and the process-wide fake keeps
+// one.
+func webLaunchd(t *testing.T) (calls string, loaded map[string]bool) {
+	t.Helper()
+	calls = filepath.Join(t.TempDir(), "calls")
+	loaded = map[string]bool{}
+	var mu sync.Mutex
+	was := service.ExecLaunchctl
+	service.ExecLaunchctl = func(_ context.Context, args ...string) ([]byte, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		f, err := os.OpenFile(calls, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintln(f, strings.Join(args, " "))
+		f.Close()
+		label := strings.TrimSuffix(filepath.Base(args[len(args)-1]), ".plist")
+		switch args[0] {
+		case "bootstrap":
+			loaded[label] = true
+		case "bootout":
+			if !loaded[label] {
+				return nil, errors.New("exit status 3")
+			}
+			delete(loaded, label)
+		case "print":
+			if !loaded[label] {
+				return nil, errors.New("exit status 113")
+			}
+			return []byte("pid = 4242\n"), nil
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { service.ExecLaunchctl = was })
+	return calls, loaded
+}
+
+// webAtServeStart installs the web agent when serve is launchd's own run (the label holds its pid) and obor.web is
+// not loaded-and-current: missing, stale, or present but unloaded (an install that failed to bootstrap), it is
+// installed again, and said; a loaded current agent is left alone; a serve not under launchd installs nothing.
 func TestServeStartInstallsWeb(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
@@ -318,10 +362,10 @@ func TestServeStartInstallsWeb(t *testing.T) {
 	env := p.Env("PATH=" + os.Getenv("PATH"))
 	s, w := serviceOf(cfg, env), webOf(cfg, env)
 	ctx := context.Background()
+	calls, loaded := webLaunchd(t)
+	var said bytes.Buffer
 
 	// A serve in a pane: launchd's label is not loaded, so the page agent is not installed.
-	calls, state := fakeLaunchctl(t)
-	var said bytes.Buffer
 	webAtServeStart(ctx, s, w, os.Getpid(), &said)
 	if _, err := os.Stat(w.PlistPath()); !os.IsNotExist(err) {
 		t.Fatalf("a serve not under launchd installed the web agent: %v", err)
@@ -331,9 +375,7 @@ func TestServeStartInstallsWeb(t *testing.T) {
 	}
 
 	// launchd's own serve (its print names 4242): the missing agent is installed and said.
-	if err := os.WriteFile(state, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	loaded[s.Label()] = true
 	webAtServeStart(ctx, s, w, 4242, &said)
 	if b, err := os.ReadFile(w.PlistPath()); err != nil || string(b) != string(w.Plist()) {
 		t.Errorf("the web plist after the install: %v\n%s", err, b)
@@ -345,22 +387,44 @@ func TestServeStartInstallsWeb(t *testing.T) {
 		t.Errorf("what serve said of the install: %q", said.String())
 	}
 
-	// A plist that is there: left alone, no launchctl bootstrap.
-	if err := os.WriteFile(w.PlistPath(), []byte("kept\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Loaded and current: left alone, no bootstrap or bootout, nothing said.
 	before, _ := os.ReadFile(calls)
 	said.Reset()
 	webAtServeStart(ctx, s, w, 4242, &said)
-	if b, _ := os.ReadFile(w.PlistPath()); string(b) != "kept\n" {
-		t.Errorf("the present web plist was rewritten: %q", b)
-	}
 	after, _ := os.ReadFile(calls)
-	if len(after) != len(before) {
-		t.Errorf("launchd was called with a plist present: %q", string(after[len(before):]))
+	if added := string(after[len(before):]); strings.Contains(added, "bootstrap") || strings.Contains(added, "bootout") {
+		t.Errorf("a loaded current agent was loaded or unloaded again: %q", added)
 	}
 	if said.Len() != 0 {
-		t.Errorf("a present plist was reported: %q", said.String())
+		t.Errorf("a loaded current agent was reported: %q", said.String())
+	}
+
+	// Loaded but stale (another PATH than its plist's): not current, installed again.
+	stale := w
+	stale.Path = "/opt/bin:/usr/bin"
+	before, _ = os.ReadFile(calls)
+	said.Reset()
+	webAtServeStart(ctx, s, stale, 4242, &said)
+	if b, _ := os.ReadFile(w.PlistPath()); string(b) != string(stale.Plist()) {
+		t.Errorf("the stale web plist was not rewritten:\n%s", b)
+	}
+	if c, _ := os.ReadFile(calls); !strings.Contains(string(c[len(before):]), "bootstrap gui/501 "+w.PlistPath()) {
+		t.Errorf("the stale web agent was not bootstrapped: %q", c)
+	}
+
+	// Present but unloaded (an install an earlier start left loaded nothing): installed again, as missing.
+	delete(loaded, w.Label())
+	before, _ = os.ReadFile(calls)
+	said.Reset()
+	webAtServeStart(ctx, s, stale, 4242, &said)
+	if b, err := os.ReadFile(w.PlistPath()); err != nil || string(b) != string(stale.Plist()) {
+		t.Errorf("the unloaded agent's plist: %v\n%s", err, b)
+	}
+	if c, _ := os.ReadFile(calls); !strings.Contains(string(c[len(before):]), "bootstrap gui/501 "+w.PlistPath()) {
+		t.Errorf("a present but unloaded web agent was not bootstrapped: %q", c)
+	}
+	if !strings.Contains(said.String(), "obor serve: INSTALLED obor.web (") {
+		t.Errorf("what serve said of the reinstall: %q", said.String())
 	}
 }
 

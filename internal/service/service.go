@@ -185,11 +185,98 @@ func (a agent) plist() []byte {
 	return b.Bytes()
 }
 
+// agent is the plist's content: obor serve in the project, its output in LogPath, the caller's PATH and the
+// terminal's own variables (Env).
+func (s Service) agent() agent {
+	return agent{label: s.Label(), args: []string{filepath.Join(s.Kit, "bin", "obor"), "serve"}, dir: s.Root,
+		log: s.LogPath(), path: s.Path, env: s.Env}
+}
+
 // Plist is the agent's plist: obor serve in the project, started at load, kept alive, its output in LogPath, the
 // caller's PATH and the terminal's own variables (Env).
-func (s Service) Plist() []byte {
-	return agent{label: s.Label(), args: []string{filepath.Join(s.Kit, "bin", "obor"), "serve"}, dir: s.Root,
-		log: s.LogPath(), path: s.Path, env: s.Env}.plist()
+func (s Service) Plist() []byte { return s.agent().plist() }
+
+// agentInstall is serve's install path: its plist, and the log rotation its start owes (Web's has none).
+func (s Service) agentInstall() agentInstall {
+	return agentInstall{a: s.agent(), path: s.PlistPath(), uid: s.UID, before: s.rotateLog}
+}
+
+// agentInstall is one launchd agent's install path: the plist's content, where the plist and its log go, the gui
+// domain, and the work before a start that only serve has (a serve.log over MaxLog is moved aside). Serve's and
+// Web's Install are both it.
+type agentInstall struct {
+	a      agent
+	path   string       // the plist
+	uid    int          // the gui/<uid> domain
+	before func() error // serve: rotateLog; web: nil
+}
+
+// target is the label's launchd target: gui/<uid>/<label>.
+func (i agentInstall) target() string { return fmt.Sprintf("gui/%d/%s", i.uid, i.a.label) }
+
+// install writes the plist and loads it (bootstrap; one loaded before, as loaded says, is booted out first, so a
+// reinstall takes the new plist). A bootstrap launchd refuses — the label it still knows, or half knows while the old
+// one is torn down ("Bootstrap failed: 5: Input/output error" left the label gone) — is booted out and bootstrapped
+// once more; an install that ends with the label not loaded is a FAIL naming the label's state and the next step.
+func (i agentInstall) install(ctx context.Context, loaded bool) (string, error) {
+	for _, dir := range []string{filepath.Dir(i.path), filepath.Dir(i.a.log)} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	}
+	if i.before != nil {
+		if err := i.before(); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(i.path, i.a.plist(), 0o644); err != nil {
+		return "", err
+	}
+	if loaded {
+		if err := i.bootout(ctx); err != nil {
+			return "", err
+		}
+	}
+	domain := fmt.Sprintf("gui/%d", i.uid)
+	_, err := launchctl(ctx, callTimeout, "bootstrap", domain, i.path)
+	if err != nil {
+		_ = i.bootout(ctx) // not loaded at all: its error is the expected one
+		if _, again := launchctl(ctx, callTimeout, "bootstrap", domain, i.path); again != nil {
+			err = fmt.Errorf("%v; after a bootout, again: %v", err, again)
+		} else {
+			err = nil
+		}
+	}
+	pid, loaded := runPID(ctx, true, i.target())
+	switch {
+	case err != nil && loaded:
+		return "", fmt.Errorf("%v: %s is loaded (pid %d), maybe from the plist before this one: obor serve install again", err, i.a.label, pid)
+	case err != nil:
+		return "", fmt.Errorf("%v: %s is not loaded in launchd: obor serve install again (launchctl print %s shows launchd's view)", err, i.a.label, i.target())
+	case !loaded:
+		return "", fmt.Errorf("launchctl bootstrap %s %s returned, but %s is not loaded in launchd: obor serve install again (log %s)",
+			domain, i.path, i.a.label, i.a.log)
+	}
+	return fmt.Sprintf("INSTALLED %s (%s; log %s)", i.a.label, i.path, i.a.log), nil
+}
+
+// current: the plist on disk is the one install would write and launchd has the label loaded, so a present plist
+// launchd does not have loaded is not current (an install left it unloaded).
+func (i agentInstall) current(ctx context.Context) bool {
+	b, err := os.ReadFile(i.path)
+	if err != nil || !bytes.Equal(b, i.a.plist()) {
+		return false
+	}
+	_, loaded := runPID(ctx, true, i.target())
+	return loaded
+}
+
+// bootout unloads the label (launchd stops its process first: up to its ExitTimeOut) and waits, up to settle, until
+// launchd no longer knows it, so a bootstrap after it does not meet the label half torn down.
+func (i agentInstall) bootout(ctx context.Context) error {
+	_, err := launchctl(ctx, stopTimeout, "bootout", i.target())
+	poll(ctx, func() (int, bool) { return runPID(ctx, true, i.target()) }, func(_ int, loaded bool) bool { return !loaded })
+	return err
 }
 
 // Label is the web agent's launchd label: one agent per machine.
@@ -206,11 +293,20 @@ func (w Web) PlistPath() string {
 // LogPath is where the agent's web writes (stdout and stderr): ~/.obor/web.log, a machine path, not a project's.
 func (w Web) LogPath() string { return filepath.Join(w.Home, ".obor", "web.log") }
 
+// agent is the plist's content: obor web from the kit in the user's home, its output in LogPath, the caller's PATH
+// and the terminal's own variables (Env).
+func (w Web) agent() agent {
+	return agent{label: w.Label(), args: []string{filepath.Join(w.Kit, "bin", "obor"), "web"}, dir: w.Home,
+		log: w.LogPath(), path: w.Path, env: w.Env}
+}
+
 // Plist is the agent's plist: obor web from the kit in the user's home, started at load, kept alive, its output in
 // LogPath, the caller's PATH and the terminal's own variables (Env).
-func (w Web) Plist() []byte {
-	return agent{label: w.Label(), args: []string{filepath.Join(w.Kit, "bin", "obor"), "web"}, dir: w.Home,
-		log: w.LogPath(), path: w.Path, env: w.Env}.plist()
+func (w Web) Plist() []byte { return w.agent().plist() }
+
+// agentInstall is the web agent's install path: its plist, and no log rotation (web.log has none).
+func (w Web) agentInstall() agentInstall {
+	return agentInstall{a: w.agent(), path: w.PlistPath(), uid: w.UID}
 }
 
 func (w Web) target() string { return fmt.Sprintf("gui/%d/%s", w.UID, w.Label()) }
@@ -273,19 +369,11 @@ func (s Service) Current(ctx context.Context) bool {
 	if !s.Supported() {
 		return false
 	}
-	b, err := os.ReadFile(s.PlistPath())
-	if err != nil || !bytes.Equal(b, s.Plist()) {
-		return false
-	}
-	_, loaded := s.PID(ctx)
-	return loaded
+	return s.agentInstall().current(ctx)
 }
 
-// Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
-// new plist). A bootstrap launchd refuses — the label it still knows, or half knows while the old one is torn down
-// ("Bootstrap failed: 5: Input/output error" left the label gone) — is booted out and bootstrapped once more;
-// an install that ends with the label not loaded is a FAIL naming the label's state and the next step. FAIL when the
-// label is another project's (owner).
+// Install writes the plist and loads it, as agentInstall's install does, refusing another project's label first
+// (owner).
 func (s Service) Install(ctx context.Context) (string, error) {
 	if !s.Supported() {
 		return Elsewhere, nil
@@ -293,56 +381,11 @@ func (s Service) Install(ctx context.Context) (string, error) {
 	if s.Name == "" {
 		return "", errors.New("the project has no name")
 	}
-	plist := s.PlistPath()
 	_, loaded, err := s.owner(ctx)
 	if err != nil {
 		return "", err
 	}
-	for _, dir := range []string{filepath.Dir(plist), filepath.Dir(s.LogPath())} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return "", err
-		}
-	}
-	if err := s.rotateLog(); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(plist, s.Plist(), 0o644); err != nil {
-		return "", err
-	}
-	if loaded {
-		if err := s.bootout(ctx); err != nil {
-			return "", err
-		}
-	}
-	domain := fmt.Sprintf("gui/%d", s.UID)
-	_, err = launchctl(ctx, callTimeout, "bootstrap", domain, plist)
-	if err != nil {
-		_ = s.bootout(ctx) // not loaded at all: its error is the expected one
-		if _, again := launchctl(ctx, callTimeout, "bootstrap", domain, plist); again != nil {
-			err = fmt.Errorf("%v; after a bootout, again: %v", err, again)
-		} else {
-			err = nil
-		}
-	}
-	pid, loaded := s.PID(ctx)
-	switch {
-	case err != nil && loaded:
-		return "", fmt.Errorf("%v: %s is loaded (pid %d), maybe from the plist before this one: obor serve install again", err, s.Label(), pid)
-	case err != nil:
-		return "", fmt.Errorf("%v: %s is not loaded in launchd: obor serve install again (launchctl print %s shows launchd's view)", err, s.Label(), s.target())
-	case !loaded:
-		return "", fmt.Errorf("launchctl bootstrap %s %s returned, but %s is not loaded in launchd: obor serve install again (log %s)",
-			domain, plist, s.Label(), s.LogPath())
-	}
-	return fmt.Sprintf("INSTALLED %s (%s; log %s)", s.Label(), plist, s.LogPath()), nil
-}
-
-// bootout unloads the label (launchd stops its serve first: up to its ExitTimeOut) and waits, up to settle, until
-// launchd no longer knows it, so a bootstrap after it does not meet the label half torn down.
-func (s Service) bootout(ctx context.Context) error {
-	_, err := launchctl(ctx, stopTimeout, "bootout", s.target())
-	s.poll(ctx, func(_ int, loaded bool) bool { return !loaded })
-	return err
+	return s.agentInstall().install(ctx, loaded)
 }
 
 // Uninstall unloads the agent (bootout, which stops its serve) and removes its plist. Another project's label
@@ -361,7 +404,7 @@ func (s Service) Uninstall(ctx context.Context) (string, error) {
 		return fmt.Sprintf("%s is not installed", s.Label()), nil
 	}
 	if loaded {
-		if err := s.bootout(ctx); err != nil {
+		if err := s.agentInstall().bootout(ctx); err != nil {
 			return "", err
 		}
 	}
@@ -467,60 +510,16 @@ func (w Web) Current(ctx context.Context) bool {
 	if !w.Supported() {
 		return false
 	}
-	b, err := os.ReadFile(w.PlistPath())
-	if err != nil || !bytes.Equal(b, w.Plist()) {
-		return false
-	}
-	_, loaded := w.PID(ctx)
-	return loaded
+	return w.agentInstall().current(ctx)
 }
 
-// Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
-// new plist). A bootstrap launchd refuses is booted out and bootstrapped once more, as serve's install does; an
-// install that ends with the label not loaded is a FAIL naming launchd's state and the next step.
+// Install writes the plist and loads it, as agentInstall's install does.
 func (w Web) Install(ctx context.Context) (string, error) {
 	if !w.Supported() {
 		return Elsewhere, nil
 	}
-	plist := w.PlistPath()
-	for _, dir := range []string{filepath.Dir(plist), filepath.Dir(w.LogPath())} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return "", err
-		}
-	}
-	if err := os.WriteFile(plist, w.Plist(), 0o644); err != nil {
-		return "", err
-	}
-	if _, loaded := w.PID(ctx); loaded {
-		if err := w.bootout(ctx); err != nil {
-			return "", err
-		}
-	}
-	domain := fmt.Sprintf("gui/%d", w.UID)
-	_, err := launchctl(ctx, callTimeout, "bootstrap", domain, plist)
-	if err != nil {
-		_ = w.bootout(ctx) // not loaded at all: its error is the expected one
-		if _, again := launchctl(ctx, callTimeout, "bootstrap", domain, plist); again != nil {
-			err = fmt.Errorf("%v; after a bootout, again: %v", err, again)
-		} else {
-			err = nil
-		}
-	}
-	if _, loaded := w.PID(ctx); !loaded {
-		if err == nil {
-			err = fmt.Errorf("launchctl bootstrap %s %s returned", domain, plist)
-		}
-		return "", fmt.Errorf("%v: %s is not loaded in launchd: obor serve install again (log %s)", err, w.Label(), w.LogPath())
-	}
-	return fmt.Sprintf("INSTALLED %s (%s; log %s)", w.Label(), plist, w.LogPath()), nil
-}
-
-// bootout unloads the label (launchd stops its web first) and waits, up to settle, until launchd no longer knows it,
-// so a bootstrap after it does not meet the label half torn down.
-func (w Web) bootout(ctx context.Context) error {
-	_, err := launchctl(ctx, stopTimeout, "bootout", w.target())
-	poll(ctx, func() (int, bool) { return w.PID(ctx) }, func(_ int, loaded bool) bool { return !loaded })
-	return err
+	_, loaded := w.PID(ctx)
+	return w.agentInstall().install(ctx, loaded)
 }
 
 // Uninstall unloads the web agent (bootout, which stops its web) and removes its plist.
@@ -535,7 +534,7 @@ func (w Web) Uninstall(ctx context.Context) (string, error) {
 		return w.Label() + " is not installed", nil
 	}
 	if loaded {
-		if err := w.bootout(ctx); err != nil {
+		if err := w.agentInstall().bootout(ctx); err != nil {
 			return "", err
 		}
 	}

@@ -103,7 +103,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		fmt.Fprintf(flushWriter{}, "obor serve: the machine's project list is not updated (%v)\n", err)
 	}
 	// The machine's page agent comes with serve when an upgrade's first launchd serve starts it: obor serve has
-	// no other step to give it, and a present obor.web is left as it is.
+	// no other step to give it, and a loaded current obor.web is left as it is.
 	if cfgErr == nil {
 		webAtServeStart(ctx, serviceOf(cfg, env), webOf(cfg, env), os.Getpid(), flushWriter{})
 	}
