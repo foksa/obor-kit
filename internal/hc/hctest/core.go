@@ -1,7 +1,8 @@
 // Package hctest is an in-memory hc core for the hc client's tests, herdrtest's counterpart: it holds terminal
 // records, answers the methods the client calls (hello, server.status, terminal.list, terminal.get, terminal.read,
-// events.subscribe) on in-memory connections, and sends its subscribers events numbered by seq, heartbeats and
-// missed, in the JSON hc 0.1.21 sends (docs/research/hc-probes.md P5, P6).
+// events.subscribe; terminal.send, terminal.keys and terminal.label in shell.go, with a shell that runs the programs a
+// test names) on in-memory connections, and sends its subscribers events numbered by seq, heartbeats and missed, in
+// the JSON hc 0.1.21 sends (docs/research/hc-probes.md P2, P5, P6, P8).
 package hctest
 
 import (
@@ -40,12 +41,15 @@ type Core struct {
 	conns      []*conn
 	subs       []*conn
 	requests   []string
+	shell              // shell.go: what typing reaches
+	pending    []event // the events an answer made, sent once the answer went out (flush)
 }
 
 // New is a core of hc 0.1.21 with one holder and no terminals.
 func New() *Core {
 	return &Core{version: "0.1.21", generation: hc.Generation, methods: Methods, id: "6bdfe8023479182e4e1a5ff565c060e4",
-		holders: []string{"3b6b8d65e9f538dd68637cd26c3be7e2"}, screens: map[string]string{}, fails: map[string]string{}}
+		holders: []string{"3b6b8d65e9f538dd68637cd26c3be7e2"}, screens: map[string]string{}, fails: map[string]string{},
+		shell: newShell()}
 }
 
 // Client is a client of c.
@@ -293,6 +297,7 @@ func (c *Core) serve(k *conn) {
 		if json.Unmarshal(b, &req) != nil {
 			continue
 		}
+		c.hold(req.Method)
 		// A subscription's answer goes out before any event: the core's events wait on the connection's lock.
 		k.mu.Lock()
 		result, kind, msg := c.answer(k, req.Method, req.Params)
@@ -304,6 +309,7 @@ func (c *Core) serve(k *conn) {
 		b, _ = json.Marshal(out)
 		_, err = k.Write(append(b, '\n'))
 		k.mu.Unlock()
+		c.flush()
 		if err != nil {
 			c.drop(k)
 			return
@@ -372,6 +378,8 @@ func (c *Core) answer(k *conn, method string, raw json.RawMessage) (any, string,
 	case "events.subscribe":
 		c.subs = append(c.subs, k) // with its seq: every later event reaches it
 		return map[string]any{"channel": nil, "seq": c.seq, "terminals": slices.Clone(c.recs)}, "", ""
+	case "terminal.send", "terminal.keys", "terminal.label":
+		return c.write(method, raw)
 	default:
 		return nil, "unknown_method", "no method " + method
 	}

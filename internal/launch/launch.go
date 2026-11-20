@@ -45,7 +45,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -860,12 +859,12 @@ func envLine(t *target) string {
 	if len(set) > 0 {
 		words := make([]string, len(set))
 		for i, v := range set {
-			words[i] = v.Name + "=" + shellQuote(v.Value)
+			words[i] = v.Name + "=" + project.ShellQuote(v.Value)
 		}
 		line += " && export " + strings.Join(words, " ")
 	}
 	if t.info.Cwd != "" {
-		line = "cd " + shellQuote(t.info.Cwd) + " && " + line
+		line = "cd " + project.ShellQuote(t.info.Cwd) + " && " + line
 	}
 	return line
 }
@@ -891,16 +890,6 @@ var markSeq atomic.Int64
 func envMark() mark {
 	n := strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(markSeq.Add(1), 36)
 	return mark{typed: `obor-env-"` + n + `"`, echoed: "obor-env-" + n}
-}
-
-var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
-
-// shellQuote is s as one shell word.
-func shellQuote(s string) string {
-	if shellSafe.MatchString(s) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // build is t's one start, built before anything is stopped: the type's (a role without a type: the defaults

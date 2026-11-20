@@ -21,7 +21,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 ## Packages
 
 **base** — shared leaves, no obor state of their own.
-- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
+- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; `ShellQuote` (`shell.go`: one word of a shell command line, for launch and the hc adapter); the file lock (`lock.go`: `Lock`),
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`), the background Bash calls the PreToolUse hook records
   (`background.go`), the caller's own pane (`pane.go`: `Pane`, the one resolver: `OBOR_PANE`, else the
   terminal's `HERDR_PANE_ID` for a pane obor did not start, else `ErrNoPane`; here, not in `herdr`, because adapters
@@ -198,10 +198,12 @@ process (`plugin.Local`).
   helper).
 - `hc`: the herdr-core (`hc`) socket client, the second terminal adapter (`docs/plan/herdr-core.md`; no project selects
   it yet): `hello` and the version rule (`client.go`), a terminal record as a pane (labels `obor.project`/`obor.agent`
-  as its group and label, the kind from its status's app) and `port.Panes` (`panes.go`), one unfiltered
-  `events.subscribe` and its endings (`stream.go`), the reads of `port.PaneControl` (`Pane`, `Panes`, `Screen`,
-  `Recent`, `ProcessInfo`), and `contract.go` (what obor sends and reads, checked against a committed copy of hc's
-  schema); `hc/hctest` is its fake (test helper).
+  as its group and label, the kind from its status's app, else the `obor.kind` label) and `port.Panes` (`panes.go`),
+  one unfiltered `events.subscribe` and its endings (`stream.go`), `port.PaneControl`: its reads (`client.go`) and
+  `control.go` (`Prompt`: a read, then `terminal.send`; `Write`, `SendKeys`, `RenamePane`, `Named` by label,
+  `WaitStatus` on its own subscription), `port.AgentStarter` (`start.go`: the command line typed at the shell, up by
+  the status rule), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built yet), and `contract.go` (what obor
+  sends and reads, checked against a committed copy of hc's schema); `hc/hctest` is its fake (test helper).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,
@@ -265,7 +267,7 @@ appears in both; the narrow page reads share its mapping helpers, and there is n
 **test helpers** — `testkit` (fixture projects, the store helpers tests use, the workflow and terminal contract tables) and
 `herdr/herdrtest` (the fake herdr socket: scripted panes and plugins, and every request a test's client sent) and
 `hc/hctest` (an in-memory hc core: terminal records, the methods the hc client calls, events with seq, heartbeat and
-missed).
+missed, and a shell that runs the programs a test names, with each send and key it got).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the

@@ -12,6 +12,9 @@ var Sent = map[string][]string{
 	"terminal.get":     {"terminal"},
 	"terminal.read":    {"terminal", "lines"},
 	"events.subscribe": nil,
+	"terminal.send":    {"terminal", "text", "force"},
+	"terminal.keys":    {"terminal", "keys"},
+	"terminal.label":   {"terminal", "labels"},
 }
 
 // Read is every result field the client reads, by the schema's component that holds it (its notifications are not
