@@ -17,7 +17,7 @@ func doneRig(t *testing.T) *harness {
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	h.snap.Panes = append(h.snap.Panes,
 		port.Pane{ID: "w1:p3", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-advisor", Status: "idle"},
 		port.Pane{ID: "w1:p4", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"},
@@ -33,14 +33,14 @@ func freshServe(t *testing.T, h *harness) {
 	t.Helper()
 	h.a.closeLog()
 	h.a = newTestApp(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	h.connect()
 }
 
 // deliverOnce is one of serve's line passes over pj: the lead's lines posted to a fake inbox.
 func deliverOnce(t *testing.T, h *harness) {
 	t.Helper()
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}}))
 }
 
 // The done reminder, one table: a role agent idle or done for roleDoneAfter with no open work gets one line to the
@@ -55,7 +55,7 @@ func TestRoleDoneReminder(t *testing.T) {
 		}
 	}
 	brief := func(t *testing.T, h *harness) {
-		if _, ok := h.a.recordBrief(h.proj(), "pj-advisor", "pj-lead", "answer the question", "", "", false, nil); !ok {
+		if _, ok := h.a.recordBrief(h.proj(), loadCfg(t, h.root), "pj-advisor", "pj-lead", "answer the question", "", "", false, nil); !ok {
 			t.Fatal("precondition: the advisor's brief was not recorded")
 		}
 	}

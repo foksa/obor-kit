@@ -173,10 +173,7 @@ func driveReply(task, lane, agent, ref string) string {
 // no free lane (the lanes' states named; never a wait), the task branch has commits the target lacks.
 func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) (string, error) {
 	name := strings.Join(strings.Fields(c.Name), " ")
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
+	cfg := fx.Cfg
 	if t := a.driveNamed(p, name); t != "" {
 		return a.driveAgain(p, t)
 	}

@@ -18,7 +18,7 @@ func TestMergePreview(t *testing.T) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	f := NewFakeWorkflow("")
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f)}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{Workflow: WorkflowOf(f)}), nil }
 	h.connect()
 	p := h.proj()
 	h.a.mu.Lock()

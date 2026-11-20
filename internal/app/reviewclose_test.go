@@ -187,7 +187,7 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 
 	s := &reviewStopSpy{}
 	reads := r.git.reads()
-	r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: s})
+	r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: s}))
 	if !slices.Equal(s.stops, []string{"pj-rev w:rev force=false"}) {
 		t.Errorf("stops %q after the close, want the reviewer stopped on the next pass", s.stops)
 	}
@@ -294,7 +294,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 		t.Parallel()
 		r := cut(t)
 		read := func() {
-			r.a.reviewCloseRead(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+			r.a.reviewCloseRead(context.Background(), r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 		}
 		read()
 		read()
@@ -380,7 +380,7 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 			if c.crash {
 				r.p.log.Refuse = nil
 				r.reload()
-				r.a.reviewCloseRead(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+				r.a.reviewCloseRead(context.Background(), r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 			}
 			f := r.closedFacts()
 			if len(f) != 1 || f[0].Head != head || !slices.Equal(f[0].Tasks, tasks) {

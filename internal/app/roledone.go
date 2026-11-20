@@ -3,6 +3,7 @@
 package app
 
 import (
+	"obor/internal/config"
 	"time"
 
 	"obor/internal/app/port"
@@ -36,7 +37,7 @@ type roleDonePane struct {
 // which the identity table has for one agent (two are no agent), and that agent is a role agent of no lane, not the
 // lead, with nothing open for it (roleAgents, openWork). While serve is not connected to the terminal there are none:
 // its panes are not known now, and the next connect decides afresh.
-func (a *App) roleDonePanes(p *proj) []roleDonePane {
+func (a *App) roleDonePanes(p *proj, cfg *config.Config) []roleDonePane {
 	if !a.connected {
 		return nil
 	}
@@ -52,7 +53,7 @@ func (a *App) roleDonePanes(p *proj) []roleDonePane {
 	if len(cands) == 0 {
 		return nil
 	}
-	roles := p.roleAgents()
+	roles := p.roleAgents(cfg)
 	var out []roleDonePane
 	for _, c := range cands {
 		if role, ok := roles[c.agent]; ok && !p.openWork(c.agent, role) {
@@ -69,12 +70,12 @@ func (a *App) roleDonePanes(p *proj) []roleDonePane {
 // unknown, not inactive: no entry. Not under mu: it reads the panes' transcripts between its mu sections. While serve
 // is not connected to the terminal there is nothing: no hint and no line from a stale pane. obor status' hint and the
 // lead's line are this one condition.
-func (a *App) doneRoles(now time.Time) map[string]time.Time {
+func (a *App) doneRoles(cfg *config.Config, now time.Time) map[string]time.Time {
 	a.mu.Lock()
 	var cands []roleDonePane
 	p := a.p
 	if p != nil {
-		cands = a.roleDonePanes(p)
+		cands = a.roleDonePanes(p, cfg)
 	}
 	a.mu.Unlock()
 	out := map[string]time.Time{}

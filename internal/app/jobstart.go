@@ -184,7 +184,7 @@ func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, 
 
 // reviewText is the review job (row 25): the spec to review (the rev the gate put into the candidate's message,
 // the merge message), the worker's report, the candidate and its patch hash.
-func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
+func (a *App) reviewText(p *proj, mt mtask, cfg *config.Config, kit string) (string, error) {
 	c := mt.cand
 	row, _, err := specOf(p, mt.task)
 	if err != nil {
@@ -207,16 +207,12 @@ func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
 		"%s%s",
 		mt.task, mt.attempt, mt.lane, greenText(mt), spec, c.SHA, c.Target, mt.task, diffText(c, mt.input), c.Patch,
 		mt.report, questionsText(mt.report), decisionText(mt))
-	return integratorRoles(p, text, kit)
+	return integratorRoles(cfg, text, kit)
 }
 
 // integratorRoles is the integrator job's text with the integrator's role texts after it (one fresh session
 // per job, so a Bash read of them per job is a call saved).
-func integratorRoles(p *proj, text, kit string) (string, error) {
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
+func integratorRoles(cfg *config.Config, text, kit string) (string, error) {
 	return withRoleTexts(text, cfg, kit, "integrator")
 }
 
@@ -275,15 +271,15 @@ func decisionText(mt mtask) string {
 }
 
 // resolveText is the resolve job (row 25): the conflict and where it is open. The steps are the role text's.
-func resolveText(p *proj, mt mtask, kit string) (string, error) {
+func resolveText(mt mtask, cfg *config.Config, kit string) (string, error) {
 	if m := mt.mismatch; m != nil {
 		c, f := m.Checked[:min(7, len(m.Checked))], strings.Join(m.Files, " ")
-		return integratorRoles(p, fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): the replayed resolution lost edits of "+
+		return integratorRoles(cfg, fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): the replayed resolution lost edits of "+
 			"the checked one %s in %s (no conflict markers; the merge is open in %s): compare with `git diff %s -- %s` and "+
 			"restore them (the target's new changes stay)\n%s", mt.task, mt.attempt, mt.lane, c, f, m.Dir, c, f, decisionText(mt)), kit)
 	}
 	line, _, _ := strings.Cut(mt.line, "(resolve there")
-	return integratorRoles(p, fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): %s\n%s",
+	return integratorRoles(cfg, fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): %s\n%s",
 		mt.task, mt.attempt, mt.lane, strings.TrimSpace(line), decisionText(mt)), kit)
 }
 

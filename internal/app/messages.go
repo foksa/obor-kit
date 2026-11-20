@@ -10,6 +10,7 @@ import (
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"sort"
 	"strconv"
 	"strings"
@@ -185,7 +186,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	now := a.opt.Now()
 	a.logWorked(p)
 	a.roleTurns(ctx, p)
-	stretches := a.doneRoles(now) // before the lock: it reads the panes' transcripts
+	stretches := a.doneRoles(fx.Cfg, now) // before the lock: it reads the panes' transcripts
 
 	a.mu.Lock()
 	var done []event.Message
@@ -218,7 +219,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	}
 	a.mu.Unlock()
 	if len(reviewed) > 0 { // the review files are read outside mu, once, as the lines are composed
-		if s, err := reviewConfig(p.root); err == nil {
+		if s, err := ReviewConfig(fx.Cfg); err == nil {
 			for i, m := range done {
 				if file := reviewed[m.Ends]; file != "" && m.Ends == s.Agent {
 					done[i].Line = finishedReview(p.root, s.Reviews, file, m.Ends)
@@ -359,7 +360,7 @@ func (a *App) routeOf(p *proj, fx *Loop, q outbox.Line) (post, target, held stri
 	case q.IsBrief() && q.Msg().Fresh && w.State == Identified:
 		return a.freshRoute(p, fx, q, w)
 	case q.IsBrief() && to != p.integrator && fx.Agents != nil && w.State == Unavailable:
-		if pane, ok := a.shellPane(p, to); ok { // a stopped role agent: started fresh on the brief
+		if pane, ok := a.shellPane(p, fx.Cfg, to); ok { // a stopped role agent: started fresh on the brief
 			return startRoute, pane.ID, ""
 		}
 		return "", "", to + " is not running and no shell pane of it is there to start it in"
@@ -396,7 +397,7 @@ func (a *App) freshRoute(p *proj, fx *Loop, q outbox.Line, w Where) (post, targe
 	switch {
 	case fx.Agents == nil:
 		return "", "", "serve starts no agents: " + to + "'s fresh brief waits"
-	case !p.roleAgentOf(to):
+	case !p.roleAgentOf(fx.Cfg, to):
 		return "", "", to + " is no role agent serve starts fresh"
 	case q.Refused() != "" && a.opt.Now().Sub(p.roleFail[to]) < roleStopRetry:
 		return "", "", fmt.Sprintf("its stop failed: tried again %s after the failure", Age(roleStopRetry))
@@ -860,7 +861,7 @@ func (a *App) sendCall(c wire.SendReq) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.root, wire.MethodSend, c.Envelope, fmt.Sprintf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent),
+	if err := leadOr(p.cfgNow, wire.MethodSend, c.Envelope, fmt.Sprintf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent),
 		c.Role)); err != nil {
 		return "", err
 	}
@@ -904,9 +905,13 @@ func (a *App) briefCall(c wire.BriefReq) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.root, wire.MethodBrief, c.Envelope, fmt.Sprintf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent),
+	fx, ferr := a.loopOf(p) // the call's one read of the config
+	if err := leadOr(loaded(cfgOf(fx), ferr), wire.MethodBrief, c.Envelope, fmt.Sprintf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent),
 		c.Role)); err != nil {
 		return "", err
+	}
+	if ferr != nil {
+		return "", fmt.Errorf("brief: %v", ferr)
 	}
 	switch {
 	case c.To == "":
@@ -921,21 +926,21 @@ func (a *App) briefCall(c wire.BriefReq) (string, error) {
 		from = "owner"
 	}
 	a.mu.Lock()
-	wtRole, restartable := p.wtRole(c.To), !c.Fresh || p.roleAgentOf(c.To)
+	wtRole, restartable := p.wtRole(fx.Cfg, c.To), !c.Fresh || p.roleAgentOf(fx.Cfg, c.To)
 	a.mu.Unlock()
 	if !restartable {
 		return "", fmt.Errorf("brief: %s is no role agent serve starts fresh (not the integrator or a worker)", c.To)
 	}
 	if wtRole != "" { // the reviewer or the deep dive
 		ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
-		err := a.briefMove(ctx, p, wtRole, c.To)
+		err := a.briefMove(ctx, p, fx, wtRole, c.To)
 		cancel()
 		if err != nil {
 			return "", fmt.Errorf("brief: %s's worktree: %v", c.To, err)
 		}
 	}
 
-	reply, ok := a.recordBrief(p, c.To, from, c.Text, c.CallID, c.Prompt, c.Fresh, nil)
+	reply, ok := a.recordBrief(p, fx.Cfg, c.To, from, c.Text, c.CallID, c.Prompt, c.Fresh, nil)
 	if !ok {
 		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
 	}
@@ -951,7 +956,7 @@ func (a *App) briefCall(c wire.BriefReq) (string, error) {
 // fresh: its line starts the agent fresh, the running agent stopped first. v: a verify's brief (nil: none;
 // reviewverify.go): its tasks and head in the fact (Task, Reviewed), and not recorded (false) while the agent has an
 // open brief, decided in the a.mu section that records it.
-func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bool, v *verifyBrief) (string, bool) {
+func (a *App) recordBrief(p *proj, cfg *config.Config, to, from, note, call, prompt string, fresh bool, v *verifyBrief) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete: the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (sending: it may have landed) stays; a lead line is
@@ -968,7 +973,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 		}
 	}
 	m := event.Message{To: to, From: from, Call: call, Supersedes: old, Fresh: fresh && note != "",
-		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamedIn(p, to, "the lead hears when it finishes") + ")"}
+		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamedIn(p, cfg, to, "the lead hears when it finishes") + ")"}
 	if v != nil {
 		m.Task, m.Reviewed = strings.Join(v.tasks, ","), v.head
 	}
@@ -978,7 +983,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 		if m.Fresh {
 			how = "serve stops it and starts it fresh with this brief; the lead hears when it finishes"
 		}
-		m.Reply = "BRIEFED " + to + " (" + a.unnamedIn(p, to, how) + ")"
+		m.Reply = "BRIEFED " + to + " (" + a.unnamedIn(p, cfg, to, how) + ")"
 	}
 	if len(old) > 0 {
 		briefs := "briefs"
@@ -1010,18 +1015,18 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 
 // unnamed is a reply's note on a line to agent: when serve, connected to herdr, cannot identify agent's pane in p
 // (none runs it, or two claim it), that its line is queued until it can; else note.
-func (a *App) unnamed(p *proj, agent, note string) string {
+func (a *App) unnamed(p *proj, cfg *config.Config, agent, note string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.unnamedIn(p, agent, note)
+	return a.unnamedIn(p, cfg, agent, note)
 }
 
 // unnamedIn is unnamed under mu.
-func (a *App) unnamedIn(p *proj, agent, note string) string {
+func (a *App) unnamedIn(p *proj, cfg *config.Config, agent, note string) string {
 	switch w := a.whereIs(p, agent); {
 	case w.State == Ambiguous:
 		return "queued: " + notIdentified(agent, w)
-	case w.State == Unavailable && agent != p.integrator && a.stoppedAt(p, agent):
+	case w.State == Unavailable && agent != p.integrator && a.stoppedAt(p, cfg, agent):
 		return "stopped: serve starts it fresh with this brief; the lead hears when it finishes"
 	case a.connected && w.State == Unavailable:
 		return "queued: no pane runs " + agent + "; `obor restart " + agent + "` starts it"

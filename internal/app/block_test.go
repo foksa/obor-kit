@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"obor/internal/config"
 	"os"
 	"path/filepath"
 	"slices"
@@ -102,6 +103,7 @@ func blockCases() []blockCase {
 // blockSummary is what the code makes of blockTask now: obor status' row and facts, the needs-you list, the verbs it
 // takes, its next step, the integrator job open, the scratch holder, dispatch and task_done.
 func blockSummary(a *App, p *proj) string {
+	cfg, _ := config.Load(p.root)
 	var b strings.Builder
 	st := a.Status()
 	for _, ts := range st.Project.Tasks {
@@ -135,7 +137,7 @@ func blockSummary(a *App, p *proj) string {
 	}
 	fmt.Fprintf(&b, "  verbs: %s\n", strings.Join(vs, " "))
 	next := "waits"
-	if a.pick(p, mt) != nil {
+	if a.pick(p, mt, cfg) != nil {
 		next = mt.stepName()
 	}
 	holder, why := p.scratchHolder("")
@@ -254,7 +256,7 @@ func TestNeedsYouBlockMergedOutside(t *testing.T) {
 		if len(p.needsYou()) > 1 {
 			t.Fatalf("precondition: %d needs-you", len(p.needsYou()))
 		}
-		a.drive(context.Background(), p, &Loop{Workflow: WorkflowOf(landedScratch{})}, blockTask)
+		a.drive(context.Background(), p, withAppCfg(a, &Loop{Workflow: WorkflowOf(landedScratch{})}), blockTask)
 		mt := p.folded.loop[blockTask]
 		if mt.state != stMerged || len(p.needsYou()) != 0 {
 			t.Errorf("after a merge outside: %s, %d needs-you; want merged, none", mt.state, len(p.needsYou()))
@@ -282,12 +284,12 @@ func TestNeedsYouBlockDueRecordedOnce(t *testing.T) {
 		if pass == 0 && count(p) != 0 {
 			t.Fatal("precondition: the due block is recorded already")
 		}
-		s := a.next(p, mt)
+		s := a.next(p, mt, cfgAt(p.root))
 		if pass == 0 && s == nil {
 			t.Fatal("precondition: the due block has no step")
 		}
 		if s != nil {
-			s(context.Background(), &Loop{Workflow: WorkflowOf(notLanded{})})
+			s(context.Background(), withAppCfg(a, &Loop{Workflow: WorkflowOf(notLanded{})}))
 		}
 		if n := count(p); n != 1 {
 			t.Fatalf("pass %d: %d needs-you in force, want 1", pass, n)

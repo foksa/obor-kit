@@ -46,7 +46,8 @@ func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 		return reply, nil
 	}
 	// The owner (no role) too, as for dispatch, and a custom role with the verb; a worker never.
-	if err := leadOr(p.root, wire.MethodSpecSet, c.Envelope, fmt.Sprintf("spec set: only the lead or the owner sets a spec, not %s (role %s)",
+	cfg, err := p.cfgNow() // the call's one read of the config
+	if err := leadOr(loaded(cfg, err), wire.MethodSpecSet, c.Envelope, fmt.Sprintf("spec set: only the lead or the owner sets a spec, not %s (role %s)",
 		Dash(c.Agent), c.Role)); err != nil {
 		return "", err
 	}
@@ -54,7 +55,6 @@ func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 	if err := spec.Validate(c.Task, sp); err != nil {
 		return "", fmt.Errorf("spec set %s: %w", c.Task, err)
 	}
-	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", fmt.Errorf("spec set %s: %v", c.Task, err)
 	}

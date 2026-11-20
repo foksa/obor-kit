@@ -338,8 +338,12 @@ func (a *App) drop(c wire.DropReq) (string, error) {
 		delete(p.ended, c.Task) // folded: the task is dropping or dropped; else the drop is refused
 		a.mu.Unlock()
 	}()
-	if lane != "" && !a.laneAdapters(p) { // no lane adapters (a loop observing): the task dropped, its lane as it was
-		lane = ""
+	var fx *Loop
+	if lane != "" { // no lane adapters (a loop observing): the task dropped, its lane as it was
+		var err error
+		if fx, err = a.loopOf(p); err != nil || !laneAdapters(fx) {
+			lane = ""
+		}
 	}
 	if lane == "" {
 		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
@@ -350,10 +354,7 @@ func (a *App) drop(c wire.DropReq) (string, error) {
 		a.wake()
 		return dropReply(c.Task), nil
 	}
-	worker, err := a.laneWorker(p, lane, mt)
-	if err != nil {
-		return "", fmt.Errorf("drop: %v", err)
-	}
+	worker := laneWorker(fx.Cfg, lane, mt)
 	force := c.Force
 	if h := mt.halt; h.pending() { // a refused stop (busy refuses a running one): its recorded agent, never the lane row's
 		worker, force = h.agent, force || h.force
@@ -368,24 +369,19 @@ func (a *App) drop(c wire.DropReq) (string, error) {
 	return d.Reply, nil
 }
 
-// laneAdapters: p's merge loop has the lane adapters a drop frees a lane with.
-func (a *App) laneAdapters(p *proj) bool {
-	fx, err := a.loopOf(p)
-	return err == nil && fx.Workflow != nil && fx.Specs != nil && fx.Agents != nil
+// laneAdapters: fx has the lane adapters a drop frees a lane with.
+func laneAdapters(fx *Loop) bool {
+	return fx.Workflow != nil && fx.Specs != nil && fx.Agents != nil
 }
 
 // laneWorker is the agent a drop of mt stops in lane (that task's worker, nothing keeps it): a drive's own
 // agent, none when the task names none (nothing to stop), else the lane's derived worker name (the name it
 // runs under now, after an obor setup rename too; its dispatch's name otherwise).
-func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
+func laneWorker(cfg *config.Config, lane string, mt mtask) string {
 	if mt.drive || mt.agent == "" {
-		return mt.agent, nil
+		return mt.agent
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
-	return cmp.Or(cfg.AgentName("worker", lane), mt.agent), nil
+	return cmp.Or(cfg.AgentName("worker", lane), mt.agent)
 }
 
 // dropDecide is drop's decision (under mu): the task to drop, marked ended and the spec rev the drop records (0: a task
@@ -478,7 +474,7 @@ func (a *App) startIntegrator(ctx context.Context, agents port.Launcher, root st
 	case w.State == Ambiguous:
 		return port.Started{}, fmt.Errorf("integrator %s", notIdentified(p.integrator, w))
 	}
-	cfg, err := config.Load(p.root)
+	cfg, err := p.cfgNow() // the call's one read of the config
 	if err != nil {
 		return port.Started{}, err
 	}

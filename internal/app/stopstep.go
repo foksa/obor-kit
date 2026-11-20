@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-
-	"obor/internal/config"
 )
 
 // causeStop is the needs-you of a worker.stop that failed: obor resume retries it.
@@ -190,10 +188,7 @@ func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		if fx.Workflow == nil || fx.Specs == nil {
 			return nil, fmt.Errorf("lane adapters off for %s", p.name)
 		}
-		cfg, err := config.Load(p.root)
-		if err != nil {
-			return nil, err
-		}
+		cfg := fx.Cfg
 		target, _, err := fx.Workflow.Target(ctx, mt.task)
 		if err != nil {
 			return nil, err

@@ -68,7 +68,7 @@ func (a *App) load(root string) (*proj, error) {
 // refreshKinds makes p's kinds (proj.kinds) those of its config as it reads now; a config that does not load keeps
 // the last good ones (as wtAgentsNow does). Outside mu: it reads the config.
 func (p *proj) refreshKinds() {
-	if cfg, err := config.Load(p.root); err == nil {
+	if cfg, err := p.cfgNow(); err == nil {
 		kinds := cfg.Kinds()
 		p.kinds.Store(&kinds)
 	}

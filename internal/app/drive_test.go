@@ -25,7 +25,7 @@ func TestDriveNoStallWhileDriving(t *testing.T) {
 			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.withLead()
-			h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+			h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 			h.connect()
 			p := h.proj()
 			t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
@@ -73,11 +73,11 @@ func landSeed(t *testing.T, adapters bool) (*harness, *proj) {
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	f := newConcFakes("")
-	h.a.opt.Loop = func(string) (*Loop, error) {
+	h.a.opt.Loop = func(root string) (*Loop, error) {
 		if !adapters {
-			return &Loop{}, nil
+			return withCfg(root, &Loop{}), nil
 		}
-		return &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}, nil
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}), nil
 	}
 	h.connect()
 	p := h.proj()

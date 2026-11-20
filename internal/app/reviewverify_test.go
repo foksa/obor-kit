@@ -73,7 +73,7 @@ func TestVerifyRule(t *testing.T) {
 			openReviewFile(t, r.p.root)
 			startedReview(t, r)
 			c.setup(r)
-			key, act, ok := verifyRule(context.Background(), r.a, r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}, r.now)
+			key, act, ok := verifyRule(context.Background(), r.a, r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}), r.now)
 			switch {
 			case c.want == "":
 				if ok {

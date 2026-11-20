@@ -40,15 +40,17 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 				h.work(c.pane, true)
 			}
 			if c.to != "" {
-				h.a.opt.Loop = func(string) (*Loop, error) {
-					return &Loop{Workflow: WorkflowOf(&schedScratch{h: h}, &reviewGitFake{head: "base1"}), Agents: &agentsSpy{}}, nil
+				h.a.opt.Loop = func(root string) (*Loop, error) {
+					return withCfg(root, &Loop{Workflow: WorkflowOf(&schedScratch{h: h}, &reviewGitFake{head: "base1"}), Agents: &agentsSpy{}}), nil
 				}
 				if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1",
 					Role: "lead"}, To: c.to, Text: "look"}); err != nil {
 					t.Fatal(err)
 				}
 				f := &schedScratch{h: h}
-				h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
+				h.a.opt.Loop = func(root string) (*Loop, error) {
+					return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
+				}
 			}
 			h.a.mu.Lock()
 			briefed := c.to != "" && h.a.p.out.Brief(c.to) != nil
@@ -90,7 +92,7 @@ func TestWorktreeAgentsFollowTheConfig(t *testing.T) {
 			role := func() string {
 				h.a.mu.Lock()
 				defer h.a.mu.Unlock()
-				return h.a.p.wtRole(c.agent)
+				return h.a.p.wtRole(cfgAt(h.root), c.agent)
 			}
 			if got := role(); got != c.before {
 				t.Fatalf("precondition: %s's role %q, want %q", c.agent, got, c.before)

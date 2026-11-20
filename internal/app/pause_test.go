@@ -51,7 +51,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	fx := f.loopWithSpecs(r.kit)
 	entered, release := make(chan struct{}), make(chan struct{})
 	fx.Specs = pauseSpecs{f, func() { close(entered); <-release }}
-	r.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
+	r.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 
 	type result struct {
 		reply string

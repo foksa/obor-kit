@@ -39,12 +39,12 @@ func newStopSpy(r *concRig) *stopSpy {
 // runJob runs task's next step (its review job's start) with s as agents and typer.
 func runJob(r *concRig, p *proj, task string, s *stopSpy) bool {
 	r.a.mu.Lock()
-	step := r.a.next(p, p.folded.loop[task])
+	step := r.a.next(p, p.folded.loop[task], cfgAt(p.root))
 	r.a.mu.Unlock()
 	if step == nil {
 		r.t.Fatalf("%s: no step", task)
 	}
-	return step(context.Background(), &Loop{Agents: s, Prompter: s})
+	return step(context.Background(), withAppCfg(r.a, &Loop{Agents: s, Prompter: s}))
 }
 
 // acceptJob is the integrator's accept of task's first review job (patch p).
@@ -100,7 +100,7 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 	t.Parallel()
 	type step func(t *testing.T, h *harness, s *reviewStopSpy)
 	pass := func(t *testing.T, h *harness, s *reviewStopSpy) {
-		h.a.rulePass(context.Background(), rules, &Loop{Agents: s})
+		h.a.rulePass(context.Background(), rules, withAppCfg(h.a, &Loop{Agents: s}))
 	}
 	submitted := func(t *testing.T, h *harness, _ *reviewStopSpy) { // its task done, no integrator job yet
 		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
@@ -184,7 +184,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 		t.Fatal("precondition: T-1's review job not started")
 	}
 	acceptJob(r, p, "T-1", "p1", "a1")
-	r.a.rulePass(ctx, rules, &Loop{Agents: s})
+	r.a.rulePass(ctx, rules, withAppCfg(r.a, &Loop{Agents: s}))
 	atShell(r)
 	if len(s.stops) != 1 || r.a.whereIs(p, "pj-int").State != Unavailable {
 		t.Fatalf("precondition: pj-int not stopped: %q", s.stops)
@@ -253,7 +253,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 				t.Fatal("no briefed fact")
 			}
 			f := &startJobFakes{concFakes: newConcFakes("")}
-			a.deliver(context.Background(), p, &Loop{Agents: f, Prompter: f})
+			a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: f, Prompter: f}))
 			line := "[obor pj-lead] why X?"
 			key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + fmt.Sprint(seq)}
 			if c.started {
@@ -297,13 +297,13 @@ func TestBriefReachesCustomRole(t *testing.T) {
 		t.Errorf("reply %q, want it started fresh", reply)
 	}
 	f := &startJobFakes{concFakes: newConcFakes("")}
-	a.deliver(context.Background(), p, &Loop{Agents: f, Prompter: f})
+	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: f, Prompter: f}))
 	if want := (port.Launch{Agent: "pj-ux-buddy", Pane: "w:ux", Fresh: true, Prompt: "[obor pj-lead] review the flows"}); len(f.launches) != 1 || f.launches[0] != want {
 		t.Errorf("launches %+v, want %+v", f.launches, want)
 	}
 	s := &reviewStopSpy{}
 	now = now.Add(time.Hour)
-	a.rulePass(context.Background(), rules, &Loop{Agents: s, Workflow: WorkflowOf(&reviewGitFake{})})
+	a.rulePass(context.Background(), rules, withAppCfg(a, &Loop{Agents: s, Workflow: WorkflowOf(&reviewGitFake{})}))
 	same(t, len(s.stops), 0, "serve's stops of the custom role")
 }
 
@@ -329,7 +329,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 	type step func(t *testing.T, r *reviewRig, s *reviewStopSpy)
 	pass := func(t *testing.T, r *reviewRig, s *reviewStopSpy) {
 		reads := r.git.reads()
-		r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: s})
+		r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: s}))
 		if n := r.git.reads() - reads; n != 0 {
 			t.Errorf("the rule pass read git %d times, want none (T-926: the close is a fact)", n)
 		}
@@ -405,7 +405,7 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	s.err = errors.New("herdr refused the stop")
 	reason := fmt.Sprintf("rule %s failed %d passes in a row (serve's log names the errors)", ruleReviewerStop, ruleFails)
 	for i := 1; i <= ruleFails; i++ {
-		r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: s})
+		r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: s}))
 		if len(s.stops) != i {
 			t.Fatalf("after pass %d: %d stop attempts, want %d (the closed review was not eligible again)", i, len(s.stops), i)
 		}
@@ -451,7 +451,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 		t.Errorf("reply %q says the worker is started fresh", reply)
 	}
 	f := &startJobFakes{concFakes: newConcFakes("")}
-	a.deliver(context.Background(), p, &Loop{Agents: f, Prompter: f})
+	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: f, Prompter: f}))
 	same(t, len(f.launches), 0, "starts of the stopped worker")
 	same(t, len(f.typed), 0, "lines typed")
 	a.mu.Lock()
@@ -484,7 +484,7 @@ func stoppedRoot(t *testing.T) string {
 func stoppedApp(t *testing.T, root string, panes ...port.Pane) (*App, *proj) {
 	t.Helper()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	a := newTestApp(Options{Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
+	a := newTestApp(Options{Now: func() time.Time { return now }, Loop: func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }},
 		&fakePanes{}, &fakeLanes{})
 	p, err := a.load(root)
 	if err != nil {
@@ -523,18 +523,18 @@ func TestStoppedRoles(t *testing.T) {
 		{"reviewer and integrator at a shell", func(root string) []port.Pane {
 			return []port.Pane{shell(root, "w:int", "pj-int"), shell(root, "w:rev", "pj-rev")}
 		}, []string{"pj-int", "pj-rev"}, func(t *testing.T, a *App, p *proj) {
-			if !p.roleAgent("pj-int") || p.roleAgentOf("pj-int") {
+			if !p.roleAgent(loadCfg(t, p.root), "pj-int") || p.roleAgentOf(loadCfg(t, p.root), "pj-int") {
 				t.Errorf("pj-int: role agent %v, brief starts it %v; want true, false",
-					p.roleAgent("pj-int"), p.roleAgentOf("pj-int"))
+					p.roleAgent(loadCfg(t, p.root), "pj-int"), p.roleAgentOf(loadCfg(t, p.root), "pj-int"))
 			}
-			if !p.roleAgentOf("pj-rev") {
+			if !p.roleAgentOf(loadCfg(t, p.root), "pj-rev") {
 				t.Error("pj-rev: a brief does not start the stopped reviewer")
 			}
 		}},
 		{"a lane's drive at a shell is no role agent", func(root string) []port.Pane {
 			return []port.Pane{shell(root, "w:drv", "pj-l-01-drive")}
 		}, nil, func(t *testing.T, a *App, p *proj) {
-			if p.roleAgent("pj-l-01-drive") || p.roleAgentOf("pj-l-01-drive") {
+			if p.roleAgent(loadCfg(t, p.root), "pj-l-01-drive") || p.roleAgentOf(loadCfg(t, p.root), "pj-l-01-drive") {
 				t.Error("pj-l-01-drive, a lane's drive agent, is a role agent")
 			}
 		}},
@@ -560,7 +560,7 @@ func TestStoppedRoles(t *testing.T) {
 			}
 		}},
 		{"no pane", nil, nil, func(t *testing.T, a *App, p *proj) {
-			if !p.roleAgent("pj-advisor") {
+			if !p.roleAgent(loadCfg(t, p.root), "pj-advisor") {
 				t.Fatal("pj-advisor is not a configured role agent")
 			}
 			if w := a.whereIs(p, "pj-advisor"); w.State != Unavailable || w.Why == notConnected {

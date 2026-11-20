@@ -9,6 +9,7 @@ import (
 	"maps"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
+	"obor/internal/config"
 	"obor/internal/store"
 	"slices"
 	"strings"
@@ -25,15 +26,17 @@ const pruneBatch = 500
 
 // pruneLog prunes p's log at now (serve's nightly backup, after the backup and prunePrompts): one line when it deleted
 // something, a FAIL line per part that failed. The backup stands either way.
-func (a *App) pruneLog(p *proj, now time.Time) { a.pruneLogIn(p, now, pruneBatch) }
+func (a *App) pruneLog(p *proj, cfg *config.Config, now time.Time) {
+	a.pruneLogIn(p, cfg, now, pruneBatch)
+}
 
 // pruneLogIn is pruneLog with at most batch tasks per transaction. The tasks are chosen under mu, at the log's last
 // seq (the horizon: nothing at or above it is deleted); the per-task check and the deletes run outside it.
-func (a *App) pruneLogIn(p *proj, now time.Time, batch int) {
+func (a *App) pruneLogIn(p *proj, cfg *config.Config, now time.Time, batch int) {
 	cutoff := now.Add(-eventKeep)
 	a.mu.Lock()
 	horizon := p.log.LastSeq()
-	cands := p.pruneCandidates(cutoff)
+	cands := p.pruneCandidates(cfg, cutoff)
 	a.mu.Unlock()
 	a.hook(hookPruneSelected)
 	db := p.log.DB()
@@ -86,7 +89,7 @@ func (a *App) pruneLogIn(p *proj, now time.Time, batch int) {
 // of it is decided, and with a review open it was not dispatched after the review started (fixCandidates would link
 // it). A rejected task is not ended for this: the owner
 // still owes it a drop.
-func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
+func (p *proj) pruneCandidates(cfg *config.Config, cutoff time.Time) map[string]mtask {
 	pinned := map[string]bool{}
 	for _, row := range p.folded.lr.rows {
 		pinned[row.Task] = true
@@ -98,7 +101,7 @@ func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
 	}
 	// The task whose record is the idle key, idle or not now: a needs-you that suppresses idle keeps its end; a
 	// retained newer end supersedes it.
-	if _, task := p.idleEnd(); task != "" {
+	if _, task := p.idleEnd(cfg); task != "" {
 		pinned[task] = true
 	}
 	review := int64(-1) // the open review's start seq (-1: none open)

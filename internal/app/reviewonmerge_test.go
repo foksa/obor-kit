@@ -46,7 +46,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 		if !r.p.merging {
 			t.Fatal("precondition: the project does not merge")
 		}
-		r.a.rulePass(context.Background(), []rule{{name: ruleReviewOnMerge, when: reviewOnMergeRule}}, &Loop{})
+		r.a.rulePass(context.Background(), []rule{{name: ruleReviewOnMerge, when: reviewOnMergeRule}}, withAppCfg(r.a, &Loop{}))
 	}
 	waiting := func(t *testing.T, r *reviewRig) { // the lead's request: its --after task has not merged
 		r.submitted("T-b")

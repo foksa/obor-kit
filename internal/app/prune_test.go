@@ -152,7 +152,7 @@ func (h *history) session(agent, id, transcript string, at time.Time) {
 func pruneApp(t *testing.T, root string) (*App, *proj) {
 	t.Helper()
 	now := pruneNow
-	a := newTestApp(Options{Root: root, Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
+	a := newTestApp(Options{Root: root, Now: func() time.Time { return now }, Loop: func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }},
 		&fakePanes{}, &fakeLanes{})
 	p, err := a.load(root)
 	if err != nil {
@@ -182,7 +182,7 @@ func pruneOracle(t *testing.T, root string, batch int) pruned {
 	r := pruned{tasks: map[string]bool{}}
 	r.a1, r.before = pruneApp(t, root)
 	r.recs = readLog(t, root)
-	r.a1.pruneLogIn(r.before, pruneNow, batch)
+	r.a1.pruneLogIn(r.before, cfgAt(root), pruneNow, batch)
 	r.kept = readLog(t, root)
 	r.a2, r.then = pruneApp(t, root)
 	count := map[string]int{}
@@ -242,7 +242,7 @@ func foldDiff(r pruned) []string {
 	diff("idle ack", p.folded.idleAck, q.folded.idleAck)
 	diff("brief ends", p.folded.briefEnds, q.folded.briefEnds)
 	diff("review ends", []idleEnd{p.folded.reviewIdleEnd, p.folded.reviewEnd}, []idleEnd{q.folded.reviewIdleEnd, q.folded.reviewEnd})
-	diff("idle", p.idleNow(), q.idleNow())
+	diff("idle", p.idleNow(cfgAt(p.root)), q.idleNow(cfgAt(q.root)))
 	diff("open lines", lines(p), lines(q))
 	agents := map[string]bool{}
 	for _, s := range p.folded.sessions.All() {
@@ -463,7 +463,7 @@ func TestPrunedTasksOutcomes(t *testing.T) {
 		t.Errorf("T-w after the prune: %+v; want waiting with its --after merged", w)
 	}
 	f := newConcFakes("")
-	fx := &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}
+	fx := withCfg(r.then.root, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f})
 	for _, c := range []struct {
 		a *App
 		p *proj
@@ -583,7 +583,7 @@ func TestPruneSparesLaterRecordsAndRunsOnce(t *testing.T) {
 	}
 	a.hooked.Store(&hook)
 	before := readLog(t, root)
-	a.pruneLog(p, pruneNow)
+	a.pruneLog(p, cfgAt(p.root), pruneNow)
 	after := readLog(t, root)
 	if late.Seq == 0 || !slices.ContainsFunc(after, func(r event.Record) bool { return r.Seq == late.Seq }) {
 		t.Errorf("the record appended after the selection (%d) is gone", late.Seq)
@@ -591,7 +591,7 @@ func TestPruneSparesLaterRecordsAndRunsOnce(t *testing.T) {
 	if n := rowsOf(after, "T-m"); n != 2 || rowsOf(before, "T-m") < 4 {
 		t.Errorf("T-m keeps %d of %d rows; want its merged fact and the late record", n, rowsOf(before, "T-m"))
 	}
-	a.pruneLog(p, pruneNow)
+	a.pruneLog(p, cfgAt(p.root), pruneNow)
 	if again := readLog(t, root); len(again) != len(after) {
 		t.Errorf("the second prune deleted %d rows, want none", len(after)-len(again))
 	}
@@ -613,7 +613,7 @@ func TestPruneBatchFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := readLog(t, root)
-	a.pruneLogIn(p, pruneNow, 1)
+	a.pruneLogIn(p, cfgAt(p.root), pruneNow, 1)
 	after := readLog(t, root)
 	if !onlyTerminal(after, "T-1", event.StepMerged) {
 		t.Errorf("T-1 keeps %d rows, want its merged fact alone", rowsOf(after, "T-1"))
@@ -732,7 +732,7 @@ func idleOld(t *testing.T, extra func(h *history), ack bool) (string, int64) {
 func idleOf(a *App, p *proj) (idle, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return p.idleOpen()
+	return p.idleOpen(cfgAt(p.root))
 }
 
 // An idle project whose last merged task, 40 days old, holds the idle key the lead acknowledged:
@@ -804,7 +804,7 @@ func TestPruneIdleNoPing(t *testing.T) {
 	if n, open := idleOf(r.a1, r.before); !n.ok || n.end != key || open {
 		t.Fatalf("precondition: idle %+v (open %t) before the prune; want idle at key %d, acknowledged", n, open, key)
 	}
-	r.a2.rulePass(t.Context(), []rule{{name: ruleIdle, when: idleRule}}, &Loop{})
+	r.a2.rulePass(t.Context(), []rule{{name: ruleIdle, when: idleRule}}, withAppCfg(r.a2, &Loop{}))
 	r.a2.mu.Lock()
 	dids := len(r.then.folded.did)
 	r.a2.mu.Unlock()
@@ -842,7 +842,7 @@ func TestPruneIdleKeyHeldThroughNeedsYou(t *testing.T) {
 				t.Fatalf("precondition: idle %+v, %s needs-you %v, ack %d; want idle suppressed by the needs-you, ack %d",
 					n, c.task, p.folded.active[c.task], p.folded.idleAck.Key, key)
 			}
-			a.pruneLog(p, pruneNow)
+			a.pruneLog(p, cfgAt(p.root), pruneNow)
 			if kept := readLog(t, root); rowsOf(kept, "T-old") != rowsOf(recs, "T-old") {
 				t.Errorf("T-old keeps %d of %d rows after the prune, want it whole", rowsOf(kept, "T-old"), rowsOf(recs, "T-old"))
 			}

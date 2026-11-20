@@ -8,6 +8,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/review"
+	"obor/internal/config"
 	"obor/internal/spec"
 	"obor/internal/store"
 	"os"
@@ -148,7 +149,7 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 	if key == 0 && !due {
 		return 0, action{}, false
 	}
-	s, err := reviewConfig(p.root)
+	s, err := ReviewConfig(fx.Cfg)
 	if err != nil {
 		return 0, action{}, false
 	}
@@ -159,7 +160,7 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 		if !idle {
 			return 0, action{}, false
 		}
-		key, act = newest, verifyAction(a, p, fx.Workflow, s, started.ID, tasks, notes, newest)
+		key, act = newest, verifyAction(a, p, fx.Cfg, fx.Workflow, s, started.ID, tasks, notes, newest)
 	}
 	return key, act, true
 }
@@ -182,7 +183,7 @@ func fixRest(links []review.Link, task string) string {
 // (port.Review.Detach, idempotent), the verify brief recorded to the same session. Its git failing is the error
 // and, once per key, the lead's line (Of{ruleVerifyGit, key}); a brief to the reviewer recorded meanwhile skips it
 // (recordBrief).
-func verifyAction(a *App, p *proj, g port.Review, s ReviewSetup, id string, tasks, notes []string, key int64) action {
+func verifyAction(a *App, p *proj, cfg *config.Config, g port.Review, s ReviewSetup, id string, tasks, notes []string, key int64) action {
 	return action{call: func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, verifyGitWait)
 		defer cancel()
@@ -200,7 +201,7 @@ func verifyAction(a *App, p *proj, g port.Review, s ReviewSetup, id string, task
 			}
 			return err
 		}
-		if _, ok := a.recordBrief(p, s.Agent, "obor", text, "", "", false, &verifyBrief{tasks: tasks, head: head}); !ok {
+		if _, ok := a.recordBrief(p, cfg, s.Agent, "obor", text, "", "", false, &verifyBrief{tasks: tasks, head: head}); !ok {
 			return fmt.Errorf("the verify brief of %s was not recorded (the log refused it, or the reviewer was briefed"+
 				" meanwhile)", id)
 		}
@@ -254,12 +255,12 @@ func (a *App) openReview(p *proj, s ReviewSetup, hint string) (openCycle, error)
 
 // fixesCheck is obor dispatch's refusal of a spec whose Fixes: line names a review that is not the open one;
 // nil without such a line, or when it names the open review.
-func (a *App) fixesCheck(p *proj, task string, sp spec.Spec) error {
+func (a *App) fixesCheck(p *proj, cfg *config.Config, task string, sp spec.Spec) error {
 	if !sp.FixesOK {
 		return nil
 	}
 	id := sp.FixesReview
-	s, err := reviewConfig(p.root)
+	s, err := ReviewConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("%s: Fixes: %s: %v", task, id, err)
 	}

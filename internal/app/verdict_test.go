@@ -37,7 +37,7 @@ func pickGreenOnce(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 			mt.cand.SHA, mt.cand.Patch)
 	}
 	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
-	if s == nil || !s(context.Background(), &Loop{Agents: f, Prompter: f}) {
+	if s == nil || !s(context.Background(), withAppCfg(h.a, &Loop{Agents: f, Prompter: f})) {
 		t.Fatal("pickGreen: no step, or it failed")
 	}
 	return p.folded.loop["T-1"]
@@ -802,7 +802,7 @@ func TestDropSelectedStep(t *testing.T) {
 				ap := r.app(c.proj)
 				fx := &dropFx{concFakes: r.fakes[c.proj]}
 				ap.mu.Lock()
-				selected := ap.next(p, p.folded.loop[c.task])
+				selected := ap.next(p, p.folded.loop[c.task], cfgAt(p.root))
 				ap.mu.Unlock()
 				if selected == nil {
 					t.Fatalf("precondition: %s has no step selected", c.task)
@@ -812,7 +812,7 @@ func TestDropSelectedStep(t *testing.T) {
 						t.Fatalf("drop: %q, %v", reply, err)
 					}
 				}
-				selected(context.Background(), fx.loop(r.kit))
+				selected(context.Background(), withCfg(p.root, fx.loop(r.kit)))
 				ap.effects.Wait() // a gate's or publish's goroutine, with its records
 				ran := strings.Join(fx.ran(), ",")
 				switch {
@@ -842,10 +842,10 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 			p := r.proj(c.proj)
 			ap := r.app(c.proj)
 			ap.mu.Lock()
-			selected := ap.next(p, p.folded.loop[c.task])
+			selected := ap.next(p, p.folded.loop[c.task], cfgAt(p.root))
 			ap.mu.Unlock()
 			fx := &dropFx{concFakes: f}
-			selected(context.Background(), fx.loop(r.kit))
+			selected(context.Background(), withCfg(p.root, fx.loop(r.kit)))
 			<-f.entered // the effect runs
 			if _, err := r.dropCall(c.proj, c.task, "drop"); err == nil ||
 				!strings.Contains(err.Error(), c.task+" has "+c.effect+" running; retry when it settles") {
@@ -882,13 +882,13 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 			fx := &dropFx{concFakes: r.fakes[c.proj], block: c.effect, blocked: make(chan struct{}),
 				unblock: make(chan struct{})}
 			ap.mu.Lock()
-			selected := ap.next(p, p.folded.loop[c.task])
+			selected := ap.next(p, p.folded.loop[c.task], cfgAt(p.root))
 			ap.mu.Unlock()
 			if selected == nil {
 				t.Fatalf("precondition: %s has no step selected", c.task)
 			}
 			stepped := make(chan struct{})
-			go func() { selected(context.Background(), fx.loop(r.kit)); close(stepped) }()
+			go func() { selected(context.Background(), withCfg(p.root, fx.loop(r.kit))); close(stepped) }()
 			<-fx.blocked // the step's effect runs
 			a := r.dropWithin(c.proj, c.task, "d1")
 			if a.err == nil || !strings.Contains(a.err.Error(), c.task) ||
@@ -932,12 +932,12 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 		fetched <- callAnswer{reply, err}
 	}
 	r.a.mu.Lock()
-	selected := r.a.next(p, p.folded.loop["T-1"])
+	selected := r.a.next(p, p.folded.loop["T-1"], cfgAt(p.root))
 	r.a.mu.Unlock()
 	if selected == nil {
 		t.Fatal("precondition: T-1 has no step selected")
 	}
-	go func() { selected(context.Background(), &Loop{Agents: f, Prompter: f}); close(stepped) }()
+	go func() { selected(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f})); close(stepped) }()
 	<-entered // the start holds the task
 	a := r.dropWithin("pj", "T-1", "drop")
 	if a.err == nil || !strings.Contains(a.err.Error(), "running; retry when it settles") {
@@ -1204,12 +1204,12 @@ func TestEarlyVerdict(t *testing.T) {
 				r.a.mu.Unlock()
 			}
 			r.a.mu.Lock()
-			step := r.a.next(p, p.folded.loop["T-1"])
+			step := r.a.next(p, p.folded.loop["T-1"], cfgAt(p.root))
 			r.a.mu.Unlock()
 			if step == nil {
 				t.Fatal("no step")
 			}
-			if !step(context.Background(), &Loop{Agents: f, Prompter: f}) {
+			if !step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f})) {
 				t.Fatal("the job step failed")
 			}
 

@@ -21,7 +21,8 @@ import (
 // Status is the app's state now.
 func (a *App) Status() wire.Status {
 	now := a.opt.Now()
-	done := a.doneRoles(now) // before the lock: it reads the panes' transcripts
+	cfg := a.servedCfg()          // the status's one read of the config
+	done := a.doneRoles(cfg, now) // before the lock: it reads the panes' transcripts
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, TerminalNote: a.terminalNote()}
@@ -139,9 +140,9 @@ func (a *App) Status() wire.Status {
 			ps.ReviewRequest = &wire.ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
-		ps.ReviewOpen = a.reviewOpen(p)
+		ps.ReviewOpen = a.reviewOpen(p, cfg)
 		ps.Briefs = p.out.BriefStatus()
-		ps.Stopped = a.stoppedRoles(p)
+		ps.Stopped = a.stoppedRoles(p, cfg)
 		for _, f := range ps.Facts {
 			if f.Step != event.StepNeedsYou {
 				continue
@@ -163,7 +164,7 @@ func (a *App) Status() wire.Status {
 			w := p.folded.watches[set]
 			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
-		if n := p.idleNow(); n.ok && n.end != 0 { // the first end keys it and ages it; before that there is nothing to show
+		if n := p.idleNow(cfg); n.ok && n.end != 0 { // the first end keys it and ages it; before that there is nothing to show
 			ps.Idle = &wire.IdleStatus{Since: n.at.Unix(), Last: n.last}
 			if ack := p.folded.idleAck; ack.Key == n.end {
 				ps.Idle.Acked, ps.Idle.Why = true, ack.Why

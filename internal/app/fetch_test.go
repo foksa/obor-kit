@@ -48,12 +48,12 @@ func TestEarlyTaskDone(t *testing.T) {
 		r.a.mu.Unlock()
 	}
 	r.a.mu.Lock()
-	step := r.a.next(p, p.folded.loop["T-2"])
+	step := r.a.next(p, p.folded.loop["T-2"], cfgAt(p.root))
 	r.a.mu.Unlock()
 	if step == nil {
 		t.Fatal("no step")
 	}
-	if !step(context.Background(), &Loop{Agents: f, Prompter: f, Kit: r.kit}) {
+	if !step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})) {
 		t.Fatal("the start step failed")
 	}
 	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
@@ -89,12 +89,12 @@ func TestStartAgainSameJob(t *testing.T) {
 	r.add("pj", "T-2", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeRetry})
 	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	r.a.mu.Lock()
-	step := r.a.next(p, p.folded.loop["T-2"])
+	step := r.a.next(p, p.folded.loop["T-2"], cfgAt(p.root))
 	r.a.mu.Unlock()
 	if step == nil {
 		t.Fatal("no step")
 	}
-	if !step(context.Background(), &Loop{Agents: f, Prompter: f, Kit: r.kit}) {
+	if !step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})) {
 		t.Fatal("the start step failed")
 	}
 	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
@@ -108,12 +108,12 @@ func TestStartAgainSameJob(t *testing.T) {
 // runNext runs task's next step in p with f as its agents and typer: whether it ran and returned true.
 func runNext(r *concRig, p *proj, task string, f *startJobFakes) bool {
 	r.a.mu.Lock()
-	step := r.a.next(p, p.folded.loop[task])
+	step := r.a.next(p, p.folded.loop[task], cfgAt(p.root))
 	r.a.mu.Unlock()
 	if step == nil {
 		r.t.Fatalf("%s: no step", task)
 	}
-	return step(context.Background(), &Loop{Agents: f, Prompter: f})
+	return step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f}))
 }
 
 // setStatus puts the integrator's pane w1:p9 at status.
@@ -519,7 +519,7 @@ func TestRestartJobSkipsHeld(t *testing.T) {
 func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "# Worker here\nproject rules\n")
-	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
 func TestWorkTextSkipsAMissingProjectDoc(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
-	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +555,7 @@ func TestWorkTextNamesARoleTextTooLargeToCarry(t *testing.T) {
 	t.Parallel()
 	big := "# Role: worker\n" + strings.Repeat("K", roleTextMax)
 	p, kit := roleFixture(t, big, "# Worker here\nproject rules\n")
-	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +575,7 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 	t.Parallel()
 	at := "# Role: worker\n" + strings.Repeat("K", roleTextMax-len("# Role: worker\n"))
 	p, kit := roleFixture(t, at, "")
-	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,18 +592,18 @@ func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
 	cfg := `{"version":2,"project":{"name":"pj"},"lanes":{"count":1},"agents":{"docs_dir":"doc/roles","kinds":{
 		"claude":{"job_note":"Claude extra."},"codex":{"job_note":"Codex extra."}}}}`
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
-	text, err := workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(text, "Codex extra.") || strings.Contains(text, "Claude extra.") {
 		t.Errorf("a luna:high dispatch: want codex's prompt_extra only:\n%s", text)
 	}
-	text, err = workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "opus"}}, kit)
+	text, err = workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "opus"}}, kit)
 	if err != nil || !strings.Contains(text, "Claude extra.") || strings.Contains(text, "Codex extra.") {
 		t.Errorf("an opus dispatch: want claude's prompt_extra only (%v):\n%s", err, text)
 	}
-	text, err = workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01"}}, kit)
+	text, err = workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01"}}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +641,7 @@ func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
 	kitRole := "# Role: worker\nkit rules\n\n## This project\n<!-- fill in: kit note -->\n"
 	doc := "# Worker here\nproject rules\n\n## This project\n- run make build\n"
 	p, kit := roleFixture(t, kitRole, doc)
-	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +678,7 @@ func TestWorkJobSaysEachRuleOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeRoleFile(t, filepath.Join(root, "docs", "agents", "worker.md"), string(doc))
-	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +713,7 @@ func workJobText(t *testing.T, kit, cfg string) string {
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "L-01"}, kit)
+	text, err := workText(loadCfg(t, root), mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +760,7 @@ func TestFixJobNamesBothRoleTexts(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			p, kit := roleFixture(t, "# Role: worker\nkit\n", c.doc)
-			read, err := fixRead(p, kit)
+			read, err := fixRead(loadCfg(t, p.root), kit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -809,11 +809,11 @@ func integratorJobs(t *testing.T, kitRole string) (jobs map[string]string, kitPa
 	mt := *p.folded.loop["T-1"]
 	mt.cand = port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line"}
 	mt.line = "CONFLICT in /s: a.go"
-	review, err := r.a.reviewText(p, mt, kit)
+	review, err := r.a.reviewText(p, mt, loadCfg(t, p.root), kit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolve, err := resolveText(p, mt, kit)
+	resolve, err := resolveText(mt, loadCfg(t, p.root), kit)
 	if err != nil {
 		t.Fatal(err)
 	}

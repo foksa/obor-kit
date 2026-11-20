@@ -125,7 +125,8 @@ func (a *App) reconcile(p *proj) {
 		}
 	}
 	logp := func(line string) { a.logf("%s: %s", p.name, line) }
-	configured, names := namedAgents(p.root)
+	cfg, _ := p.cfgNow() // the reconcile's one read of the config
+	configured, names := namedAgents(cfg)
 	best := identity.Claims{} // by agent and terminal: the strongest proof
 	for _, agent := range a.candidates(p, mine, configured, names) {
 		sid := a.recordedSid(p, agent) // read once per candidate, not per pane
@@ -140,13 +141,11 @@ func (a *App) reconcile(p *proj) {
 	p.reg.Reconcile(best, names, logp)
 }
 
-// namedAgents is the agents the current config names (config.Load, as serve reads it elsewhere: its lead, integrator,
-// roles and lanes' workers, Config.Agents) and whether it names an agent, by the name rules launch resolves
-// (AgentLookup). A config that does not load names no agent to list and every agent asked about: a broken file drops
-// no proof.
-func namedAgents(root string) ([]string, func(string) bool) {
-	cfg, err := config.Load(root)
-	if err != nil {
+// namedAgents is the agents cfg names (its lead, integrator, roles and lanes' workers, Config.Agents) and whether it
+// names an agent, by the name rules launch resolves (AgentLookup). A nil cfg (a config that does not load) names no
+// agent to list and every agent asked about: a broken file drops no proof.
+func namedAgents(cfg *config.Config) ([]string, func(string) bool) {
+	if cfg == nil {
 		return nil, func(string) bool { return true }
 	}
 	return cfg.Agents(), func(agent string) bool {

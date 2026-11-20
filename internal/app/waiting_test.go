@@ -37,7 +37,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01"), State: "working", Task: "T-9"},
 		{Name: "L-02", Dir: h.lane("L-02"), State: "working", Task: "T-8"}}
 	fx := &Loop{Workflow: WorkflowOf(staleFx{}), Specs: staleFx{}}
-	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	h.connect()
 	h.a.p.dispatching = true
 	for _, task := range []string{"T-1", "T-2", "T-3"} {

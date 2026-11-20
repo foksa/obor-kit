@@ -17,7 +17,7 @@ func idleRefusal(t *testing.T, a *App, p *proj) string {
 	t.Helper()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	n := p.idleNow()
+	n := p.idleNow(loadCfg(t, p.root))
 	if n.ok {
 		t.Fatal("idleNow says the pipeline is idle, want a refusal")
 	}
@@ -107,7 +107,7 @@ func TestIdleNowFreshProject(t *testing.T) {
 	t.Parallel()
 	r := newReviewRigWith(t, false)
 	r.a.mu.Lock()
-	n := r.p.idleNow()
+	n := r.p.idleNow(loadCfg(t, r.p.root))
 	text := r.p.idleText(n)
 	r.a.mu.Unlock()
 	if !n.ok || n.end != 0 || n.last != "no merge yet" {
@@ -213,7 +213,7 @@ func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	r.stop("s1", "overloaded", "API overloaded")
 	r.working(false)
 	owed := func() bool { // the verify rule's condition read, its action not run
-		verifyRule(context.Background(), r.a, r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}, r.now)
+		verifyRule(context.Background(), r.a, r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}), r.now)
 		r.a.mu.Lock()
 		defer r.a.mu.Unlock()
 		return r.p.verifyDue
@@ -322,7 +322,7 @@ func TestIdleKeyIsTheRequestEnd(t *testing.T) {
 		t.Fatalf("precondition: the request ended at %v, want %v", at, r.now)
 	}
 	r.a.mu.Lock()
-	n := r.p.idleNow()
+	n := r.p.idleNow(loadCfg(t, r.p.root))
 	marker := r.p.folded.reviewEnd.seq
 	r.a.mu.Unlock()
 	if !n.ok || n.end != end || !n.at.Equal(at) || n.last != "T-b dropped: superseded" {
@@ -414,7 +414,7 @@ func TestIdleKeyIsTheNewestEnd(t *testing.T) {
 			r := newReviewRig(t)
 			want, at := c.setup(r)
 			r.a.mu.Lock()
-			n := r.p.idleNow()
+			n := r.p.idleNow(loadCfg(t, r.p.root))
 			r.a.mu.Unlock()
 			if !n.ok || n.end != want || !n.at.Equal(at) || n.last != c.last {
 				t.Errorf("idle %+v, want key %d at %v with last %q", n, want, at, c.last)
@@ -439,8 +439,8 @@ func TestEffectResultIdleEpochMatchesReplay(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	live := p.idleNow()
-	replayed := reloadProj(t, h).idleNow()
+	live := p.idleNow(loadCfg(t, p.root))
+	replayed := reloadProj(t, h).idleNow(loadCfg(t, h.root))
 	if !live.ok || live.end != replayed.end || !live.at.Equal(replayed.at) {
 		t.Fatalf("live idle %+v, replayed %+v; want the same final effect's epoch", live, replayed)
 	}

@@ -73,13 +73,13 @@ func (a *App) configCall(c wire.ConfigSetReq) (string, error) {
 	defer release()
 	ctx, cancel := context.WithTimeout(a.life, requestTimeout)
 	defer cancel()
-	return a.configSet(ctx, p, fx.Config, c)
+	return a.configSet(ctx, p, fx.Config, fx.Cfg, c)
 }
 
 // configSet applies c's changes in order, each to the file the one before it wrote, validates the result, writes and
 // commits it once, then records the fact and the lead's line (admitted). Any change refused refuses them all: nothing
 // is written.
-func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.ConfigSetReq) (string, error) {
+func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, cfg *config.Config, c wire.ConfigSetReq) (string, error) {
 	doc, refused, err := file.Read(ctx)
 	if err != nil {
 		return "", fmt.Errorf("config: %v", err)
@@ -90,10 +90,6 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Co
 	if c.Base != "" && config.Rev(doc) != c.Base {
 		return "", errors.New("config: .obor/config.json changed since this page read it (another tab, the lead or a " +
 			"hand edit): nothing was saved; read the setup again and redo the changes")
-	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", fmt.Errorf("config: %v", err)
 	}
 	cur, next := doc, cfg
 	var done []event.ConfigSetChange

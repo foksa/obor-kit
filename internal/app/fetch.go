@@ -220,10 +220,10 @@ func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 	}
 	if base != event.StepWork && base != event.StepFix {
 		if base == event.StepReview {
-			text, err := a.reviewText(p, mt, fx.Kit)
+			text, err := a.reviewText(p, mt, fx.Cfg, fx.Kit)
 			return text, 0, err
 		}
-		text, err := resolveText(p, mt, fx.Kit)
+		text, err := resolveText(mt, fx.Cfg, fx.Kit)
 		return text, 0, err
 	}
 	row, _, err := specOf(p, mt.task)
@@ -231,13 +231,13 @@ func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 		return "", 0, err
 	}
 	if base == event.StepFix {
-		read, err := fixRead(p, fx.Kit)
+		read, err := fixRead(fx.Cfg, fx.Kit)
 		if err != nil {
 			return "", 0, err
 		}
 		return fixText(mt, row, read), row.Rev, nil
 	}
-	text, err := workText(p, mt, fx.Kit)
+	text, err := workText(fx.Cfg, mt, fx.Kit)
 	if err != nil {
 		return "", 0, err
 	}
@@ -261,11 +261,7 @@ func movedFix(mt mtask) string {
 
 // fixRead is the fix job's line for a worker started fresh: the work job carried the role texts, so only a
 // session that did not get it needs the paths. The project's worker doc only when the main checkout has one.
-func fixRead(p *proj, kit string) (string, error) {
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
+func fixRead(cfg *config.Config, kit string) (string, error) {
 	paths := []string{filepath.Join(kit, "templates", "agents", "worker.md")}
 	doc := filepath.Join(cfg.Root, cfg.AgentsDir(), "worker.md")
 	if _, err := os.Stat(doc); err == nil {
@@ -338,7 +334,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	case c.Role != "worker":
 		return "", fmt.Errorf("task_done: a worker submits its task, not %s (role %s)", Dash(c.Agent), Dash(c.Role))
 	}
-	if _, err := config.Load(p.root); err != nil { // a project whose config no longer reads takes no submission
+	if _, err := p.cfgNow(); err != nil { // a project whose config no longer reads takes no submission
 		return "", fmt.Errorf("task_done: %v", err)
 	}
 	report := strings.TrimSpace(c.Report)

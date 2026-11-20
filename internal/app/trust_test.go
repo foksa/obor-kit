@@ -89,7 +89,7 @@ func TestReviewStartHeldByTrustDialog(t *testing.T) {
 	if r.p.out.Brief("pj-rev") == nil {
 		t.Error("no brief recorded for pj-rev")
 	}
-	if ro := r.a.reviewOpen(r.p); ro == nil || ro.ID != r.next {
+	if ro := r.a.reviewOpen(r.p, loadCfg(t, r.p.root)); ro == nil || ro.ID != r.next {
 		t.Errorf("open review %+v, want %s", ro, r.next)
 	}
 	if n := r.needs(); len(n) != 0 {
@@ -119,8 +119,8 @@ func TestReviewStartHeldByTrustDialog(t *testing.T) {
 		t.Errorf("a needs-you line after the dialog was answered: %q", act.line)
 	}
 	r.reload()
-	if fs := trustFacts(r.p); len(fs) != 0 || r.a.reviewOpen(r.p) == nil {
-		t.Errorf("after a replay: trust needs-you %+v, open review %v; want none, %s open", fs, r.a.reviewOpen(r.p), r.next)
+	if fs := trustFacts(r.p); len(fs) != 0 || r.a.reviewOpen(r.p, loadCfg(t, r.p.root)) == nil {
+		t.Errorf("after a replay: trust needs-you %+v, open review %v; want none, %s open", fs, r.a.reviewOpen(r.p, loadCfg(t, r.p.root)), r.next)
 	}
 }
 
@@ -159,7 +159,7 @@ func TestWorkerStartHeldByTrustDialog(t *testing.T) {
 	sc := &screens{text: map[string]string{"w1:p2": trustDialogScreen}}
 	r.a.opt.Screen = sc.Screen
 	f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p2", resume: true} // a fresh start: held, not failed
-	fx := &Loop{Agents: f, Prompter: f, Kit: r.kit}
+	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	mt := *p.folded.loop["T-2"]
 	if mt.started {
 		t.Fatal("precondition: T-2's worker started already")
@@ -205,7 +205,7 @@ func TestWorkerStartRuleHeldByTrustDialog(t *testing.T) {
 		work: "work", started: true}
 	h.a.mu.Unlock()
 	spy := &agentsSpy{trust: "w1:p1"}
-	_, act, ok := workerStartRule(context.Background(), h.a, p, &Loop{Agents: spy}, h.now)
+	_, act, ok := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now)
 	if !ok {
 		t.Fatal("precondition: the rule does not hold")
 	}
@@ -257,7 +257,7 @@ func TestWorkerStartRuleResumeAtTrustDialogFails(t *testing.T) {
 	h.a.mu.Unlock()
 	before := p.log.LastSeq()
 	spy := &agentsSpy{trust: "w1:p1", resume: true}
-	_, act, ok := workerStartRule(context.Background(), h.a, p, &Loop{Agents: spy}, h.now)
+	_, act, ok := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now)
 	if !ok {
 		t.Fatal("precondition: the rule does not hold")
 	}
@@ -274,7 +274,7 @@ func TestWorkerStartRuleResumeAtTrustDialogFails(t *testing.T) {
 	if n := p.log.LastSeq(); n != before {
 		t.Errorf("records %d → %d, want none (no start or delivery recorded)", before, n)
 	}
-	if _, _, again := workerStartRule(context.Background(), h.a, p, &Loop{Agents: spy}, h.now); !again {
+	if _, _, again := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now); !again {
 		t.Error("the rule does not hold again after the failed start: no retry")
 	}
 }
@@ -301,7 +301,7 @@ func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 		delete(r.a.obs, "w1:p9")
 		f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p9", resume: true}
 		mt := *p.folded.loop["T-1"]
-		if r.a.job(context.Background(), p, &Loop{Agents: f, Prompter: f}, mt, event.StepReview) {
+		if r.a.job(context.Background(), p, withAppCfg(r.a, &Loop{Agents: f, Prompter: f}), mt, event.StepReview) {
 			t.Error("the job step succeeded, want the failed start")
 		}
 		if len(f.starts) != 1 || f.starts[0].Fresh {
@@ -328,7 +328,7 @@ func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 		delete(r.a.obs, "w1:p9")
 		f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p9", resume: true}
 		mt := *p.folded.loop["T-1"]
-		if !r.a.job(context.Background(), p, &Loop{Agents: f, Prompter: f}, mt, event.StepReview) {
+		if !r.a.job(context.Background(), p, withAppCfg(r.a, &Loop{Agents: f, Prompter: f}), mt, event.StepReview) {
 			t.Fatal("the job step failed, want the start held by the dialog to carry the wake")
 		}
 		if len(f.starts) != 1 || !f.starts[0].Fresh {

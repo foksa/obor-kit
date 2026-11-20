@@ -134,11 +134,11 @@ func (a *App) dispatchCall(ctx context.Context, c wire.DispatchReq) (string, err
 	case stored:
 		return reply, nil
 	}
-	if err := leadOr(p.root, wire.MethodDispatch, c.Envelope, fmt.Sprintf("dispatch: the lead or the owner dispatches, not %s (role %s)",
-		Dash(c.Agent), c.Role)); err != nil {
-		return "", err
+	fx, err := a.loopOf(p) // the call's one read of the config
+	if lerr := leadOr(loaded(cfgOf(fx), err), wire.MethodDispatch, c.Envelope, fmt.Sprintf("dispatch: the lead or the owner dispatches, not %s (role %s)",
+		Dash(c.Agent), c.Role)); lerr != nil {
+		return "", lerr
 	}
-	fx, err := a.loopOf(p)
 	if err != nil {
 		return "", err
 	}
@@ -426,13 +426,10 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 		}
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // a fix links to the open review only
+	if err := a.fixesCheck(p, fx.Cfg, c.Task, row.Spec); err != nil { // a fix links to the open review only
 		return "", err
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
-		return "", err
-	}
+	cfg := fx.Cfg
 	if err := resolveLevel(cfg, &c, row.Spec); err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}

@@ -65,7 +65,7 @@ func pruneRig(t *testing.T, f *fakePruner) *harness {
 	t.Helper()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), configJSON)
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Prune: f}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{Prune: f}), nil }
 	h.lanes.lanes[0].Task = ""
 	h.connect()
 	return h

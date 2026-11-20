@@ -172,7 +172,7 @@ func TestTaskDoneByLane(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
 	h.connect()
 	p := h.proj()
 	h.a.mu.Lock()
@@ -217,7 +217,7 @@ func TestLaneRowLandedByAMergeOutside(t *testing.T) {
 	if row, ok, err := store.ReadLaneAt(h.root, "L-01"); err != nil || !ok || row.Task != "T-1" || row.Landed {
 		t.Fatalf("precondition: L-01's row %+v, %v, %v; want T-1 submitted, not landed", row, ok, err)
 	}
-	a.drive(context.Background(), p, &Loop{Workflow: WorkflowOf(landedScratch{})}, "T-1")
+	a.drive(context.Background(), p, withAppCfg(a, &Loop{Workflow: WorkflowOf(landedScratch{})}), "T-1")
 	a.mu.Lock()
 	state := p.folded.loop["T-1"].state
 	a.mu.Unlock()

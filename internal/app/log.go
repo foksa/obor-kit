@@ -22,7 +22,8 @@ func (a *App) backup(c wire.BackupReq) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	cfg, _ := p.cfgNow() // the call's one read of the config; one that does not load keeps the role worktree agents last known
 	a.prunePrompts(p, now)
-	a.pruneLog(p, now) // after the backup, so the night's backup holds every row it deletes
+	a.pruneLog(p, cfg, now) // after the backup, so the night's backup holds every row it deletes
 	return "BACKUP " + path, nil
 }

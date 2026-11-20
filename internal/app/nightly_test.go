@@ -103,7 +103,7 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 				runs++
 				return NightlyOut{SHA: "abc1234", Verdict: "GREEN"}, nil
 			}}
-			b.nightly(context.Background(), q, &Loop{Nightly: n})
+			b.nightly(context.Background(), q, withAppCfg(b, &Loop{Nightly: n}))
 			b.effects.Wait()
 			if runs != 0 {
 				t.Errorf("nightly ran %d more times after the restart, want 0", runs)

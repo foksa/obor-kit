@@ -190,7 +190,7 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 			if !c.live {
 				a, p = r.reload(c.proj)
 			}
-			a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, &Loop{})
+			a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, withAppCfg(a, &Loop{}))
 			lines := 0
 			for _, m := range needsMessages(t, p) {
 				if m.Of == (event.Of{Kind: ruleNeeds, Seq: needsKey(needs.Seq, 0)}) && strings.Contains(m.Line, "unpin failed: busy") {
@@ -220,7 +220,7 @@ func TestRecordFoldsInLogOrder(t *testing.T) {
 		other func(h *harness, p *proj) error
 	}{
 		{"outside merged vs submitted", stMerged, seedWorking, func(h *harness, p *proj) error {
-			h.a.drive(context.Background(), p, &Loop{Workflow: WorkflowOf(landedScratch{})}, "T-1")
+			h.a.drive(context.Background(), p, withAppCfg(h.a, &Loop{Workflow: WorkflowOf(landedScratch{})}), "T-1")
 			return nil
 		}},
 		{"dropping vs submitted", stDropping, seedWorking, func(h *harness, p *proj) error {
