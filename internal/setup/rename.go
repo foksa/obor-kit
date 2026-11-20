@@ -1,9 +1,7 @@
 package setup
 
 // `obor setup rename --name N --prefix P`: rename a project and its agents. Refused before any step while the
-// project's serve LaunchAgent is installed under the old name (its label would outlive the rename), and after step 0
-// while a lane opencode.json that step 3 rewrites cannot be read (nothing changed, the file is named; a missing file is
-// still a lane without one). Steps 0, 1, 3, 4, 5 in order, each one `OK <n> <name>: …` (`(already)` when there was
+// project's serve LaunchAgent is installed under the old name (its label would outlive the rename). Steps 0, 1, 4, 5 in order, each one `OK <n> <name>: …` (`(already)` when there was
 // nothing to do) or the one `FAIL <n> <name>: …` that stops the run; a rerun after the fix is the repair path. The
 // project's history is never rewritten. The inbox records are keyed by slot in the project: nothing to move.
 //
@@ -12,8 +10,6 @@ package setup
 //	1 config, .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them;
 //	           a derived name in guards.allow_push becomes its role)
 //	           (no store step: a lane's agent is derived from the config, no lane row stores one)
-//	3 files    each lane worktree's opencode.json, read before step 1, with a path to another kit's bin/obor (an MCP
-//	           server) pointing at this kit's bin/obor
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
 //	5 finish   the old → new agent table, the lanes dir moves when its path has the old name, what to do next
@@ -47,7 +43,6 @@ type renamer struct {
 	oldName, oldPrefix string
 	oldLead            string // the lead's agent name before
 	pairs              []agentPair
-	lanes              []laneOpen // the lane files step 3 rewrites, read before step 1
 }
 
 // agentPair is an agent's name before and after; old == new: it keeps its name.
@@ -86,16 +81,11 @@ func (s *Setup) renameCmd(ctx context.Context, args []string) error {
 	if err := r.stop(ctx); err != nil {
 		return project.Failf("0 stop: %v", err)
 	}
-	// The lane files step 3 rewrites are read before the config moves, so one that cannot be read refuses the rename
-	// with nothing changed and a rerun after the fix repairs it.
-	if err := r.readLanes(); err != nil {
-		return err
-	}
 	for _, st := range []struct {
 		name string
 		run  func(context.Context) error
 	}{
-		{"1 config", r.config}, {"3 files", r.files},
+		{"1 config", r.config},
 		{"4 terminal", r.terminal}, {"5 finish", r.finish},
 	} {
 		if err := st.run(ctx); err != nil {
@@ -255,73 +245,6 @@ func (r *renamer) agentPairs(rows map[string]store.LaneRow) []agentPair {
 		out = append(out, agentPair{old, next})
 	}
 	return out
-}
-
-// 3 ---------------------------------------------------------------------------------------------------------------
-
-func (r *renamer) files(context.Context) error {
-	moved, err := r.kitPaths()
-	if err != nil {
-		return err
-	}
-	if len(moved) == 0 {
-		r.ok("3 files", true, "no kit path to correct")
-	} else {
-		r.ok("3 files", false, "kit path in %s", strings.Join(moved, ", "))
-	}
-	return nil
-}
-
-// kitPath matches a quoted path to a kit's shim (bin/obor): where an OpenCode lane's MCP server command points.
-var kitPath = regexp.MustCompile(`"((?:[^"\\]|\\.)*/bin/obor)"`)
-
-// laneOpen is one lane worktree's opencode.json, read before step 1: step 3 rewrites its kit path.
-type laneOpen struct {
-	lane, path string
-	doc        []byte
-}
-
-// readLanes reads each lane worktree's opencode.json that exists (per-worktree config, git-excluded: setup does not
-// write it, so it keeps the kit it was written for, which may be gone). A missing file is a lane without one and is
-// skipped; any other read error refuses the rename, naming the file.
-func (r *renamer) readLanes() error {
-	for _, l := range r.cfg.Lanes() {
-		path := filepath.Join(l.Dir, "opencode.json")
-		doc, err := os.ReadFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return project.Failf("%v", err)
-		}
-		r.lanes = append(r.lanes, laneOpen{lane: l.Name, path: path, doc: doc})
-	}
-	return nil
-}
-
-// kitPaths points each lane file read by readLanes at this kit's bin/obor. It returns the opencode.json it changed, as
-// "<lane>/opencode.json".
-func (r *renamer) kitPaths() ([]string, error) {
-	shim := filepath.Join(r.Kit, "bin", "obor")
-	var moved []string
-	for _, f := range r.lanes {
-		out := kitPath.ReplaceAllFunc(f.doc, func(m []byte) []byte {
-			var p string
-			if json.Unmarshal(m, &p) != nil || p == shim {
-				return m
-			}
-			b, _ := json.Marshal(shim)
-			return b
-		})
-		if bytes.Equal(out, f.doc) {
-			continue
-		}
-		if err := os.WriteFile(f.path, out, 0o644); err != nil {
-			return nil, project.Failf("%v", err)
-		}
-		moved = append(moved, f.lane+"/opencode.json")
-	}
-	return moved, nil
 }
 
 // 4 ---------------------------------------------------------------------------------------------------------------
