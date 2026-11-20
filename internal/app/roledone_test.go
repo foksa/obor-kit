@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -21,9 +22,19 @@ func doneRig(t *testing.T) *harness {
 		port.Pane{ID: "w1:p3", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-advisor", Status: "idle"},
 		port.Pane{ID: "w1:p4", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"},
 		port.Pane{ID: "w1:p5", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-int", Status: "idle"})
+	h.panes.last = h.now // their transcripts' last write: the done stretches start at t0
 	h.connect()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
 	return h
+}
+
+// freshServe is serve restarted: a new App over the same project's log, its observations empty.
+func freshServe(t *testing.T, h *harness) {
+	t.Helper()
+	h.a.closeLog()
+	h.a = newTestApp(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	h.connect()
 }
 
 // deliverOnce is one of serve's line passes over pj: the lead's lines posted to a fake inbox.
@@ -49,6 +60,7 @@ func TestRoleDoneReminder(t *testing.T) {
 		}
 	}
 	work := func(_ *testing.T, h *harness) {
+		h.panes.last = h.now // the transcript's last write: a new stretch starts here
 		h.work("w1:p3", true)
 		h.work("w1:p5", true)
 	}
@@ -154,5 +166,163 @@ func TestStatusDoneRoleHint(t *testing.T) {
 		if got[agent] != "" {
 			t.Errorf("%s's hint %q, want none", agent, got[agent])
 		}
+	}
+}
+
+// doneLines is pj's done reminder lines' agents in the log's order, each checked for the stop command and the note.
+func doneLines(t *testing.T, h *harness) []string {
+	t.Helper()
+	var out []string
+	for _, line := range leadLines(t, h) {
+		if !strings.Contains(line, ", no open work — obor restart ") {
+			continue
+		}
+		agent, _, _ := strings.Cut(strings.TrimPrefix(line, "[obor] "), " done ")
+		if !strings.HasSuffix(line, "obor restart "+agent+" --stop (the next obor brief starts it fresh)") {
+			t.Errorf("line %q, want the stop command for %s and the brief note", line, agent)
+		}
+		out = append(out, agent)
+	}
+	return out
+}
+
+// hintsOf is obor status' hint by agent in pj now.
+func hintsOf(t *testing.T, h *harness) map[string]string {
+	t.Helper()
+	st := h.a.Status()
+	if st.Project == nil {
+		t.Fatal("serve holds no project")
+	}
+	out := map[string]string{}
+	for _, as := range st.Project.Agents {
+		out[as.Name] = as.Hint
+	}
+	return out
+}
+
+// The done stretch is the agent's own last activity, so it outlives serve: a fresh process (a new App over the same
+// log, empty observations) dates the same stretch the same. A reminder sent for it is not sent again, frequent restarts
+// do not postpone the first, a written transcript starts a new stretch, and unknown activity is no stretch at all.
+func TestRoleDoneStretchOutlivesServe(t *testing.T) {
+	t.Parallel()
+	t.Run("reminded once, transcript unchanged: no second line", func(t *testing.T) {
+		t.Parallel()
+		h := doneRig(t)
+		h.now = h.now.Add(roleDoneAfter + time.Minute)
+		deliverOnce(t, h)
+		if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
+			t.Fatalf("the first pass's lines %q, want one per role agent", got)
+		}
+		freshServe(t, h)
+		h.now = h.now.Add(roleDoneAfter + time.Minute)
+		deliverOnce(t, h)
+		if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
+			t.Errorf("after a fresh serve and another hour: lines %q, want no second line for the same stretch", got)
+		}
+	})
+	t.Run("restarted every 30 min for 2h: the first line still at t0+1h", func(t *testing.T) {
+		t.Parallel()
+		h := doneRig(t)
+		t0 := h.now
+		for i := 1; i <= 4; i++ {
+			h.now = t0.Add(time.Duration(i) * 30 * time.Minute)
+			freshServe(t, h)
+			deliverOnce(t, h)
+			if i == 1 {
+				if got := doneLines(t, h); len(got) != 0 {
+					t.Fatalf("after 30 min and a restart: lines %q, want none", got)
+				}
+			}
+		}
+		if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
+			t.Errorf("lines after restarts every 30 min: %q, want the first at t0+1h, once", got)
+		}
+		if got := hintsOf(t, h); got["pj-advisor"] != "obor restart pj-advisor --stop" {
+			t.Errorf("status hint after a fresh serve %q, want the stop command", got["pj-advisor"])
+		}
+	})
+	t.Run("works, then idle another hour: a second line", func(t *testing.T) {
+		t.Parallel()
+		h := doneRig(t)
+		h.now = h.now.Add(roleDoneAfter + time.Minute)
+		deliverOnce(t, h)
+		h.panes.last = h.now // the transcript is written: a new stretch starts here
+		h.work("w1:p3", true)
+		h.work("w1:p5", true)
+		h.work("w1:p3", false)
+		h.work("w1:p5", false)
+		freshServe(t, h)
+		h.now = h.now.Add(roleDoneAfter + time.Minute)
+		deliverOnce(t, h)
+		want := []string{"pj-advisor", "pj-int", "pj-advisor", "pj-int"}
+		if got := doneLines(t, h); !slices.Equal(got, want) {
+			t.Errorf("lines %q, want a second per role agent: %q", got, want)
+		}
+	})
+	t.Run("unknown activity: no line and no hint", func(t *testing.T) {
+		t.Parallel()
+		h := doneRig(t)
+		h.panes.last = time.Time{} // a kind whose transcripts obor cannot read
+		h.now = h.now.Add(roleDoneAfter + time.Minute)
+		freshServe(t, h)
+		deliverOnce(t, h)
+		if got := doneLines(t, h); len(got) != 0 {
+			t.Errorf("lines %q, want none for unknown activity", got)
+		}
+		if got := hintsOf(t, h); got["pj-advisor"] != "" || got["pj-int"] != "" {
+			t.Errorf("hints %q, want none for unknown activity", got)
+		}
+	})
+}
+
+// While the terminal is gone, obor status offers no stop hint (its text and JSON both print the field) and serve sends
+// no line from the panes it kept; a reconnect decides from the agents' activity afresh, with no stale timer carried
+// over.
+func TestRoleDoneDisconnected(t *testing.T) {
+	t.Parallel()
+	h := doneRig(t)
+	h.now = h.now.Add(roleDoneAfter + time.Minute) // connected, this would be a hint and a line
+	h.a.mu.Lock()
+	h.a.connected = false
+	h.a.mu.Unlock()
+	deliverOnce(t, h)
+	if got := doneLines(t, h); len(got) != 0 {
+		t.Errorf("lines while disconnected %q, want none", got)
+	}
+	st := h.a.Status()
+	if st.Connected {
+		t.Fatal("precondition: status says connected while the terminal is gone")
+	}
+	for _, as := range st.Project.Agents {
+		if as.Hint != "" {
+			t.Errorf("%s's hint while disconnected %q, want none", as.Name, as.Hint)
+		}
+	}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"hint"`) {
+		t.Errorf("status JSON while disconnected carries a hint: %s", raw)
+	}
+
+	// The agent writes its transcript while serve is away: the reconnect dates the stretch from it, not from the pane
+	// serve saw last.
+	h.panes.last = h.now
+	h.connect()
+	if got := hintsOf(t, h); got["pj-advisor"] != "" || got["pj-int"] != "" {
+		t.Errorf("hints right after the reconnect %q, want none: the stretch starts at the new activity", got)
+	}
+	deliverOnce(t, h)
+	if got := doneLines(t, h); len(got) != 0 {
+		t.Errorf("lines right after the reconnect %q, want none", got)
+	}
+	h.now = h.now.Add(roleDoneAfter + time.Minute)
+	if got := hintsOf(t, h); got["pj-advisor"] != "obor restart pj-advisor --stop" {
+		t.Errorf("hint an hour after the reconnect %q, want the stop command", got["pj-advisor"])
+	}
+	deliverOnce(t, h)
+	if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
+		t.Errorf("lines an hour after the reconnect %q, want one per role agent", got)
 	}
 }
