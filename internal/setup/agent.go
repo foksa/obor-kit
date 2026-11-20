@@ -203,7 +203,7 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 	}
 	switch role.Name {
 	case "reviewer", "deep_dive": // the reviews dir is gitignored, also in a project init made before it was
-		if err := s.ignoreLines(s.reviewsIgnore()); err != nil {
+		if _, err := s.ignoreLines(s.reviewsIgnore()); err != nil {
 			return placed{}, err
 		}
 	}

@@ -158,11 +158,11 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if prefix == "" && !s.configHasPrefix() {
 		prefix = uniquePrefix(defaultPrefix(nameOr(name, s.root)), running)
 	}
-	s.wrote = false
-	if err := s.initProject(name, prefix); err != nil {
+	wrote, err := s.initProject(name, prefix)
+	if err != nil {
 		return err
 	}
-	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Name(), s.cfg.Prefix())
+	add("project", doneOr(wrote), "%s (prefix %s)", s.cfg.Name(), s.cfg.Prefix())
 
 	// the caller's pane, decided before any pane is placed: when it qualifies as the lead's, the panes go to its
 	// group (hc: its space, named after the project) and the lead's start takes it
@@ -774,10 +774,8 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 			add(what, "already", "%s running (pane %s)", agent, p.pane)
 		case p.idle:
 			add(what, "already", "pane %s labelled %s, no agent (started on first use)", p.pane, agent)
-		case !p.started:
-			add(what, "done", "pane %s labelled %s, no agent (started on first use)", p.pane, agent)
 		default:
-			add(what, "done", "%s started in pane %s", agent, p.pane)
+			add(what, "done", "pane %s labelled %s, no agent (started on first use)", p.pane, agent)
 		}
 		return nil
 	}
@@ -837,11 +835,11 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		}
 		changed = true
 	}
-	was := s.wrote
-	if err := s.gitignore(); err != nil {
+	ignored, err := s.gitignore()
+	if err != nil {
 		return "", "", err
 	}
-	changed = changed || s.wrote != was
+	changed = changed || ignored
 	for _, l := range s.cfg.Lanes() {
 		if _, err := os.Stat(l.Dir); err != nil {
 			continue
