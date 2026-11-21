@@ -5,6 +5,7 @@ package setup
 
 import (
 	"slices"
+	"strings"
 
 	"obor/internal/agents"
 	"obor/internal/config"
@@ -73,23 +74,54 @@ func (s *Setup) upgradeModels() error {
 	return s.load()
 }
 
-// initFallbackModel adds the fallback model's starter entry (StarterModels) when agents.models has no entry of that
-// name: initRoleTypes falls a role back to it, so the role it writes resolves. An entry the config has is never
-// replaced.
-func (s *Setup) initFallbackModel() error {
-	if _, ok := s.cfg.Data.Agents.Models.M[fallbackRoleModel]; ok {
-		return nil
+// fallbackStarter is the starter entry (StarterModels) init adds when no agents.models entry is of the Claude kind: the
+// model a role falls back to then.
+const fallbackStarter = "opus"
+
+// fillModelKinds gives the former built-in entries of .obor/config.json that have no kind their kind
+// (config.Config.KindFills, as `obor setup agents` does) and returns the shared config as it is then: init's role
+// step decides from it.
+func (s *Setup) fillModelKinds() (*config.Config, error) {
+	shared, err := config.LoadMain(s.root)
+	if err != nil {
+		return nil, project.Failf("%v", err)
 	}
-	e, ok := starterModel(fallbackRoleModel)
+	fill := shared.KindFills()
+	if len(fill) == 0 {
+		return shared, nil
+	}
+	if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.MigrateModels(doc, fill, nil) }); err != nil {
+		return nil, err
+	}
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	if shared, err = config.LoadMain(s.root); err != nil {
+		return nil, project.Failf("%v", err)
+	}
+	return shared, nil
+}
+
+// fallbackModel is the Claude model the roles fall back to, from shared (.obor/config.json): its first agents.models
+// entry of the kind init requires (agents.Default), in config order. With none, the starter entry fallbackStarter,
+// returned as add for the caller to write; a config that has an entry of that name of another kind fails naming
+// roles and the entry to add under a name of its own.
+func fallbackModel(shared *config.Config, roles []string) (name string, add *config.NamedModel, err error) {
+	for _, n := range shared.ModelNames() {
+		if m, ok := shared.Model(n); ok && m.Kind == agents.Default {
+			return n, nil, nil
+		}
+	}
+	e, ok := starterModel(fallbackStarter)
 	if !ok {
-		return project.Failf("no starter entry for %s: the role falls back to it", fallbackRoleModel)
+		return "", nil, project.Failf("no starter entry for %s: a role falls back to it", fallbackStarter)
 	}
-	if err := s.editConfig(func(doc []byte) (config.Write, error) {
-		return config.AddModels(doc, []config.NamedModel{e})
-	}); err != nil {
-		return err
+	if _, taken := shared.Data.Agents.Models.M[e.Name]; taken {
+		return "", nil, project.Failf("no %s model in agents.models for %s (init falls a role back to one) and %s names "+
+			"another kind: add one to .obor/config.json, %s", agents.Default, strings.Join(roles, ", "), e.Name,
+			config.NamedModel{Name: "<name>", Kind: e.Kind, ID: e.ID}.Member())
 	}
-	return s.load()
+	return e.Name, &e, nil
 }
 
 // starterModel is the StarterModels entry of name (ok false: none).
