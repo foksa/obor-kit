@@ -347,6 +347,39 @@ func TestWaitingLaneBusy(t *testing.T) {
 	})
 }
 
+// A waiting task whose stored spec names a model the config loses while it waits: the retry's refusal names it, logged
+// once and shown in obor status; the task still waits and nothing new is recorded.
+func TestWaitingRefusesItsModelRemovedMeanwhile(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := startWithT2(t)
+		r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" }) // the retry is refused, never dispatched
+		r.specOf("T-1", "# T-1 — Named\n\nDifficulty: medium\nModel: haiku\n")
+		if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+			Role: "lead", CallID: "d1"}, Task: "T-1", After: []string{"T-2"}}); err != nil ||
+			!strings.HasPrefix(reply, "WAITING T-1 after T-2 (queued)") {
+			t.Fatalf("T-1 --after T-2: %q, %v; want the wait", reply, err)
+		}
+		before := r.taskRecords("T-1")
+		r.removeModel("haiku")
+		r.landT2()
+		const why = `dispatch T-1: "haiku" is not a model`
+		r.waitFor("the wait's refusal in status", func() bool { return strings.HasPrefix(r.taskStatus("T-1").Why, why) })
+		if st := r.taskStatus("T-1"); st.State != "waiting" || len(st.Types) == 0 {
+			t.Errorf("status %+v, want the task still waiting on its request", st)
+		}
+		if n := strings.Count(r.out.String(), "T-1 waiting: "+why); n != 1 {
+			t.Errorf("the refusal logged %d times, want once:\n%s", n, r.out.String())
+		}
+		if n := r.taskStep("T-1", "fact dispatch"); n != 0 {
+			t.Errorf("dispatched with its spec's model gone: %q", r.steps())
+		}
+		if after := r.taskRecords("T-1"); after != before {
+			t.Errorf("the refusal recorded %d of T-1's records, want none: %q", after-before, r.steps())
+		}
+	})
+}
+
 // DD-v0.12 A1: a waiting task whose dispatch is refused once all it waits for merged says why in obor status; the same
 // refusal for an hour is needs-you{after: …}, kept by a restart (the store's fact); obor resume sends it back to
 // waiting, its hour from the start.

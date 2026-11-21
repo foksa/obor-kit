@@ -57,6 +57,39 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	}
 }
 
+// A stored spec's `Model:` ref with no agents.models entry (one the config had when the spec was set, and loses later)
+// is refused at dispatch, as spec set refuses it; it is never silently dropped for the level's first model. Nothing is
+// recorded, and --model keeps its own path: its request carries no spec ref.
+func TestDifficultyRefusesAStoredSpecsUnknownModel(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, pooled())
+		r.start()
+		r.setSpec("s1", "# T-1 — Named\n\nDifficulty: medium\nModel: haiku\n") // haiku's entry is the fixture's
+		r.removeModel("haiku")
+		r.passes()
+		before := len(r.records())
+		const entry = `"haiku": {"kind": "claude", "id": "haiku"}`
+		reply, err := r.dispatchLevel("d1")
+		if err == nil || !strings.Contains(err.Error(), `"Model: haiku"`) || !strings.Contains(err.Error(), "is not a model") ||
+			!strings.Contains(err.Error(), entry) || reply != "" {
+			t.Fatalf("dispatch of a spec naming the removed haiku: %q, %v; want the Model: refusal with %s", reply, err, entry)
+		}
+		r.passes()
+		if after := len(r.records()); after != before {
+			t.Errorf("the refusal recorded %d records: %q", after-before, r.steps())
+		}
+		if n := r.disp.called("prepare"); n != 0 {
+			t.Errorf("prepared %d times after the refusal", n)
+		}
+		reply, err = r.dispatchLevel("d2", "sonnet")
+		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
+			t.Fatalf("--model sonnet over the spec's removed ref: %q, %v; want the dispatch", reply, err)
+		}
+		r.waitStep("1 result work")
+	})
+}
+
 func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {

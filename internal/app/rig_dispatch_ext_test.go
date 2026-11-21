@@ -767,6 +767,23 @@ func (r *loopRig) setConfig(path string, v any) {
 	r.p.Write(".obor/config.json", string(b)+"\n")
 }
 
+// removeModel deletes name from the project's config agents.models on disk (read at the app's next load): an entry the
+// config had when a spec was stored and loses later.
+func (r *loopRig) removeModel(name string) {
+	r.t.Helper()
+	var c map[string]any
+	if err := json.Unmarshal([]byte(r.p.Read(".obor/config.json")), &c); err != nil {
+		r.t.Fatal(err)
+	}
+	models, _ := c["agents"].(map[string]any)["models"].(map[string]any)
+	if models == nil {
+		r.t.Fatalf("removeModel: %s has no agents.models", r.p.Root)
+	}
+	delete(models, name)
+	b, _ := json.Marshal(c)
+	r.p.Write(".obor/config.json", string(b)+"\n")
+}
+
 // fetched is the fetch rig with T-1 dispatched, its work job fetched and its task_done submitting it,
 // the integrator's review job out and fetched: the review job's text.
 func fetched(t *testing.T) (*loopRig, string) {
