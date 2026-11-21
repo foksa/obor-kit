@@ -341,7 +341,7 @@ builds the project's terminal (`port.Terminal`: herdr, or hc with serve's hold o
 `setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
 - `web` (`internal/web`): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
-  `/api/view`, `/api/setup`, `/api/task`, `/api/tasks`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq,
+  `/api/view`, `/api/setup`, `/api/task`, `/api/tasks`, `/api/agent`, `/api/job`, `/api/cursor` (the store's newest seq, a page's starting cursor), `/api/events` with a long poll on the store's seq,
   `/api/help`: `help.Commands` and the kit's README sections, read at the request; `/api/docs` and `/api/doc`: the
   markdown files git's index tracks in the main checkout, `view.DocCache` per HEAD, index and each doc's file stat, a
   path outside that list or one the index no longer tracks refused; `/api/docsearch`: those files searched for the lines

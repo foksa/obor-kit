@@ -74,6 +74,18 @@ func EventsSince(db *sql.DB, since int64, limit int) (EventsPage, error) {
 	return page, nil
 }
 
+// NewestSeq is the seq of db's newest record (0: none, or no store): the page's starting cursor, read without the view.
+func NewestSeq(db *sql.DB) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	recs, err := event.RecentEvents(db, 1)
+	if err != nil || len(recs) == 0 {
+		return 0, err
+	}
+	return recs[0].Seq, nil
+}
+
 // eventOf is r as the event list shows it (app.Describe's line; false: a record the list does not word).
 func eventOf(r event.Record) (Event, bool) {
 	d := app.Describe(r)

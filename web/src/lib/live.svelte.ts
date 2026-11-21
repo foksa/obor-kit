@@ -30,9 +30,9 @@ const cursors: Record<string, number> = {}; // project → the newest seq its pa
 function advance(project: string, seq: number) {
   if (cursors[project] === undefined || seq > cursors[project]) cursors[project] = seq;
 }
+// takeCursor reads the project's newest record's seq (/api/cursor), not its view.
 async function takeCursor(project: string, signal: AbortSignal) {
-  const v = await api.view(project, signal);
-  advance(project, (v.events || []).reduce((m, e) => Math.max(m, e.seq || 0), 0));
+  advance(project, (await api.cursor(project, signal)).seq || 0);
 }
 
 export class Live<T> {

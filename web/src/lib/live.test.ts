@@ -4,7 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const events = vi.fn();
 const view = vi.fn();
-vi.mock("./api", () => ({ api: { events: (...a: unknown[]) => events(...a), view: (...a: unknown[]) => view(...a) } }));
+const cursor = vi.fn();
+vi.mock("./api", () => ({
+  api: {
+    events: (...a: unknown[]) => events(...a), view: (...a: unknown[]) => view(...a),
+    cursor: (...a: unknown[]) => cursor(...a),
+  },
+}));
 
 const { Live, mark } = await import("./live.svelte");
 
@@ -27,7 +33,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   events.mockReset();
   view.mockReset();
-  view.mockResolvedValue({ events: [] });
+  cursor.mockReset();
+  cursor.mockResolvedValue({ seq: 0 });
   events.mockImplementation(() => new Promise(() => {})); // a long poll that has no record yet
 });
 afterEach(() => {
@@ -94,5 +101,18 @@ describe("the live mark", () => {
     expect(mark.state).toBe("stale");
     l.stop();
     expect(mark).toEqual({ state: "on", text: "live" });
+  });
+});
+
+describe("the starting cursor", () => {
+  it("is the project's newest seq from /api/cursor, not its view, and the poll asks past it", async () => {
+    cursor.mockResolvedValue({ seq: 41 });
+    page("cur");
+    await flush();
+    expect(cursor).toHaveBeenCalledTimes(1);
+    expect(cursor.mock.calls[0][0]).toBe("cur");
+    expect(view).not.toHaveBeenCalled();
+    expect(events).toHaveBeenCalled();
+    expect(events.mock.calls[0].slice(0, 2)).toEqual(["cur", 41]);
   });
 });

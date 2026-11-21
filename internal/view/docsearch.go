@@ -104,18 +104,23 @@ func snippet(line string, words []string) string {
 	return string(r[start : start+snippetCut])
 }
 
-// firstWord is the character index of the first of words line holds, case aside (-1: none).
+// firstWord is the character index of the first of words line holds, case aside (-1: none). It compares line's own
+// characters, one word's length at a time (strings.EqualFold folds rune by rune), so the index counts the string it
+// searched.
 func firstWord(line string, words []string) int {
-	lower := strings.ToLower(line)
+	r := []rune(line)
 	found := -1
 	for _, w := range words {
-		i := strings.Index(lower, strings.ToLower(w))
-		if i >= 0 && (found < 0 || i < found) {
-			found = i
+		n := utf8.RuneCountInString(w)
+		if n == 0 {
+			continue
+		}
+		for i := 0; i+n <= len(r) && (found < 0 || i < found); i++ {
+			if strings.EqualFold(string(r[i:i+n]), w) {
+				found = i
+				break
+			}
 		}
 	}
-	if found < 0 {
-		return -1
-	}
-	return utf8.RuneCountInString(line[:found])
+	return found
 }

@@ -64,8 +64,9 @@ const (
 type Server struct {
 	Projects func() []project.Project                            // the machine's projects (default: project.Projects)
 	Build    func(context.Context, string) (view.Project, error) // one project's view by root (default: view.Load)
-	// Process is one pane's process info, the overview's background scan (default: none read).
-	Process func(ctx context.Context, pane string) (port.ProcessInfo, error)
+	// Process is the process info of the project at root's panes, the overview's background scan: its own terminal's
+	// (nil, or a nil answer: none read).
+	Process func(root string) func(ctx context.Context, pane string) (port.ProcessInfo, error)
 	// Task, Agent and Setup are the drill-down pages' narrow reads (defaults: view.LoadTask, view.LoadAgent,
 	// view.LoadSetup): a page never builds the overview.
 	Task  func(context.Context, string) (view.Detail, error)
@@ -96,7 +97,7 @@ var errServeDown = errors.New("obor serve is not running")
 const callWait = 12 * time.Second
 
 // Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/tasks, /api/agent, /api/job,
-// /api/events, /api/help, /api/docs, /api/doc and /api/docsearch, the two POST routes /api/config and /api/pause, and
+// /api/cursor, /api/events, /api/help, /api/docs, /api/doc and /api/docsearch, the two POST routes /api/config and /api/pause, and
 // the page for every other path ("/" plus the hash routes the page itself reads).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -107,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.tasksAPI)
 	mux.HandleFunc("/api/agent", s.agentAPI)
 	mux.HandleFunc("/api/job", s.jobAPI)
+	mux.HandleFunc("/api/cursor", s.cursorAPI)
 	mux.HandleFunc("/api/events", s.eventsAPI)
 	mux.HandleFunc("/api/help", s.helpAPI)
 	mux.HandleFunc("/api/docs", s.docsAPI)
@@ -720,6 +722,30 @@ func (s *Server) setupRead(ctx context.Context, root string) (view.Setup, error)
 	return view.LoadSetup(ctx, root, s.Git)
 }
 
+// Cursor is /api/cursor's answer: the seq of the project's newest record, the page's first /api/events since.
+type Cursor struct {
+	Seq int64 `json:"seq"`
+}
+
+// cursorAPI is /api/cursor?project=<name>: the project's newest record's seq and nothing else (no store: 0), read
+// without building the view.
+func (s *Server) cursorAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	db, _ := store.OpenAt(p.Root)
+	if db != nil {
+		defer db.Close()
+	}
+	seq, err := view.NewestSeq(db)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, Cursor{Seq: seq})
+}
+
 // eventsAPI is /api/events?project=<name>&since=<seq>: a long poll on the store's seq. It answers at once when a record
 // newer than since is there, and otherwise holds the request until one is (or its wait ends): the page keeps one poll
 // open and shows a new record as it lands.
@@ -832,7 +858,11 @@ func (s *Server) build(ctx context.Context, root string) (view.Project, error) {
 	if n <= 0 {
 		n = defaultView
 	}
-	return view.Load(ctx, root, time.Now(), n, s.Process)
+	var info func(ctx context.Context, pane string) (port.ProcessInfo, error)
+	if s.Process != nil {
+		info = s.Process(root)
+	}
+	return view.Load(ctx, root, time.Now(), n, info)
 }
 
 // wait is how long /api/events holds a poll before it answers empty.

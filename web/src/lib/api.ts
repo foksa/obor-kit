@@ -1,6 +1,6 @@
 // The API: obor web's JSON routes, typed.
 import type {
-  AgentDetail, DocHits, DocList, DocText, EventsPage, Help, Prompt, ProjectsEntry, ProjectView, Setup, TaskDetail, TaskRow,
+  AgentDetail, Cursor, DocHits, DocList, DocText, EventsPage, Help, Prompt, ProjectsEntry, ProjectView, Setup, TaskDetail, TaskRow,
 } from "./types";
 import { followBuild } from "./build.svelte";
 
@@ -40,6 +40,7 @@ export const api = {
   agent: (p: string, a: string, s?: AbortSignal) => get<AgentDetail>(`/api/agent?project=${enc(p)}&agent=${enc(a)}`, s),
   job: (p: string, j: string, s?: AbortSignal) => get<Prompt>(`/api/job?project=${enc(p)}&job=${enc(j)}`, s),
   help: (s?: AbortSignal) => get<Help>("/api/help", s),
+  cursor: (p: string, s?: AbortSignal) => get<Cursor>(`/api/cursor?project=${enc(p)}`, s),
   events: (p: string, since: number, s?: AbortSignal) =>
     get<EventsPage>(`/api/events?project=${enc(p)}&since=${since}`, s),
 };
