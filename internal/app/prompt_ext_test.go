@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/testkit"
 )
@@ -32,30 +32,23 @@ func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.srv.Client(), Out: io.Discard,
+		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.client(), Out: io.Discard,
 			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil }})
 		r.mustDispatch("d1")
 		r.waitStep("1 result work")
 		same(t, r.result("work"), `"sent (start prompt)"`, "work result")
-		var start struct {
-			Name string   `json:"name"`
-			Args []string `json:"args"`
-		}
-		for _, q := range r.srv.Requests() {
-			var p struct {
-				Name string   `json:"name"`
-				Args []string `json:"args"`
-			}
-			if q.Method == "agent.start" && json.Unmarshal(q.Params, &p) == nil && p.Name == "pj-l-01" {
-				start = p
+		var start port.AgentStart
+		for _, s := range r.agentStarts() {
+			if s.Label == "pj-l-01" {
+				start = s
 			}
 		}
-		if start.Name == "" {
-			t.Fatalf("no start of pj-l-01: %+v", r.srv.Requests())
+		if start.Label == "" {
+			t.Fatalf("no start of pj-l-01: %q", r.callLines())
 		}
-		text := strings.Join(start.Args, " ")
+		text := strings.Join(start.Argv, " ")
 		if strings.Contains(text, "\n") {
-			t.Errorf("the start's args carry a newline, herdr refuses them: %q", start.Args)
+			t.Errorf("the start's args carry a newline, the terminal refuses them: %q", start.Argv)
 		}
 		if !strings.Contains(text, wake("T-1/1/work")) || strings.Contains(text, "implement docs/tasks") {
 			t.Errorf("the start's first prompt is not the work job's wake alone:\n%s", text)
@@ -79,9 +72,9 @@ func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		// The lane's pane is at its shell (herdr keeps one live agent per name): the dispatch starts the worker there.
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
-		holder := r.f.Agent("w1:p7", "pj-l-01", "idle", r.lane)
-		holder.Label = "notes"
+		r.setPane("w1:p1", func(p *port.Pane) { p.Agent, p.Status = "", "" })
+		r.addPane(port.Pane{ID: "w1:p7", Label: "notes", Agent: "claude", Status: "idle", Cwd: r.lane})
+		r.setName("w1:p7", "pj-l-01") // the terminal holds the name though the label names nobody
 		cfg, err := config.Load(r.p.Root)
 		if err != nil {
 			t.Fatal(err)
@@ -91,7 +84,7 @@ func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 			t.Fatal(err)
 		}
 		asked := 0
-		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.srv.Client(), Out: io.Discard,
+		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.client(), Out: io.Discard,
 			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil },
 			Where: func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
 				asked++
@@ -102,8 +95,8 @@ func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 				}
 				return w, err
 			}})
-		if r.f.Pane("w1:p7").Name != "pj-l-01" {
-			t.Fatalf("precondition: no holder of the name: %+v", r.f.Panes)
+		if r.nameOf("w1:p7") != "pj-l-01" {
+			t.Fatalf("precondition: no holder of the name: %+v", r.panes())
 		}
 		r.mustDispatch("d1")
 		r.waitPrefix("1 fact needs-you{start: pj-l-01 already runs in pane w1:p7 (proof: name; label notes): obor " +
@@ -118,15 +111,12 @@ func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 		if n := r.countPrefix("1 fact needs-you"); n != 1 {
 			t.Errorf("needs-you records = %d, want 1: %q", n, r.steps())
 		}
-		for _, q := range r.srv.Requests() {
-			switch q.Method {
-			case "agent.start", "agent.rename", "pane.rename", "pane.send_keys", "pane.send_input":
-				t.Errorf("the refused start sent %s %s", q.Method, q.Params)
-			}
+		for _, call := range r.touched() {
+			t.Errorf("the refused start touched the terminal: %s", call)
 		}
-		same(t, r.f.Pane("w1:p7").Name, "pj-l-01", "the holder's name")
-		same(t, r.f.Pane("w1:p7").Kind, "claude", "the holder's agent")
-		same(t, r.f.Pane("w1:p1").Kind, "", "no agent started in the lane's pane")
+		same(t, r.nameOf("w1:p7"), "pj-l-01", "the holder's name")
+		same(t, r.paneOf("w1:p7").Agent, "claude", "the holder's agent")
+		same(t, r.paneOf("w1:p1").Agent, "", "no agent started in the lane's pane")
 	})
 }
 
@@ -137,7 +127,7 @@ func TestDispatchIntoALaneShellLabelledNotes(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = "notes", "", "", "" })
+		r.setPane("w1:p1", func(p *port.Pane) { p.Label, p.Agent, p.Status = "notes", "", "" })
 		cfg, err := config.Load(r.p.Root)
 		if err != nil {
 			t.Fatal(err)
@@ -146,7 +136,7 @@ func TestDispatchIntoALaneShellLabelledNotes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.srv.Client(), Out: io.Discard,
+		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.client(), Out: io.Discard,
 			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil },
 			Where: func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
 				var w wire.WhereReply
@@ -156,7 +146,7 @@ func TestDispatchIntoALaneShellLabelledNotes(t *testing.T) {
 				}
 				return w, err
 			}})
-		if p := r.f.Pane("w1:p1"); p.Label != "notes" || p.Kind != "" {
+		if p := r.paneOf("w1:p1"); p.Label != "notes" || p.Agent != "" {
 			t.Fatalf("precondition: the lane's pane is a shell labelled notes: %+v", p)
 		}
 		r.mustDispatch("d1")
@@ -166,10 +156,10 @@ func TestDispatchIntoALaneShellLabelledNotes(t *testing.T) {
 		if n := r.countPrefix("1 fact needs-you"); n != 0 {
 			t.Errorf("needs-you records = %d, want none: %q", n, r.steps())
 		}
-		p := r.f.Pane("w1:p1")
+		p := r.paneOf("w1:p1")
 		same(t, p.Label, "pj-l-01", "the pane's label")
-		same(t, p.Kind, "claude", "the agent started there")
-		same(t, p.Name, "pj-l-01", "its herdr name")
+		same(t, p.Agent, "claude", "the agent started there")
+		same(t, r.nameOf("w1:p1"), "pj-l-01", "the agent's name")
 	})
 }
 

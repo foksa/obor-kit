@@ -87,7 +87,7 @@ func (r *followRig) down() {
 	if !r.app.Status().Connected {
 		r.t.Fatal("precondition: serve is not connected to herdr")
 	}
-	r.srv.Die()
+	r.terminalGone()
 	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected && strings.Contains(r.out.String(), "terminal: gone") })
 }
 
@@ -297,7 +297,7 @@ func TestFollowBinaryHerdrDownAtStart(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newFollowRig(t, nil)
-		r.srv.Die()
+		r.terminalGone()
 		r.launch()
 		// The new binary appears once serve has seen herdr gone: a follow tick may come before serve's first subscribe.
 		r.waitFor("herdr gone", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })

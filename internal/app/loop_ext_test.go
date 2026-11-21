@@ -15,7 +15,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 )
 
 // failRow is one error cell of the table: arm makes step fail (before the start) and returns what heals it.
@@ -139,9 +138,8 @@ var failRows = map[string]failRow{
 	// integrator: a blocked integrator is the start's failure (the two rows below); a typed integrator wake that fails
 	// is TestRV37V2ResumeRetryKeepsTheJob's (retry, nudge).
 	"start.review (integrator idle, start refused)": {step: "start.review", arm: func(r *loopRig, _ *answers) func() {
-		r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root, func(in *herdrtest.Pane) {
-			in.Label, in.Session = "pj-int", "int-0" // a refused start leaves it running
-		})
+		r.addPane(port.Pane{ID: "w1:p9", Label: "pj-int", Agent: "claude", Status: "idle", Cwd: r.p.Root,
+			Session: "int-0"}) // a refused start leaves it running
 		r.mu.Lock()
 		r.onStart = func() error { return errors.New("pj-int has background tasks (finish them, or --force to stop them)") }
 		r.mu.Unlock()
@@ -149,9 +147,8 @@ var failRows = map[string]failRow{
 	}, pending: func(r *loopRig) { r.startsWere(3, false) }},
 	"start.review (integrator blocked past the bound)": {step: "start.review", tick: 20 * time.Second,
 		arm: func(r *loopRig, _ *answers) func() {
-			r.f.Agent("w1:p9", "pj-int", "blocked", r.p.Root, func(in *herdrtest.Pane) {
-				in.Label, in.Session = "pj-int", "int-0" // a failed start leaves it running
-			})
+			r.addPane(port.Pane{ID: "w1:p9", Label: "pj-int", Agent: "claude", Status: "blocked", Cwd: r.p.Root,
+				Session: "int-0"}) // a failed start leaves it running
 			r.mu.Lock()
 			r.onStart = func() error { return errors.New("pj-int: exit dialog without a numbered option (closed it)") }
 			r.mu.Unlock()
@@ -164,8 +161,8 @@ var failRows = map[string]failRow{
 		}, pending: func(r *loopRig) { r.startsWere(3, true) }},
 	"fix (agent_blocked)": {step: "fix", attempt: 2, red: true,
 		arm: func(r *loopRig, _ *answers) func() {
-			r.srv.Fail("agent.prompt", "agent_blocked", "pj-l-01 is blocked")
-			return func() { r.srv.Reply("agent.prompt", prompted) }
+			r.promptBlocked("pj-l-01 is blocked")
+			return r.promptTaken
 		}, end: "2 result fix"},
 }
 
@@ -206,7 +203,7 @@ func TestRV37VerifyStopFailure(t *testing.T) {
 		r.start()
 		r.merged(1)
 		if r.count("1 intent agent.stop") != 1 || r.result("agent.stop") != `"STOPPED pj-l-01"` ||
-			r.f.Pane("w1:p1").Name != "" {
+			r.nameOf("w1:p1") != "" {
 			t.Errorf("want the stop retried under its one intent: %q", r.steps())
 		}
 	})
@@ -283,8 +280,7 @@ func TestLoopFailureNotCounted(t *testing.T) {
 			r.submit()
 			r.waitFor("the gate", func() bool { return r.scratch.Gates.Load() == 1 })
 			_, gating := app.Counts(r.app) // the pass running the gate is not done yet
-			r.srv.Fail("session.snapshot", "unavailable", "herdr is down")
-			r.srv.DropConns()
+			r.terminalDown("herdr is down")
 			r.waitFor("disconnected", func() bool { return !r.app.Status().Connected })
 			close(release)
 			// Disconnected, no check kicks another pass: wait for the gate's own to end.
@@ -373,13 +369,13 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 				} else { // not fetched: undelivered, retried
 					r.waitWake("pj-int", job)
 				}
-				r.srv.Fail("agent.prompt", "agent_blocked", "pj-int is blocked")
+				r.promptBlocked("pj-int is blocked")
 				r.later(10 * time.Minute)
 				r.waitPrefix("1 fact needs-you{" + step + " failed: ")
 				if r.countPrefix("1 fact failed{"+step+": ") != 3 || r.has("1 result "+step) {
 					t.Fatalf("precondition: 3 counted failures of %s, no result: %q", step, r.steps())
 				}
-				r.srv.Reply("agent.prompt", prompted)
+				r.promptTaken()
 				r.waitFor("the needs-you in force", func() bool { return r.facts() == 1 })
 				r.mustResume("r1", "", "RESUMED T-1: retry ("+step+" failed)")
 				for i := 0; i < 50 && !r.has("1 result "+step); i++ {
@@ -584,7 +580,7 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 		}
 		r.waitStep("3 result test") // the class's check runs in the lane test, not the gate
 		r.waitStep("3 fact needs-you{gate red after 2 sendbacks: " + r.redLine() + "}")
-		r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.waitFor("one notification", func() bool { return len(r.notifications()) == 1 })
 		if n := r.count("3 fact sendback"); n != 0 {
 			t.Errorf("a third sendback recorded")
 		}
@@ -837,11 +833,11 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 		setErr(errors.New("config.json: boom"))
 		r.start()
 		r.waitStep("0 fact needs-you{loop: config.json: boom}")
-		r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.waitFor("the notification", func() bool { return len(r.notifications()) == 1 })
 		for i := 0; i < 3; i++ {
 			r.passes()
 		}
-		if n, m := r.count("0 fact needs-you{loop: config.json: boom}"), countReq(r.srv, "notification.show"); n != 1 || m != 1 {
+		if n, m := r.count("0 fact needs-you{loop: config.json: boom}"), len(r.notifications()); n != 1 || m != 1 {
 			t.Errorf("after repeated failing passes: %d needs-you, %d notifications; want 1, 1", n, m)
 		}
 		if st := r.app.Status().Project; len(st.Facts) != 1 || st.Facts[0].Task != event.LoopTask {
@@ -850,7 +846,7 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 
 		setErr(errors.New("config.json: other"))
 		r.waitStep("0 fact needs-you{loop: config.json: other}")
-		r.waitFor("the second notification", func() bool { return countReq(r.srv, "notification.show") == 2 })
+		r.waitFor("the second notification", func() bool { return len(r.notifications()) == 2 })
 		if st := r.app.Status().Project; len(st.Facts) != 1 {
 			t.Errorf("a changed error must replace the fact, status facts: %+v", st.Facts)
 		}
@@ -928,9 +924,9 @@ func TestPassInResubscribeGapNotCounted(t *testing.T) {
 		r.binary = func() bool { return false } // the binary watch wakes the merge loop each tick, herdr connected or not
 		r.start()
 		r.passes()
-		release, reached := r.srv.Hold("events.subscribe")
+		release, reached := r.holdSubscribe()
 		defer release()
-		r.srv.Push("workspace_created", workspaceEvent) // raw: the next subscribe is held
+		r.refresh() // the next subscribe is held
 		<-reached
 		r.waitFor("serve between two streams", func() bool { return !r.app.Status().Connected })
 		_, all := app.Counts(r.app)
@@ -1054,8 +1050,8 @@ func TestLoopRecovery(t *testing.T) {
 					r.foreign()
 					sc.setup(r)
 					var early atomic.Bool // a job prompt reached pj-int before it was started
-					r.srv.Before(func(req herdrtest.Request) {
-						if req.Method == "agent.prompt" && strings.Contains(string(req.Params), `"pj-int"`) && r.starts.Load() == 0 {
+					r.beforePrompt(func(to string) {
+						if to == "pj-int" && r.starts.Load() == 0 {
 							early.Store(true)
 						}
 					})
@@ -1169,8 +1165,8 @@ func TestLoopStartIntentBeforeEffect(t *testing.T) {
 		}
 		r.appendIntent("start.review", event.ClassStart)
 		var early atomic.Bool
-		r.srv.Before(func(req herdrtest.Request) {
-			if req.Method == "agent.prompt" && r.starts.Load() == 0 {
+		r.beforePrompt(func(string) {
+			if r.starts.Load() == 0 {
 				early.Store(true)
 			}
 		})
@@ -1213,7 +1209,7 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 		r.setLane(func(l *port.Lane) { l.Task = "T-06" })
 		r.start()
 		r.merged(1)
-		if len(r.workerStops()) != 0 || r.f.Pane("w1:p1").Name != "pj-l-01" {
+		if len(r.workerStops()) != 0 || r.nameOf("w1:p1") != "pj-l-01" {
 			t.Errorf("the lane's worker was stopped: %q", r.stopped())
 		}
 		for _, step := range []string{"agent.stop"} {

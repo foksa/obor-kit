@@ -25,9 +25,8 @@ import (
 )
 
 type rig struct {
+	term
 	t     *testing.T
-	f     *herdrtest.Fake
-	srv   *herdrtest.Server
 	root  string // the project "pj"
 	wt    string // its lanes' parent dir
 	lanes *laneTable
@@ -52,7 +51,7 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	base := t.TempDir()
-	r := &rig{t: t, f: herdrtest.New(), root: filepath.Join(base, "pj"), wt: filepath.Join(base, "pj-wt"),
+	r := &rig{term: term{f: herdrtest.New()}, t: t, root: filepath.Join(base, "pj"), wt: filepath.Join(base, "pj-wt"),
 		lanes: &laneTable{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}}
 	if err := os.MkdirAll(filepath.Join(r.root, ".obor"), 0o755); err != nil {
@@ -72,6 +71,328 @@ func newRig(t *testing.T) *rig {
 	r.procs = []background.Proc{{PID: 2, PPID: 1, PGID: 2}} // the agent (pid 2, the fake's foreground group), nothing under it
 	return r
 }
+
+// term is the terminal a rig scripts: the fake herdr's pane table and its socket. Its methods say what a test does to
+// the terminal in the port's words (set a pane, add an agent, end the stream, the calls an operation made, a
+// notification sent), so a flow test names no adapter, no fake and none of the terminal's wire: a scenario stated as
+// port.Pane, port.Event and a call of a port operation is one every adapter has to meet.
+type term struct {
+	f   *herdrtest.Fake
+	srv *herdrtest.Server
+}
+
+// op is a terminal operation the app's calls are counted by, as the port names it.
+type op string
+
+const (
+	opSnapshot    op = "snapshot"     // Panes.Snapshot: the terminal's whole session
+	opNotify      op = "notify"       // Panes.Notify: a desktop notification
+	opKeys        op = "keys"         // PaneControl.SendKeys
+	opProcessInfo op = "process-info" // PaneControl.ProcessInfo
+	opScreen      op = "screen"       // PaneControl.Screen: the pane's visible text
+	opAgent       op = "agent"        // the terminal's read of the pane's agent
+)
+
+// opMethod is the terminal's own request behind each operation.
+var opMethod = map[op]string{
+	opSnapshot: "session.snapshot", opNotify: "notification.show", opKeys: "agent.send_keys",
+	opProcessInfo: "pane.process_info", opScreen: "pane.read", opAgent: "agent.get",
+}
+
+// refreshEnds is the event kind of the subscription a stream ends as a refresh: a moved pane or a new workspace, which
+// the port has no event kind for (the app reads a new snapshot instead).
+const refreshEnds = "refresh"
+
+// eventType is the terminal's subscription type of a port event kind ("" for none).
+func eventType(kind string) string {
+	switch kind {
+	case port.EventStatus:
+		return herdr.EventStatus
+	case port.EventCreated:
+		return herdr.EventCreated
+	case port.EventClosed:
+		return herdr.EventClosed
+	case port.EventExited:
+		return herdr.EventExited
+	case refreshEnds:
+		return "workspace.created"
+	}
+	return ""
+}
+
+// paneUnder is fake pane p as the port has it (the fake's lock is held).
+func (tm *term) paneUnder(p *herdrtest.Pane) port.Pane {
+	out := port.Pane{ID: p.ID, Cwd: p.Cwd, Label: p.Label, Agent: p.Kind, Status: p.Status,
+		Transcript: p.Transcript, Session: p.Session, Terminal: p.Terminal}
+	if p.Transcript != "" { // the terminal reports a transcript as the session itself (herdr: its kind is path)
+		out.Session = p.Transcript
+	}
+	for _, w := range tm.f.Workspaces {
+		if w.ID == p.Workspace {
+			out.Group = w.Label
+		}
+	}
+	return out
+}
+
+// script writes q back onto fake pane p: the port's fields, and the name the terminal runs the agent under dropped
+// when no agent runs (as herdr drops a listed agent's name when the agent exits).
+func (tm *term) script(p *herdrtest.Pane, q port.Pane) {
+	p.Cwd, p.Label, p.Kind, p.Status, p.Terminal = q.Cwd, q.Label, q.Agent, q.Status, q.Terminal
+	switch {
+	case q.Transcript != "":
+		p.Transcript, p.Session = q.Transcript, ""
+	case q.Session != "":
+		p.Transcript, p.Session = "", q.Session
+	default:
+		p.Transcript, p.Session = "", ""
+	}
+	if q.Agent == "" {
+		p.Name = ""
+	}
+}
+
+// paneOf is pane id as the port has it now (zero: no such pane).
+func (tm *term) paneOf(id string) port.Pane {
+	var out port.Pane
+	tm.f.Locked(func() {
+		for _, p := range tm.f.Panes {
+			if p.ID == id {
+				out = tm.paneUnder(p)
+			}
+		}
+	})
+	return out
+}
+
+// panes is the terminal's table as the port has it, for a failure's message.
+func (tm *term) panes() []port.Pane {
+	var out []port.Pane
+	tm.f.Locked(func() {
+		for _, p := range tm.f.Panes {
+			out = append(out, tm.paneUnder(p))
+		}
+	})
+	return out
+}
+
+// setPane changes pane id as the port has it: its label, the agent in it, its status, cwd and session (Agent "" leaves
+// the pane at its shell).
+func (tm *term) setPane(id string, fn func(*port.Pane)) {
+	tm.f.Set(id, func(p *herdrtest.Pane) {
+		q := tm.paneUnder(p)
+		fn(&q)
+		tm.script(p, q)
+	})
+}
+
+// addPane puts p in the terminal's table: an agent of kind p.Agent in it when one is set, else a shell. The agent's
+// name is the pane's label, as a start labels the pane it runs in ("" when the label is none).
+func (tm *term) addPane(p port.Pane) {
+	if p.Agent != "" {
+		tm.f.Agent(p.ID, p.Label, p.Status, p.Cwd)
+	} else {
+		tm.f.Shell(p.ID, p.Label, p.Cwd)
+	}
+	tm.setPane(p.ID, func(q *port.Pane) { *q = p })
+}
+
+// removePane drops pane id from the table (closed or exited behind the stream's back: closePane and exitPane send its
+// event).
+func (tm *term) removePane(id string) { tm.f.Remove(id) }
+
+// setName sets the name the terminal runs pane id's agent under ("" none): what its holder lookup answers by, which the
+// port keeps out of a pane (Pane.Label is the pane's label).
+func (tm *term) setName(id, name string) { tm.f.Set(id, func(p *herdrtest.Pane) { p.Name = name }) }
+
+// nameOf is the name the terminal runs pane id's agent under ("" none, or no such pane).
+func (tm *term) nameOf(id string) string {
+	name := ""
+	tm.f.Locked(func() {
+		for _, p := range tm.f.Panes {
+			if p.ID == id {
+				name = p.Name
+			}
+		}
+	})
+	return name
+}
+
+// setScreen sets what pane id shows: its visible text (PaneControl.Screen).
+func (tm *term) setScreen(id, text string) { tm.f.Set(id, func(p *herdrtest.Pane) { p.Screen = text }) }
+
+// setForeground sets the foreground process group of pane id's shell (PaneControl.ProcessInfo): the app reads the pane
+// as busy while it is neither the agent's group nor the shell's.
+func (tm *term) setForeground(id string, pgid int) {
+	tm.f.Set(id, func(p *herdrtest.Pane) { p.Foreground = pgid })
+}
+
+// group labels the terminal's group id label: the group the app sees a pane of it in (port.Pane.Group).
+func (tm *term) group(id, label string) { tm.f.Group(id, label) }
+
+// ungroup drops group id: its panes are in no group the app sees.
+func (tm *term) ungroup(id string) { tm.f.Ungroup(id) }
+
+// endStream ends the stream serve works from: the terminal drops its connections. The terminal is still there, so
+// serve subscribes again.
+func (tm *term) endStream() { tm.srv.DropConns() }
+
+// streamLost ends the stream with the terminal's own error (herdr: events_lost), which the app logs and subscribes
+// again after.
+func (tm *term) streamLost(code, msg string) { tm.srv.PushError(code, msg) }
+
+// terminalGone is the terminal down: its socket dies, so the app's calls and subscribes fail until terminalBack.
+func (tm *term) terminalGone() { tm.srv.Die() }
+
+// terminalBack is the terminal up again on the same panes, after terminalGone.
+func (tm *term) terminalBack(t testing.TB) {
+	t.Helper()
+	tm.srv.Revive(t)
+}
+
+// terminalDown scripts a terminal that answers no snapshot and drops the stream: a down terminal the app cannot dial
+// as hers (its socket is there, its answers are not).
+func (tm *term) terminalDown(msg string) {
+	tm.srv.Fail("session.snapshot", "unavailable", msg)
+	tm.srv.DropConns()
+}
+
+// statusEvent sets pane's status in the table and sends the status event that carries it.
+func (tm *term) statusEvent(pane, status, agent string) {
+	tm.f.Set(pane, func(p *herdrtest.Pane) { p.Status = status })
+	tm.srv.Push(herdr.EventStatus, map[string]any{"pane_id": pane, "agent_status": status, "agent": agent})
+}
+
+// closePane drops pane from the table and sends the event of a pane closed by a person.
+func (tm *term) closePane(pane string) {
+	tm.removePane(pane)
+	tm.srv.Push("pane_closed", map[string]any{"pane_id": pane})
+}
+
+// exitPane drops pane and sends the event of its shell exiting.
+func (tm *term) exitPane(pane string) {
+	tm.removePane(pane)
+	tm.srv.Push("pane_exited", map[string]any{"pane_id": pane})
+}
+
+// refresh sends the layout event that ends serve's stream: serve reads a new snapshot and subscribes again
+// (port.Refreshed).
+func (tm *term) refresh() { tm.srv.Push("workspace_created", workspaceEvent) }
+
+// waitSubscribed waits (up to 5 s, else the test fails) until the stream has a live subscription of kind for pane
+// ("" for a lifecycle kind; refreshEnds for the subscription a refresh ends).
+func (tm *term) waitSubscribed(t testing.TB, kind, pane string) {
+	t.Helper()
+	typ := eventType(kind)
+	if typ == "" {
+		t.Fatalf("no such event kind %q", kind)
+	}
+	tm.srv.WaitSubscribed(t, typ, pane)
+}
+
+// subscribed is how many event subscriptions the terminal has live (0: none: the stream ended and serve has not
+// subscribed again).
+func (tm *term) subscribed() int { return len(tm.srv.Subscriptions()) }
+
+// calls is how many calls of the port operation o the app made.
+func (tm *term) calls(o op) int {
+	method, ok := opMethod[o]
+	if !ok {
+		panic("the rig counts no terminal operation " + string(o))
+	}
+	n := 0
+	for _, req := range tm.srv.Requests() {
+		if req.Method == method {
+			n++
+		}
+	}
+	return n
+}
+
+// callLines is every call the terminal got, as the rig reads it, for a failure's message.
+func (tm *term) callLines() []string { return tm.srv.Calls() }
+
+// notification is one notification the app asked the terminal to show.
+type notification struct{ Title, Body string }
+
+// notifications is the notifications the app asked the terminal to show, in order.
+func (tm *term) notifications() []notification {
+	var out []notification
+	for _, req := range tm.srv.Requests() {
+		if req.Method != opMethod[opNotify] {
+			continue
+		}
+		var n notification
+		_ = json.Unmarshal(req.Params, &n)
+		out = append(out, n)
+	}
+	return out
+}
+
+// agentStarts is every agent start the app asked the terminal for, as the port's AgentStart: the terminal's own name as the
+// label, the pane, the kind and the argv (its first prompt in it).
+func (tm *term) agentStarts() []port.AgentStart {
+	var out []port.AgentStart
+	for _, req := range tm.srv.Requests() {
+		if req.Method != "agent.start" {
+			continue
+		}
+		var p struct {
+			Name string   `json:"name"`
+			Kind string   `json:"kind"`
+			Pane string   `json:"pane_id"`
+			Args []string `json:"args"`
+		}
+		if json.Unmarshal(req.Params, &p) == nil {
+			out = append(out, port.AgentStart{Pane: p.Pane, Label: p.Name, Kind: p.Kind, Argv: p.Args})
+		}
+	}
+	return out
+}
+
+// touched is the calls that change a pane: a start of an agent, a rename, keys, input. A refused start leaves it empty.
+func (tm *term) touched() []string {
+	var out []string
+	for _, req := range tm.srv.Requests() {
+		switch req.Method {
+		case "agent.start", "agent.rename", "pane.rename", "pane.send_keys", "pane.send_input":
+			out = append(out, req.String())
+		}
+	}
+	return out
+}
+
+// holdSubscribe holds the next subscribe's answer until release: the stream serve opens after it is not live yet.
+func (tm *term) holdSubscribe() (release func(), reached <-chan struct{}) {
+	return tm.srv.Hold("events.subscribe")
+}
+
+// holdProcessInfo holds the next process-info answer until release: the watchdogs' sample in flight.
+func (tm *term) holdProcessInfo() (release func(), reached <-chan struct{}) {
+	return tm.srv.Hold("pane.process_info")
+}
+
+// promptBlocked makes every prompt refused as a blocked agent's.
+func (tm *term) promptBlocked(msg string) { tm.srv.Fail("agent.prompt", "agent_blocked", msg) }
+
+// promptTaken makes prompts taken again (the agent working on the text).
+func (tm *term) promptTaken() { tm.srv.Reply("agent.prompt", prompted) }
+
+// beforePrompt runs fn before each prompt is answered, with the agent it addresses.
+func (tm *term) beforePrompt(fn func(to string)) {
+	tm.srv.Before(func(req herdrtest.Request) {
+		if req.Method != "agent.prompt" {
+			return
+		}
+		var p struct{ Target string }
+		if json.Unmarshal(req.Params, &p) == nil {
+			fn(p.Target)
+		}
+	})
+}
+
+// client is the terminal's client, for a launcher a test runs itself.
+func (tm *term) client() *herdr.Socket { return tm.srv.Client() }
 
 func (r *rig) lane(name string) string { return filepath.Join(r.wt, name) }
 
@@ -238,16 +559,6 @@ func (r *rig) waitFacts(want ...string) {
 	r.waitFor("facts "+strings.Join(want, ", "), func() bool { return strings.Join(r.facts(), "|") == strings.Join(want, "|") })
 }
 
-func (r *rig) count(method string) int {
-	n := 0
-	for _, req := range r.srv.Requests() {
-		if req.Method == method {
-			n++
-		}
-	}
-	return n
-}
-
 // waitQuiet waits until task's stall timer has its baseline at at: the watchdogs took that quiet sample.
 func (r *rig) waitQuiet(task string, at time.Time) {
 	r.t.Helper()
@@ -287,7 +598,7 @@ func callID(line []byte) string {
 // stream: a restore it started on the reconnect has been called by then.
 func (r *rig) settled(before int) {
 	r.t.Helper()
-	r.waitFor("a new snapshot", func() bool { return r.count("session.snapshot") > before })
+	r.waitFor("a new snapshot", func() bool { return r.calls(opSnapshot) > before })
 	r.waitConnected()
 	checks, _ := app.Counts(r.app)
 	r.waitFor("checks on the new stream", func() bool { c, _ := app.Counts(r.app); return c >= checks+3 })

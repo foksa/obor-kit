@@ -25,9 +25,9 @@ import (
 func (r *loopRig) briefs() []wire.BriefStatus { return r.app.Status().Project.Briefs }
 
 // agentGone changes pane by fn and waits until obor status no longer shows agent.
-func (r *loopRig) agentGone(pane, agent string, fn func(p *herdrtest.Pane)) {
+func (r *loopRig) agentGone(pane, agent string, fn func(p *port.Pane)) {
 	r.t.Helper()
-	r.f.Set(pane, fn)
+	r.setPane(pane, fn)
 	r.waitFor(agent+" gone", func() bool {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == agent {
@@ -309,8 +309,25 @@ func (r *loopRig) dispatchCall(c wire.DispatchReq) (string, error) {
 
 func (r *loopRig) mustDispatch(callID string) {
 	r.t.Helper()
-	if reply, err := r.dispatch(callID, "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-		r.t.Fatalf("dispatch: %q, %v", reply, err)
+	r.dispatched(r.dispatch(callID, "L-01"))
+}
+
+// dispatched fails unless reply, err are the accepted dispatch of T-1 onto L-01 as sonnet: the reply's sentence is
+// pinned here, once (AGENTS.md "A sentence is pinned once"), so a test of another dispatch shape passes its reply
+// here too.
+func (r *loopRig) dispatched(reply string, err error) {
+	r.t.Helper()
+	if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
+		r.t.Fatalf("dispatch: %q, %v; want the dispatch of T-1 onto L-01 as sonnet", reply, err)
+	}
+}
+
+// dispatchedOnto fails unless reply, err are a dispatch of T-1 onto L-01 (err nil): where a sentence besides the one
+// dispatched pins may follow (a pool's idle note), a test checks the lane here.
+func (r *loopRig) dispatchedOnto(reply string, err error) {
+	r.t.Helper()
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01") {
+		r.t.Fatalf("dispatch: %q, %v; want T-1 dispatched onto L-01", reply, err)
 	}
 }
 

@@ -118,10 +118,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 			r := newLoopRig(t, dispatching())
 			r.addLanes(busy...)
 			r.start()
-			reply, err := r.dispatch("d1", "", "sonnet")
-			if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-				t.Fatalf("dispatch: %q, %v", reply, err)
-			}
+			r.dispatched(r.dispatch("d1", "", "sonnet"))
 			r.waitStep("1 result work")
 		})
 	})

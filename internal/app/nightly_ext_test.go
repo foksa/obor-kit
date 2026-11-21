@@ -63,11 +63,11 @@ func nightlyFacts(r *loopRig) []event.Record {
 	return out
 }
 
-// redNotes is how many notifications the fake herdr showed of a full check RED.
+// redNotes is how many notifications the terminal was asked to show of a full check RED.
 func redNotes(r *loopRig) int {
 	n := 0
-	for _, req := range r.srv.Requests() {
-		if req.Method == "notification.show" && strings.Contains(string(req.Params), "full-check RED") {
+	for _, note := range r.notifications() {
+		if strings.Contains(note.Body, "full-check RED") {
 			n++
 		}
 	}

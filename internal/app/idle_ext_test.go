@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
@@ -88,8 +89,7 @@ func TestIdleBlockers(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, withConfig(testkit.Set("agents.roles.reviewer", "")))
-			rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
-			rev.Label = "pj-rev"
+			r.addPane(port.Pane{ID: "w1:p6", Label: "pj-rev", Agent: "claude", Status: "idle", Cwd: r.p.Root})
 			r.start()
 			if reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review the wave"}); err != nil ||
 				!strings.HasPrefix(reply, "BRIEFED pj-rev") {
@@ -136,7 +136,7 @@ func TestIdleAckStopsThePing(t *testing.T) {
 		if got := r.idlePosts(); len(got) != 1 || got[0] != line {
 			t.Errorf("idle lines %q after the ack and 31m, want the one line", got)
 		}
-		if n := countReq(r.srv, "notification.show"); n != 0 {
+		if n := len(r.notifications()); n != 0 {
 			t.Errorf("%d notifications after the ack, want none", n)
 		}
 		if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "IDLE: nothing to dispatch" {
@@ -208,8 +208,7 @@ func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
 		r := newLoopRig(t, withConfig(testkit.Set("agents.roles.reviewer", "")))
 		// The reviewer busy: the request stays in flight (every workflow has a review git: an idle reviewer would
 		// start the review at once).
-		rev := r.f.Agent("w1:p5", "pj-rev", "working", r.p.Root)
-		rev.Label = "pj-rev"
+		r.addPane(port.Pane{ID: "w1:p5", Label: "pj-rev", Agent: "claude", Status: "working", Cwd: r.p.Root})
 		r.start()
 		r.mergedTask()
 		line := idleLineFor(r, "T-1")

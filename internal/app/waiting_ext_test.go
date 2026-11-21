@@ -163,9 +163,7 @@ func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
 		if st := r.taskStatus("T-1"); st.State != "dispatched" && st.State != "working" || st.Lane != "L-01" {
 			t.Errorf("status after the merge %+v, want dispatched on L-01", st)
 		}
-		if reply, err := r.waitAfter("d2", "T-2"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Errorf("the replacing call id again: %q, %v; want the dispatch's reply", reply, err)
-		}
+		r.dispatched(r.waitAfter("d2", "T-2"))
 	})
 }
 
@@ -274,9 +272,7 @@ func TestWaitingRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.start()
-		if reply, err := r.waitAfter("d5", "T-4"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Errorf("after a merged task: %q, %v; want a plain dispatch", reply, err)
-		}
+		r.dispatched(r.waitAfter("d5", "T-4"))
 	})
 }
 

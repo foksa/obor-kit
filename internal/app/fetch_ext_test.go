@@ -59,7 +59,7 @@ func TestFetchWorkJob(t *testing.T) {
 		if jr, _, err := r.jobNext("pj-int", "integrator", "", "x4", ""); err != nil || jr.State != "none" {
 			t.Errorf("the integrator's job_next with no job: %+v, %v; want none", jr, err)
 		}
-		r.f.Agent("w1:p5", "pj-x", "idle", r.p.Root)
+		r.addPane(port.Pane{ID: "w1:p5", Label: "pj-x", Agent: "claude", Status: "idle", Cwd: r.p.Root})
 		r.push()
 		r.waitFor("pane w1:p5", func() bool { return len(r.app.Status().Project.Agents) == 2 })
 		if _, err := r.ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
@@ -252,7 +252,7 @@ func TestFetchBlockedAsks(t *testing.T) {
 			t.Fatalf("task_done Blocked: %q, %v", reply, err)
 		}
 		r.waitStep(asks)
-		r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.waitFor("one notification", func() bool { return len(r.notifications()) == 1 })
 		if r.hasPrefix("1 fact submitted") || r.taskState() != "working" {
 			t.Fatalf("a Blocked: report submitted (%s): %q", r.taskState(), r.steps())
 		}

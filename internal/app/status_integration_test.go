@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
 
 func TestStatusSocket(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	r.f.Pane("w1:p2").Status = "working"
+	r.setPane("w1:p2", func(p *port.Pane) { p.Status = "working" })
 	r.start()
 	r.clock.Add(11 * time.Minute)
 	r.waitFacts("T-1 stalled{idle}")

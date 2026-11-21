@@ -13,7 +13,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
 
@@ -111,9 +110,7 @@ func TestDispatchHappyPath(t *testing.T) {
 			t.Fatalf("precondition: records before the dispatch: %q", r.steps())
 		}
 		// The CLI's call shape: a task and its types, no lane.
-		if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("dispatch: %q, %v", reply, err)
-		}
+		r.dispatched(r.dispatch("d1", "", "sonnet"))
 		r.waitStep("1 result work")
 		eq(t, r.steps(), append([]string{"0 fact spec.set"}, dispatchSteps...), "records") // the spec's receipt first
 		if r.taskState() != "dispatched" {
@@ -216,9 +213,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 			bubble(t, func(t *testing.T) {
 				r := newLoopRig(t, dispatching())
 				r.start()
-				if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-					t.Fatalf("the first dispatch: %q, %v", reply, err)
-				}
+				r.dispatched(r.dispatch("d1", "", "sonnet"))
 				r.waitStep("1 result work")
 				r.passes()
 				r.disp.mu.Lock()
@@ -233,11 +228,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 				if l.Task != "T-1" || l.State != state {
 					t.Fatalf("precondition: after the drop lane L-01 is %q on %q, want %s on T-1", l.State, l.Task, state)
 				}
-				reply, err := r.dispatch("d2", "", "sonnet")
-				if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-					t.Fatalf("the re-dispatch onto the %s lane: %q, %v; want L-01, the lane that holds the branch", state,
-						reply, err)
-				}
+				r.dispatched(r.dispatch("d2", "", "sonnet"))
 				r.waitStep("2 result work")
 				r.disp.mu.Lock()
 				in := r.disp.inputs[1]
@@ -375,9 +366,7 @@ func TestDispatchRefusals(t *testing.T) {
 			if _, err := r.dispatch("d2", "L-01"); err == nil || !strings.Contains(err.Error(), "T-1 is open in obor serve (dispatched)") {
 				t.Errorf("a second dispatch of the open task: %v", err)
 			}
-			if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-				t.Errorf("the first call id again: %q, %v; want its stored reply", reply, err)
-			}
+			r.dispatched(r.dispatch("d1", "L-01"))
 			r.passes()
 			if n := r.count("1 fact dispatch") + r.count("2 fact dispatch"); n != 1 {
 				t.Errorf("dispatch facts %d, want 1: %q", n, r.steps())
@@ -561,9 +550,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.f.Locked(func() {
-				r.f.Panes = slices.DeleteFunc(r.f.Panes, func(p *herdrtest.Pane) bool { return p.ID == "w1:p1" })
-			})
+			r.removePane("w1:p1")
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 result lane.prepare")
@@ -593,11 +580,11 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root }) // the snapshot serve took: the pane is outside
+			r.setPane("w1:p1", func(p *port.Pane) { p.Cwd = r.p.Root }) // the snapshot serve took: the pane is outside
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 result lane.prepare")
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.lane }) // moved with no event: the snapshot's cwd is stale
+			r.setPane("w1:p1", func(p *port.Pane) { p.Cwd = r.lane }) // moved with no event: the snapshot's cwd is stale
 			r.passes()
 			r.later(time.Minute)
 			r.waitStep("1 result agent.start")
@@ -614,7 +601,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root })
+			r.setPane("w1:p1", func(p *port.Pane) { p.Cwd = r.p.Root })
 			r.placeErr = errors.New("terminal pane split w1:p1 failed: boom")
 			r.start()
 			r.mustDispatch("d1")
@@ -658,12 +645,13 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 			t.Parallel()
 			bubble(t, func(t *testing.T) {
 				r := newLoopRig(t, dispatching())
-				r.f.Set("w1:p1", func(p *herdrtest.Pane) {
-					p.Label, p.Name = row.label, row.agent
+				r.setPane("w1:p1", func(p *port.Pane) {
+					p.Label, p.Agent, p.Status = row.label, "claude", "idle"
 					if row.agent == "" {
-						p.Kind, p.Status = "", ""
+						p.Agent, p.Status = "", ""
 					}
 				})
+				r.setName("w1:p1", row.agent)
 				r.start()
 				r.mustDispatch("d1")
 				r.waitStep("1 intent agent.start")
@@ -739,9 +727,7 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 			r.writeLog([]logRec{{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}}, {1, event.StepDropped, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Reason: "why"}}})
 			r.start()
 			r.passes()
-			if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-				t.Fatalf("dispatch of a dropped task: %q, %v", reply, err)
-			}
+			r.dispatched(r.dispatch("d1", "L-01"))
 		})
 	})
 }
@@ -973,11 +959,8 @@ func TestRedoWithExplicitTypesRunsThem(t *testing.T) {
 			Types: []string{"haiku"}}); err == nil || !strings.Contains(err.Error(), "haiku paused: quota") {
 			t.Fatalf("redo of T-1 --model haiku while haiku is paused: %q, %v; want refused naming the pause", reply, err)
 		}
-		reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
-			Role: "lead", CallID: "d-T-1"}, Task: "T-1", Types: []string{"sonnet"}})
-		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
-			t.Fatalf("redo of T-1 --model sonnet: %q, %v; want L-01 as sonnet", reply, err)
-		}
+		r.dispatchedOnto(r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Agent: "pj-lead", Role: "lead", CallID: "d-T-1"}, Task: "T-1", Types: []string{"sonnet"}}))
 		if types := r.redoTypes(); len(types) != 2 || types[1] != "sonnet" {
 			t.Errorf("T-1's dispatch facts' types %v, want the redo's sonnet after the first", types)
 		}

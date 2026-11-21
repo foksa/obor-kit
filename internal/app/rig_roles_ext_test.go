@@ -306,7 +306,7 @@ func startWithT2(t *testing.T, more ...event.Record) *loopRig {
 // until serve sees it gone.
 func (r *loopRig) workerExits() {
 	r.t.Helper()
-	r.agentGone("w1:p1", "pj-l-01", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+	r.agentGone("w1:p1", "pj-l-01", func(p *port.Pane) { p.Agent, p.Status = "", "" })
 }
 
 // ruleStarts is pj-l-01's starts without --fresh: the worker start rule's (a dispatch's own start is fresh).

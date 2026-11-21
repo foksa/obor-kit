@@ -9,7 +9,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 )
 
 // Delivery (rows 7–8): no job_next within 5 min of the job's wake → one retry; none 5 min after it → the owner; the
@@ -38,7 +37,7 @@ func TestJobDelivery(t *testing.T) {
 			}
 			r.later(time.Second)
 			r.waitStep("1 fact needs-you{job not delivered: T-1/1/review prompted twice to pj-int}")
-			r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+			r.waitFor("one notification", func() bool { return len(r.notifications()) == 1 })
 			r.later(10 * time.Minute)
 			if n := r.jobPrompts("T-1/1/review"); n != 2 || r.count("1 intent retry.review") != 1 {
 				t.Errorf("after the needs-you: %d prompts, %d retries; want 2, 1", n, r.count("1 intent retry.review"))
@@ -184,8 +183,8 @@ func TestJobNudgeFromDelivery(t *testing.T) {
 			r, _ := reviewed(t)
 			r.integratorIs("idle")
 			r.stop()
-			r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Session = "int-2" }) // the integrator restarted: a new session
-			r.clock.Add(12 * time.Minute)                                     // quiet since delivery (12 min) is already past Idle
+			r.setPane("w1:p9", func(p *port.Pane) { p.Session = "int-2" }) // the integrator restarted: a new session
+			r.clock.Add(12 * time.Minute)                                  // quiet since delivery (12 min) is already past Idle
 			r.start()
 			r.waitStep("1 result nudge.review")
 			r.later(10 * time.Minute)
@@ -281,7 +280,7 @@ func TestHoldAndResume(t *testing.T) {
 			if got, err := hold("pj-int", "integrator", "h2", "again"); err == nil || !strings.Contains(err.Error(), "held already") {
 				t.Errorf("a second hold: %q, %v; want refused as held already (the job is open)", got, err)
 			}
-			r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+			r.waitFor("one notification", func() bool { return len(r.notifications()) == 1 })
 			if r.count("1 fact needs-you{held: spec deviation: the owner decides}") != 1 ||
 				r.app.Status().Project.Tasks[0].State != "needs-you" {
 				t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
@@ -511,7 +510,7 @@ func TestJobSampleHoldsNoVerb(t *testing.T) {
 		r, _ := reviewed(t)
 		r.integratorIs("idle")
 		r.quietBaseline("T-1/1/review")
-		release, reached := r.srv.Hold("pane.process_info") // the sample's child-process read
+		release, reached := r.holdProcessInfo() // the sample's child-process read
 		defer release()
 		<-reached
 		r.clock.Add(10 * time.Minute) // the sample in flight comes back due: quiet with the job for Idle
