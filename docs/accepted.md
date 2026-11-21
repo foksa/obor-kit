@@ -72,3 +72,4 @@ wave (owner 2026-11-11).
 - (RV-220, accepted) hc Place default path puts the lead beside an unlabelled shell in a lead tab (RV-220 verify #2). Fixed by T-1370.
 - (RV-220, accepted) hc adoption kills every newly seen terminal in a tab (list diff, not the app's returned id) (RV-220 verify design concern). Fixed by T-1370: ownership by returned id.
 - (RV-226, accepted) RV-226 #1 replay: a same-call-ID drive retry crossing from a pre-v0.42.1 serve to a newer one reads an old text reply it cannot decode; needs a retry spanning serve's binary follow; fix cost: transitional decoding, ~40 lines
+- (RV-236, accepted) RV-236 verify #1: obor init rerun decides role fallbacks from config.json alone, so a local.json model/role override that makes the effective role runnable (or not) is not seen; rare (init rerun + a kind-remapping overlay), fix cost ~25-60 lines checking the effective config against PATH too
