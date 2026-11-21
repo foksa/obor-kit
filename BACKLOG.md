@@ -25,10 +25,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
 ## Owner decisions pending
 - (test plan) Run TP-9 + TP-10 (core tests off the herdr adapter onto a neutral fake), or stop after the rig split.
-- (test plan TP-3, 11-21) A lane's heavy check runs at `lanes.cpus` (2), not `checks.cpus_per_check`: today two gates at
-  2 CPUs each. Options: lane checks at `cpus_per_check` (2 x 5 = all 10 cores while two gates run), or lower
-  `cpus_per_check`/raise `lanes.cpus` to a bound the owner picks. The 11-20 config commit's "4x4 = 16" was wrong (lane
-  tests ran at 2 CPUs).
 - (test plan, not verified) Role agents (reviewer, deep dive, advisor) start with no CPU cap: their own `go test` uses
   all cores outside the check slots, the likely bulk of the 11-20 load. Capping it is a start env change (owner OK,
   live conformance per kind).

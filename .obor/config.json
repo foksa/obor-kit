@@ -226,7 +226,7 @@
   },
   "checks": {
     "heavy_at_once": 2,
-    "cpus_per_check": 5,
+    "cpus_per_check": 2,
     "output": {
       "failure": "^--- FAIL|^FAIL\\s",
       "failed_test": "^--- FAIL: (?P<test>\\S+)",
