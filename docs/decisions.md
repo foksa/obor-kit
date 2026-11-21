@@ -4,6 +4,7 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-21 (owner: "with herd core support it makes sense to make tests independent of terminal"): **TP-9 and TP-10 run**: internal/app's test files speak the rig only (T-1439), then the rig runs on a terminal-neutral `testkit.Term` (T-1440); herdr and its fake stay only in the three boundary files.
 - 2026-11-21 (owner, T-1425): **`internal/testkit` git_procs cap 6 → 45.** Its new tests compare a cached setup with one git builds (30 git a run, ×1.5); the cache cuts 494 git across seven packages. Same day (owner): the checks test plan (`docs/research/checks-test-seam-advice.md`, tasks A-G on the existing `gitIO` port) runs after the T-1425..T-1428 wave.
 - 2026-11-21 Check CPUs: 2 per heavy check, lanes and gates alike (owner: "2 was ok before both for lanes and gates"); `checks.cpus_per_check` 5 → 2, `lanes.cpus` stays 2, two heavy checks at once. TP-3 closed with no code change.
 - 2026-11-20 (owner: "yes, run refactors, after that plan tests"; `docs/reviews/DD-architecture-2026-11-20.md`, Fable): **The deep dive's waves A-D run**: A cheap fixes (T-1393..T-1397), B one placement rule (T-1398..T-1400), C one start flow (T-1401, T-1402), D the config in serve (T-1403, T-1404), in that order. Then the tests are planned (finding 5: core tests on a neutral fake, the rig split).

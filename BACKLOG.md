@@ -24,7 +24,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   the check-then-act findings. (3) Parked until the owner decides a second terminal: D3 and terminal plan steps 6-9
   (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
 ## Owner decisions pending
-- (test plan) Run TP-9 + TP-10 (core tests off the herdr adapter onto a neutral fake), or stop after the rig split.
 - (test plan, not verified) Role agents (reviewer, deep dive, advisor) start with no CPU cap: their own `go test` uses
   all cores outside the check slots, the likely bulk of the 11-20 load. Capping it is a start env change (owner OK,
   live conformance per kind).
