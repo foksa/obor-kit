@@ -54,7 +54,7 @@ func treePath(t *testing.T, rel string) string {
 	return abs
 }
 
-// commitVersion writes a kit at version v into the source repo and tags it: the tree's shim and command list, VERSION v,
+// commitVersion writes a kit at version v into the source repo and tags it: the tree's shim, VERSION v,
 // a file:// release URL, and the checksum lines for a fake release binary and a fake OpenCode kind binary it
 // places in the download dir.
 func (f *installFixture) commitVersion(t *testing.T, v string) {
@@ -67,7 +67,6 @@ func (f *installFixture) commitVersion(t *testing.T, v string) {
 	writeExec(t, filepath.Join(f.download, kind), "#!/bin/sh\necho kind "+v+"\n")
 	kindSum := sha256.Sum256([]byte(readFile(t, filepath.Join(f.download, kind))))
 	writeExec(t, filepath.Join(f.src, "bin", "obor"), string(treeFile(t, "bin/obor")))
-	writeFile(t, filepath.Join(f.src, "bin", "go-commands"), string(treeFile(t, "bin/go-commands")))
 	writeFile(t, filepath.Join(f.src, "VERSION"), v+"\n")
 	writeFile(t, filepath.Join(f.src, "bin", "release-url"), "file://"+f.download+"/obor-%VERSION%-%OS%-%ARCH%\n")
 	writeFile(t, filepath.Join(f.src, "bin", "checksums.txt"), fmt.Sprintf("%s  %s\n%s  dist/%s\n", hex.EncodeToString(sum[:]),

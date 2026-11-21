@@ -18,7 +18,8 @@ var (
 	userInvokedSkills = []string{"setup"}
 	removedSkills     = []string{"worker", "integrator", "review-brief", "night-shift", "role"}
 
-	oborMentionRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.-])obor ([a-z][a-z0-9-]*)`)
+	// A mention is `obor <word>` in code text. A bracketed line tag (`[obor answer] <text>`) is not a command.
+	oborMentionRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.\[-])obor ([a-z][a-z0-9-]*)`)
 	skillFileRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*\.md$`)
 )
 
@@ -110,8 +111,8 @@ func oborMentions(t *testing.T, dirs ...string) []string {
 	return out
 }
 
-// missingSubs is the mentioned subcommands not listed in root/bin/go-commands (skills, templates and the project's
-// role docs in docs/agents).
+// missingSubs is the mentioned subcommands the binary does not implement (skills, templates and the project's role
+// docs in docs/agents).
 func missingSubs(t *testing.T, root string) []string {
 	t.Helper()
 	var dirs []string
@@ -120,15 +121,9 @@ func missingSubs(t *testing.T, root string) []string {
 			dirs = append(dirs, filepath.Join(root, d))
 		}
 	}
-	known := map[string]bool{}
-	if b, err := os.ReadFile(filepath.Join(root, "bin", "go-commands")); err == nil {
-		for _, l := range strings.Split(string(b), "\n") {
-			known[l] = true
-		}
-	}
 	var out []string
 	for _, s := range oborMentions(t, dirs...) {
-		if !known[s] {
+		if _, ok := commands[s]; !ok {
 			out = append(out, s)
 		}
 	}
@@ -232,14 +227,13 @@ func TestFrontmatterFieldRejectsMissingBlockAndLateFields(t *testing.T) {
 func TestMentionsCountBackticksAndFencesNotProse(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
-		"r/skills/x/SKILL.md": "Run `obor dispatch L-01 T-1` and `obor ghost`; the obor hooks deny; `/obor:lead`; `herdr agent list`.\n",
+		"r/skills/x/SKILL.md": "Run `obor dispatch L-01 T-1` and `obor ghost`; `[obor answer] a line`; the obor hooks deny; `/obor:lead`; `herdr agent list`.\n",
 		"r/templates/a.md":    "text\n```\nobor fenced --flag\n```\nobor prose here\n",
-		"r/bin/go-commands":   "version\ndispatch\n",
 	})
 	r := filepath.Join(root, "r")
 	eqStrings(t, []string{"dispatch", "fenced", "ghost"},
-		oborMentions(t, filepath.Join(r, "skills"), filepath.Join(r, "templates")), "mentions")
-	eqStrings(t, []string{"fenced", "ghost"}, missingSubs(t, r), "missing: dispatch is a Go command (bin/go-commands)")
+		oborMentions(t, filepath.Join(r, "skills"), filepath.Join(r, "templates")), "mentions: no bracketed tag, no prose")
+	eqStrings(t, []string{"fenced", "ghost"}, missingSubs(t, r), "missing: dispatch is a Go command")
 }
 
 // bash tests/skills.test.sh every obor subcommand in skills and templates exists
@@ -252,7 +246,7 @@ func TestEveryOborSubcommandInSkillsAndTemplatesExists(t *testing.T) {
 		}
 	}
 	if missing := missingSubs(t, pluginRoot); len(missing) > 0 {
-		t.Errorf("obor subcommands not in bin/go-commands: %v", missing)
+		t.Errorf("obor subcommands the binary does not implement: %v", missing)
 	}
 }
 

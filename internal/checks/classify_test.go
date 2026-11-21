@@ -165,7 +165,7 @@ func TestCounts(t *testing.T) {
 
 // obor-kit's own merge.classes (bash classify.test.sh case_real_valid, case_real_docs): docs-only merges are
 // partial neutral (guard only); Go-only merges partial go and run check_affected (the same heavy gate on the affected
-// packages); skills/, templates/, hooks/, bin/go-commands, .claude-plugin/, README.md, bin/obor, githooks/ and
+// packages); skills/, templates/, hooks/, .claude-plugin/, README.md, bin/obor, githooks/ and
 // opencode/ partial readers and run check_affected (tools/affected adds the packages that read them); web/src/ and the committed internal/web/dist partial web and run check_web; the kit's release tooling
 // (Makefile, scripts/, install.sh, RELEASING.md, the marketplace, tests/release/) partial release and runs
 // check_release; two of them in one merge are partial with both names (config order) and run both checks;
@@ -194,9 +194,9 @@ func TestOborKitConfig(t *testing.T) {
 			{"tests/go/socketprobe/main.go"}, {"internal/app/loop.go", "tests/go/socketprobe/main.go", "docs/tasks/T-75.md"},
 		}},
 		{"readers", "check_affected", [][]string{
-			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"}, {"bin/go-commands"},
+			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"},
 			{".claude-plugin/plugin.json"}, {"README.md"}, {"bin/obor"}, {"githooks/pre-commit"}, {"opencode/obor.js"},
-			{"skills/lead/SKILL.md", "templates/agents/worker.md", "bin/go-commands", "docs/tasks/T-75.md"},
+			{"skills/lead/SKILL.md", "templates/agents/worker.md", "docs/tasks/T-75.md"},
 		}},
 		{"web", "check_web", [][]string{
 			{"web/src/lib/format.ts"}, {"internal/web/dist/index.html"},
@@ -276,8 +276,8 @@ func TestOborKitConfig(t *testing.T) {
 }
 
 // The Makefile's -reads map (AFFECTED_READS, passed to tools/affected) names, per path, the packages that read it. The
-// survey is a grep over the .go files under cmd/ and internal/ for the five paths the readers class always had (skills/,
-// templates/, hooks/, bin/go-commands, .claude-plugin/), the same one the map's comment records: a package that starts
+// survey is a grep over the .go files under cmd/ and internal/ for the four paths the readers class always had (skills/,
+// templates/, hooks/, .claude-plugin/), the same one the map's comment records: a package that starts
 // reading one and is in none of their lines would run no test on a change to it, and a listed package that stopped is
 // dead weight. This file is skipped, its tables name the paths without reading them. README.md, bin/obor, githooks/
 // and opencode/ are named by too many packages as plain words to survey by grep: their lines are the map's own.
@@ -288,15 +288,15 @@ func TestOborKitReaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var listed []string // the packages of the five surveyed paths' lines
-	for _, glob := range []string{"skills/**", "templates/**", "hooks/**", "bin/go-commands", ".claude-plugin/**"} {
+	var listed []string // the packages of the four surveyed paths' lines
+	for _, glob := range []string{"skills/**", "templates/**", "hooks/**", ".claude-plugin/**"} {
 		pkgs, ok := reads[glob]
 		if !ok {
 			t.Fatalf("precondition: no -reads %s in the Makefile's AFFECTED_READS", glob)
 		}
 		listed = append(listed, pkgs...)
 	}
-	markers := []string{`"skills"`, `"skills/`, `"templates"`, `"templates/`, `"hooks"`, `"hooks/`, `"go-commands"`, `.claude-plugin`}
+	markers := []string{`"skills"`, `"skills/`, `"templates"`, `"templates/`, `"hooks"`, `"hooks/`, `.claude-plugin`}
 	found := map[string]bool{}
 	for _, root := range []string{"cmd", "internal"} {
 		err := filepath.WalkDir(filepath.Join(repo, root), func(p string, d os.DirEntry, err error) error {

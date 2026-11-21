@@ -1,6 +1,6 @@
 // obor (Go): every command main dispatches, listed with its usage and group in help.Commands (`obor help`), and
 // the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
-// file) execs this binary for the commands in bin/go-commands.
+// file) execs this binary for its subcommands.
 package main
 
 import (
@@ -228,7 +228,7 @@ var commands = map[string][]string{
 	"pause":     nil,
 	"watch":     nil,
 	"idle":      nil,
-	"review":    {"start", "verify", "close"},
+	"review":    {"start", "close"},
 	"flakes":    nil,
 	"events":    nil,
 	"nightly":   {"on", "off"},

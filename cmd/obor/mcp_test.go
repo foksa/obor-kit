@@ -16,7 +16,7 @@ import (
 )
 
 // obor mcp --check: the doctor line of the role's tools (the server itself: internal/mcp's tests); a bad flag is usage.
-// obor has mcp: the binary knows the command (bin/go-commands lists it for the shim).
+// obor has mcp: the binary knows the command.
 func TestMcpCheck(t *testing.T) {
 	t.Parallel()
 	dir := testkit.Dir(t)

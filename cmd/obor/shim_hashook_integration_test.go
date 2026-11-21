@@ -55,7 +55,7 @@ func shimHasHook(t *testing.T, cases []hasCase) {
 			p := testkit.New(t)
 			p.Write(".obor/config.json", "{}\n")
 			kit := filepath.Join(p.Base, "kit")
-			for _, f := range []string{"bin/obor", "bin/go-commands", "VERSION"} {
+			for _, f := range []string{"bin/obor", "VERSION"} {
 				b, err := os.ReadFile(filepath.Join("..", "..", f))
 				if err != nil {
 					t.Fatal(err)
