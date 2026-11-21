@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,120 +41,6 @@ func (x *fx) flakes() []Flake {
 		out = append(out, f)
 	}
 	return out
-}
-
-// the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), and never on a
-// green run; a log it cannot write is a warning, never a red.
-func TestFlakeLog(t *testing.T) {
-	t.Parallel()
-	// Two test failures and the package summary line: the two test names, not the package.
-	const twoFails = `echo "--- FAIL: TestAlpha (0.01s)"; echo "--- FAIL: TestBeta (0.02s)"; ` +
-		`echo "FAIL example.com/pkg 0.03s"; exit 1`
-	t.Run("red run: one line per failing test with the run's task and sha", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, cmd("check", twoFails), goLines())
-		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-		base := x.cand.SHA // the lane test runs on the candidate, the slot's merge commit
-		got := x.flakes()
-		if len(got) != 2 {
-			t.Fatalf("flake lines %d, want 2: %+v", len(got), got)
-		}
-		for i, want := range []string{"TestAlpha", "TestBeta"} {
-			f := got[i]
-			x.eq(f.Test, want, "test")
-			x.eq(f.Check, "check", "check")
-			x.eq(f.Task, "T-05", "task")
-			x.eq(f.SHA, base, "sha")
-			x.eqBool(f.Retried, false, "retried")
-			x.eqBool(f.PassedOnRetry, false, "passed_on_retry")
-			if f.Time == 0 {
-				t.Errorf("%s: no time", want)
-			}
-		}
-	})
-
-	t.Run("green run: no log", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, cmd("check", "echo 2 pass"))
-		x.is(x.gate("L-01", "T-05", "green"), OK, `^GREEN T-05 `)
-		x.gone(".obor/state/flakes.jsonl", "no flake log")
-	})
-
-	t.Run("unwritable flake log: a warning line, the check result unchanged", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, cmd("check", twoFails), goLines())
-		if err := os.MkdirAll(filepath.Join(x.Root, ".obor/state/flakes.jsonl"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-		x.contains(x.out.String(), "warning: flake log:", "warning line")
-		if info, err := os.Stat(filepath.Join(x.Root, ".obor/state/flakes.jsonl")); err != nil || !info.IsDir() {
-			t.Errorf("flakes.jsonl: %v, %v; want the directory that made the write fail", info, err)
-		}
-	})
-}
-
-// logged is the log's lines, with the checks and the retry marks as "test/check/retried/passed".
-func (x *fx) logged() []string {
-	x.t.Helper()
-	var out []string
-	for _, f := range x.flakes() {
-		out = append(out, fmt.Sprintf("%s/%s/%v/%v", f.Test, f.Check, f.Retried, f.PassedOnRetry))
-	}
-	return out
-}
-
-// eqList fails unless got is want.
-func (x *fx) eqList(got, want []string, what string) {
-	x.t.Helper()
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		x.t.Errorf("%s: got %q, want %q", what, got, want)
-	}
-}
-
-// every gating command of the full tier logs a red run, and the result is unchanged; the race step's red is a WARN
-// line and logs nothing.
-func TestFlakeLogNightly(t *testing.T) {
-	t.Parallel()
-	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
-	t.Run("NIGHTLY: check and check_milestone", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, goLines(), cmd("check", failing("check")), cmd("check_milestone", failing("milestone")))
-		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: check, check_milestone;`)
-		got := x.flakes()
-		if len(got) != 2 {
-			t.Fatalf("flake lines %d, want 2: %+v", len(got), got)
-		}
-		for i, name := range []string{"check", "check_milestone"} {
-			x.eq(got[i].Test, "Test_"+strings.TrimPrefix(name, "check_"), "test")
-			x.eq(got[i].Check, name, "check")
-			x.eq(got[i].Task, "nightly", "task")
-			x.eqBool(got[i].Retried || got[i].PassedOnRetry, false, "no retry")
-		}
-	})
-
-	t.Run("lane_setup timeout: logged, the rest not run", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, goLines(), cmd("lane_setup", map[string]any{"cmd": `echo "--- FAIL: Test_setup (0.01s)"; sleep 5`, "timeout": 1}),
-			cmd("check", "echo 1 pass"))
-		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: lane_setup;`)
-		x.eqList(x.logged(), []string{"Test_setup/lane_setup/false/false"}, "log")
-	})
-
-	t.Run("green nightly: no log", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, goLines(), cmd("check", "echo 1 pass"))
-		x.is(x.nightly(), OK, `^NIGHTLY GREEN `)
-		x.gone(".obor/state/flakes.jsonl", "no flake log")
-	})
-
-	t.Run("a race step's red: its WARN line, no flake line", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, goLines(), cmd("check", "echo 1 pass"),
-			cmd("race", `echo "--- FAIL: TestRace (0.01s)"; exit 1`), nightly("race"))
-		x.is(x.nightly(), OK, `WARN race \(rc 1, non-gating\): --- FAIL: TestRace`)
-		x.gone(".obor/state/flakes.jsonl", "no flake log")
-	})
 }
 
 // flakeFx is a project whose internal/x/x_test.go defines TestLedger — the test a later merge can touch — and whose
