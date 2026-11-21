@@ -25,6 +25,17 @@ type edit = func(map[string]any)
 
 var set = testkit.Set
 
+// trunks is Validate's trunk probe on a set of branches, so a row pays no git process (TestValidateTrunkRefIsGits
+// keeps the real one).
+func trunks(branches ...string) func(string) bool {
+	return func(b string) bool { return slices.Contains(branches, b) }
+}
+
+// opts are Validate's options for a row: spec.Overlap, and a repository whose only branch is main (the fixture's).
+func opts() config.ValidateOptions {
+	return config.ValidateOptions{Overlap: spec.Overlap, Trunk: trunks("main")}
+}
+
 // del removes the value at a dotted path.
 func del(path string) edit {
 	return func(c map[string]any) {
@@ -46,6 +57,12 @@ func del(path string) edit {
 // deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	t.Helper()
+	return validateWith(t, p, opts(), edits...)
+}
+
+// validateWith is validate with the options o.
+func validateWith(t *testing.T, p *testkit.Project, o config.ValidateOptions, edits ...edit) []string {
+	t.Helper()
 	// a compile: the fixture's target is its default branch, and no compile is no validate line (TestValidateTrunkRef)
 	base := []edit{set("agents.roles.integrator", "opus"), set("merge.compile", `{"cmd": "true"}`)}
 	p.Config(append(base, edits...)...)
@@ -53,7 +70,7 @@ func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
+	warns, fails := c.Validate(o)
 	return append(append(warns, unknown...), fails...)
 }
 
@@ -62,15 +79,9 @@ func unknownFail(key string) string {
 	return "FAIL ." + key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"
 }
 
+// newProject is a project laid out as files (testkit.NewDir) with lane L-01: these tests' subject is config.Load and
+// Validate, which read files, and the trunk check has a stub (trunks); TestValidateTrunkRefIsGits runs the real one.
 func newProject(t *testing.T) *testkit.Project {
-	p := testkit.New(t)
-	p.Lane("L-01", "")
-	return p
-}
-
-// newPlainProject is newProject without git: these tests' subject is config.Load and Validate, and a plain project
-// keeps each case's fixture cost (a git init, a commit, a worktree) off a loop of cases.
-func newPlainProject(t *testing.T) *testkit.Project {
 	p := testkit.NewDir(t)
 	p.Lane("L-01", "")
 	return p
@@ -274,8 +285,8 @@ func TestValidate(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			// no git: the table is about the config's rules; the trunk check that reads git has TestValidateTrunkRef
-			p := newPlainProject(t)
+			// no git: the table is about the config's rules; the trunk check has TestValidateTrunkRef
+			p := newProject(t)
 			got := validate(t, p, c.edits...)
 			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("validate = %q\nwant %q", got, c.want)
@@ -287,7 +298,7 @@ func TestValidate(t *testing.T) {
 // Shapes are the load's: a wrong type fails config.Load, an unknown key LoadForValidate, each with the key
 // named; validate never sees it.
 func TestShapeErrorsFailTheLoad(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	for _, c := range []struct {
 		edit edit
 		want string
@@ -351,41 +362,31 @@ const neutralBase = `{"guard": "g", "rules": [{"name": "skills", "paths": ["skil
 
 // the trunk branch exists in the main checkout (present: the fixture's main is OK; missing: FAIL with the hint). No
 // merge.compile is no validate line, not even with the trunk on the default branch: obor init gives that warning, where
-// the choice is made (NoCompileWarning names it on the default branch, never on another).
+// the choice is made (TestValidateTrunkRefIsGits: NoCompileWarning names it on the default branch, never on another).
 func TestValidateTrunkRef(t *testing.T) {
 	p := newProject(t)
-	if got := validate(t, p); len(got) != 0 {
+	on := func(branches ...string) func(...edit) []string {
+		return func(edits ...edit) []string {
+			t.Helper()
+			return validateWith(t, p, config.ValidateOptions{Overlap: spec.Overlap, Trunk: trunks(branches...)}, edits...)
+		}
+	}
+	if got := on("main")(); len(got) != 0 {
 		t.Fatalf("trunk main present: %q", got)
 	}
 	want := "FAIL .merge.target_branch: refs/heads/trunk does not exist: set merge.target_branch: your trunk is not trunk"
-	if got := validate(t, p, set("merge.target_branch", "trunk")); !reflect.DeepEqual(got, []string{want}) {
+	if got := on("main")(set("merge.target_branch", "trunk")); !reflect.DeepEqual(got, []string{want}) {
 		t.Errorf("trunk missing: %q, want %q", got, want)
 	}
-	p.Git(p.Root, "branch", "trunk")
-	if got := validate(t, p, set("merge.target_branch", "trunk")); len(got) != 0 {
+	if got := on("main", "trunk")(set("merge.target_branch", "trunk")); len(got) != 0 {
 		t.Errorf("trunk created: %q", got)
 	}
 	noCompile := set("merge.compile", nil)
-	if got := validate(t, p, set("merge.target_branch", "main"), noCompile); len(got) != 0 {
+	if got := on("main")(set("merge.target_branch", "main"), noCompile); len(got) != 0 {
 		t.Errorf("no compile, target the default branch: %q, want no validate line (obor init warns)", got)
 	}
-	c, err := config.Load(p.Root) // the config the last validate wrote: target main, no compile
-	if err != nil {
-		t.Fatal(err)
-	}
-	want = "merge.compile is empty and merge.target_branch main is the default branch: a moved candidate re-runs " +
-		"the full check (no compile)"
-	if got := c.NoCompileWarning(); got != want {
-		t.Errorf("obor init's warning: %q, want %q", got, want)
-	}
-	if got := validate(t, p, set("merge.target_branch", "trunk"), noCompile); len(got) != 0 {
+	if got := on("main", "trunk")(set("merge.target_branch", "trunk"), noCompile); len(got) != 0 {
 		t.Errorf("no compile, target a branch other than the default: %q, want none", got)
-	}
-	if c, err = config.Load(p.Root); err != nil { // target trunk, no compile
-		t.Fatal(err)
-	}
-	if got := c.NoCompileWarning(); got != "" {
-		t.Errorf("obor init's warning, target a branch other than the default: %q, want none", got)
 	}
 }
 
@@ -408,7 +409,7 @@ func TestValidateTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
+	warns, fails := c.Validate(opts())
 	if len(warns)+len(fails) != 0 {
 		t.Errorf("templates: %q %q", warns, fails)
 	}
@@ -484,7 +485,7 @@ func TestDifficultyList(t *testing.T) {
 // the project's committed CLI config, notes only (never a FAIL): a .claude/settings.json with disableAllHooks
 // true, an opencode.json defining mcp.servers.obor; none for a clean project.
 func TestValidateProjectFiles(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	write := func(rel, content string) {
 		t.Helper()
 		path := filepath.Join(p.Root, rel)
@@ -517,7 +518,7 @@ func TestValidateProjectFiles(t *testing.T) {
 // model may name it); validate runs its describe: a command that answers passes, one that is not executable, answers for another
 // kind, or takes a compiled kind's name fails.
 func TestPluginKind(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
 	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
 		t.Fatal(err)
@@ -575,7 +576,7 @@ func TestPluginKind(t *testing.T) {
 // names none, leaves a's config answering mykind, b's not, and each its own OpenCode (bound to its own state dir):
 // a load changes nothing outside the config it returns.
 func TestKindsPerConfig(t *testing.T) {
-	a, b := newPlainProject(t), newPlainProject(t)
+	a, b := newProject(t), newProject(t)
 	a.Config(set("agents.kinds.mykind", map[string]any{"plugin": "kinds/obor-kind-mykind"}))
 	b.Config()
 	ca, err := config.Load(a.Root)
@@ -609,7 +610,7 @@ func TestKindsPerConfig(t *testing.T) {
 // the model-id WARN names the model's own kind, for a plugin kind other than OpenCode too (its manifest's model_arg),
 // and the "kind required" FAIL lists the config's kinds, the plugin kind among them.
 func TestValidateModelArgWarnNamesItsKind(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
 	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
 		t.Fatal(err)
@@ -644,7 +645,7 @@ func TestValidateModelArgWarnNamesItsKind(t *testing.T) {
 // with a stale one (the command since added the effort), the effort is taken; one the manifest lacks still fails.
 // obor spec set, dispatch and drive keep reading the cache (CheckModelRef: the stale cache refuses the effort).
 func TestPluginKindEffortsFromDescribe(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
 	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
 		t.Fatal(err)
@@ -722,7 +723,7 @@ func TestValidateFlakeRegex(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, all := cfg.Validate(config.ValidateOptions{})
+			_, all := cfg.Validate(config.ValidateOptions{Trunk: trunks("main")})
 			var fails []string
 			for _, f := range all {
 				if strings.HasPrefix(f, "FAIL .checks.output.failed_") {
@@ -769,7 +770,7 @@ func TestRetestJoin(t *testing.T) {
 // it (a compiled kind's and the OpenCode plugin kind's); a file of another name there, a key of claude_override.json
 // other than mcpServers and a hook Codex's hooks override adds to the user's are warnings; clean files say nothing.
 func TestValidateOverrideFiles(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
@@ -784,7 +785,7 @@ func TestValidateOverrideFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap,
+		warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap, Trunk: trunks("main"),
 			Env: func(k string) string { return map[string]string{"HOME": home}[k] }})
 		return append(append(warns, unknown...), fails...)
 	}
@@ -851,7 +852,7 @@ func TestValidateHCRequiresNoSharedServer(t *testing.T) {
 			config.KindBaseArgs[kind] = args
 		}
 	})
-	p := newPlainProject(t)
+	p := newProject(t)
 	if got := validate(t, p, set("project.terminal", "herdr")); got != nil {
 		t.Fatalf("precondition: the config without the flags on herdr validates %q, want OK", got)
 	}
@@ -874,7 +875,7 @@ func TestValidateHCRequiresNoSharedServer(t *testing.T) {
 // A lanes.links entry the main checkout tracks is noted (the file comes from git, the link is no longer needed); one
 // it does not track, and a run that cannot ask git, say nothing.
 func TestValidateTrackedLinks(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	validate(t, p, set("lanes.links", []any{".claude/settings.json", ".env"}))
 	c, _, err := config.LoadForValidate(p.Root)
 	if err != nil {
@@ -885,7 +886,7 @@ func TestValidateTrackedLinks(t *testing.T) {
 	}
 	warnsOf := func(tracked func(string) bool) []string {
 		var got []string
-		warns, _ := c.Validate(config.ValidateOptions{Overlap: spec.Overlap, Tracked: tracked})
+		warns, _ := c.Validate(config.ValidateOptions{Overlap: spec.Overlap, Trunk: trunks("main"), Tracked: tracked})
 		for _, w := range warns {
 			if strings.Contains(w, "lanes.links") {
 				got = append(got, w)

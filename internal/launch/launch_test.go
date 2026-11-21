@@ -161,31 +161,17 @@ const (
 )
 
 // setup is a plain project laid out as files (testkit.NewPlain): the launch code under test reads the repository
-// (project.Find) but runs no git, so a git fixture would only build one. setupGit is for the test of a git call
-// (project.AddWorktree).
+// (project.Find) but runs no git, so a git fixture would only build one. The role worktrees are there; the test of
+// the launcher's own worktree add is an integration test (setupGit).
 func setup(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
-	return newFx(t, false, edits...)
+	p := testkit.NewPlain(t)
+	return newFx(t, p, p.PlainLane("L-01", ""), edits...)
 }
 
-// setupGit is a real git project for the test of a git call (project.AddWorktree): the launcher adds the role
-// worktree, which is absent.
-func setupGit(t *testing.T, edits ...func(map[string]any)) *fx {
+// newFx is the launcher's fixture on the project p, whose lane (a directory, "": none) the tests start the worker in.
+func newFx(t *testing.T, p *testkit.Project, lane string, edits ...func(map[string]any)) *fx {
 	t.Helper()
-	return newFx(t, true, edits...)
-}
-
-func newFx(t *testing.T, git bool, edits ...func(map[string]any)) *fx {
-	t.Helper()
-	var p *testkit.Project
-	var lane string
-	if git {
-		// No lane: the tests that need git start role agents, and a lane no test reads would be a worktree add.
-		p = testkit.New(t)
-	} else {
-		p = testkit.NewPlain(t)
-		lane = p.PlainLane("L-01", "")
-	}
 	x := &fx{t: t, p: p, f: newTerm(), lane: lane, claude: filepath.Join(p.Base, "claude"),
 		gone: map[string]bool{}, ps: func(...string) ([]byte, error) { return nil, nil }}
 	p.Config(append([]func(map[string]any){
@@ -642,7 +628,6 @@ func TestRestartWho(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name  string // bash restart.test.sh case
-		git   bool   // the test of a git call: the launcher adds the role worktree (project.AddWorktree)
 		edit  []func(map[string]any)
 		prep  func(x *fx)
 		req   launch.Request
@@ -708,7 +693,6 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// bash restart.test.sh case_role_agent_gets_role_env_and_type
 		name: "role agent: role env, its type, cwd its role worktree (T-853), OBOR_LANE unset",
-		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
 		prep: func(x *fx) {
 			x.sid("pj-int", "sid-i")
 			x.shell("w1:p5", "pj-int", "")
@@ -758,7 +742,6 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// its role worktree
 		name: "deep_dive role (T-179, T-853): its type, cwd its role worktree, OBOR_ROLE=deep_dive",
-		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
 		edit: []func(map[string]any){
 			testkit.Set("agents.roles", `{"lead":"opus","deep_dive":"opus"}`),
 		},
@@ -786,7 +769,7 @@ func TestRestartWho(t *testing.T) {
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := newFx(t, c.git, c.edit...)
+			x := setup(t, c.edit...)
 			c.prep(x)
 			if s := x.startCall(); s != "" {
 				t.Fatalf("precondition: nothing started, got %q", s)
@@ -806,14 +789,6 @@ func TestRestartWho(t *testing.T) {
 				t.Fatalf("the env line ends without its success and failure marks: %q", runs[0])
 			}
 			eq(t, runs[0][:len(runs[0])-len(m[0])], c.env(x), "env line (cwd, OBOR_ROLE, OBOR_LANE, a stale OBOR_AGENT unset)")
-			// a role worktree the env line cds into was added for the start (none was there).
-			for _, role := range []string{"integrator", "deep_dive"} {
-				if wt := x.p.LaneDir(role); strings.Contains(c.env(x), "cd "+q(wt)+" ") {
-					if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
-						t.Errorf("%s's worktree %s not added for the start (toplevel %q)", role, wt, top)
-					}
-				}
-			}
 			eq(t, x.named(x.startCall()), c.start, "agent start (kind, pane, type args, resume)")
 			if c.out != "" {
 				contains(t, out, c.out, "output")
@@ -827,42 +802,11 @@ func TestRestartWho(t *testing.T) {
 
 // A role agent's start links lanes.links into its role worktree, so a file git does not track (the project's
 // .claude/settings.json of a fresh init, which enables obor's plugin) reaches the agent: a worktree the start adds
-// gets the links, one already there gets the link it lacks, and a file at a link's path stays as it is.
+// gets the links (TestRestartAddsTheMissingRoleWorktreeWithTheLinks), one already there gets the link it lacks, and a
+// file at a link's path stays as it is.
 func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
 	t.Parallel()
 	links := testkit.Set("lanes.links", `["local.env", ".claude/settings.json"]`)
-	start := func(t *testing.T, x *fx) {
-		t.Helper()
-		x.p.Write(filepath.Join(x.p.Root, "local.env"), "A=1\n")
-		x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
-		x.sid("pj-int", "sid-i")
-		x.shell("w1:p5", "pj-int", "")
-		x.f.Set("w1:p5", func(p *mpane) { p.Session = "sid-i" })
-		if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
-			t.Fatalf("restart failed:\n%s", out)
-		}
-	}
-	linked := func(t *testing.T, x *fx, wt, link string) {
-		t.Helper()
-		got, err := os.Readlink(filepath.Join(wt, link))
-		if want := filepath.Join(x.p.Root, link); err != nil || project.Physical(got) != project.Physical(want) {
-			t.Errorf("%s in the role worktree: link to %q (%v), want a link to %s", link, got, err, want)
-		}
-	}
-	t.Run("a missing role worktree is added with the links", func(t *testing.T) {
-		t.Parallel()
-		x := setupGit(t, links)
-		wt := x.p.LaneDir("integrator")
-		if _, err := os.Stat(wt); err == nil {
-			t.Fatalf("precondition: no role worktree %s", wt)
-		}
-		start(t, x)
-		if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
-			t.Fatalf("the role worktree %s was not added (toplevel %q)", wt, top)
-		}
-		linked(t, x, wt, "local.env")
-		linked(t, x, wt, ".claude/settings.json")
-	})
 	t.Run("an existing role worktree gets the link it lacks and keeps the file it has", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t, links)
@@ -875,8 +819,8 @@ func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
 		if _, err := os.Lstat(filepath.Join(wt, "local.env")); err == nil {
 			t.Fatal("precondition: the role worktree has no local.env")
 		}
-		start(t, x)
-		linked(t, x, wt, "local.env")
+		restartIntegratorWithLinks(t, x)
+		linkedInto(t, x, wt, "local.env")
 		after, _ := os.ReadFile(own)
 		if fi, err := os.Lstat(own); err != nil || !fi.Mode().IsRegular() || string(after) != string(before) {
 			t.Errorf("the worktree's own %s changed: %q, want the regular file %q", own, after, before)
@@ -885,6 +829,24 @@ func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
 			t.Fatal("the worktree's file and the main checkout's are the same text: the test cannot tell them apart")
 		}
 	})
+}
+
+// restartIntegratorWithLinks restarts pj-int, whose cwd is its role worktree, in a project whose main checkout has a
+// local.env and a .claude/settings.json (the config's lanes.links lists both).
+func restartIntegratorWithLinks(t *testing.T, x *fx) {
+	t.Helper()
+	x.p.Write(filepath.Join(x.p.Root, "local.env"), "A=1\n")
+	x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
+	restartIntegratorAsIs(t, x)
+}
+
+// linkedInto fails unless link in the role worktree wt is a link to the main checkout's.
+func linkedInto(t *testing.T, x *fx, wt, link string) {
+	t.Helper()
+	got, err := os.Readlink(filepath.Join(wt, link))
+	if want := filepath.Join(x.p.Root, link); err != nil || project.Physical(got) != project.Physical(want) {
+		t.Errorf("%s in the role worktree: link to %q (%v), want a link to %s", link, got, err, want)
+	}
 }
 
 // restartIntegrator restarts pj-int, whose cwd is its role worktree, in a project whose main checkout has an
@@ -898,8 +860,8 @@ func restartIntegrator(t *testing.T, x *fx) {
 	if slices.Contains(cfg.LaneLinks(), project.PluginSettings) {
 		t.Fatalf("precondition: lanes.links %q does not list the settings file", cfg.LaneLinks())
 	}
-	if !project.SettingsUntrackedWith(x.p.Root, project.Git) {
-		t.Fatal("precondition: the main checkout has an untracked settings file")
+	if _, err := os.Stat(filepath.Join(x.p.Root, project.PluginSettings)); err != nil {
+		t.Fatalf("precondition: the main checkout has a settings file: %v", err)
 	}
 	restartIntegratorAsIs(t, x)
 }
@@ -939,64 +901,6 @@ func TestRestartLinksUnlistedUntrackedSettingsIntoAnExistingRoleWorktree(t *test
 	}
 	restartIntegrator(t, x)
 	settingsLinked(t, x, wt)
-}
-
-// A restart that adds the missing role worktree links the unlisted, untracked settings file into it too.
-func TestRestartLinksUnlistedUntrackedSettingsIntoTheRoleWorktreeItAdds(t *testing.T) {
-	t.Parallel()
-	x := setupGit(t)
-	x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
-	wt := x.p.LaneDir("integrator")
-	if _, err := os.Stat(wt); err == nil {
-		t.Fatalf("precondition: no role worktree %s", wt)
-	}
-	restartIntegrator(t, x)
-	if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
-		t.Fatalf("the role worktree %s was not added (toplevel %q)", wt, top)
-	}
-	settingsLinked(t, x, wt)
-}
-
-// The main checkout tracks .claude/settings.json (lanes.links does not list it): a role worktree at a commit without
-// the file is linked at the role's start, so its agent has obor's plugin; one at a commit that has it gets nothing
-// linked, the tracked file is its own.
-func TestRestartLinksTrackedSettingsOnlyIntoARoleWorktreeBehindTheCommit(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name   string
-		behind bool
-	}{
-		{"behind the commit that tracked it: linked", true},
-		{"at a commit that has it: nothing linked", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setupGit(t)
-			root, wt := x.p.Root, x.p.LaneDir("integrator")
-			x.p.Git(root, "worktree", "add", "-q", "--detach", wt, "main") // before the commit below
-			x.p.Write(filepath.Join(root, ".claude", "settings.json"), `{"main":true}`+"\n")
-			x.p.Git(root, "add", "-f", ".claude/settings.json")
-			x.p.Git(root, "commit", "-q", "-m", "track the settings")
-			if !c.behind {
-				x.p.Git(wt, "checkout", "-q", "--detach", "main")
-			}
-			if project.SettingsUntrackedWith(root, project.Git) {
-				t.Fatal("precondition: the main checkout tracks the settings file")
-			}
-			tracked := x.p.Git(wt, "ls-tree", "--name-only", "HEAD", "--", ".claude/settings.json")
-			if (tracked != "") != !c.behind {
-				t.Fatalf("precondition: the role worktree's HEAD lists %q (behind %v)", tracked, c.behind)
-			}
-			restartIntegratorAsIs(t, x)
-			fi, err := os.Lstat(filepath.Join(wt, project.PluginSettings))
-			switch {
-			case c.behind:
-				settingsLinked(t, x, wt)
-			case err != nil || !fi.Mode().IsRegular():
-				t.Errorf("the role worktree's settings file: %v, %v; want git's regular file, no link", fi, err)
-			}
-		})
-	}
 }
 
 // Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and

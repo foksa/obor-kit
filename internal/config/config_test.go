@@ -28,6 +28,9 @@ func writeProject(t *testing.T, cfg, local string) string {
 	return root
 }
 
+// noGit is Validate's options where the trunk is not what the test is about: every branch resolves, no git runs.
+var noGit = ValidateOptions{Trunk: func(string) bool { return true }}
+
 func load(t *testing.T, cfg, local string) *Config {
 	t.Helper()
 	c, err := Load(writeProject(t, cfg, local))
@@ -533,7 +536,7 @@ func TestLaneEnvValidate(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"env":`+c.env+`}}`, "")
-			_, all := cfg.Validate(ValidateOptions{})
+			_, all := cfg.Validate(noGit)
 			var fails []string
 			for _, f := range all {
 				if strings.HasPrefix(f, "FAIL .lanes.env") {
@@ -603,7 +606,7 @@ func TestLanesCountOrList(t *testing.T) {
 				t.Errorf("lanes %v, want %v", got, c.want)
 			}
 			var fails []string
-			_, all := cfg.Validate(ValidateOptions{})
+			_, all := cfg.Validate(noGit)
 			for _, f := range all {
 				if strings.HasPrefix(f, "FAIL .lanes") {
 					fails = append(fails, f)
