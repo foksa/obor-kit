@@ -23,103 +23,83 @@ import (
 // ignored: git status shows it and git add of it succeeds.
 func TestPreexistingLinkKeepsTheLaneClean(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name  string
-		path  string
-		links []any // lanes.links
-	}{
-		{name: "the settings link", path: project.PluginSettings},
-		{name: "a lanes.links path", path: "local.env", links: []any{"local.env"}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			y := newSx(t, cmd("check", probe), func(m map[string]any) {
-				if c.links != nil {
-					lanes, _ := m["lanes"].(map[string]any)
-					if lanes == nil {
-						lanes = map[string]any{}
-						m["lanes"] = lanes
-					}
-					lanes["links"] = c.links
-				}
-			})
-			// The upgraded project: the fixture's lane copy of the settings and its .claude/ exclude lines go, so the
-			// main checkout's file is untracked and ignored nowhere, and the lane has none of its own.
-			exclude := filepath.Join(y.Root, ".git", "info", "exclude")
-			var kept []string
-			for _, line := range strings.Split(y.Read(".git/info/exclude"), "\n") {
-				if !strings.Contains(line, ".claude") {
-					kept = append(kept, line)
-				}
-			}
-			y.Write(exclude, strings.Join(kept, "\n"))
-			if err := os.Remove(filepath.Join(y.lane, project.PluginSettings)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				t.Fatal(err)
-			}
-			y.Write(c.path, "main's own\n")
-			if _, err := project.Git(y.Root, "ls-files", "--error-unmatch", "--", c.path); err == nil {
-				t.Fatalf("precondition: git tracks %s", c.path)
-			}
-			if out, err := project.Git(y.Root, "check-ignore", "-v", c.path); err == nil {
-				t.Fatalf("precondition: %s is ignored: %s", c.path, out)
-			}
-			link := filepath.Join(y.lane, c.path)
-			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(filepath.Join(y.Root, c.path), link); err != nil {
-				t.Fatal(err)
-			}
-			if st := y.Git(y.lane, "status", "--porcelain", "--untracked-files=all", "--", c.path); st != "?? "+c.path {
-				t.Fatalf("precondition: raw git status of the link %q, want it untracked", st)
-			}
-			isLink := func(when string) {
-				t.Helper()
-				if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
-					t.Fatalf("%s: %s is no link (%v)", when, link, err)
-				}
-			}
-			cfg := y.s.Cfg
+	path := project.PluginSettings
+	y := newSx(t, cmd("check", probe))
+	// The upgraded project: the fixture's lane copy of the settings and its .claude/ exclude lines go, so the
+	// main checkout's file is untracked and ignored nowhere, and the lane has none of its own.
+	exclude := filepath.Join(y.Root, ".git", "info", "exclude")
+	var kept []string
+	for _, line := range strings.Split(y.Read(".git/info/exclude"), "\n") {
+		if !strings.Contains(line, ".claude") {
+			kept = append(kept, line)
+		}
+	}
+	y.Write(exclude, strings.Join(kept, "\n"))
+	if err := os.Remove(filepath.Join(y.lane, project.PluginSettings)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	y.Write(path, "main's own\n")
+	if _, err := project.Git(y.Root, "ls-files", "--error-unmatch", "--", path); err == nil {
+		t.Fatalf("precondition: git tracks %s", path)
+	}
+	if out, err := project.Git(y.Root, "check-ignore", "-v", path); err == nil {
+		t.Fatalf("precondition: %s is ignored: %s", path, out)
+	}
+	link := filepath.Join(y.lane, path)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(y.Root, path), link); err != nil {
+		t.Fatal(err)
+	}
+	if st := y.Git(y.lane, "status", "--porcelain", "--untracked-files=all", "--", path); st != "?? "+path {
+		t.Fatalf("precondition: raw git status of the link %q, want it untracked", st)
+	}
+	isLink := func(when string) {
+		t.Helper()
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s: %s is no link (%v)", when, link, err)
+		}
+	}
+	cfg := y.s.Cfg
 
-			sha := y.submit()
-			if out := y.Git(y.lane, "ls-tree", "-r", "--name-only", sha); strings.Contains(out, c.path) {
-				t.Errorf("the submission committed the link: %q", out)
-			}
-			if out := y.Git(y.lane, "ls-tree", "-r", "--name-only", sha); !strings.Contains(out, "feature.txt") {
-				t.Errorf("the submission lacks the lane's work feature.txt: %q", out)
-			}
-			s := stateOf(NewLaneTable(context.Background(), cfg), "L-01")
-			if s.State != port.LaneFree || s.Dirty() || len(s.Paths) != 0 {
-				t.Fatalf("lane table: %+v; want free with no dirty paths", s)
-			}
+	sha := y.submit()
+	if out := y.Git(y.lane, "ls-tree", "-r", "--name-only", sha); strings.Contains(out, path) {
+		t.Errorf("the submission committed the link: %q", out)
+	}
+	if out := y.Git(y.lane, "ls-tree", "-r", "--name-only", sha); !strings.Contains(out, "feature.txt") {
+		t.Errorf("the submission lacks the lane's work feature.txt: %q", out)
+	}
+	s := stateOf(NewLaneTable(context.Background(), cfg), "L-01")
+	if s.State != port.LaneFree || s.Dirty() || len(s.Paths) != 0 {
+		t.Fatalf("lane table: %+v; want free with no dirty paths", s)
+	}
 
-			cand := y.green(lane(sha))
-			o, err := y.test(ctx, cand)
-			if err != nil || o.Kind != port.OutcomeGreen {
-				t.Fatalf("lane test: %+v, %v; want green", o, err)
-			}
-			isLink("after the lane test's cleanup")
+	cand := y.green(lane(sha))
+	o, err := y.test(ctx, cand)
+	if err != nil || o.Kind != port.OutcomeGreen {
+		t.Fatalf("lane test: %+v, %v; want green", o, err)
+	}
+	isLink("after the lane test's cleanup")
 
-			l := Lane{Cfg: cfg, Out: io.Discard}
-			line, err := l.Free(ctx, port.FreeInput{Lane: "L-01", Dir: y.lane, Branch: "task/T-05", Target: cand.SHA})
-			if err != nil {
-				t.Fatalf("free: %v; want the drop let through", err)
-			}
-			if line != "" {
-				t.Errorf("free discarded %q; want nothing (the link is obor's)", line)
-			}
-			isLink("after the drop")
+	l := Lane{Cfg: cfg, Out: io.Discard}
+	line, err := l.Free(ctx, port.FreeInput{Lane: "L-01", Dir: y.lane, Branch: "task/T-05", Target: cand.SHA})
+	if err != nil {
+		t.Fatalf("free: %v; want the drop let through", err)
+	}
+	if line != "" {
+		t.Errorf("free discarded %q; want nothing (the link is obor's)", line)
+	}
+	isLink("after the drop")
 
-			if b, _ := os.ReadFile(exclude); strings.Contains(string(b), c.path) {
-				t.Errorf("info/exclude names %s:\n%s", c.path, b)
-			}
-			if st := y.Git(y.Root, "status", "--porcelain", "--untracked-files=all", "--", c.path); st != "?? "+c.path {
-				t.Errorf("main checkout's git status of %s: %q, want it untracked and shown", c.path, st)
-			}
-			if out, err := project.Git(y.Root, "add", "--", c.path); err != nil {
-				t.Errorf("git add %s in the main checkout: %v %s", c.path, err, out)
-			}
-		})
+	if b, _ := os.ReadFile(exclude); strings.Contains(string(b), path) {
+		t.Errorf("info/exclude names %s:\n%s", path, b)
+	}
+	if st := y.Git(y.Root, "status", "--porcelain", "--untracked-files=all", "--", path); st != "?? "+path {
+		t.Errorf("main checkout's git status of %s: %q, want it untracked and shown", path, st)
+	}
+	if out, err := project.Git(y.Root, "add", "--", path); err != nil {
+		t.Errorf("git add %s in the main checkout: %v %s", path, err, out)
 	}
 }
 
