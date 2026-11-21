@@ -37,6 +37,21 @@ type Options struct {
 	PID         int
 	Interrupted <-chan int
 	Slots       *Slots // nil: SlotsFor(Cfg, Env)
+	// Git runs git -C dir args… under ctx with env as its whole environment (nil: the process's) for every git read of
+	// the run (the worktree, the run marker's ignore rule, the changed-file list's tree and base): nil is
+	// project.GitCtxEnv, the real git. A test of what the run writes or refuses sets a fake.
+	Git GitFunc
+}
+
+// GitFunc is a git command: project.GitCtxEnv's shape.
+type GitFunc func(ctx context.Context, dir string, env []string, args ...string) (string, error)
+
+// git is the run's git: o.Git, else the real one.
+func (o Options) git() GitFunc {
+	if o.Git != nil {
+		return o.Git
+	}
+	return project.GitCtxEnv
 }
 
 // Command is commands.<name> with obor run's defaults (timeout 600 s).
@@ -65,7 +80,7 @@ func Run(o Options) int {
 		fmt.Fprintf(o.Stdout, "FAIL no commands.%s in the config\n", o.Name)
 		return 2
 	}
-	top, err := project.Git(o.Dir, "rev-parse", "--show-toplevel")
+	top, err := o.git()(context.Background(), o.Dir, nil, "rev-parse", "--show-toplevel")
 	if err != nil {
 		fmt.Fprintln(o.Stdout, "FAIL not in a git worktree")
 		return 2
@@ -77,7 +92,7 @@ func Run(o Options) int {
 		marker := filepath.Join(top, MarkerName)
 		// Not ignored, the marker dirties the lane while the command runs (status, the file guard, obor serve's gate).
 		var ee *exec.ExitError
-		if _, err := project.Git(top, "check-ignore", "-q", MarkerName); errors.As(err, &ee) && ee.ExitCode() == 1 {
+		if _, err := o.git()(context.Background(), top, nil, "check-ignore", "-q", MarkerName); errors.As(err, &ee) && ee.ExitCode() == 1 {
 			fmt.Fprintf(o.Stderr, "warning: %s is not in .gitignore — run obor setup (or add the line)\n", MarkerName)
 		}
 		if err := os.WriteFile(marker, []byte(strconv.Itoa(o.PID)+"\n"), 0o644); err != nil {
@@ -142,7 +157,7 @@ func Run(o Options) int {
 // checkout's branch) in .obor/state/run-changed-<lane>, as the gate does for its own run. Without a tree or a base the
 // command gets no list (its selector then runs everything).
 func (o Options) exportChangedFiles(ctx context.Context, top, lane string, environ *[]string) {
-	tree, err := Tree(ctx, top, o.Environ)
+	tree, err := tree(ctx, o.git(), top, o.Environ)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "note: cannot compute the lane's tree (%v): no changed-file list\n", err)
 		return
@@ -165,21 +180,23 @@ func (o Options) exportChangedFiles(ctx context.Context, top, lane string, envir
 
 // changedFiles is tree's files against the merge base of HEAD and the main checkout's branch.
 func (o Options) changedFiles(top, tree string) ([]string, error) {
-	target, err := project.Git(o.Cfg.Root, "branch", "--show-current")
+	git, ctx := o.git(), context.Background() // no ctx: as before, a signal does not end these reads
+
+	target, err := git(ctx, o.Cfg.Root, nil, "branch", "--show-current")
 	if err != nil || strings.TrimSpace(target) == "" {
 		return nil, fmt.Errorf("the main checkout is not on a branch")
 	}
-	base, err := project.Git(top, "merge-base", strings.TrimSpace(target), "HEAD")
+	base, err := git(ctx, top, nil, "merge-base", strings.TrimSpace(target), "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("no merge base with %s", strings.TrimSpace(target))
 	}
-	return ChangedFiles(top, strings.TrimSpace(base), tree)
+	return changedFiles(ctx, git, top, strings.TrimSpace(base), tree)
 }
 
-// Tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
+// tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
 // submit commits a lane (add -A), the run marker excluded. It is computed with a temporary index (its own git, under
 // the caller's ctx: a canceled run's Tree ends with it), so dir's index and history are not touched.
-func Tree(ctx context.Context, dir string, environ []string) (string, error) {
+func tree(ctx context.Context, git GitFunc, dir string, environ []string) (string, error) {
 	tmp, err := os.MkdirTemp("", "obor-tree-")
 	if err != nil {
 		return "", err
@@ -189,23 +206,23 @@ func Tree(ctx context.Context, dir string, environ []string) (string, error) {
 		environ = os.Environ()
 	}
 	env := append(append([]string(nil), environ...), "GIT_INDEX_FILE="+filepath.Join(tmp, "index"))
-	git := func(args ...string) (string, error) {
-		out, err := project.GitCtxEnv(ctx, dir, env, args...)
+	run := func(args ...string) (string, error) {
+		out, err := git(ctx, dir, env, args...)
 		return strings.TrimSpace(out), err
 	}
 	for _, args := range [][]string{{"read-tree", "HEAD"}, {"add", "-A"},
 		{"reset", "-q", "--", MarkerName}} {
-		if _, err := git(args...); err != nil {
+		if _, err := run(args...); err != nil {
 			return "", fmt.Errorf("git %s in %s: %w", args[0], dir, err)
 		}
 	}
-	return git("write-tree")
+	return run("write-tree")
 }
 
-// ChangedFiles is the files a tree changes against base (names only, a rename as a deletion and an addition: the
+// changedFiles is the files a tree changes against base (names only, a rename as a deletion and an addition: the
 // merge's own listing).
-func ChangedFiles(dir, base, tree string) ([]string, error) {
-	out, err := project.Git(dir, "diff", "--no-renames", "--name-only", base, tree)
+func changedFiles(ctx context.Context, git GitFunc, dir, base, tree string) ([]string, error) {
+	out, err := git(ctx, dir, nil, "diff", "--no-renames", "--name-only", base, tree)
 	if err != nil {
 		return nil, err
 	}

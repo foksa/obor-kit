@@ -17,7 +17,7 @@ import (
 // serveOf carries serve's terminal state into the view: connected, and the adapter's note on a terminal newer than it
 // knows; a serve that is down has neither.
 func TestServeCarriesTheTerminalNote(t *testing.T) {
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -44,7 +44,7 @@ func TestServeCarriesTheTerminalNote(t *testing.T) {
 
 // serveOf carries serve's open review into the view as serve sent it (obor status, obor web); none open is none.
 func TestServeCarriesTheOpenReview(t *testing.T) {
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	cfg, err := config.Load(p.Root)
 	if err != nil {

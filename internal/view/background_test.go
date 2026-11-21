@@ -10,7 +10,6 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -180,10 +179,9 @@ func TestBackgroundOfMatchesTheStartingCall(t *testing.T) {
 // Build puts each agent's background processes on its lane, its role row and the lead's row, and --json carries
 // them as background.
 func TestBuildBackground(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +195,7 @@ func TestBuildBackground(t *testing.T) {
 		{Name: lead, Pane: "p3", Status: "working"}}}}
 	bg := map[string][]Background{"w1": {{PID: 1, Command: "a", Age: 40}}, integ: {{PID: 2, Command: "b", Age: 50}},
 		lead: {{PID: 3, Command: "c", Background: true, Label: "l", Age: 60}}}
-	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Background: bg})
+	v := Build(Input{Status: ss, Lanes: laneTable(p, cfg, oneLane), Now: time.Now(), Background: bg})
 	if len(v.Lanes) != 1 || len(v.Lanes[0].Background) != 1 || v.Lanes[0].Background[0].PID != 1 {
 		t.Errorf("lane: %+v, want w1's process", v.Lanes)
 	}

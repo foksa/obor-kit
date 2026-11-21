@@ -116,8 +116,11 @@ var distributionLevels = []string{"hard", "medium", "simple", OverrideLevel, ""}
 // LoadSetup is the setup page's read, narrow: one config read, serve's answer, the lane table (git: a lane's
 // state) and the store's dispatch records. It runs no ps and builds none of the overview's other facts (the queue, the
 // events, the full check, each task). An error is the config's, as Load's.
-func LoadSetup(ctx context.Context, root string) (Setup, error) {
-	return reading{}.setup(ctx, root)
+//
+// git runs the lane table's reads (nil: project.GitCtx): a test of a page over lanes it lays out as files, not worktrees.
+func LoadSetup(ctx context.Context, root string,
+	git func(ctx context.Context, dir string, args ...string) (string, error)) (Setup, error) {
+	return reading{git: git}.setup(ctx, root)
 }
 
 func (r reading) setup(ctx context.Context, root string) (Setup, error) {

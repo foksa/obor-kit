@@ -22,7 +22,7 @@ import (
 // (waiting, running, in the merge loop and needs-you as serve says; merged and dropped as the log says; never
 // dispatched for a spec alone), lane, attempts, merge sha and time, the review that covered it and its Fixes: link.
 func TestTasksAPI(t *testing.T) {
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	spec := func(id, head string) { p.Spec(id, "# "+id+" — title of "+id+"\n\nDifficulty: medium\n"+head) }
 	spec("T-11", "")

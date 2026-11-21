@@ -90,7 +90,7 @@ func TestCPUs(t *testing.T) {
 		{"heavy_at_once 0 does not divide by zero", map[string]any{"heavy_at_once": 0}, nil, 6, 6},
 		{"CHECK_SLOTS counts like heavy_at_once", map[string]any{"heavy_at_once": 2}, []string{"CHECK_SLOTS=4"}, 16, 4},
 	} {
-		p := testkit.New(t)
+		p := testkit.NewPlain(t)
 		if tc.checks != nil {
 			p.Config(testkit.Set("checks", tc.checks))
 		} else {

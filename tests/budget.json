@@ -102,7 +102,7 @@
     },
     "obor/internal/run": {
       "full_s": 8.6,
-      "git_procs": 282
+      "git_procs": 47
     },
     "obor/internal/selfexec": {
       "full_s": 0.4,
@@ -134,11 +134,11 @@
     },
     "obor/internal/view": {
       "full_s": 3.6,
-      "git_procs": 245
+      "git_procs": 0
     },
     "obor/internal/web": {
       "full_s": 5.5,
-      "git_procs": 362
+      "git_procs": 0
     },
     "obor/kinds/opencode/kind": {
       "full_s": 0.4,

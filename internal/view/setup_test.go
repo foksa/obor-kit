@@ -24,9 +24,9 @@ import (
 // record with no type (unknown: every lane is pooled), a waiting dispatch that is placed later (once), a redo
 // (again) and a record older than 7 days (all only).
 func TestSetup(t *testing.T) {
-	p := testkit.New(t)
-	l1 := p.Lane("L-01", "task/T-01")
-	p.Lane("L-02", "") // detached at main: free
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
+	p.PlainLane("L-02", "") // detached at main: free
 	p.Config(
 		testkit.Set("agents.models.kimi", map[string]any{"kind": "opencode", "id": "opencode-go/kimi"}),
 		testkit.Set("agents.difficulty", map[string]any{"hard": []any{"opus:high", "opus"},
@@ -36,7 +36,6 @@ func TestSetup(t *testing.T) {
 		testkit.Set("agents.kinds", map[string]any{"codex": map[string]any{"args": []any{"--search"}},
 			"opencode": map[string]any{"plugin": "obor-kind-opencode", "job_note": "quote summaries only"}}),
 	)
-	p.Commit(l1)
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"}) // its row holds T-01, not landed: working
 	now := time.Now()
 	at := func(ago time.Duration) time.Time { return now.Add(-ago) }
@@ -71,7 +70,8 @@ func TestSetup(t *testing.T) {
 	if len(cfg.Lanes()) != 2 || ss.Project == nil || ss.Project.Paused == nil {
 		t.Fatalf("precondition: two lanes and the pause: %+v", cfg.Lanes())
 	}
-	s, err := reading{ask: func(context.Context, string) (wire.Status, error) { return ss, nil }}.
+	s, err := reading{ask: func(context.Context, string) (wire.Status, error) { return ss, nil },
+		git: laneGit(p, map[string]laneFacts{"L-01": {Branch: "task/T-01"}, "L-02": {Merged: true}})}.
 		setup(context.Background(), p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestSetup(t *testing.T) {
 // no store is no distribution and no config names none: Setup answers with empty lists, not nil, so the page
 // has arrays to draw.
 func TestSetupWithoutStore(t *testing.T) {
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	s, err := reading{}.setup(context.Background(), p.Root)
 	if err != nil {
@@ -220,7 +220,7 @@ func dispatchRecord(t *testing.T, root, task, step string, data any, at time.Tim
 // the Setup page with their model refs, like any other role; an unnamed default row is neither; a removed row drops
 // out of both and leaves the others.
 func TestCustomRolesListed(t *testing.T) {
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Write("docs/agents/designer.md", "# Role: designer\n")
 	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.researcher", "sonnet:medium"),
 		testkit.Set("agents.roles.designer", map[string]any{"model": "opus:high", "write": []any{"docs/design/"}}))

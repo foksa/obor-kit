@@ -1,13 +1,11 @@
 package view
 
 import (
-	"context"
 	"slices"
 	"testing"
 	"time"
 
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/store"
 	"obor/internal/testkit"
@@ -17,9 +15,9 @@ import (
 // derived name with no lane row; a task queued on it is a waiting item naming that lane, read from Queues (the
 // owner, no per-task copy), listed in serve's order (a high T-3 before the older); a fresh lane says neither.
 func TestViewKeepLaneModeAndQueue(t *testing.T) {
-	p := testkit.New(t)
-	p.Lane("L-01", "task/T-01")
-	p.Lane("L-02", "")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
+	p.PlainLane("L-02", "")
 	p.Config(testkit.Set("lanes.list", `[{"name": "L-01", "keep_agent": true}, {"name": "L-02"}]`))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -46,7 +44,7 @@ func TestViewKeepLaneModeAndQueue(t *testing.T) {
 			{Task: "T-2", Attempt: 1, State: "waiting", Waiting: true, Rank: 2, Why: "behind T-1 on keep lane L-01"},
 			{Task: "T-3", Attempt: 1, State: "waiting", Waiting: true, Rank: 1, High: true,
 				Why: "behind T-1 on keep lane L-01"}}}
-	v := Build(Input{Status: wire.Status{Connected: true, Project: ps}, Lanes: checks.NewLaneTable(context.Background(), cfg),
+	v := Build(Input{Status: wire.Status{Connected: true, Project: ps}, Lanes: laneTable(p, cfg, map[string]laneFacts{"L-01": {Branch: "task/T-01"}, "L-02": {Merged: true}}),
 		DB: db, Now: time.Now()})
 	if len(v.Lanes) != 2 {
 		t.Fatalf("lanes %+v, want L-01 and L-02", v.Lanes)

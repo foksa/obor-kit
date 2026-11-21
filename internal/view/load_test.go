@@ -18,13 +18,12 @@ func TestMain(m *testing.M) { testkit.Main(m) }
 // Load builds one project's view as obor status does — serve down is its error in the view, not an error — from
 // the lane table and the store alone (the lane's spec rev and its events are there).
 func TestLoadWithoutServe(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Dispatched("L-01")
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
-	v, err := Load(context.Background(), p.Root, time.Now(), 5, nil)
+	v, err := reading{git: laneGit(p, oneLane)}.load(context.Background(), p.Root, time.Now(), 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,10 +44,9 @@ func TestLoadWithoutServe(t *testing.T) {
 // the task and agent pages' reads spawn no git and no ps; the overview runs both. The injected runners count the
 // spawns and the injected serve answer makes the overview's background scan reach ps.
 func TestNarrowReadsSpawnNoProcesses(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Dispatched("L-01")
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
 	now := time.Now()
@@ -126,10 +124,9 @@ func TestNarrowReadsSpawnNoProcesses(t *testing.T) {
 // serve down is no error for the pages either, as for Load: the rows and the store answer, serve's error is the
 // view's (the endpoints still answer as today).
 func TestNarrowReadsWithoutServe(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Dispatched("L-01")
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
 	d, err := LoadTask(context.Background(), p.Root)
@@ -145,8 +142,8 @@ func TestNarrowReadsWithoutServe(t *testing.T) {
 		t.Errorf("agent read: %v, serve error %q, %d roles; want serve's error and no stale roles",
 			err, d.Project.Serve.Error, len(d.Project.Roles))
 	}
-	s, err := LoadSetup(context.Background(), p.Root)
-	if err != nil || len(s.Lanes) != 1 || s.Lanes[0].Lane != "L-01" {
-		t.Errorf("setup read: %v, lanes %+v; want L-01", err, s.Lanes)
+	s, err := LoadSetup(context.Background(), p.Root, laneGit(p, oneLane))
+	if err != nil || len(s.Lanes) != 1 || s.Lanes[0].Lane != "L-01" || s.Lanes[0].State != "working" {
+		t.Errorf("setup read: %v, lanes %+v; want L-01 working (the injected git's reading)", err, s.Lanes)
 	}
 }

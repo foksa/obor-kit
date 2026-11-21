@@ -16,10 +16,9 @@ import (
 // a merged task's lane was freed (its row cleared, the worktree off its branch), yet its page still says where
 // it ran: the lane and the agent of its newest dispatch. Its spec's text is on the page too.
 func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
 	p.Submit("L-01")
 	row, ok := p.Row("L-01")
@@ -28,8 +27,9 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	}
 	p.MergedAt("T-01", "cafe1234", false, time.Now().Unix())
 	p.ClearState("L-01")
-	p.Git(o1, "checkout", "-q", "--detach")
-	v, err := Load(context.Background(), p.Root, time.Now(), 5, nil)
+	// the lane's worktree is off its branch: detached at main
+	v, err := reading{git: laneGit(p, map[string]laneFacts{"L-01": {Merged: true}})}.load(context.Background(), p.Root,
+		time.Now(), 5)
 	if err != nil {
 		t.Fatal(err)
 	}
