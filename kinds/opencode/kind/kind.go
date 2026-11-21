@@ -37,8 +37,13 @@ const ConfigVar = "OPENCODE_CONFIG"
 // skills, and the project's .claude/skills): "1" on a trimmed start. .agents/skills and .opencode/skills still load.
 const SkillsVar = "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"
 
-// ConfigFile is the generated config's name in the project's state dir.
+// ConfigFile is the generated config's name in the project's state dir, for an untrimmed start (a lead's).
 const ConfigFile = "opencode.json"
+
+// TrimmedConfigFile is the generated config's name in the project's state dir, for a start that trims the user's
+// settings (every agent but a lead): the project's override file changes that config, so a project's lead and its
+// other agents write two files, never one path with different bytes.
+const TrimmedConfigFile = "opencode-trimmed.json"
 
 // efforts are the variant names OpenCode gives a model's reasoning levels. They are per model (opencode 2.2.0:
 // `opencode api GET /api/model` lists deepseek-v4.1-flash's as low, high, max; its own fallback list is none, minimal,
@@ -150,9 +155,9 @@ var FixedArgs = []string{"--auto", "--standalone"}
 
 // start: FixedArgs, then the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to
 // obor's plugin) and but a FixedArgs flag they repeat, then --prompt <prompt> (OpenCode has no resume, so a resume adds
-// nothing). Env: ConfigVar, the path of the start's
-// generated config (Config of the kit; on a start that trims the user's settings with the override file: Overridden;
-// no kit: none), and ModelVar <provider>/<model>[#<effort>] when the args name a
+// nothing). Env: ConfigVar, the path of the start's generated config (ConfigFile, or TrimmedConfigFile on a start that
+// trims the user's settings; the content Config of the kit, or Overridden with the override file; no kit: none), and
+// ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
 // earlier start's), and SkillsVar "1" on a start that trims the user's settings (trim_user: every agent but a lead),
 // else "" (unset, the same way). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
@@ -185,7 +190,11 @@ func start(in request) map[string]any {
 	}
 	files := []map[string]string{}
 	if in.Kit != "" {
-		env[ConfigVar] = "{file:" + ConfigFile + "}"
+		name := ConfigFile
+		if in.TrimUser {
+			name = TrimmedConfigFile
+		}
+		env[ConfigVar] = "{file:" + name + "}"
 		conf := Config(in.Kit)
 		if doc, ok := in.Overrides[OverrideFile]; ok && in.TrimUser {
 			over, err := agents.ParseOverride(OverrideFile, doc)
@@ -194,7 +203,7 @@ func start(in request) map[string]any {
 			}
 			conf = Overridden(in.Kit, over, UserDir(in.Env), os.ReadFile)
 		}
-		files = append(files, map[string]string{"name": ConfigFile, "bytes": string(conf)})
+		files = append(files, map[string]string{"name": name, "bytes": string(conf)})
 	}
 	return map[string]any{"args": args, "env": env, "files": files}
 }
