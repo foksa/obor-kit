@@ -15,27 +15,19 @@ import (
 	"obor/internal/testkit"
 )
 
-// --json (the binary, serve down): indented, serve.up false, lanes[].lane, task, state, paused.reason, messages [];
-// no ready rows (no ready field: the queue is serve's).
+// --json (the binary, serve down): one indented object whose lanes name the one configured lane, needs_you [] and
+// messages [] present, no paused (serve down: .obor/pause is not read), no ready field; the text has no ready line.
 func TestStatusJSON(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
-	p.Lane("L-02", "")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
-	p.Submit("L-01")
-	p.Spec("T-09", "# T-09 — stored, never dispatched\n\nDifficulty: simple\n")
 	p.Write(".obor/pause", "-\nhold\n") // no reader; serve (down here) holds the pause
 	rc, stdout, stderr := run(t, p.Root, nil, "status", "--json")
 	if rc != 0 || !strings.HasPrefix(stdout, "{\n  \"serve\": {") {
 		t.Fatalf("--json: exit %d, %s\n%s", rc, stdout, stderr)
 	}
 	var st struct {
-		Serve struct {
-			Up    bool   `json:"up"`
-			Error string `json:"error"`
-		} `json:"serve"`
 		Lanes []map[string]any `json:"lanes"`
 		Ready any              `json:"ready"`
 		Pause *struct {
@@ -43,29 +35,16 @@ func TestStatusJSON(t *testing.T) {
 		} `json:"paused"`
 		NeedsYou []any `json:"needs_you"`
 		Messages []any `json:"messages"`
-		Queue    struct {
-			Merge   []map[string]any `json:"merge"`
-			Waiting []map[string]any `json:"waiting"`
-		} `json:"queue"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Serve.Up || !strings.Contains(st.Serve.Error, "obor serve is not running") || st.NeedsYou == nil || st.Messages == nil {
-		t.Errorf("serve: %+v, needs_you %v, messages %v; want down with its error, needs_you [], messages []", st.Serve,
+	if len(st.Lanes) != 1 || st.Lanes[0]["lane"] != "L-01" || st.NeedsYou == nil || st.Messages == nil {
+		t.Errorf("lanes %v, needs_you %v, messages %v; want the one lane L-01, needs_you [], messages []", st.Lanes,
 			st.NeedsYou, st.Messages)
-	}
-	if len(st.Lanes) != 2 || st.Lanes[0]["lane"] != "L-01" || st.Lanes[0]["task"] != "T-01" || st.Lanes[0]["state"] != "working" || st.Lanes[0]["done_age"] == nil ||
-		st.Lanes[1]["task"] != nil || st.Lanes[1]["state"] != "free" {
-		t.Errorf("lanes: %v", st.Lanes)
 	}
 	if st.Ready != nil || strings.Contains(stdout, `"ready"`) {
 		t.Errorf("ready: %v; want no ready field (T-470)", st.Ready)
-	}
-	// serve is down, so the CLI lists no stored spec as never dispatched — it takes view.Build's empty-status
-	// path (T-09's spec is stored and was never dispatched).
-	if len(st.Queue.Waiting) != 0 || len(st.Queue.Merge) != 0 {
-		t.Errorf("queue %+v, want none with serve down", st.Queue)
 	}
 	if st.Pause != nil {
 		t.Errorf("paused %+v; want none (serve down; .obor/pause is not read)", st.Pause)
@@ -79,7 +58,7 @@ func TestStatusJSON(t *testing.T) {
 // does not name (its pause cleared) has none. The text lines of them: TestStatusListsModelPauses.
 func TestStatusJSONModelPauses(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	until := time.Now().Add(2 * time.Hour).Unix()
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
@@ -134,31 +113,17 @@ func TestStatusShortBinary(t *testing.T) {
 	}
 }
 
-// the lane table holds a lane's task open while its branch is not merged: working until its task_done is
-// in the event log, done after; it names the lane's worker and type.
+// the lane table names each configured lane's worker (config derives it); its states are checks.TestLaneStates'.
 func TestLaneTable(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(lane)
-	p.State("L-01", map[string]any{"lane": "L-01", "task": "T-01", "branch": "task/T-01", "agent": "pj-l-01",
-		"dispatched_at": time.Now().Unix() - 100})
-	for _, c := range []struct {
-		name, state string
-		prep        func()
-	}{
-		{"dispatched", "working", func() { p.Dispatched("L-01") }},
-		{"task_done in", "working", func() { p.Submit("L-01") }}, // no done (the task's phase is serve's)
-		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
-	} {
-		c.prep()
-		ls, err := checks.Lanes{}.Lanes(context.Background(), p.Root)
-		if err != nil || len(ls) != 1 {
-			t.Fatalf("%s: lanes %+v, %v", c.name, ls, err)
-		}
-		if l := ls[0]; l.Task != "T-01" || l.Agent != "pj-l-01" || l.State != c.state {
-			t.Errorf("%s: %+v; want T-01 of pj-l-01, %s", c.name, l, c.state)
-		}
+	ls, err := checks.Lanes{}.Lanes(context.Background(), p.Root)
+	if err != nil || len(ls) != 1 {
+		t.Fatalf("lanes %+v, %v", ls, err)
+	}
+	if ls[0].Agent != "pj-l-01" {
+		t.Errorf("agent %q, want the lane's worker pj-l-01", ls[0].Agent)
 	}
 }

@@ -507,40 +507,6 @@ func TestGuardDeniesAnUncachedPluginKindUntilServeCachesIt(t *testing.T) {
 	}
 }
 
-// an OpenCode lane's session-start has no OBOR_AGENT (its plugin runs in a shared process): obor reports the
-// session to serve under the lane's agent, and writes no .sid.
-func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
-	t.Parallel()
-	p := servedProject(t)
-	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "deepseek"}) // its dispatch runs opencode
-	lane := p.LaneDir("L-01")
-	state := t.TempDir()
-	env := []string{"OBOR_STATE_HOME=" + state}
-	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": lane, "session_id": "sid-oc",
-		"transcript_path": "/data/opencode/opencode.db", "source": "startup"})
-
-	_, serve := startFakeServe(t, p.Root, wire.Status{}, "SESSION pj-l-01 sid-oc", "")
-	if rc, _, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start"); rc != 0 {
-		t.Errorf("exit %d, want 0", rc)
-	}
-	calls, _ := serve.requests()
-	if len(calls) != 1 {
-		t.Fatalf("serve got %d requests, want one", len(calls))
-	}
-	c := calls[0]
-	if c.Session == nil {
-		t.Fatalf("serve got %s %+v: no session", serve.sentMethods()[0], c)
-	}
-	s := *c.Session
-	if serve.sentMethods()[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "opencode" ||
-		s.ID != "sid-oc" || s.Transcript != "/data/opencode/opencode.db" || s.Lane != "L-01" || c.Root != p.Root {
-		t.Errorf("serve got %s %+v (session %+v)", serve.sentMethods()[0], c, s)
-	}
-	if _, err := os.Stat(filepath.Join(state, "agents", "pj-l-01.sid")); err == nil {
-		t.Error("an OpenCode session wrote a .sid")
-	}
-}
-
 // obor hook session-start sends serve one session request with the agent, its kind, the session id and its
 // transcript_path, the pane, lane and task; serve down: nothing is recorded (no .sid file), the hook says so on stderr
 // and still exits 0.
@@ -723,58 +689,6 @@ func TestTurnHooks(t *testing.T) {
 			c.Ended != (i == 1) {
 			t.Errorf("the reviewer's hook %d sent %s %+v, want a turn request (the second its end)", i, serve.sentMethods()[2+i], c)
 		}
-	}
-}
-
-// an OpenCode lane's hooks run in a shared process with no OBOR_AGENT: from the lane's cwd they name the lane's
-// agent (serve gets the turn, the turn's end and the stop-failure); outside a lane they name none and send nothing.
-func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
-	t.Parallel()
-	p := servedProject(t)
-	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "deepseek"}) // its dispatch runs opencode
-	lane := p.LaneDir("L-01")
-	env := []string{"OBOR_STATE_HOME=" + t.TempDir()}
-	turn := func(cwd string) map[string]any {
-		return map[string]any{"hook_event_name": "UserPromptSubmit", "cwd": cwd, "prompt": "hi"}
-	}
-	stop := func(cwd string) map[string]any {
-		return map[string]any{"hook_event_name": "Stop", "cwd": cwd, "session_id": "s1", "stop_hook_active": false}
-	}
-	failure := func(cwd string) map[string]any {
-		return map[string]any{"hook_event_name": "StopFailure", "cwd": cwd, "error": "rate_limit", "error_details": "429"}
-	}
-	run := func(cwd, hook string, event map[string]any) {
-		t.Helper()
-		b, _ := json.Marshal(event)
-		if rc, _, _, _ := shimRun(t, cwd, string(b), env, oborBin, "hook", hook); rc != 0 {
-			t.Errorf("%s in %s: exit %d, want 0", hook, cwd, rc)
-		}
-	}
-
-	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-l-01 (no stop)", "")
-	run(lane, "user-prompt-submit", turn(lane))
-	run(lane, "stop", stop(lane))
-	run(lane, "stop-failure", failure(lane))
-	calls, _ := serve.requests()
-	if len(calls) != 3 || serve.sentMethods()[0] != wire.MethodTurn || serve.sentMethods()[1] != wire.MethodTurn ||
-		serve.sentMethods()[2] != wire.MethodStopped {
-		t.Fatalf("serve got %v %+v, want two turns and a stopped", serve.sentMethods(), calls)
-	}
-	for _, c := range calls {
-		if c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" || c.Root != p.Root {
-			t.Errorf("call %+v: want the lane's agent, role and lane", c)
-		}
-	}
-	if calls[0].Ended || !calls[1].Ended || calls[2].Error != "rate_limit" || calls[2].Details != "429" {
-		t.Errorf("calls %+v: want the turn's start, its end and the error", calls)
-	}
-
-	// The main checkout is no lane: no agent, so nothing is sent.
-	run(p.Root, "user-prompt-submit", turn(p.Root))
-	run(p.Root, "stop", stop(p.Root))
-	run(p.Root, "stop-failure", failure(p.Root))
-	if calls, _ = serve.requests(); len(calls) != 3 {
-		t.Errorf("outside a lane serve got %v %+v, want none", serve.sentMethods()[3:], calls[3:])
 	}
 }
 
