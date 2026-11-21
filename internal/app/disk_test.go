@@ -109,8 +109,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 
 			f := &diskCount{}
 			f.free.Store(gib)
-			fx := r.concLoop("pj")
-			fx.Disk = f.disk()
+			r.keptLoop("pj").Disk = f.disk() // runStep's pass takes its Loop from the factory
 			r.refuseLogs("pj", errors.New("database or disk is full"))
 
 			r.runStep("pj", "T-1")
