@@ -36,16 +36,6 @@ func (k *fk) ran(name string) bool {
 	return err == nil
 }
 
-// flakeLog is the project's flake log.
-func (k *fk) flakeLog() []Flake {
-	k.t.Helper()
-	got, err := Flakes(k.Root)
-	if err != nil {
-		k.t.Fatalf("flake log: %v", err)
-	}
-	return got
-}
-
 // the lane test's env is the lane workers' (config.LaneEnv): the fact OBOR_LANE_CPUS (slots.lane_cpus) and the
 // project's lanes.env with {cpus} replaced — a var the inherited env also had takes the config's value, no merge;
 // CHECK_CPUS the same budget.
