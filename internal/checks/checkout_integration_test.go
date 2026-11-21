@@ -132,108 +132,105 @@ func (fx checkoutFx) isTracked(t *testing.T, when string) {
 	}
 }
 
-// project.CheckoutWorktree, the cases of one link path (the plugin's settings file, and a lanes.links entry: the same
-// results for both).
+// project.CheckoutWorktree, the cases on the plugin's settings file; the case that links a file the target lacks runs on
+// a lanes.links entry instead (the same results for both paths: one link set, one way to link).
 func TestCheckoutWorktree(t *testing.T) {
 	t.Parallel()
-	for _, path := range []string{project.PluginSettings, "conf/local.env"} {
-		t.Run(path, func(t *testing.T) {
-			t.Parallel()
+	path := project.PluginSettings
 
-			t.Run("a link the target tracks gives way to the tracked file", func(t *testing.T) {
-				t.Parallel()
-				fx := newCheckoutFx(t, path)
-				lines, err := fx.checkout(fx.cand, "--detach", fx.cand)
-				if err != nil {
-					t.Fatalf("checkout: %v", err)
-				}
-				fx.isTracked(t, "after the checkout")
-				if want := "removed link " + path + ": " + fx.cand[:7] + " tracks it"; strings.Join(lines, "\n") != want {
-					t.Errorf("said %q, want %q", lines, want)
-				}
-				if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.cand {
-					t.Errorf("lane at %s, want the candidate %s", h, fx.cand)
-				}
-			})
+	t.Run("a link the target tracks gives way to the tracked file", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, path)
+		lines, err := fx.checkout(fx.cand, "--detach", fx.cand)
+		if err != nil {
+			t.Fatalf("checkout: %v", err)
+		}
+		fx.isTracked(t, "after the checkout")
+		if want := "removed link " + path + ": " + fx.cand[:7] + " tracks it"; strings.Join(lines, "\n") != want {
+			t.Errorf("said %q, want %q", lines, want)
+		}
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.cand {
+			t.Errorf("lane at %s, want the candidate %s", h, fx.cand)
+		}
+	})
 
-			t.Run("a tracked file the target lacks is linked", func(t *testing.T) {
-				t.Parallel()
-				fx := newCheckoutFx(t, path)
-				if _, err := fx.checkout(fx.cand, "--detach", fx.cand); err != nil {
-					t.Fatalf("to the candidate: %v", err)
-				}
-				fx.isTracked(t, "precondition: on the candidate")
-				lines, err := fx.checkout(fx.base, "--detach", fx.base)
-				if err != nil {
-					t.Fatalf("to the base: %v", err)
-				}
-				fx.isLink(t, "after the checkout")
-				if want := "linked " + path; strings.Join(lines, "\n") != want {
-					t.Errorf("said %q, want %q", lines, want)
-				}
-			})
+	t.Run("a tracked file the target lacks is linked", func(t *testing.T) {
+		t.Parallel()
+		path := "conf/local.env" // the one case on the second path: a lanes.links entry, its directory made with the link
+		fx := newCheckoutFx(t, path)
+		if _, err := fx.checkout(fx.cand, "--detach", fx.cand); err != nil {
+			t.Fatalf("to the candidate: %v", err)
+		}
+		fx.isTracked(t, "precondition: on the candidate")
+		lines, err := fx.checkout(fx.base, "--detach", fx.base)
+		if err != nil {
+			t.Fatalf("to the base: %v", err)
+		}
+		fx.isLink(t, "after the checkout")
+		if want := "linked " + path; strings.Join(lines, "\n") != want {
+			t.Errorf("said %q, want %q", lines, want)
+		}
+	})
 
-			t.Run("a round trip worker branch, candidate, worker branch ends with the link back", func(t *testing.T) {
-				t.Parallel()
-				fx := newCheckoutFx(t, path)
-				fx.isLink(t, "precondition: on the worker branch")
-				if _, err := fx.checkout(fx.cand, "--detach", fx.cand); err != nil {
-					t.Fatalf("to the candidate: %v", err)
-				}
-				fx.isTracked(t, "on the candidate")
-				if _, err := fx.checkout(fx.branch, fx.branch); err != nil {
-					t.Fatalf("back to the worker branch: %v", err)
-				}
-				fx.isLink(t, "back on the worker branch")
-				if b := fx.p.Git(fx.lane, "branch", "--show-current"); b != fx.branch {
-					t.Errorf("lane on %q, want %q", b, fx.branch)
-				}
-				if st := fx.p.Git(fx.lane, "status", "--porcelain", "--untracked-files=all"); st != "?? "+path {
-					t.Errorf("status %q, want only the link as untracked", st)
-				}
-			})
+	t.Run("a round trip worker branch, candidate, worker branch ends with the link back", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, path)
+		fx.isLink(t, "precondition: on the worker branch")
+		if _, err := fx.checkout(fx.cand, "--detach", fx.cand); err != nil {
+			t.Fatalf("to the candidate: %v", err)
+		}
+		fx.isTracked(t, "on the candidate")
+		if _, err := fx.checkout(fx.branch, fx.branch); err != nil {
+			t.Fatalf("back to the worker branch: %v", err)
+		}
+		fx.isLink(t, "back on the worker branch")
+		if b := fx.p.Git(fx.lane, "branch", "--show-current"); b != fx.branch {
+			t.Errorf("lane on %q, want %q", b, fx.branch)
+		}
+		if st := fx.p.Git(fx.lane, "status", "--porcelain", "--untracked-files=all"); st != "?? "+path {
+			t.Errorf("status %q, want only the link as untracked", st)
+		}
+	})
 
-			t.Run("a regular file at the path fails the checkout as git does and stays", func(t *testing.T) {
-				t.Parallel()
-				fx := newCheckoutFx(t, path)
-				dst := filepath.Join(fx.lane, path)
-				if err := os.Remove(dst); err != nil {
-					t.Fatal(err)
-				}
-				fx.p.Write(dst, "the lane's own\n")
-				lines, err := fx.checkout(fx.cand, "--detach", fx.cand)
-				if err == nil || !strings.Contains(err.Error(), path) {
-					t.Fatalf("checkout: %v, want git's refusal naming %s", err, path)
-				}
-				keptRegular(t, dst, "the lane's own\n")
-				if len(lines) != 0 {
-					t.Errorf("said %q for a path that is no link, want nothing", lines)
-				}
-				if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.base {
-					t.Errorf("lane at %s, want it left at %s", h, fx.base)
-				}
-			})
+	t.Run("a regular file at the path fails the checkout as git does and stays", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, path)
+		dst := filepath.Join(fx.lane, path)
+		if err := os.Remove(dst); err != nil {
+			t.Fatal(err)
+		}
+		fx.p.Write(dst, "the lane's own\n")
+		lines, err := fx.checkout(fx.cand, "--detach", fx.cand)
+		if err == nil || !strings.Contains(err.Error(), path) {
+			t.Fatalf("checkout: %v, want git's refusal naming %s", err, path)
+		}
+		keptRegular(t, dst, "the lane's own\n")
+		if len(lines) != 0 {
+			t.Errorf("said %q for a path that is no link, want nothing", lines)
+		}
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.base {
+			t.Errorf("lane at %s, want it left at %s", h, fx.base)
+		}
+	})
 
-			t.Run("a failed checkout puts the removed link back and returns git's error", func(t *testing.T) {
-				t.Parallel()
-				fx := newCheckoutFx(t, path, "other.txt")
-				fx.p.Write(filepath.Join(fx.lane, "other.txt"), "the lane's own\n")
-				lines, err := fx.checkout(fx.cand, "--detach", fx.cand)
-				if err == nil || !strings.Contains(err.Error(), "other.txt") {
-					t.Fatalf("checkout: %v, want git's refusal naming other.txt", err)
-				}
-				fx.isLink(t, "after the failed checkout")
-				keptRegular(t, filepath.Join(fx.lane, "other.txt"), "the lane's own\n")
-				want := []string{"removed link " + path + ": " + fx.cand[:7] + " tracks it", "linked " + path}
-				if strings.Join(lines, "\n") != strings.Join(want, "\n") {
-					t.Errorf("said %q, want %q", lines, want)
-				}
-				if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.base {
-					t.Errorf("lane at %s, want it left at %s", h, fx.base)
-				}
-			})
-		})
-	}
+	t.Run("a failed checkout puts the removed link back and returns git's error", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, path, "other.txt")
+		fx.p.Write(filepath.Join(fx.lane, "other.txt"), "the lane's own\n")
+		lines, err := fx.checkout(fx.cand, "--detach", fx.cand)
+		if err == nil || !strings.Contains(err.Error(), "other.txt") {
+			t.Fatalf("checkout: %v, want git's refusal naming other.txt", err)
+		}
+		fx.isLink(t, "after the failed checkout")
+		keptRegular(t, filepath.Join(fx.lane, "other.txt"), "the lane's own\n")
+		want := []string{"removed link " + path + ": " + fx.cand[:7] + " tracks it", "linked " + path}
+		if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+			t.Errorf("said %q, want %q", lines, want)
+		}
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.base {
+			t.Errorf("lane at %s, want it left at %s", h, fx.base)
+		}
+	})
 }
 
 // Each checkout obor runs in a worktree it made keeps the links: a lane's drop (detach), its prepare (checkout -B) and
