@@ -2,7 +2,7 @@
   "packages": {
     "obor/cmd/obor": {
       "full_s": 45.9,
-      "git_procs": 1094
+      "git_procs": 1065
     },
     "obor/internal/agents": {
       "full_s": 0.4,
@@ -58,7 +58,7 @@
     },
     "obor/internal/checks": {
       "full_s": 38.3,
-      "git_procs": 3020
+      "git_procs": 2190
     },
     "obor/internal/config": {
       "full_s": 3.9,
