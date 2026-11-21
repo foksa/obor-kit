@@ -14,8 +14,8 @@ import (
 )
 
 // ResumeHint: herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) counts
-// only `[session] resume_agents_on_restore = false` as set (a comment after it too); a missing file, another value or
-// the key in another section gives the one line to add, naming the file.
+// only `[session] resume_agents_on_restore = false` as set (a comment after it too); a missing file, another value, the
+// key in another section or a file that does not parse gives the one line to add, naming the file.
 func TestResumeHint(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -28,6 +28,7 @@ func TestResumeHint(t *testing.T) {
 		{"true", "[session]\nresume_agents_on_restore = true\n", false},
 		{"false outside [session]", "[other]\nresume_agents_on_restore = false\n", false},
 		{"a later section ends [session]", "[session]\n[other]\nresume_agents_on_restore = false\n", false},
+		{"does not parse", "[session]\nresume_agents_on_restore = [\n", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
