@@ -259,8 +259,9 @@ func (k *Kind) NotReady(screen string) string {
 	return r.Why
 }
 
-// installReply is install's reply: the MCP registration as data; setup checks it. A reply that still carries the
-// removed user-config install path (mcp.where "config", a plugin link under ~/) is refused.
+// installReply is install's reply: the MCP registration as data; setup checks it. A reply that asks for a user-config
+// install (mcp.where "config", a plugin link under ~/) is refused: a kind registers per launch or through the
+// project's files, and installs nothing under ~/.
 type installReply struct {
 	MCP struct {
 		Where    string         `json:"where"`
@@ -282,17 +283,16 @@ func (k *Kind) InstallErr(kit string, env func(string) string) (agents.Install, 
 	if err := k.run("install", map[string]any{"kit": kit, "env": snapshot(m, env)}, &r); err != nil {
 		return failedInstall(err), err
 	}
-	var removed error
+	var refused error
 	switch {
 	case r.MCP.Where == "config":
-		removed = fmt.Errorf("kind %s: install: mcp.where %q is no longer supported: the user-config install path was "+
-			"removed (T-1119); a kind registers per launch or through the project's files", k.name, r.MCP.Where)
+		refused = fmt.Errorf("kind %s: install: mcp.where %q: a kind registers per launch or through the project's files",
+			k.name, r.MCP.Where)
 	case len(r.Plugin) > 0 && string(r.Plugin) != "null":
-		removed = fmt.Errorf("kind %s: install: the plugin link is no longer supported: the user-config install path was "+
-			"removed (T-1119); a kind installs nothing under ~/", k.name)
+		refused = fmt.Errorf("kind %s: install: a plugin link: a kind installs nothing under ~/", k.name)
 	}
-	if removed != nil {
-		return failedInstall(removed), removed
+	if refused != nil {
+		return failedInstall(refused), refused
 	}
 	if !slices.Contains([]string{agents.Manifest, agents.PerStart}, r.MCP.Where) {
 		err := fmt.Errorf("kind %s: install: mcp.where %q is none of %s, %s", k.name, r.MCP.Where, agents.Manifest,

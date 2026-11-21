@@ -493,7 +493,7 @@ func (v *validator) customRoles() {
 			case r.Name == roles.Driver:
 				v.fail(path, "the drive agent's role is not configured: obor drive starts it")
 			case len(e.Verbs) > 0:
-				v.fail(path+".verbs", "a built-in role's rights are its own: verbs are a custom role's (T-1039)")
+				v.fail(path+".verbs", "a built-in role's rights are its own: verbs are a custom role's")
 			case e.Object:
 				v.fail(path, "a built-in role takes a model ref string, not an object")
 			}

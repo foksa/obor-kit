@@ -177,17 +177,19 @@ func TestCalls(t *testing.T) {
 }
 
 // a kind cannot install to the user config, so install's reply may not name a user config entry or a plugin link
-// under ~/; a kind that does is refused with an error naming the refusal.
-func TestInstallRefusesTheRemovedUserConfigPath(t *testing.T) {
-	for name, body := range map[string]string{
-		"a user config entry": `{"version":1,"mcp":{"where":"config","path":"/u/.stub.json","key":["mcp","obor"],"entry":{"command":"obor"}}}`,
-		"a plugin link":       `{"version":1,"mcp":{"where":"start"},"plugin":{"from":"/kit/p.js","to":"/u/p.js"}}`,
+// under ~/; a kind that does is refused with an error naming the rule.
+func TestInstallRefusesAUserConfigPath(t *testing.T) {
+	for name, c := range map[string]struct{ body, want string }{
+		"a user config entry": {`{"version":1,"mcp":{"where":"config","path":"/u/.stub.json","key":["mcp","obor"],"entry":{"command":"obor"}}}`,
+			"a kind registers per launch or through the project's files"},
+		"a plugin link": {`{"version":1,"mcp":{"where":"start"},"plugin":{"from":"/kit/p.js","to":"/u/p.js"}}`,
+			"a kind installs nothing under ~/"},
 	} {
-		k, _ := kind(t, reply(body))
+		k, _ := kind(t, reply(c.body))
 		_, err := agents.InstallOf(k, "/kit", nil)
 		if err == nil || !strings.Contains(err.Error(), "kind stub: install: ") ||
-			!strings.Contains(err.Error(), "the user-config install path was removed (T-1119)") {
-			t.Errorf("%s: %v, want the removal named", name, err)
+			!strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q in it", name, err, c.want)
 		}
 	}
 }
