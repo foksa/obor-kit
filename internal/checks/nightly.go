@@ -38,6 +38,7 @@ func Nightly(o Options) Result {
 	return *r
 }
 
+// nightly is prepare (the lock, the worktree reset to the target, its sha) and then the steps and the report.
 func (s *session) nightly() *Result {
 	if r := s.lock("obor nightly"); r != nil {
 		return r
@@ -50,7 +51,15 @@ func (s *session) nightly() *Result {
 	}
 	sha, _ := s.git(s.scratch, "rev-parse", "HEAD")
 	linkLaneLinks(s.Cfg, s.root, s.scratch)
+	// The session's own reset, not gitIO.Clean: that one keeps obor's links, this `clean -fdq` does not.
+	return s.steps(sha, func() { s.reset(sha) })
+}
 
+// steps runs the nightly's commands in s.dir (the checks, the backup, the sweep, merge.nightly_commands), writes
+// last-full-check for sha and returns the result line. It reads no git itself: scrub is what puts the worktree back
+// at sha between the gating checks and the rest, "no command artifacts left behind" (nil: nothing to scrub), so a
+// test runs it on a plain dir.
+func (s *session) steps(sha string, scrub func()) *Result {
 	var results, failed, details, evidence []string
 	// step runs commands.<name>; retest is whether a red's failing tests are rerun once (the nightly's check and
 	// check_milestone, as a lane test does; lane_setup and merge.nightly_commands never are).
@@ -98,7 +107,9 @@ func (s *session) nightly() *Result {
 		}
 	}
 	s.releaseSlot()
-	s.reset(sha) // no command artifacts left behind
+	if scrub != nil {
+		scrub() // no command artifacts left behind
+	}
 	sock := wire.SocketPath(s.Cfg.Root)
 	ctx := s.callCtx
 	if ctx == nil {
