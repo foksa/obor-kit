@@ -189,3 +189,150 @@ func TestScript(t *testing.T) {
 		t.Errorf("a different body is the same file %s", other)
 	}
 }
+
+// sameFiles fails the test unless the project tree at b is the one at a: the same paths, types and modes, and for each
+// file the same bytes and mtime (a copy's index matches its files), the worktree pointers aside: b's point at b.
+func sameFiles(t *testing.T, a, b string) {
+	t.Helper()
+	ta, err := scan(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb, err := scan(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel := range tb {
+		if _, ok := ta[rel]; !ok {
+			t.Errorf("%s: in %s, not in %s", rel, b, a)
+		}
+	}
+	for rel, sa := range ta {
+		sb, ok := tb[rel]
+		switch {
+		case !ok:
+			t.Errorf("%s: in %s, not in %s", rel, a, b)
+		case sa.mode != sb.mode || sa.link != sb.link:
+			t.Errorf("%s: mode %v link %q in %s, mode %v link %q in %s", rel, sa.mode, sa.link, a, sb.mode, sb.link, b)
+		case pointer(rel):
+			got, _ := os.ReadFile(filepath.Join(b, rel))
+			if !strings.Contains(string(got), b+string(filepath.Separator)) {
+				t.Errorf("%s in %s points at %q, not into its own tree", rel, b, got)
+			}
+		case sa.mode.IsRegular():
+			x, _ := os.ReadFile(filepath.Join(a, rel))
+			y, _ := os.ReadFile(filepath.Join(b, rel))
+			if string(x) != string(y) || !sa.mtime.Equal(sb.mtime) {
+				t.Errorf("%s differs: %d bytes at %v in %s, %d bytes at %v in %s", rel, len(x), sa.mtime, a, len(y), sb.mtime, b)
+			}
+		}
+	}
+}
+
+// A setup the binary has built is a copy for the next test that makes the same calls: the second project's Config,
+// Lane and Commit take the first one's tree (files, modes, refs, the lane's worktree and branch) with no git, its
+// worktree points at its own dirs, and git lists that worktree and reads both checkouts clean.
+func TestSetupCopyEqualsBuilt(t *testing.T) {
+	setup := func(p *Project) string {
+		p.Config(Set("test.case", "copy"))
+		lane := p.Lane("L-01", "task/T-01")
+		p.Commit(lane)
+		return lane
+	}
+	built := New(t)
+	setup(built)
+	n := nodeFor(built.key)
+	if !built.pristine || !n.ok || n.copies.Load() != 0 {
+		t.Fatalf("precondition: the first setup built the tree (pristine %v, built %v, copies %d)", built.pristine, n.ok,
+			n.copies.Load())
+	}
+	copied := New(t)
+	lane := setup(copied)
+	if copied.key != built.key || n.copies.Load() != 1 {
+		t.Fatalf("the second setup is not a copy of the first (same key %v, copies %d)", copied.key == built.key,
+			n.copies.Load())
+	}
+	sameFiles(t, built.Base, copied.Base)
+	main := strings.TrimSpace(copied.Read(".git/refs/heads/main"))
+	task := strings.TrimSpace(copied.Read(".git/refs/heads/task/T-01"))
+	if len(main) != 40 || len(task) != 40 || main == task {
+		t.Fatalf("precondition: main %q and task/T-01 %q, want the config commit and the lane's commit after it", main, task)
+	}
+	want := fmt.Sprintf("worktree %s\nHEAD %s\nbranch refs/heads/main\n\nworktree %s\nHEAD %s\nbranch refs/heads/task/T-01",
+		copied.Root, main, lane, task)
+	if got := copied.Git(copied.Root, "worktree", "list", "--porcelain"); got != want {
+		t.Errorf("worktree list in the copy:\n%s\nwant:\n%s", got, want)
+	}
+	for _, dir := range []string{copied.Root, lane} {
+		if got := copied.Git(dir, "status", "--porcelain"); got != "" {
+			t.Errorf("status in the copy's %s: %q, want clean", dir, got)
+		}
+	}
+}
+
+// A test that changes its copy after the setup (a file in the lane, a commit on main) leaves the tree the next test
+// copies as it was built.
+func TestSetupDivergedCopyKeepsTheCache(t *testing.T) {
+	setup := func(p *Project) string {
+		p.Config(Set("test.case", "diverge"))
+		return p.Lane("L-01", "task/T-01")
+	}
+	built := New(t)
+	setup(built)
+	n := nodeFor(built.key)
+	diverged := New(t)
+	lane := setup(diverged)
+	if !n.ok || n.copies.Load() != 1 {
+		t.Fatalf("precondition: the second setup is a copy of the built tree (built %v, copies %d)", n.ok, n.copies.Load())
+	}
+	diverged.Write(filepath.Join(lane, "extra.txt"), "extra\n")
+	diverged.Git(diverged.Root, "commit", "-q", "--allow-empty", "-m", "diverge")
+	ref := ".git/refs/heads/main"
+	if diverged.Read(ref) == built.Read(ref) || !diverged.Exists(filepath.Join(lane, "extra.txt")) {
+		t.Fatal("precondition: the copy diverged (a commit on main, a file in the lane)")
+	}
+	next := New(t)
+	setup(next)
+	if n.copies.Load() != 2 {
+		t.Fatalf("precondition: the third setup is a copy (copies %d)", n.copies.Load())
+	}
+	sameFiles(t, built.Base, next.Base)
+}
+
+// A test that writes between its setup calls leaves the setup run: the next call runs its git on the tree as the test
+// left it, with the write kept, whether it went through Write or straight to a file.
+func TestSetupWriteBetweenCallsRunsGit(t *testing.T) {
+	cfg := Set("test.case", "mid")
+	warm := New(t)
+	warm.Config(cfg)
+	cfgKey := warm.key
+	warm.Lane("L-01", "task/T-01")
+	laneNode := nodeFor(warm.key)
+	writes := map[string]func(p *Project){
+		"Write":  func(p *Project) { p.Write("mid.txt", "mid\n") },
+		"a file": func(p *Project) { os.WriteFile(filepath.Join(p.Root, "mid.txt"), []byte("mid\n"), 0o644) },
+	}
+	for name, write := range writes {
+		p := New(t)
+		p.Config(cfg)
+		if !p.pristine || p.key != cfgKey || !laneNode.ok {
+			t.Fatalf("%s: precondition: Config took the built tree and the lane's is built (pristine %v, built %v)", name,
+				p.pristine, laneNode.ok)
+		}
+		write(p)
+		lane := p.Lane("L-01", "task/T-01")
+		if p.pristine || laneNode.copies.Load() != 0 {
+			t.Errorf("%s: Lane after a write took the cached tree (pristine %v, copies %d)", name, p.pristine,
+				laneNode.copies.Load())
+		}
+		if got := p.Read("mid.txt"); got != "mid\n" {
+			t.Errorf("%s: mid.txt = %q after Lane, want the test's write", name, got)
+		}
+		if got := p.Read(filepath.Join(lane, ".git")); got != "gitdir: "+filepath.Join(p.Root, ".git", "worktrees", "L-01")+"\n" {
+			t.Errorf("%s: the lane's .git = %q, want its own admin dir", name, got)
+		}
+		if got := p.Read(".git/worktrees/L-01/HEAD"); got != "ref: refs/heads/task/T-01\n" {
+			t.Errorf("%s: the lane's HEAD = %q, want task/T-01", name, got)
+		}
+	}
+}

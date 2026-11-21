@@ -157,17 +157,22 @@ func copyTree(src, dst string) error {
 			}
 			return os.Symlink(link, to)
 		case info.Mode().IsRegular():
-			b, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(to, b, info.Mode().Perm()); err != nil {
-				return err
-			}
-			return os.Chtimes(to, info.ModTime(), info.ModTime())
+			return copyFile(path, to, info.Mode().Perm(), info.ModTime())
 		}
 		return fmt.Errorf("copy %s: not a dir, file or symlink", path)
 	})
+}
+
+// copyFile copies the file src to dst (which must not exist) with mode perm and mtime.
+func copyFile(src, dst string, perm fs.FileMode, mtime time.Time) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, b, perm); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, mtime, mtime)
 }
 
 // Script writes body as the executable dir/name and returns its path: a test's fake launchctl, a stub obor. It is one
@@ -249,7 +254,10 @@ type Project struct {
 	// plain: a project dir with no git (NewDir): Config writes the config uncommitted, Lane makes a plain dir and
 	// notes its branch here, and Git fails the test.
 	plain    bool
-	branches map[string]string // lane → its branch (a plain project's lanes)
+	branches map[string]string // lane → the branch Lane put it on (a git project's: until a git call through the project)
+	// pristine: the project's tree is still the one key names, New's copy changed by setup calls alone (setup.go).
+	pristine bool
+	key      string
 }
 
 // Dir is a fresh temp dir, physical (symlinks resolved, as the code under test sees paths).
@@ -287,7 +295,7 @@ func New(t testing.TB) *Project {
 // the binary's template: no git process here.
 func NewAt(t testing.TB, base string) *Project {
 	t.Helper()
-	p := &Project{t: t, Base: base}
+	p := &Project{t: t, Base: base, pristine: true}
 	p.Root = filepath.Join(p.Base, "proj")
 	src, err := template()
 	if err != nil {
@@ -347,8 +355,19 @@ func (p *Project) Git(dir string, args ...string) string {
 	return p.GitEnv(nil, dir, args...)
 }
 
-// GitEnv is Git with more environment (GIT_COMMITTER_DATE=…).
+// GitEnv is Git with more environment (GIT_COMMITTER_DATE=…). It ends the project's setup run: the cache's trees
+// and the lanes' branches Lane noted are what setup calls alone made.
 func (p *Project) GitEnv(env []string, dir string, args ...string) string {
+	p.t.Helper()
+	p.pristine = false
+	if !p.plain {
+		p.branches = nil
+	}
+	return p.git(env, dir, args...)
+}
+
+// git is GitEnv inside a setup call.
+func (p *Project) git(env []string, dir string, args ...string) string {
 	p.t.Helper()
 	if p.plain {
 		p.t.Fatalf("git %v in a plain project (testkit.NewDir has no git)", args)
@@ -370,24 +389,33 @@ func (p *Project) GitEnv(env []string, dir string, args ...string) string {
 }
 
 // Lane is fx_lane: worktree <Base>/proj-wt/<name> on branch (created from main when new), or detached at main when
-// branch is "". In a plain project (NewDir) it is a plain dir and its branch a note.
+// branch is "". In a plain project (NewDir) it is a plain dir and its branch a note. A setup call (setup.go).
 func (p *Project) Lane(name, branch string) string {
 	p.t.Helper()
 	dir := p.LaneDir(name)
-	switch {
-	case p.plain:
+	if p.plain {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			p.t.Fatal(err)
 		}
 		p.branches[name] = branch
-	case branch == "":
-		p.Git(p.Root, "worktree", "add", "-q", "--detach", dir, "main")
-	case exec.Command("git", "-C", p.Root, "show-ref", "--verify", "-q", "refs/heads/"+branch).Run() == nil:
-		p.Git(p.Root, "worktree", "add", "-q", dir, branch)
-	default:
-		p.Git(p.Root, "worktree", "add", "-q", "-b", branch, dir, "main")
+		p.enablePlugin(dir)
+		return dir
 	}
-	p.enablePlugin(dir)
+	p.cached("lane\x00"+name+"\x00"+branch, func() {
+		switch {
+		case branch == "":
+			p.git(nil, p.Root, "worktree", "add", "-q", "--detach", dir, "main")
+		case exec.Command("git", "-C", p.Root, "show-ref", "--verify", "-q", "refs/heads/"+branch).Run() == nil:
+			p.git(nil, p.Root, "worktree", "add", "-q", dir, branch)
+		default:
+			p.git(nil, p.Root, "worktree", "add", "-q", "-b", branch, dir, "main")
+		}
+		p.enablePlugin(dir)
+	})
+	if p.branches == nil {
+		p.branches = map[string]string{}
+	}
+	p.branches[name] = branch
 	return dir
 }
 
@@ -397,7 +425,7 @@ func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "pr
 // Config is fx_config: the default config in shape 2 (project pj, lanes: the highest L-NN under proj-wt; the
 // kit's OpenCode plugin kind, as obor init writes it), changed by edit, written to .obor/config.json and
 // committed on main (projects commit it; a plain project's stays uncommitted). An edit names shape 2's paths: the map
-// is written as it is.
+// is written as it is. A setup call (setup.go).
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
 	lanes := 0
@@ -425,14 +453,18 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	p.Write(".obor/config.json", config.Pretty(json.RawMessage(b)))
+	text := config.Pretty(json.RawMessage(b))
 	if p.plain {
+		p.write(".obor/config.json", text)
 		return
 	}
-	p.Git(p.Root, "add", ".obor/config.json")
-	if exec.Command("git", "-C", p.Root, "diff", "--cached", "--quiet", "--", ".obor/config.json").Run() != nil {
-		p.Git(p.Root, "commit", "-q", "-m", "obor config", "--", ".obor/config.json")
-	}
+	p.cached("config\x00"+text, func() {
+		p.write(".obor/config.json", text)
+		p.git(nil, p.Root, "add", ".obor/config.json")
+		if exec.Command("git", "-C", p.Root, "diff", "--cached", "--quiet", "--", ".obor/config.json").Run() != nil {
+			p.git(nil, p.Root, "commit", "-q", "-m", "obor config", "--", ".obor/config.json")
+		}
+	})
 }
 
 // Set is a config edit: the value at a dotted path ("agents.roles.lead"), creating objects on the way. v may be a JSON text
@@ -473,8 +505,15 @@ func (p *Project) Path(rel string) string {
 	return filepath.Join(p.Root, rel)
 }
 
-// Write writes text to Path(path), creating its directories.
+// Write writes text to Path(path), creating its directories. It ends the project's setup run (setup.go).
 func (p *Project) Write(path, text string) string {
+	p.t.Helper()
+	p.pristine = false
+	return p.write(path, text)
+}
+
+// write is Write inside a setup call.
+func (p *Project) write(path, text string) string {
 	p.t.Helper()
 	path = p.Path(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -507,16 +546,24 @@ func (p *Project) Exists(path string) bool {
 	return err == nil
 }
 
-// Commit is lane_commit: a new work.txt committed in dir ("work in <dir name>"), unless a subject is given.
+// Commit is lane_commit: a new work.txt committed in dir ("work in <dir name>"), unless a subject is given. A setup
+// call when dir is in the project (setup.go).
 func (p *Project) Commit(dir string, subject ...string) {
 	p.t.Helper()
 	msg := "work in " + filepath.Base(dir)
 	if len(subject) > 0 {
 		msg = subject[0]
 	}
-	p.Write(filepath.Join(dir, "work.txt"), "work\n")
-	p.Git(dir, "add", "work.txt")
-	p.Git(dir, "commit", "-q", "-m", msg)
+	step := ""
+	if rel, err := filepath.Rel(p.Base, p.Path(dir)); err == nil && (rel == "proj" || strings.HasPrefix(rel, "proj"+string(filepath.Separator)) ||
+		strings.HasPrefix(rel, "proj-wt"+string(filepath.Separator))) {
+		step = "commit\x00" + rel + "\x00" + msg
+	}
+	p.cached(step, func() {
+		p.write(filepath.Join(dir, "work.txt"), "work\n")
+		p.git(nil, dir, "add", "work.txt")
+		p.git(nil, dir, "commit", "-q", "-m", msg)
+	})
 }
 
 // Dispatched records the dispatch of the task on lane's branch (task/<id>) in the project's store, as obor serve's
@@ -554,11 +601,12 @@ func (p *Project) SubmitAgo(lane string, secs int64, text ...string) {
 	p.setRow(row)
 }
 
-// laneTask is the task id lane's branch names (task/<id>; else the branch).
+// laneTask is the task id lane's branch names (task/<id>; else the branch): the branch Lane put it on while no git
+// call through the project has run since, else the lane's HEAD.
 func (p *Project) laneTask(lane string) string {
 	p.t.Helper()
-	if p.plain {
-		return strings.TrimPrefix(p.branches[lane], "task/")
+	if b, ok := p.branches[lane]; p.plain || (ok && b != "") {
+		return strings.TrimPrefix(b, "task/")
 	}
 	b := strings.TrimSpace(p.Git(p.LaneDir(lane), "symbolic-ref", "--short", "HEAD"))
 	return strings.TrimPrefix(b, "task/")
@@ -580,6 +628,7 @@ func (p *Project) event(task, step string, data any, secs int64) {
 // eventAt appends fact step of task (attempt 1) with data to the project's event log at at.
 func (p *Project) eventAt(task, step string, data any, at time.Time) {
 	p.t.Helper()
+	p.pristine = false
 	db, err := store.OpenRW(store.File(p.Root))
 	if err != nil {
 		p.t.Fatal(err)
@@ -660,6 +709,7 @@ func (p *Project) rows() map[string]store.LaneRow {
 // Spec stores text as task's spec in the project's store, as obor spec set does through serve: the next rev.
 func (p *Project) Spec(task, text string) {
 	p.t.Helper()
+	p.pristine = false
 	db, err := store.OpenRW(store.File(p.Root))
 	if err != nil {
 		p.t.Fatal(err)
@@ -673,6 +723,7 @@ func (p *Project) Spec(task, text string) {
 // setRow replaces row.Lane's row with row (a row with no task: deleted).
 func (p *Project) setRow(row store.LaneRow) {
 	p.t.Helper()
+	p.pristine = false
 	db, err := store.OpenRW(store.File(p.Root))
 	if err != nil {
 		p.t.Fatal(err)
@@ -706,7 +757,11 @@ func Age(t testing.TB, path string, secs int64) {
 }
 
 // Age sets the mtime of Path(path) to secs seconds ago.
-func (p *Project) Age(path string, secs int64) { p.t.Helper(); Age(p.t, p.Path(path), secs) }
+func (p *Project) Age(path string, secs int64) {
+	p.t.Helper()
+	p.pristine = false
+	Age(p.t, p.Path(path), secs)
+}
 
 // Mtime is the mtime of Path(path) in epoch seconds.
 func (p *Project) Mtime(path string) int64 {

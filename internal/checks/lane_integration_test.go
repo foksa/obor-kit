@@ -35,7 +35,7 @@ func laneFx(t *testing.T, edits ...func(map[string]any)) (*testkit.Project, stri
 		p.Config(edits...)
 		return base
 	}))
-	repairWorktrees(t, base)
+	testkit.RepairWorktrees(t, base)
 	p := testkit.Adopt(t, base)
 	return p, p.LaneDir("L-01"), strings.TrimSpace(p.Read(".git/refs/heads/main"))
 }
