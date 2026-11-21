@@ -316,17 +316,24 @@ func levelNote(level string, types []string) string {
 }
 
 // resolveLevel gives c the model refs of its spec's difficulty level (c.Level, c.Types; the spec's `Model:` refs
-// first) when it names none (--model); else it leaves it (a waiting task's request carries its level and models). Why
-// not: no level in the spec, or neither a `Model:` ref nor a ref of the level names a model of the config.
+// first) when it names none (--model); else it leaves it (a waiting task's request carries its level and models). A
+// stored spec's own ref is checked as spec set checks it — one naming no model of the config, or an effort its kind
+// does not take, is refused (nothing recorded) — and only the level's unknown refs are left out. Why not: that ref, no
+// level in the spec, or neither a `Model:` ref nor a ref of the level names a model of the config.
 func resolveLevel(cfg *config.Config, c *wire.DispatchReq, sp spec.Spec) error {
 	if len(c.Types) > 0 {
 		return nil
+	}
+	for _, t := range sp.Models { // `<model>[:<effort>]`: a stored spec's refs, refused beside spec set's
+		if err := cfg.CheckModelRef(t); err != nil {
+			return fmt.Errorf("\"Model: %s\": %v", t, err)
+		}
 	}
 	if !sp.LevelKnown {
 		return fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
 			"with --model a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
 	}
-	all := specFirst(cfg, sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
+	all := specFirst(sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
 	if len(all) == 0 {
 		return fmt.Errorf("no model of level %s is known to this project (obor config get .agents.difficulty): dispatch with "+
 			"--model a,b", sp.Level)
@@ -348,10 +355,9 @@ func knownModels(cfg *config.Config, refs []string) []string {
 	return out
 }
 
-// specFirst is refs with the spec's `Model:` refs in front (those naming a model of cfg): a named model wins, else
-// the level's first unpaused one.
-func specFirst(cfg *config.Config, sp spec.Spec, refs []string) []string {
-	out := knownModels(cfg, sp.Models)
+// specFirst is refs with the spec's `Model:` refs in front: a named model wins, else the level's first unpaused one.
+func specFirst(sp spec.Spec, refs []string) []string {
+	out := slices.Clone(sp.Models)
 	for _, t := range refs {
 		if !slices.Contains(out, t) {
 			out = append(out, t)

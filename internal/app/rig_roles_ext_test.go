@@ -270,6 +270,17 @@ func (r *loopRig) taskStep(task, step string) int {
 	return n
 }
 
+// taskRecords is how many records task has.
+func (r *loopRig) taskRecords(task string) int {
+	n := 0
+	for _, rec := range r.records() {
+		if rec.Task == task {
+			n++
+		}
+	}
+	return n
+}
+
 // waitAfter is the lead's dispatch of T-1 onto L-01 after the tasks.
 func (r *loopRig) waitAfter(callID string, after ...string) (string, error) {
 	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",

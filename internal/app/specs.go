@@ -150,10 +150,10 @@ func specSetReply(task string, rev int, changed bool) string {
 }
 
 // specSetModels is the reply's line after the set one: the models a dispatch of sp would try, in order — its `Model:`
-// refs, then its level's — each as obor setup show prints it ("opus:high (claude opus, effort high)"). "" when none of
-// them names a model of cfg.
+// refs (the set refuses an unknown one), then its level's known ones — each as obor setup show prints it
+// ("opus:high (claude opus, effort high)"). "" when there are none.
 func specSetModels(cfg *config.Config, sp spec.Spec) string {
-	refs := specFirst(cfg, sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
+	refs := specFirst(sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
 	if len(refs) == 0 {
 		return ""
 	}
