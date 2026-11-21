@@ -271,26 +271,16 @@ func TestOneTerminalBuilder(t *testing.T) {
 }
 
 // TestAppTestsNameTheRig: internal/app's flow tests (its external test files, package app_test) reach the terminal
-// through the rig only: a scenario stated as port.Pane, port.Event and a call of a port operation is one every
-// adapter has to meet, and one stated in an adapter's wire is not. The rig files script the terminal; the three
-// boundary files prove a real adapter itself. Any other external test file that imports a terminal adapter or its fake
-// fails (an in-package test is the core's own, over fakePanes and the unit tables).
+// through the rig only, and the rig's terminal is testkit.Term: a scenario stated as port.Pane, port.Event and a call
+// of a port operation is one every adapter has to meet, and one stated in an adapter's wire is not. The three
+// boundary files prove a real adapter itself. Any other external test file, the rig's own among them, that imports a
+// terminal adapter or its fake fails (an in-package test is the core's own, over fakePanes and the unit tables).
 func TestAppTestsNameTheRig(t *testing.T) {
 	dir := filepath.Join("..", "app")
 	allowed := map[string]bool{
 		"restore_integration_test.go": true, // herdr: serve's restore on the real adapter
 		"restorehc_ext_test.go":       true, // hc's
 		"adopthc_ext_test.go":         true, // hc's
-	}
-	rigs, err := filepath.Glob(filepath.Join(dir, "rig_*_test.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rigs) < 5 {
-		t.Fatalf("rig files: %d, want the rig (rig_*_test.go)", len(rigs))
-	}
-	for _, path := range rigs {
-		allowed[filepath.Base(path)] = true
 	}
 	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
 	if err != nil {
@@ -304,7 +294,7 @@ func TestAppTestsNameTheRig(t *testing.T) {
 		}
 		return false
 	}
-	scanned := 0
+	scanned, rigs := 0, 0
 	for _, path := range files {
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 		if err != nil {
@@ -314,19 +304,22 @@ func TestAppTestsNameTheRig(t *testing.T) {
 			continue
 		}
 		scanned++
+		if strings.HasPrefix(filepath.Base(path), "rig_") {
+			rigs++
+		}
 		if allowed[filepath.Base(path)] {
 			continue
 		}
 		for _, imp := range f.Imports {
 			pkg := strings.TrimPrefix(strings.Trim(imp.Path.Value, `"`), "obor/")
 			if terminal(pkg) {
-				t.Errorf("%s imports %s: a flow test names the rig, not a terminal adapter or its fake "+
-					"(internal/app/rig_*_test.go)", path, pkg)
+				t.Errorf("%s imports %s: a flow test names the rig, not a terminal adapter or its fake; "+
+					"the rig's terminal is testkit.Term", path, pkg)
 			}
 		}
 	}
-	if scanned < 50 {
-		t.Fatalf("scanned %d external test files: not internal/app's", scanned)
+	if scanned < 50 || rigs < 5 {
+		t.Fatalf("scanned %d external test files, %d of them the rig's: not internal/app's", scanned, rigs)
 	}
 }
 

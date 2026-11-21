@@ -16,6 +16,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/herdr"
+	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
 )
 
@@ -53,9 +54,54 @@ func (f *fakeRestorer) runs() (n, running, most int) {
 	return len(f.roots), f.running, f.most
 }
 
+// herdrRig is the rig with the app on the real herdr adapter (herdr.Panes over the fake herdr's unix socket), whose
+// instance is its socket file's: serve's restore at the terminal's boundary. Its panes are newRig's.
+type herdrRig struct {
+	*rig
+	srv *herdrtest.Server
+}
+
+func newHerdrRig(t *testing.T) *herdrRig {
+	t.Helper()
+	r := newRig(t)
+	f := herdrtest.New()
+	f.Group("w1", "pj")
+	f.Group("w2", "other")
+	for _, lane := range []string{"L-01", "L-02"} {
+		p := f.Agent("w1:p"+lane[3:], "pj-l-0"+lane[3:], "idle", r.lane(lane))
+		p.Label = "pj-l-0" + lane[3:] // labelled by its launch: serve's identity of it
+	}
+	srv := herdrtest.Serve(t, f)
+	srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
+	c := srv.Client()
+	r.at = &adapter{Panes: herdr.Panes{S: c}, Info: c.ProcessInfo, Screen: c.Screen}
+	return &herdrRig{rig: r, srv: srv}
+}
+
+// snapshots is how many session snapshots the fake herdr answered (a subscribe reads one).
+func (r *herdrRig) snapshots() int {
+	n := 0
+	for _, req := range r.srv.Requests() {
+		if req.Method == "session.snapshot" {
+			n++
+		}
+	}
+	return n
+}
+
+// settled waits until serve has subscribed again after the snapshot count before and has run some checks on that
+// stream: a restore it started on the reconnect has been called by then.
+func (r *herdrRig) settled(before int) {
+	r.t.Helper()
+	r.waitFor("a new snapshot", func() bool { return r.snapshots() > before })
+	r.waitConnected()
+	checks, _ := app.Counts(r.app)
+	r.waitFor("checks on the new stream", func() bool { c, _ := app.Counts(r.app); return c >= checks+3 })
+}
+
 // restoreRig is newRestoreRig with the fake herdr's instance recorded (serve ran on this herdr before), started and
 // connected.
-func restoreRig(t *testing.T, hold bool) (*rig, *fakeRestorer) {
+func restoreRig(t *testing.T, hold bool) (*herdrRig, *fakeRestorer) {
 	t.Helper()
 	r, fr := newRestoreRig(t, hold)
 	r.recordInstance(r.instance())
@@ -64,10 +110,10 @@ func restoreRig(t *testing.T, hold bool) (*rig, *fakeRestorer) {
 	return r, fr
 }
 
-// newRestoreRig is newRig with a fake restorer, nothing recorded, not started.
-func newRestoreRig(t *testing.T, hold bool) (*rig, *fakeRestorer) {
+// newRestoreRig is newHerdrRig with a fake restorer, nothing recorded, not started.
+func newRestoreRig(t *testing.T, hold bool) (*herdrRig, *fakeRestorer) {
 	t.Helper()
-	r := newRig(t)
+	r := newHerdrRig(t)
 	fr := &fakeRestorer{}
 	if hold {
 		fr.hold = make(chan struct{})
@@ -77,7 +123,7 @@ func newRestoreRig(t *testing.T, hold bool) (*rig, *fakeRestorer) {
 }
 
 // instance is the fake herdr's instance now, as serve records it.
-func (r *rig) instance() string {
+func (r *herdrRig) instance() string {
 	r.t.Helper()
 	snap, err := herdr.Panes{S: r.srv.Client()}.Snapshot(context.Background())
 	if err != nil {
@@ -131,7 +177,7 @@ func (r *rig) quiet() {
 }
 
 // noRestore: no restore ran or was logged.
-func noRestore(t *testing.T, r *rig, fr *fakeRestorer, what string) {
+func noRestore(t *testing.T, r *herdrRig, fr *fakeRestorer, what string) {
 	t.Helper()
 	if n, _, _ := fr.runs(); n != 0 {
 		t.Errorf("%s: %d restores, want 0:\n%s", what, n, r.out)
@@ -152,7 +198,7 @@ func TestServeRestoresAfterTerminalBack(t *testing.T) {
 	r.srv.Die()
 	r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })
 	was := r.recorded()
-	before := r.calls(opSnapshot)
+	before := r.snapshots()
 	r.srv.Revive(t)
 	if r.instance() == was {
 		t.Fatalf("precondition: the revived herdr's instance is the recorded one (%s)", was)
@@ -183,7 +229,7 @@ func TestServeRestoresAfterTerminalBack(t *testing.T) {
 func TestServeNoRestoreWithoutLoss(t *testing.T) {
 	t.Parallel()
 	r, fr := restoreRig(t, false)
-	before := r.calls(opSnapshot)
+	before := r.snapshots()
 	r.srv.PushError("events_lost", "subscriber lagged")
 	r.waitFor("the stream end line", func() bool { return strings.Contains(r.out.String(), "events_lost") })
 	r.settled(before)
@@ -200,11 +246,11 @@ func TestServeNoRestoreWithoutLoss(t *testing.T) {
 func TestServeRestoresDoNotOverlap(t *testing.T) {
 	t.Parallel()
 	r, fr := restoreRig(t, true)
-	before := r.calls(opSnapshot)
+	before := r.snapshots()
 	r.srv.DropConns()
 	r.waitFor("the first restore running", func() bool { _, running, _ := fr.runs(); return running == 1 })
 	r.settled(before)
-	before = r.calls(opSnapshot)
+	before = r.snapshots()
 	r.srv.DropConns()
 	r.waitFor("the second reconnect's line", func() bool {
 		return strings.Contains(r.out.String(), "reconnected again: one more restore")

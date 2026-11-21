@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"obor/internal/app/port"
-	"obor/internal/herdr/herdrtest"
 	"runtime"
 	"sync"
 	"testing"
@@ -17,8 +16,8 @@ import (
 // connections.
 var bubbles sync.Map // *testing.T → *wallWatch
 
-// bubble runs f in a testing/synctest bubble. A rig built inside it has no unix socket: the fake herdr and the app's
-// socket are in-memory pipes, so every wait of the test and of the app is on the bubble's clock, which stands still
+// bubble runs f in a testing/synctest bubble. A rig built inside it has no unix socket: its terminal is in memory and
+// the app's socket an in-memory pipe, so every wait of the test and of the app is on the bubble's clock, which stands still
 // while anything runs. Machine load cannot expire such a wait; a wall watch ends it in real time (wallWatch). The rig
 // reads and writes the store through serve's own connection while serve runs (readStore): no second connection. No
 // t.Run, t.Parallel or t.Deadline inside.
@@ -203,16 +202,7 @@ func poll(t *testing.T, what string, limit, step time.Duration, records func() s
 	return "timed out"
 }
 
-// serveHerdr is the fake herdr on f: in memory in a bubble, on a unix socket outside one.
-func serveHerdr(t *testing.T, f *herdrtest.Fake) *herdrtest.Server {
-	t.Helper()
-	if inBubble(t) {
-		return herdrtest.ServeMem(t, f)
-	}
-	return herdrtest.Serve(t, f)
-}
-
-// The app at its boundary: the herdr socket client (herdr.Panes) on the fake herdr socket, a scripted lane table and
+// The app at its boundary: the rig's terminal (testkit.Term, in the port's words), a scripted lane table and
 // a clock the test moves. Ticks run every few ms; the watchdog bound is the real 10 min of the clock.
 
 type clock struct {

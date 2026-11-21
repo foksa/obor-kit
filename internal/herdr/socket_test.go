@@ -743,8 +743,8 @@ func TestStreamEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.PushError("events_lost", "subscriber fell behind")
-	if e := herdrErr(t, ended(t, st)); e.Code != "events_lost" || e.Op != "events.subscribe" {
-		t.Errorf("after an error line: Err = %v, want events_lost", e)
+	if e := herdrErr(t, ended(t, st)); e.Code != "events_lost" || e.Op != "events.subscribe" || !port.Answered(e) {
+		t.Errorf("after an error line: Err = %v, want herdr's answer events_lost", e)
 	}
 
 	st, err = srv.Client().Subscribe(ctx)
@@ -752,8 +752,9 @@ func TestStreamEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.DropConns()
-	if err := ended(t, st); !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "connection closed") {
-		t.Errorf("after herdr dropped the connection: Err = %v, want unavailable: connection closed", err)
+	if err := ended(t, st); !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "connection closed") ||
+		!port.NotRunning(err) {
+		t.Errorf("after herdr dropped the connection: Err = %v, want unavailable (not running): connection closed", err)
 	}
 
 	cctx, cancel := context.WithCancel(ctx)
@@ -766,6 +767,12 @@ func TestStreamEnds(t *testing.T) {
 		t.Errorf("after ctx cancel: Err = %v, want unavailable", err)
 	}
 	st.Close() // a second end is a no-op
+
+	// herdr answers, but no snapshot: the subscribe fails with herdr's answer, not as a herdr gone
+	srv.Fail("session.snapshot", "unavailable", "herdr is down")
+	if _, err := (herdr.Panes{S: srv.Client()}).Subscribe(ctx); err == nil || !port.Answered(err) || port.NotRunning(err) {
+		t.Errorf("a subscribe whose snapshot herdr refuses = %v, want herdr's answer", err)
+	}
 }
 
 // onSnapshot runs fn while herdr answers the n-th session.snapshot of each Subscribe (reset starts the count again);
@@ -1096,8 +1103,8 @@ func TestStreamRefreshEndsOnLayoutChange(t *testing.T) {
 		if n := srv.Push(tc.event, tc.data); n != 1 {
 			t.Fatalf("%s: precondition: push reached %d connections", tc.name, n)
 		}
-		if e := herdrErr(t, ended(t, st)); e.Code != "refresh" {
-			t.Errorf("%s: Err = %v, want Code refresh", tc.name, e)
+		if e := herdrErr(t, ended(t, st)); e.Code != "refresh" || !port.Refreshed(e) {
+			t.Errorf("%s: Err = %v, want Code refresh (port.Refreshed)", tc.name, e)
 		}
 		st, err = srv.Client().Subscribe(ctx)
 		if err != nil {
