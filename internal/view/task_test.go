@@ -1,7 +1,6 @@
 package view
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -9,7 +8,6 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/store"
 	"obor/internal/testkit"
@@ -19,10 +17,9 @@ import (
 // its title only while never dispatched), one merging, one needing you and one only specified all carry their
 // title and state in Tasks, and each section names them by id.
 func TestBuildOneTaskPerTask(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-03")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-03")
 	p.Config()
-	p.Commit(o1)
 	p.Dispatched("L-01")
 	ids := []string{"T-01", "T-02", "T-03", "T-04", "T-05"}
 	for _, id := range ids {
@@ -46,7 +43,7 @@ func TestBuildOneTaskPerTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	v := Build(Input{Status: wire.Status{Connected: true, Project: ps}, Lanes: checks.NewLaneTable(context.Background(), cfg),
+	v := Build(Input{Status: wire.Status{Connected: true, Project: ps}, Lanes: laneTable(p, cfg, map[string]laneFacts{"L-01": {Branch: "task/T-03"}}),
 		DB: db, Now: time.Now()})
 	if !v.Serve.Project || len(v.Lanes) != 1 {
 		t.Fatalf("precondition: serve has the project, one lane: %+v", v.Serve)

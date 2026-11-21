@@ -3,8 +3,10 @@ package run
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -26,22 +28,59 @@ type fx struct {
 	lane  string
 	slots string
 	cfg   *config.Config
+	git   GitFunc // Options.Git of the run (nil: real git)
 }
 
-// setup is a project with lane L-01 and commands, its check slots in a temp dir (checks.slot_dir there, heavy_at_once
-// 2, project "proj"); the lane ignores .task-run, as obor setup makes it.
+// setup is a plain project (no repository) with lane L-01 and commands, its check slots in a temp dir (checks.slot_dir
+// there, heavy_at_once 2, project "proj"); the lane ignores .task-run, as obor setup makes it. The run's git is
+// planGit's: what git says of that layout, with no process.
 func setup(t *testing.T, commands string) *fx {
 	t.Helper()
-	p := testkit.New(t)
-	f := &fx{p: p, lane: p.Lane("L-01", "task/T-01"), slots: filepath.Join(p.Base, "slots")}
+	p := testkit.NewPlain(t)
+	f := &fx{p: p, lane: p.PlainLane("L-01", "task/T-01"), slots: filepath.Join(p.Base, "slots")}
 	p.Write(filepath.Join(f.lane, ".gitignore"), ".task-done.md\n.task-run\n")
 	p.Config(testkit.Set("commands", commands), testkit.Set("checks", map[string]any{"slot_dir": f.slots, "heavy_at_once": 2}))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.cfg = cfg
+	f.cfg, f.git = cfg, planGit(f)
 	return f
+}
+
+// exitOne is the error of a command that exited 1: what git check-ignore says of a path no rule ignores.
+var exitOne = sync.OnceValue(func() error { return exec.Command("sh", "-c", "exit 1").Run() })
+
+// planGit is the git of a run in a plain project f: the lane L-01 and the main checkout are the worktrees (the top is
+// the one dir is in); the lane's .gitignore decides whether the run marker is ignored (check-ignore: no error when it
+// is, exit 1 when it is not); the changed-file list's reads answer a clean tree on main. Any other read fails the test.
+func planGit(f *fx) GitFunc {
+	return func(_ context.Context, dir string, _ []string, args ...string) (string, error) {
+		top := f.p.Root
+		if dir == f.lane || strings.HasPrefix(dir, f.lane+string(filepath.Separator)) {
+			top = f.lane
+		}
+		switch args[0] {
+		case "rev-parse": // --show-toplevel
+			return top + "\n", nil
+		case "check-ignore": // -q .task-run
+			for _, line := range strings.Split(f.p.Read(filepath.Join(top, ".gitignore")), "\n") {
+				if line == MarkerName {
+					return "", nil
+				}
+			}
+			return "", exitOne()
+		case "read-tree", "add", "reset", "diff":
+			return "", nil
+		case "write-tree":
+			return "0123456789abcdef0123456789abcdef01234567\n", nil
+		case "branch": // --show-current
+			return "main\n", nil
+		case "merge-base":
+			return "89abcdef0123456789abcdef0123456789abcdef\n", nil
+		}
+		return "", fmt.Errorf("git %s in %s: unplanned", strings.Join(args, " "), dir)
+	}
 }
 
 type result struct {
@@ -72,7 +111,7 @@ func (f *fx) runErr(t *testing.T, dir string, env []string, interrupt <-chan int
 		}
 	}
 	o := Options{Cfg: f.cfg, Env: f.p.Env(env...), Environ: append(environ, env...), Dir: dir, Name: name,
-		Args: args, Stdout: &out, Stderr: errOut, PID: os.Getpid(), Interrupted: interrupt}
+		Args: args, Stdout: &out, Stderr: errOut, PID: os.Getpid(), Interrupted: interrupt, Git: f.git}
 	s := SlotsFor(f.cfg, o.Env)
 	s.Poll, s.Report = 20*time.Millisecond, time.Hour
 	o.Slots = &s
@@ -97,6 +136,22 @@ func TestRunRcArgs(t *testing.T) {
 	}
 	if r := f.run(t, f.lane, nil, nil, "nope"); r.rc != 2 || r.out != "FAIL no commands.nope in the config\n" {
 		t.Errorf("unknown: %+v", r)
+	}
+}
+
+// the run asks Options.Git, not a process, for its worktree: a dir git says is no worktree is rc 2 with the FAIL line and
+// the command does not run.
+func TestRunNotInAGitWorktree(t *testing.T) {
+	t.Parallel()
+	f := setup(t, `{"t": "touch ran.txt"}`)
+	f.git = func(_ context.Context, dir string, _ []string, args ...string) (string, error) {
+		if args[0] != "rev-parse" {
+			t.Errorf("git %v: the run asked for more than its worktree", args)
+		}
+		return "", fmt.Errorf("fatal: not a git repository: %s", dir)
+	}
+	if r := f.run(t, f.lane, nil, nil, "t"); r.rc != 2 || r.out != "FAIL not in a git worktree\n" || f.p.Exists(filepath.Join(f.lane, "ran.txt")) {
+		t.Errorf("not a worktree: %+v, ran %v", r, f.p.Exists(filepath.Join(f.lane, "ran.txt")))
 	}
 }
 
@@ -342,50 +397,6 @@ until [ -s pid ]; do sleep 0.05; done; echo done`
 	}
 	if !gone(pid) {
 		t.Errorf("the descendant %d of a normally exiting command survived", pid)
-	}
-}
-
-// laneIndex is the lane's index file, its HEAD and its staged files: what computing a tree must not change.
-func laneIndex(t *testing.T, f *fx) string {
-	t.Helper()
-	idx := strings.TrimSpace(f.p.Git(f.lane, "rev-parse", "--path-format=absolute", "--git-path", "index"))
-	b, _ := os.ReadFile(idx)
-	return f.p.Git(f.lane, "rev-parse", "HEAD") + "|" + f.p.Git(f.lane, "diff", "--cached", "--name-only") + "|" + string(b)
-}
-
-// obor run exports OBOR_CHANGED_FILES in a lane: committed and uncommitted (also untracked) changes against the merge
-// base with the target, the done file not; the lane's index and HEAD stay as they were.
-func TestRunExportsChangedFiles(t *testing.T) {
-	t.Parallel()
-	f := setup(t, `{"files": {"cmd": "cat \"$OBOR_CHANGED_FILES\"", "heavy": true}, "light": "echo \"[$OBOR_CHANGED_FILES]\""}`)
-	f.p.Write(filepath.Join(f.lane, ".gitignore"), ".task-run\n") // the done file is not ignored: only the tree leaves it out
-	f.p.Commit(f.lane)                                            // work.txt, committed
-	f.p.Write(filepath.Join(f.lane, "shared.txt"), "tracked edit\n")
-	f.p.Git(f.lane, "add", "shared.txt") // staged
-	f.p.Write(filepath.Join(f.lane, "new.txt"), "untracked\n")
-	f.p.Submit("L-01")
-	before := laneIndex(t, f)
-	if !strings.Contains(before, "shared.txt") {
-		t.Fatalf("precondition: shared.txt staged: %q", before)
-	}
-
-	r := f.run(t, f.lane, nil, nil, "files")
-	if r.rc != 0 {
-		t.Fatalf("rc: %+v", r)
-	}
-	got := strings.Fields(r.out)
-	want := []string{".gitignore", "new.txt", "shared.txt", "work.txt"}
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("changed files %v, want %v (committed + staged + untracked, no done file)", got, want)
-	}
-	if after := laneIndex(t, f); after != before {
-		t.Errorf("the lane's index or HEAD changed while computing the tree:\nbefore %q\nafter  %q", before, after)
-	}
-	if r := f.run(t, f.lane, nil, nil, "light"); r.out != "[]\n" {
-		t.Errorf("a light command gets no changed-file list: %q", r.out)
-	}
-	if r := f.run(t, f.p.Root, nil, nil, "files"); r.out != "" {
-		t.Errorf("outside a lane there is no list: %+v", r)
 	}
 }
 

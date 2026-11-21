@@ -17,7 +17,6 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -34,10 +33,9 @@ func TestMain(m *testing.M) { testkit.Main(m) }
 // T-01). Serve's answer says T-01 works on L-01 with its job fetched, and holds one needs-you.
 func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 	t.Helper()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
 	p.Dispatched("L-01")
 	p.Submit("L-01", "Summary: built it.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none.")
@@ -73,7 +71,7 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	want := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now, Events: 20})
+	want := view.Build(view.Input{Status: ss, Lanes: laneTable(p, cfg, oneLane), DB: db, Now: now, Events: 20})
 	if !want.Serve.Up || len(want.NeedsYou) != 1 || len(want.Lanes) != 1 {
 		t.Fatalf("precondition: serve up, one needs-you, one lane: %+v", want)
 	}
@@ -87,6 +85,9 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 		},
 		Agent: func(context.Context, string) (view.Detail, error) {
 			return view.Detail{Root: p.Root, Project: want}, nil
+		},
+		Setup: func(ctx context.Context, root string) (view.Setup, error) {
+			return view.LoadSetupGit(ctx, root, laneGit(p, oneLane))
 		},
 		Events: 20,
 	}
@@ -356,7 +357,7 @@ func TestAgentPageOfRoles(t *testing.T) {
 			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01",
 				Status: "working"}},
 			Stopped: []string{"pj-rev", "pj-advisor"}}}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now, Events: 20})
+	v := view.Build(view.Input{Status: ss, Lanes: laneTable(p, cfg, oneLane), DB: db, Now: now, Events: 20})
 	roles := map[string]view.Role{}
 	for _, r := range v.Roles {
 		roles[r.Agent] = r
@@ -654,7 +655,7 @@ func TestListenLocalhostOnly(t *testing.T) {
 // and a stopped project says so; the landing's row carries no error.
 func TestViewOfANewerConfigWarns(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("zz_future", "")) // agents.roles.<name> is a custom role now, no unknown key
 	p.Spec("T-01", "# T-01 — stored, never dispatched\n\nDifficulty: simple\n")
 	if _, unknown, err := config.LoadForValidate(p.Root); err != nil || len(unknown) != 1 {
@@ -691,7 +692,7 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 // not as at work; a stopped role and an idle one are not listed; and the page script shows the roles on the card.
 func TestOverviewShowsWorkingRoles(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("agents.roles.deep_dive", "opus"),
 		testkit.Set("agents.roles.reviewer", "opus"),
 		testkit.Set("agents.roles.advisor", "opus"))
@@ -706,7 +707,7 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 			Agents:  []wire.AgentStatus{{Pane: "w1:p1", Name: deep, Agent: "claude", Status: "working", Age: 540}},
 			Stopped: []string{rev},
 			Briefs:  []wire.BriefStatus{{To: adv}}}}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: now, Events: 20})
+	v := view.Build(view.Input{Status: ss, Lanes: laneTable(p, cfg, nil), Now: now, Events: 20})
 	if len(v.Roles) < 3 {
 		t.Fatalf("precondition: the view lists the three roles: %+v", v.Roles)
 	}
@@ -743,7 +744,7 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 // lane free, its status is not the lane count's), and not while it is idle.
 func TestOverviewShowsWorkingLead(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -757,7 +758,7 @@ func TestOverviewShowsWorkingLead(t *testing.T) {
 		t.Helper()
 		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
 			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: lead, Agent: "claude", Status: status, Age: 90}}}}
-		v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Events: 20})
+		v := view.Build(view.Input{Status: ss, Lanes: laneTable(p, cfg, nil), Now: time.Now(), Events: 20})
 		if v.Lead == nil || v.Lead.Status != status {
 			t.Fatalf("precondition: the view's lead has status %q: %+v", status, v.Lead)
 		}
@@ -794,10 +795,9 @@ func TestOverviewShowsWorkingLead(t *testing.T) {
 // read scans none; the overview is where they are read); the page reads both.
 func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Dispatched("L-01") // its row holds T-01, not landed: busy
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -807,7 +807,7 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Agents: []wire.AgentStatus{
 		{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"}, {Pane: "w1:p2", Name: lead, Status: "idle"}}}}
 	conv := view.Background{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Events: 20,
+	v := view.Build(view.Input{Status: ss, Lanes: laneTable(p, cfg, oneLane), Now: time.Now(), Events: 20,
 		Background: map[string][]view.Background{"pj-l1": {conv}, lead: {{PID: 7, Command: "sleep 600", Background: true, Age: 45},
 			{PID: 8, Command: "go test ./...", Age: 300}}}})
 	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },

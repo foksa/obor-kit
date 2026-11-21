@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -18,10 +17,9 @@ import (
 // over a lane git reads as submitted (which the lanes row shows for a green task).
 func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Commit(o1)
 	p.Submit("L-01")
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -42,7 +40,7 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 		}
 		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
 			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: c.state, Phase: c.phase, Stage: stage}}}}
-		v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Events: 20})
+		v := view.Build(view.Input{Status: ss, Lanes: laneTable(p, cfg, oneLane), Now: time.Now(), Events: 20})
 		if len(v.Lanes) != 1 || v.Lanes[0].State != "working" || v.Lanes[0].DoneAge == nil {
 			t.Fatalf("precondition: L-01 submitted (working, its task_done's age): %+v", v.Lanes)
 		}

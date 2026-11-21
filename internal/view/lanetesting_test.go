@@ -15,16 +15,15 @@ import (
 // no branch: the lane serve owns still shows its task, the dispatch's branch and the phase testing. After the test's
 // restore git is the source as before; a detached lane serve does not own still reads as git says.
 func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
-	p.Lane("L-02", "") // a detached lane serve does not own
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
+	p.PlainLane("L-02", "") // a detached lane serve does not own
 	p.Config()
-	p.Commit(o1)
 	p.Dispatched("L-01")
 	// A stale row: its task is not open (dropped: landed).
 	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02", "landed": true})
-	p.Git(o1, "checkout", "-q", "--detach", "main") // the lane test's checkout: detached, off the branch
-	p.Commit(o1, "candidate")
+	// the lane test's checkout: L-01 detached at the candidate, off the branch; L-02 detached at main
+	lanes := map[string]laneFacts{"L-01": {Head: "cafe"}, "L-02": {Merged: true}}
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
@@ -34,7 +33,7 @@ func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
 			Running: []wire.RunningStep{{Step: event.StepTest, Task: "T-01", Since: now.Add(-time.Minute).Unix()}}}}
 	read := func() Project {
 		t.Helper()
-		v, err := reading{ask: func(context.Context, string) (wire.Status, error) { return ss, nil }}.load(
+		v, err := reading{ask: func(context.Context, string) (wire.Status, error) { return ss, nil }, git: laneGit(p, lanes)}.load(
 			context.Background(), p.Root, now, 5)
 		if err != nil {
 			t.Fatal(err)
@@ -73,7 +72,7 @@ func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
 	}
 
 	// After the test's restore the lane is back on its branch and git names the task.
-	p.Git(o1, "checkout", "-q", "task/T-01")
+	lanes["L-01"] = laneFacts{Branch: "task/T-01"}
 	v = read()
 	if l := v.Lanes[0]; l.State != "working" || l.Task != "T-01" || l.Branch != "task/T-01" || l.Column != wire.PhaseTesting {
 		t.Errorf("restored testing lane %+v; want working, task T-01, branch task/T-01, column testing", l)

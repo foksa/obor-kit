@@ -120,6 +120,13 @@ func LoadSetup(ctx context.Context, root string) (Setup, error) {
 	return reading{}.setup(ctx, root)
 }
 
+// LoadSetupGit is LoadSetup with the lane table's git reads run by git (nil: project.GitCtx, LoadSetup's): a test of a
+// page over lanes it lays out as files, not worktrees.
+func LoadSetupGit(ctx context.Context, root string,
+	git func(ctx context.Context, dir string, args ...string) (string, error)) (Setup, error) {
+	return reading{git: git}.setup(ctx, root)
+}
+
 func (r reading) setup(ctx context.Context, root string) (Setup, error) {
 	// the revision first: a write between the two reads leaves it older than what is shown, so an edit is refused
 	// rather than made on a page that hides a change

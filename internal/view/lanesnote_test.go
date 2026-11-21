@@ -15,7 +15,7 @@ import (
 // serve's line on a lane table older than its tick follows the project's own notes (obor status prints them,
 // the page shows them); a fresh table adds none.
 func TestBuildLanesNote(t *testing.T) {
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	cfg, err := config.Load(p.Root)
 	if err != nil {
