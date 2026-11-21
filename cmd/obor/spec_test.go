@@ -8,6 +8,35 @@ import (
 	"obor/internal/app/wire"
 )
 
+// obor spec's argument check ends before the command reads its directory or sends a request: specSetArgs is the form of
+// spec set's arguments, specCmd's usage line the rest.
+func TestSpecArguments(t *testing.T) {
+	for _, c := range []struct {
+		args             []string
+		task, path, note string
+	}{
+		{[]string{"T-07", "a.md"}, "T-07", "a.md", ""},
+		{[]string{"T-07", "a.md", "--note", " widen it "}, "T-07", "a.md", "widen it"},
+	} {
+		if task, path, note, ok := specSetArgs(c.args); !ok || task != c.task || path != c.path || note != c.note {
+			t.Errorf("specSetArgs(%q) = %q, %q, %q, %v; want %q, %q, %q", c.args, task, path, note, ok, c.task, c.path, c.note)
+		}
+	}
+	for _, args := range [][]string{{"T-07"}, {"T-07", "a.md", "--note"}, {"T-07", "a.md", "--note", " "}, {"T-07", "a.md", "x"}} {
+		if _, _, _, ok := specSetArgs(args); ok {
+			t.Errorf("specSetArgs(%q) is ok, want the usage", args)
+		}
+		if rc, stdout := callCmd(t, specCmd, append([]string{"set"}, args...)...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor spec") {
+			t.Errorf("spec set %q: exit %d, %q; want the usage", args, rc, stdout)
+		}
+	}
+	for _, args := range [][]string{nil, {"edit", "T-07"}, {"show"}, {"list", "x"}} {
+		if rc, stdout := callCmd(t, specCmd, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor spec") {
+			t.Errorf("spec %q: exit %d, %q; want the usage", args, rc, stdout)
+		}
+	}
+}
+
 // obor spec set is one socket request to obor serve: the file's text read once, the task, the caller and its
 // role (the session's: a lane's cwd is a worker's whatever OBOR_ROLE says, so serve refuses it); its reply is printed.
 // A bad task id or an unreadable file asks nothing; serve down or a refusal is FAIL, exit 1.
@@ -65,11 +94,7 @@ func TestSpecSetRequest(t *testing.T) {
 	}{
 		{"bad task id", []string{"spec", "set", "X-1", draft}, "FAIL X-1 is no task id"},
 		{"no such file", []string{"spec", "set", "T-07", filepath.Join(p.Root, "nope.md")}, "FAIL cannot read "},
-		{"no path", []string{"spec", "set", "T-07"}, "FAIL usage: obor spec set"},
-		{"note without text", []string{"spec", "set", "T-07", draft, "--note"}, "FAIL usage: obor spec set"},
-		{"empty note", []string{"spec", "set", "T-07", draft, "--note", " "}, "FAIL usage: obor spec set"},
-		{"no subcommand", []string{"spec"}, "FAIL usage: obor spec set"},
-		{"unknown subcommand", []string{"spec", "edit", "T-07"}, "FAIL usage: obor spec set"},
+		{"no path", []string{"spec", "set", "T-07"}, "FAIL usage: obor spec set"}, // the other shapes: TestSpecArguments
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || !strings.HasPrefix(stdout, c.want) {
 			t.Errorf("%s: exit %d, %q; want %q, exit 1", c.name, rc, stdout, c.want)

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
@@ -41,13 +43,7 @@ func TestLaneCommands(t *testing.T) {
 		rc   int
 		last string
 	}{
-		{nil, []string{"dispatch"}, 1, "FAIL " + help.Usage("dispatch")},
-		{nil, []string{"dispatch", "L-01", "T-05"}, 1, "FAIL " + help.Usage("dispatch")},
-		{nil, []string{"dispatch", "T-05", "x"}, 1, "FAIL " + help.Usage("dispatch")},
-		{nil, []string{"dispatch", "T-05", "--agent"}, 1, "FAIL " + help.Usage("dispatch")},
-		{nil, []string{"dispatch", "T-05", "--bogus"}, 1, "FAIL " + help.Usage("dispatch")},
-		{nil, []string{"drop", "T-01"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
-		{nil, []string{"drop", "T-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
+		// dispatch's arguments: TestDispatchArguments; drop's usage rows: TestDropUsage
 		{nil, []string{"drop", "L-01", "why"}, 1, "FAIL L-01 is no task id (task_id_pattern T-[0-9]+[a-z]?)"}, // a lane is not a task id
 		// A drop that passes these checks is a request to obor serve: TestDropServeRequest.
 	} {
@@ -57,6 +53,72 @@ func TestLaneCommands(t *testing.T) {
 		rc, stdout, stderr := run(t, p.Root, env, c.args...)
 		if rc != c.rc || lastLine(stdout) != c.last || stderr != "" {
 			t.Errorf("obor %v: exit %d (want %d)\n%s---\n%s", c.args, rc, c.rc, stdout, stderr)
+		}
+	}
+}
+
+// obor dispatch's arguments as the request's fields: the level form, --model, --after and --force in any order; every
+// other shape is the usage, a task id outside task_id_pattern is its own line. (The binary's row: TestDispatchServeRequest.)
+func TestDispatchArguments(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Data: config.Data{Project: config.Project{TaskIDPattern: "T-[0-9]+[a-z]?"}}}
+	for _, c := range []struct {
+		name string
+		args []string
+		want wire.DispatchReq // the fields the arguments set
+	}{
+		{"level", []string{"T-07"}, wire.DispatchReq{Task: "T-07"}},
+		{"level, force", []string{"T-07", "--force"}, wire.DispatchReq{Task: "T-07", Force: true}},
+		{"models", []string{"T-07", "--model", "sonnet,opus"}, wire.DispatchReq{Task: "T-07", Types: []string{"sonnet", "opus"}}},
+		{"models, force first", []string{"--force", "--model", "opus", "T-07"},
+			wire.DispatchReq{Task: "T-07", Types: []string{"opus"}, Force: true}},
+		{"level, after", []string{"T-07", "--after", "T-05,T-06"}, wire.DispatchReq{Task: "T-07", After: []string{"T-05", "T-06"}}},
+		{"models, after first", []string{"--after", "T-05", "T-07", "--model", "opus"},
+			wire.DispatchReq{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
+	} {
+		var got wire.DispatchReq
+		if err := dispatchArgs(c.args, cfg, &got); err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %+v, %v; want %+v", c.name, got, err, c.want)
+		}
+	}
+	usage := help.Usage("dispatch")
+	for _, c := range []struct {
+		name string
+		args []string
+		err  string
+	}{
+		{"no task", nil, usage},
+		{"agent", []string{"T-07", "--agent", "x"}, usage},
+		{"agent without a value", []string{"T-05", "--agent"}, usage},
+		{"no-prompt", []string{"T-07", "--no-prompt"}, usage},
+		{"strict", []string{"T-07", "--strict"}, usage},
+		{"fresh", []string{"T-07", "--fresh"}, usage},
+		{"lane form (gone)", []string{"L-01", "T-07"}, usage},
+		{"lane form with models", []string{"L-01", "T-07", "--model", "opus"}, usage},
+		{"models without a task", []string{"--model", "opus"}, usage},
+		{"empty model", []string{"T-07", "--model", "opus,"}, usage},
+		{"models without a value", []string{"T-07", "--model"}, usage},
+		{"two tasks", []string{"T-07", "T-08"}, usage},
+		{"a word after the task", []string{"T-05", "x"}, usage},
+		{"unknown flag", []string{"T-07", "--bogus"}, usage},
+		{"after without a value", []string{"T-07", "--after"}, usage},
+		{"empty after", []string{"T-07", "--after", "T-05,"}, usage},
+		{"after twice", []string{"T-07", "--after", "T-05", "--after", "T-06"}, usage},
+		{"bad task id", []string{"X-1"}, "X-1 is no task id (task_id_pattern T-[0-9]+[a-z]?)"},
+		{"bad task id in --after", []string{"T-07", "--after", "T-05,X-2"}, "X-2 is no task id (task_id_pattern T-[0-9]+[a-z]?)"},
+	} {
+		if err := dispatchArgs(c.args, cfg, &wire.DispatchReq{}); err == nil || err.Error() != c.err {
+			t.Errorf("%s: %v; want %q", c.name, err, c.err)
+		}
+	}
+}
+
+// obor drop's usage rows end before the command reads its directory: the rows call dropCmd.
+func TestDropUsage(t *testing.T) {
+	usage := "FAIL usage: obor drop <T-xx> \"<why>\" [--discard] [--force]\n"
+	for _, args := range [][]string{{"T-01"}, {"T-01", "why", "--bogus"}} {
+		if rc, stdout := callCmd(t, dropCmd, args...); rc != 1 || stdout != usage {
+			t.Errorf("drop %q: exit %d, %q; want 1 and %q", args, rc, stdout, usage)
 		}
 	}
 }

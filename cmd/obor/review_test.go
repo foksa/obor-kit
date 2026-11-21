@@ -8,6 +8,22 @@ import (
 	"obor/internal/testkit"
 )
 
+// obor review's argument check ends before the command reads its directory or sends a request: the rows call reviewCmd.
+// A bare obor review given --after or --note is refused, naming start.
+func TestReviewArguments(t *testing.T) {
+	for _, args := range [][]string{{"start", "--rm", "--after", "T-1"}, {"start", "--after"}, {"start", "--note", ""},
+		{"start", "T-1"}, {"--rm", "--note", "x"}} {
+		if rc, stdout := callCmd(t, reviewCmd, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review") {
+			t.Errorf("review %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
+		}
+	}
+	for _, args := range [][]string{{"--after", "T-1"}, {"--note", "x"}} {
+		if rc, stdout := callCmd(t, reviewCmd, args...); rc != 1 || !strings.Contains(stdout, "obor review start") {
+			t.Errorf("review %q: exit %d, %q; want 1, a refusal naming obor review start", args, rc, stdout)
+		}
+	}
+}
+
 // obor review start [--after T-a,T-b] [--note …] | --rm is one review request as the caller; a usage error or a bad
 // task id sends nothing (FAIL on stdout, exit 1). A bare obor review given --after or --note is refused, naming start.
 func TestReviewRequest(t *testing.T) {
@@ -16,16 +32,9 @@ func TestReviewRequest(t *testing.T) {
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "REVIEW REQUESTED", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	for _, args := range [][]string{{"review", "start", "--rm", "--after", "T-1"}, {"review", "start", "--after"},
-		{"review", "start", "--note", ""}, {"review", "start", "T-1"}, {"review", "--rm", "--note", "x"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review") {
-			t.Errorf("obor %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
-		}
-	}
-	for _, args := range [][]string{{"review", "--after", "T-1"}, {"review", "--note", "x"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.Contains(stdout, "obor review start") {
-			t.Errorf("obor %q: exit %d, %q; want 1, a refusal naming obor review start", args, rc, stdout)
-		}
+	// a usage error sends nothing (the rows: TestReviewArguments)
+	if rc, stdout, _ := run(t, p.Root, env, "review", "start", "--after"); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review") {
+		t.Errorf("obor review start --after: exit %d, %q; want 1, FAIL usage", rc, stdout)
 	}
 	if rc, stdout, _ := run(t, p.Root, env, "review", "start", "--after", "T-1,nope"); rc != 1 ||
 		!strings.HasPrefix(stdout, "FAIL nope is no task id") {
