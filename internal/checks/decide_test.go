@@ -416,9 +416,10 @@ func TestGateDecisions(t *testing.T) {
 	})
 	t.Run("commands.compile: its counts in the line; red: nothing committed or pinned", func(t *testing.T) {
 		t.Parallel()
-		k := newFk(t, cmd("compile", "echo 1 pass"))
+		k := newFk(t, cmd("compile", "echo 1 pass"), cmd("check", `touch "$TMP_DIR/check-ran"; echo 1 pass`))
 		o := k.gate(lane(k.submit()))
 		k.eq(o.Candidate.Checks+"|"+o.Line, "compile 1 pass|GREEN T-05 (compile 1 pass)", "the checks and the line")
+		k.gone(filepath.Join(k.Base, "check-ran"), "the class's check never runs in the gate")
 		r := newFk(t, cmd("compile", "echo 0 pass; exit 1"))
 		sha := r.submit()
 		r.g.calls = nil
