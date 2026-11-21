@@ -2,7 +2,7 @@
   "packages": {
     "obor/cmd/obor": {
       "full_s": 29.7,
-      "git_procs": 648
+      "git_procs": 645
     },
     "obor/internal/agents": {
       "full_s": 0.4,

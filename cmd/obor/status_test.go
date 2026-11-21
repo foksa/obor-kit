@@ -163,6 +163,11 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 	return lines
 }
 
+// upProject is a literal project with serve up on the terminal and its merge loop on: the formatting rows render it.
+func upProject() view.Project {
+	return view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true}}
+}
+
 // A task line ends with the step it runs: a held gate or publish, numbered steps kept, and nothing on an idle task.
 func TestStatusTaskLines(t *testing.T) {
 	for _, c := range []struct {
@@ -229,7 +234,9 @@ func TestStatusShowsWaiting(t *testing.T) {
 }
 
 // A waiting dispatch that held its refusal so long that serve shows it as needs-you is still the queue's, not a task
-// line of the lanes section: serve's waiting predicate decides, never the displayed state.
+// line of the lanes section: serve's waiting predicate decides, never the displayed state. This row keeps the
+// whole-project build: the task's waiting flag is view.Build's, and this is its reader (same for the first row of
+// TestStatusRunningLine, the configured command).
 func TestStatusWaitingShownAsNeedsYou(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -406,127 +413,113 @@ func TestWebStatus(t *testing.T) {
 	}
 }
 
-// the running line right under serve's says what serve does without an agent: an open gate intent with the
-// command it runs and its elapsed time, two steps at once both, a publish (git alone) and the nightly check, a pending
-// self-restart, and `running: nothing` when none is open.
+// the running line right under serve's says what serve does without an agent: one row through view.Build gives each
+// step the configured command it runs, serve's own step name when the config sets none (the line never guesses one);
+// on the view's own steps the rest is the wording:
+// the gate and what it runs with its elapsed time, two steps at once both, a publish (git alone) and the nightly check,
+// a pending self-restart, and `running: nothing` when none is open.
 func TestStatusRunningLine(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("merge.check", "make -s check"), testkit.Set("merge.after", "make build"),
 		testkit.Set("commands.check_affected", "make -s check-affected"))
 	now := time.Now().Truncate(time.Second)
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Running: []wire.RunningStep{
+		{Step: event.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
+		{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
+		// a command the config does not set shows serve's name alone; between two commands (the runner clears it as
+		// each ends) serve names none, so the line names none either.
+		{Step: event.StepTest, Task: "T-6", Command: "guard", Since: now.Add(-9 * time.Second).Unix()},
+		{Step: event.StepGate, Task: "T-657", Since: now.Add(-14 * time.Second).Unix()},
+		{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()},
+		{Step: event.StepNightly, Since: now.Add(-90 * time.Second).Unix()}}}}
+	_, text := statusOf(t, p, ss, nil, now)
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	want := "running: gate T-656 (make -s check, 2m14s) · test T-5 (make -s check-affected, 2m00s) · " +
+		"test T-6 (guard, 9s) · gate T-657 (14s) · after_merge T-655 (make build, 12s) · nightly check (make -s check, 1m30s)"
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: ") {
+		t.Fatalf("the first line is not serve's:\n%s", text)
+	}
+	if lines[1] != want {
+		t.Errorf("the line under serve's = %q, want %q\n%s", lines[1], want, text)
+	}
 	for _, c := range []struct {
 		name    string
-		running []wire.RunningStep
+		running []view.Running
 		want    string
 	}{
 		{"nothing open", nil, "running: nothing"},
-		{"gate", []wire.RunningStep{{Step: event.StepGate, Task: "T-656", Command: "check",
-			Since: now.Add(-2*time.Minute - 14*time.Second).Unix()}}, "running: gate T-656 (make -s check, 2m14s)"},
-		// a partial gate shows the class's command serve says it runs; between two commands
-		// (the runner clears it as each ends) none, so the line names no command either.
-		{"partial gate", []wire.RunningStep{{Step: event.StepGate, Task: "T-656", Command: "check_affected",
-			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (make -s check-affected, 14s)"},
-		{"gate between two commands", []wire.RunningStep{{Step: event.StepGate, Task: "T-656",
-			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (14s)"},
-		{"two steps at once", []wire.RunningStep{
-			{Step: event.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
-			{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
-			"running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build, 12s)"},
-		// the slot's gate and two lanes' tests at once, each test with the class's command it runs.
-		{"lane tests beside the slot", []wire.RunningStep{
-			{Step: event.StepGate, Task: "T-7", Command: "compile", Since: now.Add(-3 * time.Second).Unix()},
-			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
-			{Step: event.StepTest, Task: "T-6", Command: "guard", Since: now.Add(-9 * time.Second).Unix()}},
-			"running: gate T-7 (compile, 3s) · test T-5 (make -s check-affected, 2m00s) · test T-6 (guard, 9s)"},
-		{"publish", []wire.RunningStep{{Step: event.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
+		{"publish", []view.Running{{Step: event.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
 			"running: publish T-4 (5s)"},
-		{"nightly check", []wire.RunningStep{{Step: event.StepNightly, Since: now.Add(-90 * time.Second).Unix()}},
-			"running: nightly check (make -s check, 1m30s)"},
-		{"restarting serve", []wire.RunningStep{{Step: event.StepServeRestart, Since: now.Unix()}},
+		{"restarting serve", []view.Running{{Step: event.StepServeRestart, Since: now.Unix()}},
 			"running: restarting serve"},
 		// the restart holds nothing back: lane tests run beside it, and the line says nothing about waiting.
-		{"restarting serve beside a lane test", []wire.RunningStep{
-			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
+		{"restarting serve beside a lane test", []view.Running{
+			{Step: event.StepTest, Task: "T-5", Command: "make -s check-affected", Since: now.Add(-2 * time.Minute).Unix()},
 			{Step: event.StepServeRestart, Since: now.Unix()}},
 			"running: test T-5 (make -s check-affected, 2m00s) · restarting serve"},
-		{"restarting serve beside two lane tests", []wire.RunningStep{
-			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
-			{Step: event.StepTest, Task: "T-6", Command: "guard", Since: now.Add(-9 * time.Second).Unix()},
-			{Step: event.StepServeRestart, Since: now.Unix()}},
-			"running: test T-5 (make -s check-affected, 2m00s) · test T-6 (guard, 9s) · restarting serve"},
 	} {
-		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Running: c.running}}
-		st, text := statusOf(t, p, ss, nil, now)
-		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		st := upProject()
+		st.Running = c.running
+		var b bytes.Buffer
+		writeStatus(&b, st, now)
+		lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 		if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: ") {
-			t.Fatalf("%s: the first line is not serve's:\n%s", c.name, text)
+			t.Fatalf("%s: the first line is not serve's:\n%s", c.name, b.String())
 		}
 		if lines[1] != c.want {
-			t.Errorf("%s: the line under serve's = %q, want %q\n%s", c.name, lines[1], c.want, text)
-		}
-		for _, r := range st.Running { // --json: the same command the text names
-			if r.Step != event.StepServeRestart && r.Step != event.StepPublish && r.Command != "" &&
-				!strings.Contains(lines[1], "("+r.Command+", ") {
-				t.Errorf("%s: --json running %+v, its command not on the text line %q", c.name, r, lines[1])
-			}
-			if r.Step == event.StepGate && r.Command == "" && strings.Contains(lines[1], "make") {
-				t.Errorf("%s: --json has no command, the text guesses one: %q", c.name, lines[1])
-			}
+			t.Errorf("%s: the line under serve's = %q, want %q\n%s", c.name, lines[1], c.want, b.String())
 		}
 	}
 }
 
 // the pending line under the running one names the command steps whose effect does not run now: a failed step
 // with the age of its last failure and its reason (its first line, short), one that never failed as queued; no line at
-// all when nothing waits, and --json carries the same steps.
+// all when nothing waits.
 func TestStatusPendingLine(t *testing.T) {
-	p := testkit.NewPlain(t)
-	p.Config()
 	now := time.Now().Truncate(time.Second)
-	pending := []wire.PendingStep{
+	st := upProject()
+	st.Running = []view.Running{{Step: event.StepGate, Task: "T-654", Since: now.Add(-time.Minute).Unix()}}
+	st.Pending = []wire.PendingStep{
 		{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-time.Hour).Unix(),
 			Error: "git I/O: index.lock exists", FailedAt: now.Add(-3 * time.Minute).Unix()},
 		{Step: event.StepGate, Task: "T-656", Since: now.Add(-time.Minute).Unix()},
 	}
-	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-		Running: []wire.RunningStep{{Step: event.StepGate, Task: "T-654", Since: now.Add(-time.Minute).Unix()}},
-		Pending: pending}}
-	st, text := statusOf(t, p, ss, nil, now)
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 	if len(lines) < 3 || lines[2] != "pending: after_merge T-655 (failed 3m ago: git I/O: index.lock exists) · gate T-656 (queued)" {
-		t.Errorf("the line under the running one = %q, want the two pending steps:\n%s", lines, text)
-	}
-	if len(st.Pending) != 2 || st.Pending[0].Error != pending[0].Error || st.Pending[1].Step != event.StepGate {
-		t.Errorf("--json pending %+v, want serve's two steps", st.Pending)
+		t.Errorf("the line under the running one = %q, want the two pending steps:\n%s", lines, b.String())
 	}
 	// A reason keeps its first line only.
-	ss.Project.Pending = []wire.PendingStep{{Step: event.StepAfterMerge, Task: "T-655", FailedAt: now.Unix(),
+	st.Pending = []wire.PendingStep{{Step: event.StepAfterMerge, Task: "T-655", FailedAt: now.Unix(),
 		Error: "FAIL T-655\nsecond line"}}
-	_, text = statusOf(t, p, ss, nil, now)
-	if !strings.Contains(text, "pending: after_merge T-655 (failed 0s ago: FAIL T-655)") {
-		t.Errorf("a multi-line reason is not shown as its first line only:\n%s", text)
+	b.Reset()
+	writeStatus(&b, st, now)
+	if !strings.Contains(b.String(), "pending: after_merge T-655 (failed 0s ago: FAIL T-655)") {
+		t.Errorf("a multi-line reason is not shown as its first line only:\n%s", b.String())
 	}
 	// Nothing waits: no pending line at all.
-	ss.Project.Pending, ss.Project.Running = nil, nil
-	if _, text = statusOf(t, p, ss, nil, now); strings.Contains(text, "pending:") {
-		t.Errorf("the pending line is printed with nothing pending:\n%s", text)
+	st.Pending, st.Running = nil, nil
+	b.Reset()
+	writeStatus(&b, st, now)
+	if strings.Contains(b.String(), "pending:") {
+		t.Errorf("the pending line is printed with nothing pending:\n%s", b.String())
 	}
 }
 
 // --short is the serve line, the running line and needs-you, nothing else (a status bar; the open review's line, when
 // one is open: TestStatusReviewOpen).
 func TestStatusShort(t *testing.T) {
-	p := testkit.NewPlain(t)
-	p.Config()
 	now := time.Now().Truncate(time.Second)
-	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
-		Name: "pj", Root: p.Root, Merging: true,
-		Running:  []wire.RunningStep{{Step: event.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}},
-		Tasks:    []wire.TaskStatus{{Task: "T-2", Lane: "L-02", Attempt: 1, State: "working"}},
-		Messages: []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
-		Facts:    []event.Record{fact(t, 1, "T-3", event.FactData{Lane: "L-03", Reason: "stalled"})},
-	}}
-	st, _ := statusOf(t, p, ss, nil, now)
+	st := upProject()
+	st.Serve.Since, st.Serve.SinceTime = now.Add(-time.Hour).UTC().Format(time.RFC3339), now.Add(-time.Hour)
+	st.Running = []view.Running{{Step: event.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}}
+	st.Tasks = map[string]view.Task{
+		"T-2": {Task: "T-2", Lane: "L-02", Attempt: 1, TaskState: "working", Open: true},
+		"T-3": {Task: "T-3", Lane: "L-03"},
+	}
+	st.Messages = []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}}
+	st.NeedsYou = []view.NeedsYou{{Task: "T-3", Reason: "stalled"}}
 	var b bytes.Buffer
 	writeStatusShort(&b, st, now)
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
@@ -584,21 +577,19 @@ func TestReviewOpenLine(t *testing.T) {
 
 // the open review's line is right under serve's in obor status and in --short, and --json carries it as review_open.
 func TestStatusReviewOpen(t *testing.T) {
-	p := testkit.NewPlain(t)
-	p.Config()
 	now := time.Now().Truncate(time.Second)
-	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
-		Name: "pj", Root: p.Root, Merging: true,
-		ReviewOpen: &wire.ReviewOpenStatus{ID: "RV-190", Stage: wire.ReviewReviewing, Tasks: []string{"T-1254"},
-			Agent: "ob-rev", AgentStatus: "working", Since: now.Add(-6 * time.Minute).Unix()},
-	}}
+	st := upProject()
+	st.Serve.Since, st.Serve.SinceTime = now.Add(-time.Hour).UTC().Format(time.RFC3339), now.Add(-time.Hour)
+	st.ReviewOpen = &wire.ReviewOpenStatus{ID: "RV-190", Stage: wire.ReviewReviewing, Tasks: []string{"T-1254"},
+		Agent: "ob-rev", AgentStatus: "working", Since: now.Add(-6 * time.Minute).Unix()}
 	want := "review RV-190: reviewing T-1254 (ob-rev working, 6m)"
-	st, text := statusOf(t, p, ss, nil, now)
-	lines := strings.Split(text, "\n")
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != want {
-		t.Errorf("obor status:\n%s\nwant serve's line, then %q", text, want)
-	}
 	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	lines := strings.Split(b.String(), "\n")
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != want {
+		t.Errorf("obor status:\n%s\nwant serve's line, then %q", b.String(), want)
+	}
+	b.Reset()
 	writeStatusShort(&b, st, now)
 	short := strings.Split(b.String(), "\n")
 	if len(short) < 2 || !strings.HasPrefix(short[0], "serve: up since ") || short[1] != want {
@@ -621,45 +612,37 @@ func TestStatusReviewOpen(t *testing.T) {
 // it; a worker's line and the lead's have none.
 func TestStatusDoneRoleHint(t *testing.T) {
 	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
-		Name: "proj", Root: p.Root, Merging: true, Tasks: []wire.TaskStatus{}, Facts: []event.Record{},
-		Agents: []wire.AgentStatus{
-			{Machine: "local", Group: "pj", Pane: "w1:p3", Name: "pj-advisor", Agent: "claude", Status: "done", Age: 3600,
-				Hint: "obor restart pj-advisor --stop"},
-			{Machine: "local", Group: "pj", Pane: "w1:p1", Name: "pj-l-01", Agent: "claude", Status: "done", Age: 3600},
-		}}}
-	_, text := statusOf(t, p, ss, nil, now)
+	st := upProject()
+	st.Serve.Since, st.Serve.SinceTime = now.Add(-time.Hour).Format(time.RFC3339), now.Add(-time.Hour)
+	st.Agents = []wire.AgentStatus{
+		{Machine: "local", Group: "pj", Pane: "w1:p3", Name: "pj-advisor", Agent: "claude", Status: "done", Age: 3600,
+			Hint: "obor restart pj-advisor --stop"},
+		{Machine: "local", Group: "pj", Pane: "w1:p1", Name: "pj-l-01", Agent: "claude", Status: "done", Age: 3600},
+	}
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	text := b.String()
 	matchLine(t, text, `^agent pj-advisor: done 1h → obor restart pj-advisor --stop$`, "the advisor's line and its hint")
 	matchLine(t, text, `^agent pj-l-01: done 1h$`, "the worker's line, no hint")
 }
 
-// a role agent serve stopped once its work was done, with no pane running it, is `stopped`, not missing: the
-// view's role row and the status line `agent <name>: stopped`; one serve did not stop has no pane as before.
+// a role agent serve stopped once its work was done, with no pane running it, is `stopped`: the status line
+// `agent <name>: stopped`; a role serve did not stop has no such line.
 func TestStatusStoppedRole(t *testing.T) {
 	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
-		Name: "proj", Root: p.Root, Merging: true, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
-		Facts: []event.Record{}, Stopped: []string{"pj-int"}}}
-	st, text := statusOf(t, p, ss, nil, now)
-	roles := map[string]string{}
-	for _, r := range st.Roles {
-		roles[r.Agent] = r.Status
+	st := upProject()
+	st.Roles = []view.Role{
+		{Role: "integrator", Agent: "pj-int", Status: view.RoleStopped},
+		{Role: "reviewer", Agent: "pj-rev"},
 	}
-	if roles["pj-int"] != view.RoleStopped {
-		t.Errorf("pj-int's role status %q, want %q (roles %+v)", roles["pj-int"], view.RoleStopped, st.Roles)
-	}
-	if s, ok := roles["pj-rev"]; !ok || s != "" {
-		t.Errorf("pj-rev's role status %q (listed %v), want listed with no pane", s, ok)
-	}
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	text := b.String()
 	matchLine(t, text, `^agent pj-int: stopped$`, "the stopped integrator's line")
-	if strings.Contains(text, "agent pj-rev: stopped") {
-		t.Errorf("pj-rev shown stopped:\n%s", text)
+	if strings.Contains(text, "agent pj-rev") {
+		t.Errorf("pj-rev, no pane and not stopped, has a line:\n%s", text)
 	}
 }
 
@@ -821,55 +804,32 @@ func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	}
 }
 
-// the queue lists a high waiting dispatch first and marks it `high`: the order is serve's (the lane's pick
-// order, each wait's rank), not the task id's.
-func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
+// the queue's text lists the waiting dispatches in the queue's order and marks a high one `high`: the view orders them
+// (serve's rank: a high wait before the ordinary ones, then the oldest wait), and the line words each with its
+// difficulty and model.
+func TestStatusQueueWaitLines(t *testing.T) {
 	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
 	now := time.Now()
-	waiting := func(task string, high bool, rank int) wire.TaskStatus {
-		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Waiting: true, Rank: rank,
-			Phase: wire.PhaseWaiting, High: high, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium",
-			Model: "sonnet"}
+	st := upProject()
+	st.Queue.Waiting = []view.WaitItem{
+		{Task: "T-3", WaitsOn: view.WaitsLane, High: true, Level: "medium", Types: []string{"sonnet"},
+			Difficulty: "medium", Model: "sonnet"},
+		{Task: "T-2", WaitsOn: view.WaitsLane, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium",
+			Model: "sonnet"},
+		{Task: "T-20", WaitsOn: view.WaitsAfter, After: []string{"T-10"}, Difficulty: "hard", Model: "opus:high"},
 	}
-	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-		Tasks: []wire.TaskStatus{waiting("T-2", false, 2), waiting("T-3", true, 1)}}}
-	_, text := statusOf(t, p, ss, nil, now)
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
 	var queued []string
-	for _, l := range strings.Split(text, "\n") {
+	for _, l := range strings.Split(b.String(), "\n") {
 		if strings.HasPrefix(l, "queued ") {
 			queued = append(queued, l)
 		}
 	}
-	if len(queued) != 2 || !strings.HasPrefix(queued[0], "queued T-3 (high, medium, sonnet): ") ||
-		!strings.HasPrefix(queued[1], "queued T-2 (medium, sonnet): ") {
-		t.Errorf("queued lines %q, want T-3 (marked high) before T-2", queued)
-	}
-}
-
-// the queue's text lists the dispatched waits in serve's order (each one's rank: the scheduler's pass order),
-// not by task id: T-20, its dispatch before T-10's, comes first although its id sorts second.
-func TestStatusQueueListsServeOrder(t *testing.T) {
-	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
-	now := time.Now()
-	waiting := func(task string, rank int) wire.TaskStatus {
-		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Waiting: true, Rank: rank,
-			Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}
-	}
-	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-		Tasks: []wire.TaskStatus{waiting("T-10", 2), waiting("T-20", 1)}}}
-	_, text := statusOf(t, p, ss, nil, now)
-	var queued []string
-	for _, l := range strings.Split(text, "\n") {
-		if strings.HasPrefix(l, "queued ") {
-			queued = append(queued, l)
-		}
-	}
-	if len(queued) != 2 || !strings.HasPrefix(queued[0], "queued T-20 ") || !strings.HasPrefix(queued[1], "queued T-10 ") {
-		t.Errorf("queued lines %q, want T-20 before T-10: serve's rank, not the id order", queued)
+	if len(queued) != 3 || !strings.HasPrefix(queued[0], "queued T-3 (high, medium, sonnet): ") ||
+		!strings.HasPrefix(queued[1], "queued T-2 (medium, sonnet): ") ||
+		!strings.HasPrefix(queued[2], "queued T-20 (hard, opus:high): waiting (after T-10)") {
+		t.Errorf("queued lines %q, want the queue's order with T-3 marked high and each one's difficulty and model", queued)
 	}
 }
 
@@ -925,19 +885,19 @@ func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 // obor status shows the idle state: unacknowledged with when it began, or the acknowledgement's why.
 func TestStatusShowsIdle(t *testing.T) {
 	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
 	at := time.Date(2026, 11, 4, 9, 5, 0, 0, time.UTC)
-	ss := wire.Status{Project: &wire.ProjectStatus{Name: "proj", Root: p.Root, Merging: true,
-		Idle: &wire.IdleStatus{Since: at.Unix(), Last: "T-1 merged abc1234"}}}
-	_, text := statusOf(t, p, ss, nil, at.Add(time.Hour))
-	matchLine(t, text, `^idle, not acknowledged since `+at.Local().Format("Jan 2 15:04")+`$`, "the unacknowledged idle state")
+	st := upProject()
+	st.Idle = &view.Idle{Since: at.Unix(), Last: "T-1 merged abc1234"}
+	var b bytes.Buffer
+	writeStatus(&b, st, at.Add(time.Hour))
+	matchLine(t, b.String(), `^idle, not acknowledged since `+at.Local().Format("Jan 2 15:04")+`$`, "the unacknowledged idle state")
 
-	ss.Project.Idle = &wire.IdleStatus{Since: at.Unix(), Last: "T-1 merged abc1234", Acked: true, Why: "nothing to dispatch"}
-	_, text = statusOf(t, p, ss, nil, at.Add(time.Hour))
-	matchLine(t, text, `^idle: nothing to dispatch$`, "the acknowledged idle state")
-	if strings.Contains(text, "not acknowledged") {
-		t.Errorf("an acknowledged idle state shows as unacknowledged:\n%s", text)
+	st.Idle = &view.Idle{Since: at.Unix(), Last: "T-1 merged abc1234", Acked: true, Why: "nothing to dispatch"}
+	b.Reset()
+	writeStatus(&b, st, at.Add(time.Hour))
+	matchLine(t, b.String(), `^idle: nothing to dispatch$`, "the acknowledged idle state")
+	if strings.Contains(b.String(), "not acknowledged") {
+		t.Errorf("an acknowledged idle state shows as unacknowledged:\n%s", b.String())
 	}
 }
 
@@ -1293,35 +1253,31 @@ func TestStatusQueue(t *testing.T) {
 // --json (lanes[].effort, lanes[].type); a task without them shows none, as does a free lane.
 func TestStatusShowsEffortAndType(t *testing.T) {
 	t.Parallel()
-	p := testkit.NewDir(t)
-	g := newLaneGit(t)
-	g.lane(p, "L-01", "task/T-01")
-	g.lane(p, "L-02", "task/T-02")
-	g.lane(p, "L-03", "")
-	p.Config()
-	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "sonnet:high"})
-	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"}) // a row with no model
 	now := time.Now()
-	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
-		Name: "pj", Root: p.Root, Merging: true,
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Effort: "high"},
-			{Task: "T-02", Lane: "L-02", Attempt: 1, State: "working"}}}}
-	st, text := statusWith(t, p, g, ss, nil, now)
-	if len(st.Lanes) != 3 || st.Lanes[0].State != "working" || st.Lanes[1].State != "working" ||
-		st.Lanes[2].State != "free" {
-		t.Fatalf("precondition: L-01 and L-02 working, L-03 free; got %+v", st.Lanes)
+	st := upProject()
+	st.Lanes = []view.Lane{
+		{Lane: port.Lane{Name: "L-01", Type: "sonnet", Branch: "task/T-01", State: "working", Task: "T-01",
+			Agent: "pj-l-01"}, Column: "working"},
+		{Lane: port.Lane{Name: "L-02", Branch: "task/T-02", State: "working", Task: "T-02", Agent: "pj-l-02"},
+			Column: "working"},
+		{Lane: port.Lane{Name: "L-03", State: "free"}, Column: "free"},
 	}
+	st.Tasks = map[string]view.Task{
+		"T-01": {Task: "T-01", Lane: "L-01", TaskState: "working", Attempt: 1, Effort: "high", Open: true},
+		"T-02": {Task: "T-02", Lane: "L-02", TaskState: "working", Attempt: 1, Open: true},
+	}
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	text := b.String()
 	matchLine(t, text, `^L-01 +sonnet .*serve: working \(attempt 1\)  effort: high  agent: pj-l-01$`, "L-01 of type sonnet at effort high")
 	matchLine(t, text, `^L-02 +- .*serve: working \(attempt 1\)  agent: pj-l-02$`, "L-02: no model, no effort")
 	matchLine(t, text, `^L-03 +- `, "L-03 free: no model")
-	b, err := json.Marshal(st)
+	js, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"type":"sonnet"`) || !strings.Contains(string(b), `"effort":"high"`) ||
-		st.Lanes[0].Type != "sonnet" || st.TaskOn(st.Lanes[0]).Effort != "high" || st.Lanes[1].Type != "" ||
-		st.TaskOn(st.Lanes[1]).Effort != "" || st.Lanes[2].Type != "" {
-		t.Errorf("--json lanes %+v: want L-01's model sonnet and effort high, L-02's and L-03's none", st.Lanes)
+	if !strings.Contains(string(js), `"type":"sonnet"`) || !strings.Contains(string(js), `"effort":"high"`) {
+		t.Errorf("--json lanes %s: want L-01's model sonnet and the task's effort high", js)
 	}
 }
 
@@ -1347,31 +1303,21 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	}
 }
 
-// backgroundView is a project with a lane agent running a recorded background call, a role agent running an unrecorded
-// long command (a foreground one) and the lead running a recorded one with no description, as view.Build joins
-// them.
-func backgroundView(t *testing.T) (view.Project, string, string) {
-	t.Helper()
-	p := testkit.NewDir(t)
-	g := newLaneGit(t)
-	g.lane(p, "L-01", "task/T-01")
-	p.Config()
-	cfg, err := config.Load(p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lt := checks.NewLaneTable(context.Background(), cfg)
-	lt.Git = g.git
-	lead, integ := cfg.AgentName("lead", ""), cfg.AgentName("integrator", "")
-	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
-		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"},
-			{Pane: "w1:p2", Name: integ, Status: "idle", Age: 60}, {Pane: "w1:p3", Name: lead, Status: "working", Age: 60}}}}
-	v := view.Build(view.Input{Status: ss, Lanes: lt, Now: time.Now(),
-		Background: map[string][]view.Background{
-			"pj-l1": {{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}},
-			integ:   {{PID: 43, Command: "make -s check", Age: 95}},
-			lead:    {{PID: 44, Command: "sleep 600", Background: true, Age: 45}}}})
-	return v, lead, integ
+// backgroundView is a literal project with a lane agent running a recorded background call, a role agent running an
+// unrecorded long command (a foreground one) and the lead running a recorded one with no description.
+func backgroundView() view.Project {
+	st := upProject()
+	st.Lanes = []view.Lane{{Lane: port.Lane{Name: "L-01", Branch: "task/T-01", State: "working", Task: "T-01",
+		Agent: "pj-l-01"}, Column: "working",
+		Background: []view.Background{{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps",
+			Age: 900}}}}
+	st.Agents = []wire.AgentStatus{{Pane: "w1:p2", Name: "pj-int", Status: "idle", Age: 60},
+		{Pane: "w1:p3", Name: "pj-lead", Status: "working", Age: 60}}
+	st.Roles = []view.Role{{Role: "integrator", Agent: "pj-int", Status: "idle", Age: 60,
+		Background: []view.Background{{PID: 43, Command: "make -s check", Age: 95}}}}
+	st.Lead = &view.Role{Role: "lead", Agent: "pj-lead", Status: "working", Age: 60,
+		Background: []view.Background{{PID: 44, Command: "sleep 600", Background: true, Age: 45}}}
+	return st
 }
 
 // obor status shows each agent's long processes on a line under its own — the lane's under the lane
@@ -1379,12 +1325,11 @@ func backgroundView(t *testing.T) (view.Project, string, string) {
 // recorded background call, running for another.
 func TestStatusShowsBackground(t *testing.T) {
 	t.Parallel()
-	v, lead, integ := backgroundView(t)
 	var b bytes.Buffer
-	writeStatus(&b, v, time.Now())
+	writeStatus(&b, backgroundView(), time.Now())
 	text := b.String()
-	for _, pair := range [][2]string{{"L-01 ", "  bg: convert maps · 15m"}, {"agent " + integ + ":", "  running make -s check · 1m"},
-		{"agent " + lead + ":", "  bg: sleep 600 · 45s"}} {
+	for _, pair := range [][2]string{{"L-01 ", "  bg: convert maps · 15m"}, {"agent pj-int:", "  running make -s check · 1m"},
+		{"agent pj-lead:", "  bg: sleep 600 · 45s"}} {
 		i := strings.Index(text, pair[0])
 		if i < 0 {
 			t.Fatalf("precondition: no line %q in\n%s", pair[0], text)
@@ -1485,31 +1430,28 @@ func TestStatusGolden(t *testing.T) {
 // name (its pause cleared) has no line.
 func TestStatusListsModelPauses(t *testing.T) {
 	t.Parallel()
-	p := testkit.NewDir(t)
-	g := newLaneGit(t)
-	g.lane(p, "L-01", "task/T-01")
-	p.Config()
 	now := time.Now()
 	until := now.Add(2 * time.Hour).Unix()
-	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
-		Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
-		ModelPauses: map[string]*event.Pause{
-			"sonnet":   {Why: "quota", Caller: "pj-lead"},
-			"deepseek": {Why: "down", Until: until, Caller: "pj-lead"},
-		}}}
-	st, text := statusWith(t, p, g, ss, nil, now)
-	if len(st.ModelPauses) != 2 {
-		t.Fatalf("precondition: status model pauses %+v, want sonnet's and deepseek's", st.ModelPauses)
+	st := upProject()
+	st.Paused = &view.Pause{Reason: "quota", By: "pj-lead"}
+	st.Queue.Pause = st.Paused
+	st.ModelPauses = map[string]*view.Pause{
+		"sonnet":   {Reason: "quota", By: "pj-lead"},
+		"deepseek": {Reason: "down", Until: &until, By: "pj-lead"},
 	}
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	text := b.String()
 	matchLine(t, text, `^paused sonnet until cleared \(quota\)$`, "sonnet")
 	matchLine(t, text, `^paused deepseek until `+time.Unix(until, 0).Format("15:04")+` \(down\)$`, "deepseek")
 	if i, j, k := strings.Index(text, "paused: quota"), strings.Index(text, "paused deepseek"),
 		strings.Index(text, "paused sonnet"); i < 0 || j < i || k < j {
 		t.Errorf("pause lines out of order (project's first, then models sorted):\n%s", text)
 	}
-	ss.Project.ModelPauses = nil
-	_, text = statusWith(t, p, g, ss, nil, now)
-	if strings.Contains(text, "paused sonnet") || strings.Contains(text, "paused deepseek") {
-		t.Errorf("a cleared model still has a line:\n%s", text)
+	st.ModelPauses = nil
+	b.Reset()
+	writeStatus(&b, st, now)
+	if strings.Contains(b.String(), "paused sonnet") || strings.Contains(b.String(), "paused deepseek") {
+		t.Errorf("a cleared model still has a line:\n%s", b.String())
 	}
 }
