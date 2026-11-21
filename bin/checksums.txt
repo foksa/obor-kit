@@ -190,6 +190,10 @@ e7b69f68f12c47f12e01e9ca11acde864391925d5f288a3f90990f849f8a1363  dist/obor-0.42
 9cf949692db870c93553bbc9adb4223a235b6438a6750ce6e428b475c4431932  dist/obor-0.42.1-darwin-arm64
 f3ade3afe2773d734aad8fbbcc07905e5c0b2654bf38a5515d140b799c874a9d  dist/obor-0.42.1-linux-amd64
 8b8682c75a95911812ad843f957d2cc82d5468aa7d5bdc1a73afe62bde0bc838  dist/obor-0.42.1-linux-arm64
+fa138e0cfd65f7683ec2422449efefc9e2e70f223ca1cf1acc96dad6e797f5ee  dist/obor-0.43.0-darwin-amd64
+d87c7878e8cbdfc2425612d02afd3d00089015aa4f1ba1f338ed125cdd9d4655  dist/obor-0.43.0-darwin-arm64
+ba5e8aa989fab63133d60153f94a2f4215c618ccf03aacfae4d50ea216e53eee  dist/obor-0.43.0-linux-amd64
+afc4440242d84b0ab895f31ebf97d6236ab0fc3614a30bf4b585addfabc4c902  dist/obor-0.43.0-linux-arm64
 fc3998e27c68e663d5a63f2d08b156e26cf5feaad848b89bf85876d4306d0055  dist/obor-0.6.4-dev-darwin-amd64
 4c44341ebe6c78aa3e31f3b100915a8e8d626c21f18a4bfdc8317078902eb35d  dist/obor-0.6.4-dev-darwin-arm64
 769c155f44d54965a073a7bf52036195eebd0bd38d0eba9af3ac6948a98d4e6c  dist/obor-0.6.4-dev-linux-amd64
@@ -274,3 +278,7 @@ c682b9009824096c19a4bd2eaa52b4ec82f480b576e02db85476dfff34a8e156  dist/obor-kind
 f6d026c607c07bed11cbfd53e61614d3ac669c306a78c71592acfeae3c875d2d  dist/obor-kind-opencode-0.42.1-darwin-arm64
 a47f0015987b2421cb269157f701395da758711f96abce26a11c83a050a87572  dist/obor-kind-opencode-0.42.1-linux-amd64
 c71ea36eecf1bb3cfdc11cc91667157b5304171c2c093984ee0d8f3b8d12b155  dist/obor-kind-opencode-0.42.1-linux-arm64
+f5d4a81694b6825bf47b8a2c07bc374da140378dbf27b25222db7eb347a26f64  dist/obor-kind-opencode-0.43.0-darwin-amd64
+cecceaa7546dc3d508bbd3c4baa51bb3c9d93100135f8fb03698b87e4b349040  dist/obor-kind-opencode-0.43.0-darwin-arm64
+830a6679c5107381085f3d498bddd55d67622224bc98f4fff16ef56d655ea953  dist/obor-kind-opencode-0.43.0-linux-amd64
+8b98e7093cd45c9f3f414ed601cdafeb9573abeb611a0eed9c3cd98fff2a9066  dist/obor-kind-opencode-0.43.0-linux-arm64
