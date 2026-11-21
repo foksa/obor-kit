@@ -127,7 +127,7 @@ check:
 
 # AFFECTED_READS: the packages that read the non-Go files outside a Go import (tools/affected -reads <glob>=<dirs>): a
 # changed file matching a glob adds its packages to check-affected's list, beside the Go packages and their importers.
-# TestOborKitReaders greps the .go files under cmd/ and internal/ for each of the first five paths and fails when a
+# TestOborKitReaders greps the .go files under cmd/ and internal/ for each of the first four paths and fails when a
 # package reads one and its line lacks it, and when a listed package stopped. Per path:
 #   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to)
 #   templates/**     cmd/obor (skills_test.go), internal/app (fetch.go, dispatch.go: the role texts and the job prompt),
@@ -137,7 +137,6 @@ check:
 #                    internal/agents/codex, internal/agents/plugin and internal/checks match only through the status
 #                    value "hooks" (Caps.Status), codex's "hooks" key, the kind protocol's caps.hooks and the
 #                    classification table's fixtures, no path: listed so the survey needs no per-file exception
-#   bin/go-commands  cmd/obor (skills_test.go, shim_test.go: the shim's commands)
 #   .claude-plugin/  cmd/obor (plugin_wiring_test.go, shim_test.go), internal/agents/claude (claude.go: the manifest's
 #                    mcpServers entry), internal/setup (plugin.go, oborinit.go: install's registration)
 #   README.md        cmd/obor (skills_test.go)
@@ -154,7 +153,6 @@ AFFECTED_READS := \
 	-reads 'skills/**=cmd/obor' \
 	-reads 'templates/**=cmd/obor,internal/app,internal/config,internal/guard,internal/setup' \
 	-reads 'hooks/**=cmd/obor,internal/agents,internal/agents/codex,internal/agents/plugin,internal/checks' \
-	-reads 'bin/go-commands=cmd/obor' \
 	-reads '.claude-plugin/**=cmd/obor,internal/agents/claude,internal/setup' \
 	-reads 'README.md=cmd/obor' \
 	-reads 'bin/obor=cmd/obor' \

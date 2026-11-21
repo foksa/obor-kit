@@ -43,18 +43,11 @@ self_host() {
   OBOR_SELF_HOSTED=1 exec "$BASH" "$root/bin/obor" "$@"
 }
 
-# usage: the shim's own lines; the commands are the binary's list (`obor help`: bin/go-commands is only what the
-# shim passes on).
+# usage: the shim's own lines; the commands are the binary's (`obor help`).
 usage() {
   echo "usage: obor <subcommand> [args…]"
   echo "plugin root: $OBOR_PLUGIN_ROOT"
   echo "every command: obor help"
-}
-
-is_command() {
-  local command
-  while IFS= read -r command; do [ "$command" != "$1" ] || return 0; done < "$OBOR_PLUGIN_ROOT/bin/go-commands"
-  return 1
 }
 
 fail() { echo "FAIL $*" >&2; exit 1; }
@@ -273,11 +266,6 @@ case "$sub" in
     ;;
 esac
 shift
-if [ "$sub" != help ] && ! is_command "$sub"; then
-  echo "obor: unknown subcommand: $sub" >&2
-  usage >&2
-  exit 2
-fi
 [ "$sub" != hook ] || hook "$@"
 # A stale dev build (without this command) says so: `make build` refreshes it.
 [ ! -x "$OBOR_PLUGIN_ROOT/dist/obor" ] || run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" "$sub" "$@"

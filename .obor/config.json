@@ -161,7 +161,6 @@
             "skills/**",
             "templates/**",
             "hooks/**",
-            "bin/go-commands",
             ".claude-plugin/**",
             "README.md",
             "bin/obor",

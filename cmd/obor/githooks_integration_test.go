@@ -13,7 +13,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// kitWithHooks is a throwaway kit at dir: the checkout's githooks/ (both sets, executable), bin/obor and bin/go-commands,
+// kitWithHooks is a throwaway kit at dir: the checkout's githooks/ (both sets, executable), bin/obor,
 // and dist/obor the binary this package builds (symlinked, as internal/setup's newKit does).
 func kitWithHooks(t *testing.T, dir, bin string) {
 	t.Helper()
@@ -32,9 +32,7 @@ func kitWithHooks(t *testing.T, dir, bin string) {
 			writeExec(t, filepath.Join(dir, rel), readFile(t, f))
 		}
 	}
-	for _, f := range []string{"bin/obor", "bin/go-commands"} {
-		writeExec(t, filepath.Join(dir, f), readFile(t, filepath.Join(root, f)))
-	}
+	writeExec(t, filepath.Join(dir, "bin", "obor"), readFile(t, filepath.Join(root, "bin", "obor")))
 	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
 		t.Fatal(err)
 	}

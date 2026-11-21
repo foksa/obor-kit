@@ -93,13 +93,12 @@ func hangGo(t *testing.T, path, dir string) {
 	writeFile(t, filepath.Join(dir, "stub.log"), "") // the warm-up's line, not the hook's
 }
 
-// kit is a plugin root at dir: the tree's bin/obor and bin/go-commands, VERSION shimVersion, a release URL that
-// never reaches the network, no checksums, a marker dist/obor labelled label, and a plugin.json named obor.
+// kit is a plugin root at dir: the tree's bin/obor, VERSION shimVersion, a release URL that never reaches the
+// network, no checksums, a marker dist/obor labelled label, and a plugin.json named obor.
 func kit(t *testing.T, dir, label string) {
 	t.Helper()
 	writeExec(t, filepath.Join(dir, "bin", "obor"), string(treeFile(t, "bin/obor")))
 	for path, text := range map[string]string{
-		"bin/go-commands":            string(treeFile(t, "bin/go-commands")),
 		"bin/release-url":            "file://" + dir + "/no-such-release-%VERSION%\n",
 		"bin/checksums.txt":          "",
 		"VERSION":                    shimVersion + "\n",
@@ -199,7 +198,8 @@ func TestShimDispatchAndUsage(t *testing.T) {
 		err  []string
 		out  []string
 	}{
-		{[]string{"no-such-sub"}, 2, []string{"unknown subcommand: no-such-sub", "usage: obor"}, nil},
+		// any well-formed subcommand reaches the binary, which refuses an unknown one (TestExitCodes)
+		{[]string{"no-such-sub"}, 0, nil, []string{"ran: stable"}},
 		{nil, 2, []string{"usage: obor"}, nil},
 		{[]string{"../lib/obor"}, 2, []string{"usage: obor"}, nil},
 		{[]string{"help"}, 0, nil, []string{"plugin root: " + f.stable + "\n", "ran: stable"}},
@@ -235,8 +235,7 @@ func TestShimDispatchAndUsage(t *testing.T) {
 	}
 }
 
-// `serve` is in bin/go-commands, so `bin/obor serve dump` reaches the binary instead of the shim's
-// unknown-subcommand error (exit 2, usage). The stub dist/obor argv-echoes and fails as the real one does with no app
+// The shim passes `serve` to the binary. The stub dist/obor argv-echoes and fails as the real one does with no app
 // running; the real serve's own output is covered by serve_test.go's tests.
 func TestShimServeReachesBinary(t *testing.T) {
 	t.Parallel()
@@ -312,7 +311,7 @@ func TestShimSelfHost(t *testing.T) {
 }
 
 // bash tests/bin.test.sh case_help_prints_plugin_root: the command list is the binary's (`obor help`), so
-// the shim prints the plugin root and runs the binary with help (-h and --help too), never bin/go-commands' names.
+// the shim prints the plugin root and runs the binary with help (-h and --help too), never the shim's own list.
 func TestShimHelpPrintsPluginRoot(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
