@@ -119,7 +119,11 @@ The file is **shape 2**: ten top-level keys — nine groups by what they are abo
       "codex": { "args": ["-c", "sandbox_workspace_write.network_access=true"],
                  "job_note": "Network is unavailable; deps are installed." }
     },
-    "models": { "muse": { "kind": "opencode", "id": "" } },  // a model the built-in table lacks, or an override
+    "models": {                                 // the project's models: a model ref names one of these
+      "opus": { "kind": "claude", "id": "opus" }, "sonnet": { "kind": "claude", "id": "sonnet" },
+      "opus-4.6": { "kind": "claude", "id": "claude-opus-4-6" }, "sol": { "kind": "codex", "id": "gpt-6.1-sol" },
+      "deepseek": { "kind": "opencode", "id": "opencode-go/deepseek-v4.1-flash" }, "muse": { "kind": "opencode", "id": "" }
+    },
     "handoff_tokens": 500000                    // the lead's handoff reminder threshold
   },
   "rules": {
@@ -152,10 +156,15 @@ runs it, and `Config.Command` (`internal/config/config.go`) maps the name to it:
 `nightly.slow_check`. Every other name is a `commands.<name>`.
 
 **Models:** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
-(`opus:high`), in `agents.difficulty` levels, `agents.roles.<role>` and a spec's `Model:` line. The built-in
-models (one table, `internal/config/models.go`): opus, sonnet, haiku, fable → claude `--model <name>`; deepseek →
-opencode `opencode-go/deepseek-v4.1-flash`; terra → codex `gpt-6.1-terra`, sol → `gpt-6.1-sol`, luna → `gpt-6-luna`.
-`agents.models.<name>` adds one or overrides a built-in (`kind`, `id`; `""`: the kind's own choice). A start is its
+(`opus:high`), in `agents.difficulty` levels, `agents.roles.<role>`, a spec's `Model:` line, `--model` and
+`obor pause --model`. `agents.models.<name>` is the one place a name resolves (`Config.Model`): `kind` required, `id`
+the model id the kind takes, verbatim (`""`: the kind's own choice), so a version or a variant is one more entry
+(`"opus-4.6": {"kind": "claude", "id": "claude-opus-4-6"}`, `"opus-1m": {"kind": "claude", "id": "opus[1m]"}`). The
+name is the project's label: no `:`, `,` or whitespace. A name with no entry is refused; for a name of the upgrade
+list (`config.UpgradeModels`: opus, sonnet, haiku, fable → claude; deepseek → opencode; terra, sol, luna → codex) the
+refusal carries its entry to paste, and `obor setup agents` adds the entry of each such name the levels or roles name
+without one, writing nothing else. `obor init` writes the entries of each kind whose CLI is on PATH from its starter
+list (`internal/setup/models.go`; it changes new projects only). `agents.difficulty` names all three levels (init writes them). A start is its
 kind's base args (claude `--permission-mode auto`; codex `-s workspace-write -a never --no-daemon`; opencode
 `--auto --standalone`), the model, then `agents.kinds.<kind>.args`; the effort is the kind's own flag,
 refused when the kind does not take it.

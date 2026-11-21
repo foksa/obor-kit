@@ -33,7 +33,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.typ+`"}`))
+			x := setup(t, testkit.AddModels(models), testkit.Set("agents.roles", `{"reviewer":"`+c.typ+`"}`))
 			x.shell("w1:p7", "pj-rev", "")
 			out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: c.prompt})
 			if !ok {
@@ -52,7 +52,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 // config validate refuse such a model; no degraded start with its args alone).
 func TestStartWithoutBridgeRefused(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("agents.models", `{"cur":{"kind":"cursor","id":"x"}}`),
+	x := setup(t, testkit.AddModels(`{"cur":{"kind":"cursor","id":"x"}}`),
 		testkit.Set("agents.roles", `{"reviewer":"cur"}`))
 	x.shell("w1:p7", "pj-rev", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: "go"})

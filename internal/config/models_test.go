@@ -11,42 +11,73 @@ import (
 	_ "obor/internal/agents/codex"
 )
 
-// each built-in model resolves to its kind, its model id and its kind's base args, the model as the kind takes
-// it (claude --model, codex -m, opencode --model).
-func TestBuiltinModelsResolve(t *testing.T) {
-	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
-	want := map[string]struct {
-		kind, id string
-		args     []string
-	}{
-		"opus":     {"claude", "opus", []string{"--permission-mode", "auto", "--model", "opus"}},
-		"sonnet":   {"claude", "sonnet", []string{"--permission-mode", "auto", "--model", "sonnet"}},
-		"haiku":    {"claude", "haiku", []string{"--permission-mode", "auto", "--model", "haiku"}},
-		"fable":    {"claude", "fable", []string{"--permission-mode", "auto", "--model", "fable"}},
-		"deepseek": {"opencode", "opencode-go/deepseek-v4.1-flash", []string{"--model", "opencode-go/deepseek-v4.1-flash"}},
-		"terra":    {"codex", "gpt-6.1-terra", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-terra"}},
-		"sol":      {"codex", "gpt-6.1-sol", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-sol"}},
-		"luna":     {"codex", "gpt-6-luna", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6-luna"}},
-	}
-	if len(BuiltinModels) != len(want) {
-		t.Fatalf("BuiltinModels has %d models, the test names %d", len(BuiltinModels), len(want))
-	}
-	for _, b := range BuiltinModels {
-		w := want[b.Name]
-		m, ok := c.Model(b.Name)
-		if !ok || m.Name != b.Name || m.Kind != w.kind || m.ID != w.id || !slices.Equal(m.Args, w.args) {
-			t.Errorf("Model(%s) = %+v, %v; want kind %s, id %s, args %q", b.Name, m, ok, w.kind, w.id, w.args)
+// models is an agents.models member naming one model of each kind and two more of codex: what the tests below start.
+const models = `"models":{"opus":{"kind":"claude","id":"opus"},"deepseek":{"kind":"opencode","id":"opencode-go/deepseek-v4.1-flash"},` +
+	`"terra":{"kind":"codex","id":"gpt-6.1-terra"},"sol":{"kind":"codex","id":"gpt-6.1-sol"},"luna":{"kind":"codex","id":"gpt-6-luna"}}`
+
+// a model name resolves from agents.models only: with no entry no name is a model (a name obor init's starter list
+// has too); each entry resolves to its kind, its id and its kind's base args, the id as the kind takes it (claude
+// --model, codex -m, opencode --model), in config order.
+func TestModelsResolveFromConfigOnly(t *testing.T) {
+	none := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
+	for _, name := range []string{"opus", "sonnet", "deepseek", "terra"} {
+		if m, ok := none.Model(name); ok {
+			t.Errorf("Model(%s) with no agents.models = %+v, want no model", name, m)
 		}
 	}
-	if !slices.Equal(c.ModelNames(), []string{"opus", "sonnet", "haiku", "fable", "deepseek", "terra", "sol", "luna"}) {
-		t.Errorf("ModelNames = %q", c.ModelNames())
+	if got := none.ModelNames(); len(got) != 0 {
+		t.Errorf("ModelNames with no agents.models = %q, want none", got)
+	}
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{`+models+`}}`, "")
+	for _, tc := range []struct {
+		name, kind, id string
+		args           []string
+	}{
+		{"opus", "claude", "opus", []string{"--permission-mode", "auto", "--model", "opus"}},
+		{"deepseek", "opencode", "opencode-go/deepseek-v4.1-flash", []string{"--model", "opencode-go/deepseek-v4.1-flash"}},
+		{"terra", "codex", "gpt-6.1-terra", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-terra"}},
+	} {
+		m, ok := c.Model(tc.name)
+		if !ok || m.Name != tc.name || m.Kind != tc.kind || m.ID != tc.id || !slices.Equal(m.Args, tc.args) {
+			t.Errorf("Model(%s) = %+v, %v; want kind %s, id %s, args %q", tc.name, m, ok, tc.kind, tc.id, tc.args)
+		}
+	}
+	if _, ok := c.Model("sonnet"); ok {
+		t.Error("Model(sonnet) resolves with no agents.models entry for it")
+	}
+	if got := c.ModelNames(); !slices.Equal(got, []string{"opus", "deepseek", "terra", "sol", "luna"}) {
+		t.Errorf("ModelNames = %q, want agents.models' names in config order", got)
+	}
+}
+
+// a model's id goes to its kind's args verbatim, so a version or a variant is one more entry: a versioned claude id,
+// a bracketed variant, a codex id with its own suffix.
+func TestModelVersionedIDVerbatim(t *testing.T) {
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{`+
+		`"opus-4.6":{"kind":"claude","id":"claude-opus-4-6"},"opus-1m":{"kind":"claude","id":"opus[1m]"},`+
+		`"atra":{"kind":"codex","id":"gpt-6.2-atra"}}}}`, "")
+	for name, want := range map[string][]string{
+		"opus-4.6": {"--permission-mode", "auto", "--model", "claude-opus-4-6"},
+		"opus-1m":  {"--permission-mode", "auto", "--model", "opus[1m]"},
+		"atra":     {"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.2-atra"},
+	} {
+		m, ok := c.Model(name)
+		if !ok {
+			t.Fatalf("Model(%s) is not known", name)
+		}
+		if got := launchArgs(t, m, "worker", ""); !slices.Equal(got[:len(want)], want) {
+			t.Errorf("%s: launch args %q, want them to start %q", name, got, want)
+		}
+	}
+	if err := c.CheckModelRef("opus-4.6:high"); err != nil {
+		t.Errorf("CheckModelRef(opus-4.6:high) = %v, want a model with its kind's effort", err)
 	}
 }
 
 // the effort of a model ref is its kind's own flag at start (claude --effort, codex -c
 // model_reasoning_effort=), each kind's own values (OpenCode's, a plugin kind: TestOpencodeModelEffort).
 func TestModelEffortPerKind(t *testing.T) {
-	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{`+models+`}}`, "")
 	for _, tc := range []struct {
 		model, effort, inArgs string
 	}{
@@ -80,7 +111,7 @@ func TestModelEffortPerKind(t *testing.T) {
 // .prompt_extra is the work job's for each model of the kind.
 func TestKindsArgsAppended(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
-		"agents":{"kinds":{"claude":{"args":["--strict-mcp-config"],"job_note":"Quote failures only."},
+		"agents":{`+models+`,"kinds":{"claude":{"args":["--strict-mcp-config"],"job_note":"Quote failures only."},
 		"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}}`, "")
 	opus, _ := c.Model("opus")
 	if want := []string{"--permission-mode", "auto", "--model", "opus", "--strict-mcp-config"}; !slices.Equal(opus.Args, want) {
@@ -106,7 +137,7 @@ func TestKindsArgsAppended(t *testing.T) {
 // kinds.codex.args still follow it.
 func TestCodexStartsWithNoDaemon(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},`+
-		`"agents":{"kinds":{"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}}`, "")
+		`"agents":{`+models+`,"kinds":{"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}}`, "")
 	for _, name := range []string{"terra", "sol", "luna"} {
 		m, ok := c.Model(name)
 		if !ok {
@@ -132,19 +163,18 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 	}
 }
 
-// models.<name> adds a model or overrides a built-in one (its kind kept when the entry names none; model ""
-// starts the kind without a model).
-func TestModelsOverride(t *testing.T) {
+// models.<name> names its kind and id: model "" starts the kind without a model; an entry with no kind is no model
+// (UnknownModel names the missing kind).
+func TestModelsEntries(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
-		"agents":{"models":{"opus":{"id":"claude-opus-5-5"},"muse":{"kind":"opencode","id":""},
-		"deepseek":{"kind":"opencode","id":"opencode-go/kimi"},"gem":{"kind":"codex","id":"gpt-x"}}}}`, "")
+		"agents":{"models":{"opus":{"kind":"claude","id":"claude-opus-5-5"},"muse":{"kind":"opencode","id":""},
+		"gem":{"kind":"codex","id":"gpt-x"},"bare":{"id":"x"}}}}`, "")
 	for _, tc := range []struct {
 		name, kind, id string
 		args           []string
 	}{
 		{"opus", "claude", "claude-opus-5-5", []string{"--permission-mode", "auto", "--model", "claude-opus-5-5"}},
 		{"muse", "opencode", "", []string{}},
-		{"deepseek", "opencode", "opencode-go/kimi", []string{"--model", "opencode-go/kimi"}},
 		{"gem", "codex", "gpt-x", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-x"}},
 	} {
 		m, ok := c.Model(tc.name)
@@ -152,26 +182,47 @@ func TestModelsOverride(t *testing.T) {
 			t.Errorf("Model(%s) = %+v, %v; want kind %s id %q args %q", tc.name, m, ok, tc.kind, tc.id, tc.args)
 		}
 	}
-	if got := c.ModelNames(); !slices.Equal(got, []string{"opus", "sonnet", "haiku", "fable", "deepseek", "terra", "sol", "luna", "muse", "gem"}) {
-		t.Errorf("ModelNames = %q, want the built-in ones, then models' new ones", got)
+	if m, ok := c.Model("bare"); ok {
+		t.Errorf("Model(bare) = %+v, want no model: its entry names no kind", m)
+	}
+	if err := c.CheckModelRef("bare"); err == nil || err.Error() != `"bare" names no kind: set agents.models.bare.kind (claude, codex, opencode)` {
+		t.Errorf("CheckModelRef(bare) = %v, want the missing kind named", err)
 	}
 }
 
-// a ref naming no model, or an effort its kind rejects, is refused with the known names.
+// a ref naming no model, or an effort its kind rejects, is refused with the config's names; a name obor setup agents
+// would add (UpgradeModels) carries its entry ready to paste, and the paste makes it a model.
 func TestUnknownModelRefused(t *testing.T) {
-	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"muse":{"kind":"opencode","id":""}}}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"muse":{"kind":"opencode","id":""},`+
+		`"sol":{"kind":"codex","id":"gpt-6.1-sol"}}}}`, "")
 	if _, ok := c.Model("gpt"); ok {
 		t.Error("Model(gpt) is known")
 	}
 	for ref, refusal := range map[string]string{
-		"gpt":       `"gpt" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, muse)`,
-		"gpt:high":  `"gpt" is not a model`,
-		"opus:":     "names no effort after the colon",
+		"gpt":       `"gpt" is not a model (agents.models: muse, sol)`,
+		"gpt:high":  `"gpt" is not a model (agents.models: muse, sol)`,
+		"opus:high": `"opus" is not a model (agents.models: muse, sol): add it to agents.models in .obor/config.json: "opus": {"kind": "claude", "id": "opus"}`,
+		"deepseek":  `"deepseek" is not a model (agents.models: muse, sol): add it to agents.models in .obor/config.json: "deepseek": {"kind": "opencode", "id": "opencode-go/deepseek-v4.1-flash"}`,
+		"sol:":      "names no effort after the colon",
 		"sol:turbo": `effort "turbo" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 	} {
-		if err := c.CheckModelRef(ref); err == nil || !strings.Contains(err.Error(), refusal) {
+		err := c.CheckModelRef(ref)
+		if err == nil {
+			t.Errorf("CheckModelRef(%s) passed, want %q", ref, refusal)
+			continue
+		}
+		if strings.HasPrefix(refusal, `"`) && err.Error() != refusal || !strings.Contains(err.Error(), refusal) {
 			t.Errorf("CheckModelRef(%s) = %v, want %q", ref, err, refusal)
 		}
+	}
+	if err := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "").CheckModelRef("gpt"); err == nil ||
+		err.Error() != `"gpt" is not a model (agents.models: none)` {
+		t.Errorf("CheckModelRef(gpt) with no agents.models = %v, want none listed", err)
+	}
+	pasted := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{`+
+		`"opus": {"kind": "claude", "id": "opus"}}}}`, "")
+	if err := pasted.CheckModelRef("opus:high"); err != nil {
+		t.Errorf("the pasted entry: CheckModelRef(opus:high) = %v, want a model", err)
 	}
 }
 

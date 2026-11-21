@@ -26,6 +26,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/setup"
 )
 
 // The job the stub serve answers job_next with. The prompt names neither, so only the tool result can carry them.
@@ -95,7 +96,7 @@ type liveStart struct {
 // launchOf builds a worker's start of model in the lab's project as internal/launch does (a compiled kind's), its start dir
 // the lab's lane (the project's CLI config there counts). Each kind's
 // real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that could drift
-// from it; model is a built-in model of the lab config's table (liveModel).
+// from it; model is a model of the lab config's agents.models (liveModel).
 func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) (string, error)) (liveStart, error) {
 	cfg, err := config.Load(l.main)
 	if err != nil {
@@ -128,12 +129,13 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	return liveStart{args: noKit.Args, env: withKit.Env}, nil
 }
 
-// liveModel is the model a kind's real-server case starts: the kind's first built-in model (config.BuiltinModels:
-// claude's opus, codex's terra, opencode's deepseek), so the suite copies no model name either.
+// liveModel is the model a kind's real-server case starts: the kind's first model of obor init's starter list
+// (setup.StarterModels: claude's opus, codex's terra, opencode's deepseek), which the lab's config holds (makeProject),
+// so the suite copies no model name either.
 func liveModel(kind string) (string, bool) {
-	for _, b := range config.BuiltinModels {
-		if b.Kind == kind {
-			return b.Name, true
+	for _, e := range setup.StarterModels {
+		if e.Kind == kind {
+			return e.Name, true
 		}
 	}
 	return "", false

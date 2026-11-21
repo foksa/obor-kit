@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,7 +43,7 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	has(t, out, "mcp codex: not used", "codex is listed, not checked")
 	hasNot(t, out, "WARN", "no warning for a kind the project does not run")
 
-	x.Config(claudeOnly, testkit.Set("agents.models", `{"muse": {"kind": "opencode", "id": "x"}}`), testkit.Set("agents.roles.reviewer", "muse"))
+	x.Config(claudeOnly, testkit.AddModels(`{"muse": {"kind": "opencode", "id": "x"}}`), testkit.Set("agents.roles.reviewer", "muse"))
 	out, rc = x.run(t, "mcp")
 	if rc != 0 || last(out) != "OK mcp" {
 		t.Errorf("an opencode reviewer, no opencode entry: exit %d, last %q\n%s", rc, last(out), out)
@@ -58,7 +60,7 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 // does an unknown model.
 func TestSetupMCPLane(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("agents.models", `{"muse": {"kind": "opencode", "id": "x"}, "cur": {"kind": "cursor", "id": "c"}}`))
+	x := newFx(t, testkit.AddModels(`{"muse": {"kind": "opencode", "id": "x"}, "cur": {"kind": "cursor", "id": "c"}}`))
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 
@@ -92,8 +94,8 @@ func TestSetupMCPLane(t *testing.T) {
 	// A kind obor registers nothing for, an unknown model, and the flag without its model.
 	has(t, x.failing(t, "FAIL mcp model cur", "mcp", "--model", "cur"),
 		"WARN mcp model cur (cursor): not registered", "a kind without registration")
-	has(t, x.failing(t, "FAIL mcp model nope: no model nope (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, cur, muse)",
-		"mcp", "--model", "nope"), "no model nope", "an unknown model")
+	has(t, x.failing(t, `FAIL mcp model nope: "nope" is not a model (agents.models: cur, deepseek, fable, haiku, luna, muse, opus, sol, sonnet, terra)`,
+		"mcp", "--model", "nope"), `"nope" is not a model`, "an unknown model")
 	x.failing(t, "FAIL "+Usage(), "mcp", "--model")
 	x.failing(t, "FAIL "+Usage(), "mcp", "--lane", "opus")
 	if !strings.Contains(Usage(), "mcp [--model <name>]") {
@@ -139,6 +141,53 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 	has(t, out, "agents opencode: nothing to install", "opencode: nothing user-global")
 	if !strings.Contains(Usage(), "agents |") {
 		t.Errorf("usage names agents: %s", Usage())
+	}
+}
+
+// obor setup agents adds an agents.models entry (config.UpgradeModels' kind and id) for each such name the levels or
+// roles name without one, in that list's order after the entries the file has, and writes nothing else; a name no
+// entry of that list has, and one nothing names, are not added; a second run writes nothing.
+// Not parallel: the config load registers its plugin kinds (OpenCode's) in the process registry.
+func TestSetupAgentsAddsTheModelsTheConfigNames(t *testing.T) {
+	x := newFx(t)
+	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
+	doc := `{"version": 2, "project": {"name": "proj", "agent_prefix": "pj"},
+  "agents": {"roles": {"lead": "opus:high", "integrator": "opus", "reviewer": "terra:xhigh"},
+    "difficulty": {"hard": ["opus:high"], "medium": ["kimi", "sonnet"], "simple": ["mystery", "sonnet:low"]},
+    "models": {"kimi": {"kind": "opencode", "id": "opencode-go/kimi"}}}}
+`
+	x.Write(".obor/config.json", doc)
+	out := x.ok(t, "agents")
+	has(t, out, "config agents.models = + opus, sonnet, terra (uncommitted: commit it)", "the named models added")
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ModelNames(); !slices.Equal(got, []string{"kimi", "opus", "sonnet", "terra"}) {
+		t.Errorf("agents.models = %q, want kimi kept, then opus, sonnet, terra (not haiku: nothing names it; not mystery)", got)
+	}
+	for _, name := range []string{"opus", "sonnet", "terra"} {
+		i := slices.IndexFunc(config.UpgradeModels, func(e config.NamedModel) bool { return e.Name == name })
+		if m, ok := cfg.Model(name); i < 0 || !ok || m.Kind != config.UpgradeModels[i].Kind || m.ID != config.UpgradeModels[i].ID {
+			t.Errorf("model %s = %+v, %v; want the upgrade list's kind and id", name, m, ok)
+		}
+	}
+	if err := cfg.CheckModelRef("mystery"); err == nil {
+		t.Error("mystery resolves: the step added a name no upgrade entry has")
+	}
+	var before, after map[string]any
+	if json.Unmarshal([]byte(doc), &before) != nil || json.Unmarshal([]byte(x.Read(".obor/config.json")), &after) != nil {
+		t.Fatalf("the config does not parse:\n%s", x.Read(".obor/config.json"))
+	}
+	delete(before["agents"].(map[string]any), "models")
+	delete(after["agents"].(map[string]any), "models")
+	if !reflect.DeepEqual(before, after) {
+		t.Errorf("setup agents wrote more than agents.models:\n%s", x.Read(".obor/config.json"))
+	}
+
+	written := x.Read(".obor/config.json")
+	if out := x.ok(t, "agents"); strings.Contains(out, "config agents.models") || x.Read(".obor/config.json") != written {
+		t.Errorf("a second run wrote the config:\n%s", out)
 	}
 }
 

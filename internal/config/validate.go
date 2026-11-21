@@ -12,9 +12,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"obor/internal/agents"
 	"obor/internal/roles"
+	"obor/internal/spec"
 )
 
 var (
@@ -243,9 +245,10 @@ func (v *validator) lanes() {
 // LaneNameRE is a lane's name as LaneName writes it: L-01 … L-99, L-100 ….
 var LaneNameRE = regexp.MustCompile(`^L-(0[1-9]|[1-9][0-9]+)$`)
 
-// models: every agents.models entry and agents.kinds key names a kind with a bridge (Config.Kind), no kinds args carry a bare
-// `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
-// positionals); each role names a known model with an effort its kind takes.
+// models: every agents.models entry has a name a model ref can carry (modelName) and names a kind with a bridge
+// (Config.Kind), every agents.kinds key too; no kinds args carry a bare `--` (obor adds the first prompt after its
+// own options, so a `--` would turn --settings and --resume into positionals); each role names a known model with an
+// effort its kind takes.
 func (v *validator) models() {
 	bridged := func(path, kind string) {
 		if _, ok := v.c.Kind(kind); !ok {
@@ -254,12 +257,12 @@ func (v *validator) models() {
 	}
 	a := v.d.Agents
 	for _, k := range a.Models.Keys {
-		e := a.Models.M[k]
-		if _, isBuiltin := BuiltinModelNamed(k); e.Kind == "" && !isBuiltin {
-			v.fail(".agents.models"+key(k)+".kind", "required ("+strings.Join(v.c.kinds.Names(), ", ")+")")
-			continue
+		if why := modelName(k); why != "" {
+			v.fail(".agents.models"+key(k), why)
 		}
-		if e.Kind != "" {
+		if e := a.Models.M[k]; e.Kind == "" {
+			v.fail(".agents.models"+key(k)+".kind", "required ("+strings.Join(v.c.kinds.Names(), ", ")+")")
+		} else {
 			bridged(".agents.models"+key(k)+".kind", e.Kind)
 		}
 	}
@@ -725,17 +728,40 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	return out
 }
 
-// difficulty: each level of agents.difficulty is hard, medium or simple and names models the config knows (each may name
-// an effort).
+// modelName is why name cannot be a model's name ("": it can): a model ref is `<model>[:<effort>]` and a spec's
+// Model: line a comma-separated list of refs, so a name has no ":", no "," and no whitespace, and is not empty.
+func modelName(name string) string {
+	const rule = "a model name has no \":\" (the effort separator), \",\" (the Model: list separator) or whitespace"
+	if name == "" {
+		return "a model name is not empty"
+	}
+	for _, r := range name {
+		switch {
+		case r == ':' || r == ',':
+			return fmt.Sprintf("has %q: %s", r, rule)
+		case unicode.IsSpace(r):
+			return fmt.Sprintf("has whitespace (%q): %s", r, rule)
+		}
+	}
+	return ""
+}
+
+// difficulty: agents.difficulty names every level (spec.Levels), each a list of models the config knows (each may
+// name an effort), and no other key.
 func (v *validator) difficulty() {
 	keys := make([]string, 0, len(v.d.Agents.Difficulty))
 	for k := range v.d.Agents.Difficulty {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	for _, level := range spec.Levels {
+		if _, ok := v.d.Agents.Difficulty[level]; !ok {
+			v.fail(".agents.difficulty."+level, "required: the models a "+level+" task goes to, a list of model refs")
+		}
+	}
 	for _, k := range keys {
-		if _, ok := DifficultyDefault[k]; !ok {
-			v.fail(".agents.difficulty"+key(k), "is not a level: use hard, medium or simple")
+		if !slices.Contains(spec.Levels, k) {
+			v.fail(".agents.difficulty"+key(k), "is not a level: use "+strings.Join(spec.Levels, ", "))
 			continue
 		}
 		for i, t := range v.d.Agents.Difficulty[k] {
@@ -755,14 +781,14 @@ func (v *validator) modelRef(path, ref string, required bool) {
 	}
 }
 
-// modelUsed: a level (its own list or the default), a role or an agent of c names model.
+// modelUsed: a level, a role or an agent of c names model.
 func (c *Config) modelUsed(model string) bool { return slices.Contains(c.UsedModels(), model) }
 
-// UsedModels are the models a level (its own list or the default), a role or an agent of c names, known or not, in
-// level (hard, medium, simple), role, agent order.
+// UsedModels are the models a level, a role or an agent of c names, known or not, in level (hard, medium, simple),
+// role, agent order.
 func (c *Config) UsedModels() []string {
 	var refs []string
-	for _, level := range []string{"hard", "medium", "simple"} {
+	for _, level := range spec.Levels {
 		refs = append(refs, c.DifficultyList(level)...)
 	}
 	for _, k := range c.Data.Agents.Roles.Keys {

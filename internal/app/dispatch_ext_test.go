@@ -781,7 +781,7 @@ func TestDispatchFixesLine(t *testing.T) {
 	}
 }
 
-// Effort beside the model. A model ref `opus:high` (the built-in hard level, a spec's Model: line, --model):
+// Effort beside the model. A model ref `opus:high` (the fixture's hard level, a spec's Model: line, --model):
 // the dispatch records and replies the effort, the worker's start request carries it, and status shows it.
 
 // effortRig is a dispatch rig whose lane L-01 (agent pj-l-01) is free.
@@ -796,7 +796,7 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := effortRig(t)
 		r.start()
-		r.specLevel("hard") // the built-in hard level is opus:high
+		r.specLevel("hard") // the fixture's hard level is opus:high
 		reply, err := r.dispatchLevel("d1")
 		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort high") {
 			t.Fatalf("hard dispatch: %q, %v; want L-01 at effort high", reply, err)
@@ -989,7 +989,7 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 				r.specOf("T-1", "# T-1 — Typed\n\nDifficulty: medium\n")
 				reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
 					Role: "lead", CallID: "d-T-1"}, Task: "T-1", Types: c.types, After: c.after})
-				if err == nil || !strings.Contains(err.Error(), `"lunna" is not a model (models: `) {
+				if err == nil || !strings.Contains(err.Error(), `"lunna" is not a model (agents.models: `) {
 					t.Fatalf("dispatch --model %v: %q, %v; want refused naming lunna", c.types, reply, err)
 				}
 				for _, step := range []string{"fact dispatch", "fact waiting"} {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"strings"
 	"time"
 )
 
@@ -108,7 +107,7 @@ func (a *App) pauseCall(c wire.PauseReq) (string, error) {
 			return "", fmt.Errorf("pause: %v", err)
 		}
 		if _, ok := cfg.Model(c.Model); !ok {
-			return "", fmt.Errorf("pause: %s is not a model (models: %s)", c.Model, strings.Join(cfg.ModelNames(), ", "))
+			return "", fmt.Errorf("pause: %v", cfg.UnknownModel(c.Model))
 		}
 	}
 	switch {

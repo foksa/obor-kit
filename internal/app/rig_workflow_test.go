@@ -976,9 +976,9 @@ func (f *schedScratch) Prompt(context.Context, string, string, bool) (bool, erro
 // sha s1 and gated into a conflict. before, when given, acts on the harness's snapshot before the connect takes it.
 func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, *schedScratch) {
 	h := newHarness(t)
-	cfg := `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`
+	cfg := `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""},` + harnessModels + `}}`
 	if !serve {
-		cfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`
+		cfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{` + harnessModels + `}}`
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
 	f := &schedScratch{h: h}

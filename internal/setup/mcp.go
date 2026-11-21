@@ -187,11 +187,8 @@ func (s *Setup) mcpLane(name string) error {
 		return err
 	}
 	lt, ok := s.cfg.Model(name)
-	switch {
-	case !ok:
-		return project.Failf("mcp model %s: no model %s (models: %s)", name, name, strings.Join(s.cfg.ModelNames(), ", "))
-	case lt.Kind == "":
-		return project.Failf("mcp model %s: the model has no kind", name)
+	if !ok {
+		return project.Failf("mcp model %s: %v", name, s.cfg.UnknownModel(name))
 	}
 	bad := false
 	k, known := s.cfg.Kind(lt.Kind)

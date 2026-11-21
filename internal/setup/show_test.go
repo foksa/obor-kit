@@ -28,6 +28,15 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 		"  hard   → opus:high (claude opus, effort high)",
 		"  medium → sonnet (claude sonnet) | deepseek (opencode opencode-go/deepseek-v4.1-flash)",
 		"  simple → deepseek (opencode opencode-go/deepseek-v4.1-flash) | sonnet (claude sonnet) | haiku (claude haiku)",
+		"models (config agents.models: name → kind, model id):",
+		"  deepseek → opencode, opencode-go/deepseek-v4.1-flash",
+		"  fable → claude, fable",
+		"  haiku → claude, haiku",
+		"  luna → codex, gpt-6-luna",
+		"  opus → claude, opus",
+		"  sol → codex, gpt-6.1-sol",
+		"  sonnet → claude, sonnet",
+		"  terra → codex, gpt-6.1-terra",
 		"lanes: 2 (L-01, L-02; each runs the model its dispatch picks)",
 		"roles: lead opus:high (claude opus, effort high), integrator opus (claude opus), reviewer terra:xhigh (codex gpt-6.1-terra, effort xhigh), deep_dive opus:max (claude opus, effort max)",
 		"merge.check: not set (the first task sets the stack up: merge.check, lanes.setup, lanes.ready; until then every gate stops on \"missing command\")",
@@ -57,18 +66,20 @@ func TestSetupShowSaysWhenMergeCheckIsUnset(t *testing.T) {
 	}
 }
 
-// a level's own list in its order; a model from agents.models (its own id, or none: its kind alone); a ref
-// naming no model marked; no lanes is "0"; a role not set says so; a confirmed setup prints no starting point.
+// a level's own list in its order; a model from agents.models (its own id, or none: its kind alone, the models table
+// saying "kind's choice"); a ref naming no model marked; no lanes is "0"; a role not set says so; a confirmed setup
+// prints no starting point.
 func TestSetupShowLevelLines(t *testing.T) {
 	t.Parallel()
 	x := newFx(t,
-		testkit.Set("agents.models", `{"kimi": {"kind": "opencode", "id": "opencode-go/kimi"}, "muse": {"kind": "opencode", "id": ""}}`),
+		testkit.AddModels(`{"kimi": {"kind": "opencode", "id": "opencode-go/kimi"}, "muse": {"kind": "opencode", "id": ""}}`),
 		testkit.Set("agents.difficulty", `{"hard": ["kimi:high", "opus"], "medium": ["muse"], "simple": ["ghost"]}`),
 		testkit.Set("agents.confirmed", true))
 	out := x.ok(t, "show")
 	for _, want := range []string{
 		"  hard   → kimi:high (opencode opencode-go/kimi, effort high) | opus (claude opus)\n",
 		"  medium → muse (opencode)\n",
+		"  muse → opencode, kind's choice\n",
 		"  simple → ghost (no such model)\n",
 		"lanes: 0\n",
 		"roles: lead - (roles.lead not set),",

@@ -9,6 +9,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"obor/internal/spec"
 )
 
 // The setup edit: the owner changes one setup value from obor web's Setup page (the lead with obor
@@ -70,8 +72,8 @@ func (c *Config) Edit(doc []byte, key string, val json.RawMessage) (Change, erro
 
 // editLevel sets agents.difficulty.<level> to a list of model refs, each naming a model of c.
 func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Change, error) {
-	if _, ok := DifficultyDefault[level]; !ok {
-		return Change{}, fmt.Errorf("%s is not a level: hard, medium or simple", Compact(level))
+	if !slices.Contains(spec.Levels, level) {
+		return Change{}, fmt.Errorf("%s is not a level: %s", Compact(level), strings.Join(spec.Levels, ", "))
 	}
 	var refs []string
 	if err := json.Unmarshal(val, &refs); err != nil || refs == nil {
@@ -351,7 +353,8 @@ func write(key string, doc []byte, path []string, v any) (Write, error) {
 // ProjectDoc is doc (the kit's config example, shape 2) as obor init writes a new project's config: name, prefix,
 // terminal (project.terminal, one of TerminalKinds) and lanesDir set, no lanes, project commands, lane links or
 // protected files, the commands init detects (lanes.setup, merge.check, nightly.slow_check) null; the example's
-// agents.difficulty and agents.kinds go, but for each kit kind's plugin (KitKinds).
+// agents.difficulty, agents.models and agents.kinds go (init writes the models and levels of the kinds it detects),
+// but for each kit kind's plugin (KitKinds).
 func ProjectDoc(doc []byte, name, prefix, terminal, lanesDir string) ([]byte, error) {
 	for _, kv := range []struct {
 		path []string
@@ -364,7 +367,7 @@ func ProjectDoc(doc []byte, name, prefix, terminal, lanesDir string) ([]byte, er
 		{p("merge", "check"), json.RawMessage(`null`)}, {p("nightly", "slow_check"), json.RawMessage(`null`)},
 		{p("commands"), nil},
 		{p("lanes", "links"), []string{}}, {p("rules", "protected_files"), []string{}},
-		{p("agents", "difficulty"), nil}, {p("agents", "kinds"), nil},
+		{p("agents", "difficulty"), nil}, {p("agents", "models"), nil}, {p("agents", "kinds"), nil},
 	} {
 		var err error
 		if doc, err = EditJSON(doc, kv.path, kv.val); err != nil {
@@ -397,6 +400,20 @@ func SetCommand(doc []byte, name, cmd string) (Write, error) {
 // SetRoleModel returns doc with agents.roles.<role> = ref.
 func SetRoleModel(doc []byte, role, ref string) (Write, error) {
 	return write("agents.roles."+role, doc, p("agents", "roles", role), ref)
+}
+
+// AddModels returns doc with each of models added to agents.models (a name it has already is set to the entry), in
+// models' order after the entries it keeps; the line names the models added.
+func AddModels(doc []byte, models []NamedModel) (Write, error) {
+	var names []string
+	for _, e := range models {
+		var err error
+		if doc, err = EditJSON(doc, p("agents", "models", e.Name), ModelEntry{Kind: e.Kind, ID: e.ID}); err != nil {
+			return Write{}, err
+		}
+		names = append(names, e.Name)
+	}
+	return Write{Doc: doc, Key: "agents.models", Val: "+ " + strings.Join(names, ", ")}, nil
 }
 
 // SetDifficulty returns doc with agents.difficulty = levels.

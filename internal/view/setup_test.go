@@ -94,20 +94,20 @@ func TestSetup(t *testing.T) {
 	if !reflect.DeepEqual(s.Types, wantTypes) {
 		t.Errorf("types %+v\nwant %+v", s.Types, wantTypes)
 	}
-	// models: every model the config knows, built-in ones first, with its kind, model id and its kind's efforts
+	// models: every model the config knows (agents.models, config order), with its kind, model id and its kind's efforts
 	var names []string
 	byName := map[string]SetupModel{}
 	for _, m := range s.Models {
 		names = append(names, m.Name)
 		byName[m.Name] = m
 	}
-	if !slices.Equal(names, cfg.ModelNames()) || names[len(names)-1] != "kimi" {
+	if !slices.Equal(names, cfg.ModelNames()) || !slices.Contains(names, "kimi") {
 		t.Fatalf("models %q, want the config's %q", names, cfg.ModelNames())
 	}
-	if m := byName["opus"]; m.Kind != "claude" || m.Model != "opus" || !m.Builtin || !slices.Contains(m.Efforts, "high") {
-		t.Errorf("model opus %+v, want a built-in claude opus with claude's efforts", m)
+	if m := byName["opus"]; m.Kind != "claude" || m.Model != "opus" || !slices.Contains(m.Efforts, "high") {
+		t.Errorf("model opus %+v, want claude opus with claude's efforts", m)
 	}
-	if m := byName["kimi"]; m.Kind != "opencode" || m.Model != "opencode-go/kimi" || m.Builtin {
+	if m := byName["kimi"]; m.Kind != "opencode" || m.Model != "opencode-go/kimi" {
 		t.Errorf("model kimi %+v, want the project's opencode kimi", m)
 	}
 	// a model's pause in force, none on the others

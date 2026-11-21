@@ -53,7 +53,8 @@ panes per tab. No per-model caps (owner 2026-11-03): a model out of quota is pau
   lead carries the deploy risk, not the lane's model.
 - Effort beside the model: wherever a model is named (spec `Model:`, `--model`, `agents.difficulty`,
   `agents.roles.<role>`), `opus:high` is opus at effort high (the lead and deep dive run on `opus:high`). The config names
-  models directly (built-in table in `internal/config/models.go`; `agents.models.<name>` adds one); lanes are a count.
+  models directly (`agents.models.<name>` {kind, id} is the one table: a new model or version is an entry, no
+  release); lanes are a count.
 
 ## Merge rules
 - Before committing `.obor/config.json` on main: `./bin/obor config validate` (a merge's guard runs it too; a direct

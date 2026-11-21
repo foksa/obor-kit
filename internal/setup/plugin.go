@@ -159,13 +159,22 @@ func (s *Setup) hooksLine(root string) string {
 	return line
 }
 
-// agentsCmd is `obor setup agents` (once per user): in a project, each plugin kind its config names
-// (kinds.<name>.command: the kit's OpenCode) is described first and its manifest cached in the state dir
+// agentsCmd is `obor setup agents` (once per user, and after an upgrade): in a project, the agents.models entries its
+// levels and roles name without one are added (upgradeModels), then each plugin kind its config names
+// (kinds.<name>.command: the kit's OpenCode) is described and its manifest cached in the state dir
 // (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
 // a failure is a FAIL. A kind installs nothing user-global, so each is said once.
 func (s *Setup) agentsCmd(args []string) error {
 	if len(args) > 0 {
 		return errUsage
+	}
+	if cfg, err := s.projectConfig(); err != nil {
+		return err
+	} else if cfg != nil {
+		s.cfg = cfg
+		if err := s.upgradeModels(); err != nil {
+			return err
+		}
 	}
 	if _, err := s.cachePlugins(); err != nil {
 		return err

@@ -38,7 +38,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   `LoadForValidate` (obor config validate, the one strict place: a FAIL line per unknown key); `Validate` (removed keys
   WARN), `TaskIDOK` /
   `TaskFromBranch` / `TaskBranch`; `edit.go`: `Edit`, the one setup change obor web may make, applied to config.json's bytes
-  in their own layout, and `LoadWith` (what it would load as).
+  in their own layout, and `LoadWith` (what it would load as); `models.go`: `Config.Model`, a name resolved from
+  `agents.models` alone, and `UpgradeModels`, the entries `obor setup agents` adds and an unknown-model refusal quotes.
 - `background`: the agents' live processes, the one check of them — the machine's process table
   (`ReadProcs`, `ParseProcs`, `Proc`), a recorded background Bash call matched to the process it started
   (`Match` by command and time; `Live`, the newest call still running in an agent's descendants; `Mine`, an agent's
@@ -287,7 +288,8 @@ on a file missing from this table or a listed file that is gone); the entry is t
   starts agents through the launcher's one start (`port.Launcher.Launch`, given setup's placement and refusing rather
   than stopping a running agent; a pane with no `--start` is the same launch with its `NoAgent` option: label the pane and
   type its env, start no agent) that `cmd/obor` injects as a `port.Launcher`, and asks the terminal for panes through
-  `port.TerminalSetup`, whose adapter lays them out; `obor setup check` runs the terminal's own check, `check.go`); `obor init`
+  `port.TerminalSetup`, whose adapter lays them out; `obor setup check` runs the terminal's own check, `check.go`;
+  `models.go`: the starter models and levels init writes, and setup agents' `agents.models` upgrade step); `obor init`
   (`oborinit.go`: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`); `obor uninstall` (`uninstall.go`: those steps undone in reverse; serve, the agents and the main
   repo's git through `Setup.Down`, which `cmd/obor/uninstall.go` wires to the stop path, `service` and `checks.GitPruner`;

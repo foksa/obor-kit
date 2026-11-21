@@ -33,6 +33,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/config"
+	"obor/internal/setup"
 )
 
 // liveKinds is each kind's live tier.
@@ -238,18 +239,25 @@ func (l *lab) makeProject() error {
 	if err := os.MkdirAll(filepath.Join(l.main, ".obor"), 0o755); err != nil {
 		return err
 	}
-	kinds := ""
+	models := map[string]config.ModelEntry{} // obor init's starter models, every kind's: the cases start one of them
+	for _, e := range setup.StarterModels {
+		models[e.Name] = config.ModelEntry{Kind: e.Kind, ID: e.ID}
+	}
+	agentsDoc := map[string]any{"models": models}
 	if l.kind == "opencode" {
 		cmd, err := l.opencodeKind()
 		if err != nil {
 			return err
 		}
-		b, _ := json.Marshal(cmd)
-		kinds = `, "agents": {"kinds": {"opencode": {"plugin": ` + string(b) + `}}}`
+		agentsDoc["kinds"] = map[string]any{"opencode": map[string]any{"plugin": cmd}}
+	}
+	b, err := json.Marshal(agentsDoc)
+	if err != nil {
+		return err
 	}
 	doc := `{"version": 2, "project": {"name": "conf", "agent_prefix": "cf", "task_id_pattern": "T-[0-9]+"},
   "lanes": {"dir": "../proj-wt", "count": 1, "task_branch": "task/{id}"},
-  "merge": {"target_branch": "main"}, "commands": {}` + kinds + `}
+  "merge": {"target_branch": "main"}, "commands": {}, "agents": ` + string(b) + `}
 `
 	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
 		return err

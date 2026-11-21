@@ -15,15 +15,22 @@ import (
 )
 
 // The models: the config names a model with its effort, `<model>[:<effort>]` (a model ref), in difficulty
-// levels, roles, agents and a spec's Model: line. A model is a built-in one (BuiltinModels) or models.<name>, which
-// adds one or overrides a built-in; what starts it is its kind's base args (KindBaseArgs), its model id as the kind
-// takes it (agents.Kinds.ModelArgs), then kinds.<kind>.args. The effort is the kind's own flag (agents.Start.Effort).
+// levels, roles, agents and a spec's Model: line. A model is agents.models.<name> {kind, id}, the one place a name
+// resolves; what starts it is its kind's base args (KindBaseArgs), its model id as the kind takes it
+// (agents.Kinds.ModelArgs), then kinds.<kind>.args. The effort is the kind's own flag (agents.Start.Effort).
 
-// BuiltinModel is one entry of the built-in model table: its name, its kind and the model id the kind starts it with.
-type BuiltinModel struct{ Name, Kind, ID string }
+// NamedModel is one agents.models entry with its name: the kind and the model id the kind starts it with.
+type NamedModel struct{ Name, Kind, ID string }
 
-// BuiltinModels is the built-in model table, in the order obor setup show and the errors list them.
-var BuiltinModels = []BuiltinModel{
+// Member is e as one member of agents.models, ready to paste: "opus": {"kind": "claude", "id": "opus"}.
+func (e NamedModel) Member() string {
+	return fmt.Sprintf("%s: {\"kind\": %s, \"id\": %s}", Compact(e.Name), Compact(e.Kind), Compact(e.ID))
+}
+
+// UpgradeModels are the entries `obor setup agents` adds for a name the config's levels or roles name without an
+// agents.models entry (UpgradeEntries), and the entry an unknown-model refusal quotes ready to paste (UnknownModel).
+// No name resolves from it.
+var UpgradeModels = []NamedModel{
 	{"opus", "claude", "opus"},
 	{"sonnet", "claude", "sonnet"},
 	{"haiku", "claude", "haiku"},
@@ -32,6 +39,19 @@ var BuiltinModels = []BuiltinModel{
 	{"terra", "codex", "gpt-6.1-terra"},
 	{"sol", "codex", "gpt-6.1-sol"},
 	{"luna", "codex", "gpt-6-luna"},
+}
+
+// UpgradeEntries are the UpgradeModels the config's levels or roles name (UsedModels) that agents.models lacks, in
+// UpgradeModels' order: what `obor setup agents` adds.
+func (c *Config) UpgradeEntries() []NamedModel {
+	used := c.UsedModels()
+	var out []NamedModel
+	for _, e := range UpgradeModels {
+		if _, has := c.Data.Agents.Models.M[e.Name]; !has && slices.Contains(used, e.Name) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // KindBaseArgs are the args every start of a compiled kind begins with (kinds.<kind>.args are appended after the
@@ -148,9 +168,8 @@ func (c *Config) Kinds() agents.Kinds {
 // Kind is the kind name of this config (Kinds): a compiled kind, or one of its plugin kinds; ok false: no such kind.
 func (c *Config) Kind(name string) (agents.Kind, bool) { return c.Kinds().Lookup(name) }
 
-// ModelEntry is agents.models.<name>: a model the built-in table lacks, or a built-in one overridden. Kind may be left
-// out for a built-in name (its built-in kind); ID is the model id the kind takes, "" starts the kind without a model
-// (its own choice).
+// ModelEntry is agents.models.<name>: Kind is the kind that starts it (required), ID the model id the kind takes,
+// verbatim ("" starts the kind without a model: its own choice).
 type ModelEntry struct {
 	Kind string `json:"kind,omitempty"`
 	ID   string `json:"id"`
@@ -180,27 +199,14 @@ func ModelRef(model, effort string) string {
 	return model + ":" + effort
 }
 
-// BuiltinModelNamed is the built-in model of name; ok false: none.
-func BuiltinModelNamed(name string) (BuiltinModel, bool) {
-	i := slices.IndexFunc(BuiltinModels, func(b BuiltinModel) bool { return b.Name == name })
-	if i < 0 {
-		return BuiltinModel{}, false
-	}
-	return BuiltinModels[i], true
-}
-
-// Model resolves name: models.<name> (over the built-in of that name), else the built-in; ok false: neither.
+// Model resolves name from agents.models; ok false: the config has no entry of that name, or one with no kind
+// (UnknownModel says which).
 func (c *Config) Model(name string) (Model, bool) {
-	b, isBuiltin := BuiltinModelNamed(name)
-	m := Model{Name: name, Kind: b.Kind, ID: b.ID, kinds: c.kinds}
-	if e, ok := c.Data.Agents.Models.M[name]; ok {
-		m.ID = e.ID
-		if e.Kind != "" {
-			m.Kind = e.Kind
-		}
-	} else if !isBuiltin {
+	e, ok := c.Data.Agents.Models.M[name]
+	if !ok || e.Kind == "" {
 		return Model{}, false
 	}
+	m := Model{Name: name, Kind: e.Kind, ID: e.ID, kinds: c.kinds}
 	args := append([]string(nil), KindBaseArgs[m.Kind]...)
 	if m.ID != "" {
 		if with, err := c.kinds.ModelArgs(m.Kind, args, m.ID); err == nil {
@@ -215,18 +221,25 @@ func (c *Config) Model(name string) (Model, bool) {
 	return m, true
 }
 
-// ModelNames are the models this config knows: the built-in ones in table order, then models' own new names.
-func (c *Config) ModelNames() []string {
-	var out []string
-	for _, b := range BuiltinModels {
-		out = append(out, b.Name)
+// ModelNames are the models this config knows: agents.models' names in config order.
+func (c *Config) ModelNames() []string { return slices.Clone(c.Data.Agents.Models.Keys) }
+
+// UnknownModel is why name resolves to no model (Config.Model): agents.models has no such entry — the message lists
+// the names it has and, for a name of UpgradeModels, carries that entry ready to paste — or its entry names no kind.
+func (c *Config) UnknownModel(name string) error {
+	if e, ok := c.Data.Agents.Models.M[name]; ok && e.Kind == "" {
+		return fmt.Errorf("%s names no kind: set agents.models%s.kind (%s)", Compact(name), key(name),
+			strings.Join(c.kinds.Names(), ", "))
 	}
-	for _, k := range c.Data.Agents.Models.Keys {
-		if !slices.Contains(out, k) {
-			out = append(out, k)
-		}
+	names := strings.Join(c.ModelNames(), ", ")
+	if names == "" {
+		names = "none"
 	}
-	return out
+	err := fmt.Errorf("%s is not a model (agents.models: %s)", Compact(name), names)
+	if i := slices.IndexFunc(UpgradeModels, func(e NamedModel) bool { return e.Name == name }); i >= 0 {
+		err = fmt.Errorf("%v: add it to agents.models in .obor/config.json: %s", err, UpgradeModels[i].Member())
+	}
+	return err
 }
 
 // ModelDetail is ref as a table shows it after its name: " (<kind> <model id>, effort <effort>)", the model id left
@@ -257,7 +270,7 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 	name, effort := ParseModelRef(ref)
 	m, ok := c.Model(name)
 	if !ok {
-		return fmt.Errorf("%s is not a model (models: %s)", Compact(name), strings.Join(c.ModelNames(), ", "))
+		return c.UnknownModel(name)
 	}
 	if strings.HasSuffix(ref, ":") {
 		return fmt.Errorf("%s names no effort after the colon", Compact(ref))

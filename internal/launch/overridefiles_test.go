@@ -45,7 +45,7 @@ func TestPluginKindStartReadsTheOverrideFilesOfTheManifestItStartsWith(t *testin
 	}
 	upgrade("")
 	x := setup(t, testkit.Set("agents.kinds", `{"stub":{"plugin":"`+cmd+`"}}`),
-		testkit.Set("agents.models", `{"st":{"kind":"stub","id":""}}`))
+		testkit.AddModels(`{"st":{"kind":"stub","id":""}}`))
 	if _, err := plugin.Cache("stub", cmd, filepath.Join(x.p.Root, ".obor", "state")); err != nil { // obor setup agents' cache
 		t.Fatal(err)
 	}

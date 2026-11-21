@@ -370,10 +370,10 @@ func listPackages(t *testing.T) map[string][]string {
 }
 
 // kindLiteralFree are the trees that may name an agent kind as a string literal: the bridges, a plugin kind's own binary
-// (kinds/<name>), the test fakes, and the built-in model table with each kind's base args (one table in
-// internal/config, data only).
+// (kinds/<name>), the test fakes, the upgrade model list with each kind's base args (internal/config, data only) and
+// obor init's starter model list (internal/setup, data only).
 var kindLiteralFree = []string{"internal/agents/", "kinds/", "internal/herdr/herdrtest/", "internal/testkit/",
-	"internal/config/models.go"}
+	"internal/config/models.go", "internal/setup/models.go"}
 
 // TestNoKindLiterals: per-kind behaviour lives in the bridges (docs/module-map.md "bridge"), so no Go file
 // outside them, the fakes and tests holds a kind's name as a string literal: an adapter asks the project's kinds

@@ -33,7 +33,7 @@ func (staleFx) Free(context.Context, port.FreeInput) (string, error) { return "f
 func newStaleRig(t *testing.T) (*harness, *Loop) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor/config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2},`+
-		`"agents":{"roles":{"integrator":""},"kinds":{"opencode":{"plugin":"obor-kind-opencode"}}}}`)
+		`"agents":{"roles":{"integrator":""},`+harnessModels+`,"kinds":{"opencode":{"plugin":"obor-kind-opencode"}}}}`)
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01"), State: "working", Task: "T-9"},
 		{Name: "L-02", Dir: h.lane("L-02"), State: "working", Task: "T-8"}}
 	fx := &Loop{Workflow: WorkflowOf(staleFx{}), Specs: staleFx{}}

@@ -377,7 +377,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 	}
 	model, ok := liveModel("opencode")
 	if !ok {
-		report("FAIL", "OC-L6", "the config's built-in model table has no opencode model", at("internal/config/models.go", "var BuiltinModels")+", T-910")
+		report("FAIL", "OC-L6", "obor init's starter list has no opencode model", at("internal/setup/models.go", "var StarterModels")+", T-910")
 		return
 	}
 	start, err := l.launchOf("opencode", model, real, func(name string, data []byte) (string, error) {

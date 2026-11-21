@@ -34,6 +34,10 @@ func (s *Setup) printTable() {
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.say("  %-6s → %s", level, s.levelLine(level, paused))
 	}
+	s.say("models (config agents.models: name → kind, model id):")
+	for _, line := range s.modelLines() {
+		s.say("  %s", line)
+	}
 	s.say("lanes: %s", s.lanesLine())
 	s.say("roles: %s", s.rolesLine())
 	if s.cfg.Data.Merge.Check.Cmd == "" {
@@ -45,6 +49,28 @@ func (s *Setup) printTable() {
 		s.say("confirmed: no")
 		s.say("starting point: the lead goes through it with you at its first session")
 	}
+}
+
+// modelLines are the setup table's models, one line per agents.models entry in config order: "opus → claude, opus", the
+// model id "kind's choice" when the entry names none, "no kind" for an entry without one; "none" for a config with
+// none.
+func (s *Setup) modelLines() []string {
+	var out []string
+	for _, name := range s.cfg.ModelNames() {
+		e := s.cfg.Data.Agents.Models.M[name]
+		kind, id := e.Kind, e.ID
+		if kind == "" {
+			kind = "no kind"
+		}
+		if id == "" {
+			id = "kind's choice"
+		}
+		out = append(out, name+" → "+kind+", "+id)
+	}
+	if len(out) == 0 {
+		return []string{"none: a model ref names no model"}
+	}
+	return out
 }
 
 // modelPauses is the model pauses in force now (obor pause --model), by model: the table marks them.

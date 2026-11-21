@@ -15,6 +15,13 @@
   },
   "agents": {
     "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },
+    "difficulty": { "hard": ["opus:high"], "medium": ["sonnet"], "simple": ["sonnet", "haiku"] },
+    "models": {
+      "opus": { "kind": "claude", "id": "opus" },
+      "sonnet": { "kind": "claude", "id": "sonnet" },
+      "haiku": { "kind": "claude", "id": "haiku" },
+      "sol": { "kind": "codex", "id": "gpt-6.1-sol" }
+    },
     "kinds": { "opencode": { "plugin": "obor-kind-opencode" } },
     "confirmed": false
   },

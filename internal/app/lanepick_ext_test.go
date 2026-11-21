@@ -20,7 +20,7 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 		r.start()
 		r.specLevel("medium") // sonnet, deepseek
 		if reply, err := r.pause("lead", "p0", wire.PauseReq{Model: "gpt",
-			Why: "x"}); err == nil || !strings.Contains(err.Error(), `gpt is not a model`) {
+			Why: "x"}); err == nil || !strings.Contains(err.Error(), `"gpt" is not a model`) {
 			t.Errorf("pause of an unknown model: %q, %v; want refused", reply, err)
 		}
 		if reply, err := r.pause("lead", "p1", wire.PauseReq{Model: "sonnet",

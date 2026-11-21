@@ -43,6 +43,9 @@ const configJSON = `{
       "hard": [
         "opus:high"
       ],
+      "medium": [
+        "sonnet"
+      ],
       "simple": [
         "kimi:high"
       ]
@@ -61,6 +64,18 @@ const configJSON = `{
       "kimi": {
         "kind": "opencode",
         "id": "opencode-go/kimi"
+      },
+      "opus": {
+        "kind": "claude",
+        "id": "opus"
+      },
+      "sonnet": {
+        "kind": "claude",
+        "id": "sonnet"
+      },
+      "fable": {
+        "kind": "claude",
+        "id": "fable"
       }
     }
   },
@@ -305,7 +320,7 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	h, ctx := r.h, context.Background()
 	path := filepath.Join(h.root, ".obor", "config.json")
 	h.write(path, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":1},`+
-		`"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}},"merge":{"target_branch":""},"reviews":{"dir":"reviews"}}`)
+		`"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""},`+harnessModels+`},"merge":{"target_branch":""},"reviews":{"dir":"reviews"}}`)
 	f := &fakeConfig{path: path}
 	r.fx.Config = f
 	r.publishing(ctx)

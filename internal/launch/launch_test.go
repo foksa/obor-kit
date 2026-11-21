@@ -44,7 +44,7 @@ var settingsFileRE = regexp.MustCompile(`--settings \S+/\.obor/state/settings/[^
 // every server the command line does not name.
 const laneMCP = strictMCP + " --strict-mcp-config "
 
-// fx is a project with lane L-01, the built-in models (opus: claude --permission-mode auto --model opus; luna: codex
+// fx is a project with lane L-01, the fixture's models (opus: claude --permission-mode auto --model opus; luna: codex
 // -s workspace-write -a never -m gpt-6-luna), roles integrator and lead (opus) and reviewer (luna), an in-memory
 // terminal with no panes (term), every pid alive and a ps that lists no process.
 type fx struct {

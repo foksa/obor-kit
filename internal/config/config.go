@@ -97,12 +97,11 @@ type Lanes struct {
 type Agents struct {
 	// Roles is the model of each role, `<model>[:<effort>]`; an object {model, write, verbs} defines a custom role.
 	Roles Roles `json:"roles"`
-	// Difficulty is the models a hard, medium or simple task goes to, first free one first; a level it omits has the
-	// built-in default (DifficultyDefault).
+	// Difficulty is the models a hard, medium or simple task goes to, first free one first; every level is required.
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
 	// Kinds is kinds.<kind>: extra args for every start of that CLI, its work jobs' note, a plugin kind's executable.
 	Kinds Ordered[KindEntry] `json:"kinds,omitzero"`
-	// Models is models.<name> {kind, id}: a model the built-in table (BuiltinModels) lacks, or one overridden.
+	// Models is models.<name> {kind, id}: the project's models, the one place a model name resolves (Config.Model).
 	Models Ordered[ModelEntry] `json:"models,omitzero"`
 	// HandoffTokens is the context size above which the lead is reminded to hand off and a keep lane's idle
 	// agent is restarted. Default 500000.
@@ -1327,28 +1326,11 @@ func ParseClock(s string) (hour, minute int, ok bool) {
 	return t.Hour(), t.Minute(), true
 }
 
-// DifficultyDefault is the model refs of each difficulty level when .obor/config.json's `agents.difficulty` does not name
-// the level (a spec's `Difficulty:` line picks the level): hard wants opus at effort high, simple the cheap models.
-var DifficultyDefault = map[string][]string{
-	"hard":   {"opus:high"},
-	"medium": {"sonnet", "deepseek"},
-	"simple": {"deepseek", "sonnet", "haiku"},
-}
+// DifficultyList is level's model refs in dispatch order: the project's agents.difficulty entry (nil: the config
+// names no such level).
+func (c *Config) DifficultyList(level string) []string { return c.Data.Agents.Difficulty[level] }
 
-// DifficultyList is level's model refs in dispatch order: the project's agents.difficulty entry, else the built-in default.
-// nil for a name that is no level.
-func (c *Config) DifficultyList(level string) []string {
-	listed, ok := DifficultyDefault[level]
-	if !ok {
-		return nil
-	}
-	if own, set := c.Data.Agents.Difficulty[level]; set {
-		listed = own
-	}
-	return listed
-}
-
-// HasDifficulty: the config sets agents.difficulty at all (else every level's built-in default applies).
+// HasDifficulty: the config sets agents.difficulty at all.
 func (c *Config) HasDifficulty() bool { return c.Data.Agents.Difficulty != nil }
 
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A

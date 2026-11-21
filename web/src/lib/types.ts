@@ -441,12 +441,11 @@ export interface SetupType {
   effort: string;
 }
 
-// SetupModel is a model the config knows: built-in or models' own, its kind's efforts and its pause.
+// SetupModel is a model the config knows (agents.models): its kind, model id, its kind's efforts and its pause.
 export interface SetupModel {
   name: string;
   kind: string;
   model: string;
-  builtin: boolean;
   efforts: string[];
   paused: Pause | null;
 }

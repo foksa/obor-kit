@@ -235,7 +235,7 @@
               <tbody>
                 {#each models as m (m.name)}
                   <tr class:mpaused={!!m.paused}>
-                    <td class="mono"><strong>{m.name}</strong>{#if !m.builtin}<span class="small muted"> · project's</span>{/if}</td>
+                    <td class="mono"><strong>{m.name}</strong></td>
                     <td><span class="kind k-{m.kind}">{m.kind}</span></td>
                     <td class="mono small">{m.model || "kind's choice"}</td>
                     <td class="small">{(used[m.name] || []).join(", ") || "—"}</td>

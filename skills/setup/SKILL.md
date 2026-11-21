@@ -44,7 +44,8 @@ from its panes' labels; a tab with a shell in it is no kind's. `--tab <id>` spli
   once per repo). `… updated itself and exited …` → run the command the hint prints (`obor restart <agent> [--fresh] --pane <id>`,
   or `obor drive <T-xx>`).
 Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … already running`).
-`obor setup agents` caches each plugin kind's manifest (`.obor/state/kinds/`) and checks every kind's install;
+`obor setup agents` adds the `agents.models` entry of each model the config's levels and roles name without one, when
+obor knows it (uncommitted: commit it), caches each plugin kind's manifest (`.obor/state/kinds/`) and checks every kind's install;
 no kind installs anything outside the project. opencode lanes (`kind:
 opencode`, no Claude Code hooks) get obor's MCP server and its plugin (file guard and session context; there is no
 Stop hook, so nothing nudges a missing `task_done`) from each start's generated config (`OPENCODE_CONFIG`, under
