@@ -117,6 +117,10 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 		return r.sha() + "\n", nil
 	case line == "symbolic-ref --short HEAD", line == "branch --show-current":
 		return r.branch + "\n", nil
+	case line == "symbolic-ref -q --short HEAD":
+		return r.branch + "\n", nil
+	case line == "symbolic-ref -q --short refs/remotes/origin/HEAD": // a fake repository has no remote
+		return "", errors.New("exit status 1")
 	case args[0] == "add" && len(args) > 2 && args[1] == "--":
 		return "", nil // setup adds, then commits exactly those paths (Commit)
 	case args[0] == "ls-files" && len(args) == 4 && args[1] == "--error-unmatch" && args[2] == "--":

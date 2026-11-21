@@ -89,9 +89,15 @@ func TestOborInitSummaryHasNoTableAndEndsWithTheLeadLine(t *testing.T) {
 	if i := strings.Index(out, "obor init proj:\n"); i < 0 || !strings.Contains(out[i:], "  serve ") {
 		t.Errorf("the step lines are gone:\n%s", out)
 	}
+	// the one merge.compile line is the no-compile warning (config's rule: TestValidateTrunkRef)
+	prose := strings.ReplaceAll(out, "warning: merge.compile is empty and merge.target_branch main is the default branch: "+
+		config.NoCompile+"\n", "")
+	if prose == out {
+		t.Errorf("precondition: the no-compile warning is in the output:\n%s", out)
+	}
 	for _, gone := range []string{"models and effort", "\nlanes: ", "\nroles: ", "\nconfirmed:", "starting point", "merge.check is what",
 		"merge.compile", "--no-verify", "change any of it", "next:", "waiting on"} {
-		hasNot(t, out, gone, "the trimmed summary")
+		hasNot(t, prose, gone, "the trimmed summary")
 	}
 }
 

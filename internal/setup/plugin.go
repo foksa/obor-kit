@@ -42,6 +42,23 @@ func (s *Setup) githooks(args []string) error {
 	return err
 }
 
+// planHooks is what `obor setup githooks` decides from the values git holds: cur is core.hooksPath, chain is
+// obor.hooksChain ("" when unset), dir and chainDir are the kit's two sets, and dotgit says whether .git/hooks holds a
+// hook the small set lacks (asked only when nothing is recorded). own: cur is the project's own hooks dir, which is
+// chained rather than made to choose (the returned chain is then cur). target is the set core.hooksPath gets: the full
+// set only when there is something to chain, since git runs one dir and the small set ships pre-commit and pre-push
+// alone.
+func planHooks(dir, chainDir, cur, chain string, dotgit func() bool) (own bool, newChain, target string) {
+	own = cur != "" && cur != dir && cur != chainDir && !kitHooks(cur)
+	if own {
+		chain = cur
+	}
+	if chain != "" || dotgit() {
+		return own, chain, chainDir
+	}
+	return own, chain, dir
+}
+
 // githooksStep is githooks; changed says core.hooksPath moved (obor init's step line).
 func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 	remove := len(args) == 1 && args[0] == "--remove"
@@ -81,19 +98,11 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 		s.say("OK githooks removed (core.hooksPath unset)")
 		return true, nil
 	}
-	// The project's own hooks dir is chained, rather than make it choose.
-	own := cur != "" && cur != dir && cur != chainDir && !kitHooks(cur)
+	own, chain, target := planHooks(dir, chainDir, cur, chain, func() bool { return s.dotgitHooks(s.root) })
 	if own {
 		if _, err := s.git().Git(s.root, "config", "--local", "obor.hooksChain", cur); err != nil {
 			return false, project.Failf("cannot set obor.hooksChain in %s", s.root)
 		}
-		chain = cur
-	}
-	// The full set only when there is something to chain: git runs one dir, and the small set ships pre-commit and
-	// pre-push alone.
-	target := dir
-	if chain != "" || s.dotgitHooks(s.root) {
-		target = chainDir
 	}
 	if cur == target {
 		s.say("OK githooks: core.hooksPath already %s", target)

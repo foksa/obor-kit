@@ -664,26 +664,38 @@ func ReloadLine() string {
 const NoCompile = "a moved candidate re-runs the full check (no compile)"
 
 // NoCompileWarning is the warning `obor init` gives when merge.compile is empty and merge.target_branch is the
-// repository's default branch (origin's HEAD, else the main checkout's branch): a candidate whose target moved re-runs
-// merge.check before it lands on the branch people ship. "" otherwise, and outside a repository.
-func (c *Config) NoCompileWarning() string {
+// repository's default branch (DefaultBranch): a candidate whose target moved re-runs merge.check before it lands on
+// the branch people ship. def is that branch when the caller has read it; "" reads it here. "" otherwise, and outside a
+// repository.
+func (c *Config) NoCompileWarning(def string) string {
 	name := c.Data.Merge.TargetBranch
 	if c.Data.Merge.Compile.Cmd != "" || name == "" || c.Root == "" {
 		return ""
 	}
-	def := ""
-	for _, args := range [][]string{
-		{"symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"}, {"symbolic-ref", "-q", "--short", "HEAD"},
-	} {
-		out, err := gitCmd(append([]string{"-C", c.Root}, args...)...).Output()
-		if def = strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"); err == nil && def != "" {
-			break
-		}
+	if def == "" {
+		def = DefaultBranch(func(args ...string) (string, error) {
+			out, err := gitCmd(append([]string{"-C", c.Root}, args...)...).Output()
+			return string(out), err
+		})
 	}
 	if def != name {
 		return ""
 	}
 	return "merge.compile is empty and merge.target_branch " + name + " is the default branch: " + NoCompile
+}
+
+// DefaultBranch is a repository's default branch: origin's HEAD, else the checked-out branch ("" when neither reads).
+// git runs one git command in the repository and gives its stdout.
+func DefaultBranch(git func(args ...string) (string, error)) string {
+	for _, args := range [][]string{
+		{"symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"}, {"symbolic-ref", "-q", "--short", "HEAD"},
+	} {
+		out, err := git(args...)
+		if def := strings.TrimPrefix(strings.TrimSpace(out), "origin/"); err == nil && def != "" {
+			return def
+		}
+	}
+	return ""
 }
 
 // warnings: merge.by_path.no_check globs (default docs/**, as Classify's) that may share a path with a rule's glob

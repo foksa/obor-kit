@@ -65,10 +65,10 @@ func TestGithooksSetsChainsRemoves(t *testing.T) {
 	}
 }
 
-// core.hooksPath is githooks/ (pre-commit, pre-push and the runner) unless there is something to chain: a
-// recorded obor.hooksChain, or a hook in .git/hooks the small set lacks. Then it is githooks/chain/ (every hook git
-// runs). A rerun moves between the two as that changes, and --remove works from either.
-// (The work of each run is git config: the fake git keeps it, TestGithooks runs the real hooks.)
+// The hook in .git/hooks that makes core.hooksPath githooks/chain/ (every hook git runs): an executable one other than
+// pre-commit, pre-push and a *.sample, which only chain/ can run once core.hooksPath is set. A rerun moves between the
+// two sets as that changes, and --remove works from either. (The decision itself is TestPlanHooks's; the work of each
+// run is git config: the fake git keeps it, TestGithooks runs the real hooks.)
 func TestGithooksPicksTheHooksDir(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(kit, "githooks")
@@ -83,10 +83,6 @@ func TestGithooksPicksTheHooksDir(t *testing.T) {
 		want    string
 		removed string // core.hooksPath after --remove ("" unset)
 	}{
-		{"no chain, no .git/hooks hook: githooks/", func(*testing.T, *fx) {}, dir, ""},
-		{"a chain recorded: chain/", func(t *testing.T, x *fx) {
-			x.Git(x.Root, "config", "obor.hooksChain", ".githooks")
-		}, chain, ".githooks"},
 		{"a .git/hooks/post-merge: chain/", func(t *testing.T, x *fx) { hook(x, "post-merge", 0o755) }, chain, ""},
 		{"only .git/hooks/pre-commit: githooks/", func(t *testing.T, x *fx) { hook(x, "pre-commit", 0o755) }, dir, ""},
 		{"a .git/hooks/post-merge.sample: githooks/", func(t *testing.T, x *fx) {
@@ -94,11 +90,6 @@ func TestGithooksPicksTheHooksDir(t *testing.T) {
 		}, dir, ""},
 		{"a non-executable .git/hooks/post-merge: githooks/", func(t *testing.T, x *fx) {
 			hook(x, "post-merge", 0o644)
-		}, dir, ""},
-		{"the chain removed: back to githooks/", func(t *testing.T, x *fx) {
-			x.Git(x.Root, "config", "core.hooksPath", ".githooks")
-			has(t, x.ok(t, "githooks"), "core.hooksPath = "+chain, "a chain moves to the full set")
-			x.Git(x.Root, "config", "--local", "--unset", "obor.hooksChain")
 		}, dir, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -115,6 +106,57 @@ func TestGithooksPicksTheHooksDir(t *testing.T) {
 				t.Errorf("--remove: core.hooksPath = %q, want %q", got, c.removed)
 			}
 		})
+	}
+}
+
+// What `obor setup githooks` decides, from the values git would return (planHooks): the set core.hooksPath gets, whether
+// the current value is the project's own (chained), and the chain recorded. The set is githooks/ (pre-commit, pre-push and
+// the runner) unless there is something to chain: a recorded obor.hooksChain, or a hook in .git/hooks the small set lacks;
+// then it is githooks/chain/.
+func TestPlanHooks(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(kit, "githooks")
+	chainDir := filepath.Join(dir, "chain")
+	oldKit := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(oldKit, ".claude-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldKit, ".claude-plugin", "plugin.json"), []byte(`{"name": "obor"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name       string
+		cur, chain string
+		dotgit     bool
+		own        bool
+		wantChain  string
+		want       string
+	}{
+		{"nothing set, no .git/hooks hook: githooks/", "", "", false, false, "", dir},
+		{"a chain recorded: chain/", "", ".githooks", false, false, ".githooks", chainDir},
+		{"a .git/hooks hook the small set lacks: chain/", "", "", true, false, "", chainDir},
+		{"already githooks/: kept, not chained", dir, "", false, false, "", dir},
+		{"already chain/ with its chain recorded: kept", chainDir, ".githooks", false, false, ".githooks", chainDir},
+		{"chain/ whose chain was removed: back to githooks/", chainDir, "", false, false, "", dir},
+		{"the project's own relative hooks dir: chained", ".githooks", "", false, true, ".githooks", chainDir},
+		{"the project's own absolute hooks dir: chained as it is", "/elsewhere", "", false, true, "/elsewhere", chainDir},
+		{"the project's own dir replaces a recorded chain", "/usr/local/hooks", ".old", false, true, "/usr/local/hooks", chainDir},
+		{"another obor kit's githooks: re-pointed, not chained", filepath.Join(oldKit, "githooks"), "", false, false, "", dir},
+		{"another obor kit's chain set: re-pointed, chain kept", filepath.Join(oldKit, "githooks", "chain"), ".githooks", false,
+			false, ".githooks", chainDir},
+		{"a kit that is gone, named like one: re-pointed", "/nowhere/obor-kit/githooks", "", false, false, "", dir},
+		{"a githooks dir that is not obor's: chained", "/nowhere/husky/githooks", "", false, true, "/nowhere/husky/githooks",
+			chainDir},
+	} {
+		asked := false
+		own, chain, target := planHooks(dir, chainDir, c.cur, c.chain, func() bool { asked = true; return c.dotgit })
+		if own != c.own || chain != c.wantChain || target != c.want {
+			t.Errorf("%s: own %v chain %q target %q, want own %v chain %q target %q", c.name, own, chain, target, c.own,
+				c.wantChain, c.want)
+		}
+		if asked && (c.chain != "" || c.own) {
+			t.Errorf("%s: .git/hooks was read though something is already chained", c.name)
+		}
 	}
 }
 

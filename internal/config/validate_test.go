@@ -388,6 +388,33 @@ func TestValidateTrunkRef(t *testing.T) {
 	if got := on("main", "trunk")(set("merge.target_branch", "trunk"), noCompile); len(got) != 0 {
 		t.Errorf("no compile, target a branch other than the default: %q, want none", got)
 	}
+	// NoCompileWarning on a branch its caller read runs no git (a Root with no repository: a read of its own would
+	// find none and give no warning).
+	cfg := func(target, compile string) *config.Config {
+		c := &config.Config{Root: t.TempDir()}
+		c.Data.Merge.TargetBranch = target
+		c.Data.Merge.Compile.Cmd = compile
+		return c
+	}
+	warning := "merge.compile is empty and merge.target_branch trunk is the default branch: " + config.NoCompile
+	for _, row := range []struct{ name, target, compile, def, want string }{
+		{"passed branch is the target: warns", "trunk", "", "trunk", warning},
+		{"passed branch is another: none", "main", "", "trunk", ""},
+		{"a compile is set: none", "trunk", "make build", "trunk", ""},
+		{"no target: none", "", "", "trunk", ""},
+	} {
+		if got := cfg(row.target, row.compile).NoCompileWarning(row.def); got != row.want {
+			t.Errorf("%s: %q, want %q", row.name, got, row.want)
+		}
+	}
+	if got := config.DefaultBranch(func(args ...string) (string, error) {
+		if args[len(args)-1] == "refs/remotes/origin/HEAD" {
+			return "origin/trunk\n", nil
+		}
+		return "main\n", nil
+	}); got != "trunk" {
+		t.Errorf("DefaultBranch with an origin HEAD: %q, want trunk (origin's, not the checked-out main)", got)
+	}
 }
 
 // bash config.test.sh case_validate_ok_template_and_fixture: the template plus the local example validate. The kit's own

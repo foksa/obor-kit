@@ -533,8 +533,9 @@ func scriptWrites(name, script string) string {
 }
 
 // initCommands writes the detected commands whose key is still null in .obor/config.json: "key = cmd" each. Its
-// warnings are the detection's when it wrote check, and config.NoCompileWarning when the config has no compile; its
-// suggestion is the detected typecheck script while the config has no compile.
+// warnings are the detection's when it wrote check, and config.NoCompileWarning (on the default branch, read once here
+// through the git seam) when the config has no compile; its suggestion is the detected typecheck script while the config
+// has no compile.
 func (s *Setup) initCommands() (set, warn []string, suggest string, err error) {
 	d := detectCommands(s.root)
 	for _, kv := range [][2]string{{"check", d.check}, {"lane_setup", d.laneSetup}, {"lane_ready", d.laneReady}} {
@@ -559,11 +560,11 @@ func (s *Setup) initCommands() (set, warn []string, suggest string, err error) {
 			return nil, nil, "", err
 		}
 	}
-	if w := s.cfg.NoCompileWarning(); w != "" {
-		warn = append(warn, w)
-	}
 	if _, ok := run.Command(s.cfg, "compile"); !ok {
 		suggest = d.suggest
+		if w := s.cfg.NoCompileWarning(s.defaultBranch()); w != "" {
+			warn = append(warn, w)
+		}
 	}
 	return set, warn, suggest, nil
 }

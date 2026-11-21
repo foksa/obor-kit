@@ -36,7 +36,8 @@ func (x *hx) remote() string {
 	return remote
 }
 
-// hx is a project (prefix pj, lane L-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`, and a
+// hx is a project (prefix pj, lane L-01 on task/T-05) whose core.hooksPath is the kit's small set (what `obor setup
+// githooks` writes on a project with nothing to chain: TestGithooksInstallIsWhatGitRuns runs the install itself), and a
 // stub binary (refuse); a case sets its own with binary.
 type hx struct {
 	*fx
@@ -58,10 +59,7 @@ func newHx(t *testing.T) *hx {
 	x := &hx{fx: &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}, t: t, lane: lane, kit: newKit(t, "")}
 	x.fx.kit = x.kit
 	x.binary(refuse)
-	x.ok(t, "githooks")
-	if got := x.Git(x.Root, "config", "--get", "core.hooksPath"); got != x.hooks() {
-		t.Fatalf("precondition: hooks installed: %q", got)
-	}
+	x.Git(x.Root, "config", "--local", "core.hooksPath", x.hooks())
 	return x
 }
 
@@ -223,6 +221,24 @@ func (x *hx) binary(script string) {
 	os.Remove(path)
 	x.Write(path, script)
 	os.Chmod(path, 0o755)
+}
+
+// `obor setup githooks` on a project with nothing to chain writes the small set, and git runs it: a lane commit is
+// refused by the installed pre-commit. A rerun leaves core.hooksPath where it is, and --remove unsets it, after which
+// git runs no hook. (The decision is TestPlanHooks's, the config writes TestGithooksSetsChainsRemoves's; the chained
+// cases of TestGithooks run the install too.)
+func TestGithooksInstallIsWhatGitRuns(t *testing.T) {
+	x := newHx(t)
+	x.Git(x.Root, "config", "--local", "--unset", "core.hooksPath")
+	x.commits(t, x.lane, x.gitEnv(), 0, "", "precondition: no hooks installed, a lane commit goes through")
+	has(t, x.ok(t, "githooks"), "core.hooksPath = "+x.hooks(), "installed")
+	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != x.hooks() {
+		t.Fatalf("core.hooksPath = %q, want the kit's githooks %q", got, x.hooks())
+	}
+	x.commits(t, x.lane, x.gitEnv(), 1, "obor: no commits in a lane", "a lane commit after the install")
+	has(t, x.ok(t, "githooks"), "already "+x.hooks(), "rerun")
+	x.ok(t, "githooks", "--remove")
+	x.commits(t, x.lane, x.gitEnv(), 0, "", "a lane commit after --remove")
 }
 
 // bash tests/githooks.test.sh case_setup_githooks_sets_refuses_removes is
