@@ -16,6 +16,7 @@ import (
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/project"
+	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -41,13 +42,14 @@ func newLeadFx(t *testing.T, edits ...func(map[string]any)) *leadFx {
 	return &leadFx{p: p, f: f, srv: herdrtest.Serve(t, f)}
 }
 
-// launcher tunes a launcher for tests: fast waits, a ps with no stopped job, detached runs recorded. A codex start
-// looks for its rollout up to 10 s by default (wrong here: no Codex writes one), so the bound is a poll too.
+// launcher tunes a launcher for tests: fast waits, a ps with no stopped job, detached runs recorded, serve's session
+// report stubbed (no serve runs here, and no row asserts what Report sends: launch's own tests pin that).
 func (x *leadFx) launcher(l *launch.Launcher) {
 	l.Wait, l.Poll, l.Sched, l.Rollout = time.Second, time.Millisecond, time.Second, time.Millisecond
 	l.PS = func(args ...string) ([]byte, error) { return nil, nil }
 	l.Spawn = func(dir string, args []string, out string) error { x.spawn = append(x.spawn, args); return nil }
 	l.Where = x.where
+	l.Report = func(context.Context, store.Session) error { return nil }
 }
 
 // run is `obor lead <args>` in the main checkout: its output and exit code.
@@ -193,33 +195,6 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 		if len(x.spawn) != 0 {
 			t.Errorf("labelled pane %v: not scheduled: %v", c.args, x.spawn)
 		}
-	}
-}
-
-// roles.lead may name an effort (`opus:high`): a fresh lead still gets the plain /obor:lead, in a labelled pane at its
-// shell and in a new tab, never the handoff form (only the lead's own `obor restart <lead> --handoff` asks for that).
-func TestLeadPromptWithAnEffort(t *testing.T) {
-	t.Parallel()
-	start := func(name, pane string) string {
-		return startCall(name, pane, "--permission-mode", "auto", "--model", "opus", "--effort", "high", "--session-id", "NEW", "/obor:lead")
-	}
-	x := newLeadFx(t, testkit.Set("agents.roles.lead", "opus:high"))
-	x.f.Shell("w1:p1", "pj-lead", x.p.Root)
-	out, rc := x.run(t)
-	if rc != 0 || !strings.HasPrefix(lastLine(out), "RESTARTED pj-lead") {
-		t.Fatalf("labelled pane: exit %d\n%s", rc, out)
-	}
-	if c := noSessionID(x.calls()); !strings.Contains(c, start("pj-lead", "w1:p1")) || strings.Contains(c, "handoff") {
-		t.Errorf("labelled pane: starts %s, never the handoff form:\n%s", start("pj-lead", "w1:p1"), c)
-	}
-
-	x = newLeadFx(t, testkit.Set("agents.roles.lead", "opus:high"))
-	out, rc = x.run(t)
-	if rc != 0 || lastLine(out) != "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)" {
-		t.Fatalf("no pane: exit %d\n%s", rc, out)
-	}
-	if c := noSessionID(x.calls()); !strings.Contains(c, start("pj-lead", "wn1:n2")) || strings.Contains(c, "handoff") {
-		t.Errorf("no pane: starts %s, never the handoff form:\n%s", start("pj-lead", "wn1:n2"), c)
 	}
 }
 

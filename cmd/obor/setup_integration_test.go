@@ -120,7 +120,8 @@ func initEnv(t *testing.T, more map[string]string) (env []string, log, home stri
 	kit, _ := filepath.Abs(filepath.Join("..", ".."))
 	home = t.TempDir()
 	env = []string{"HERDR_SOCKET_PATH=" + srv.Path, "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home,
-		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "OBOR_PANE=", "HERDR_CONFIG_PATH="}
+		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "OBOR_PANE=", "HERDR_CONFIG_PATH=",
+		callDown} // the lead's start reports to a serve that is not running: its retries end at once, not 1.8 s
 	return env, log, home
 }
 

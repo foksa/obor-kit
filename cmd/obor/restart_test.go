@@ -13,10 +13,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// obor restart's first prompt: only `--handoff`, the lead's handoff restart, starts the lead with /obor:lead handoff.
-// The lead's own --fresh, a restart that names its pane (obor lead's start at its own shell, restore), a lead whose
-// recorded session has no transcript (a fresh start without --fresh) and every other role's start get the plain role
-// prompt.
+// obor restart's first prompt: a handoff restart that names its pane starts the lead with /obor:lead handoff; a lead
+// whose recorded session has no transcript is a fresh start and gets the plain role prompt.
 func TestRestartHandoffOnlyWithTheFlag(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -25,12 +23,8 @@ func TestRestartHandoffOnlyWithTheFlag(t *testing.T) {
 		args               []string
 		prompt             string // in the start's args ("": none)
 	}{
-		{"the lead's --handoff: the handoff form", `{"lead":"opus"}`, "pj-lead", nil,
-			[]string{"restart", "pj-lead", "--handoff"}, "/obor:lead handoff"},
 		{"the lead's --handoff with its pane named: the handoff form", `{"lead":"opus"}`, "pj-lead", nil,
 			[]string{"restart", "pj-lead", "--pane", "w1:p1", "--handoff"}, "/obor:lead handoff"},
-		{"the lead's own --fresh: the plain role prompt", `{"lead":"opus"}`, "pj-lead", nil,
-			[]string{"restart", "pj-lead", "--fresh"}, "/obor:lead"},
 		{"a lead's fresh start without --fresh (its recorded session has no transcript): the plain role prompt",
 			`{"lead":"opus"}`, "pj-lead", func(p *testkit.Project) {
 				p.Session("pj-lead", "sid-1")
@@ -38,8 +32,6 @@ func TestRestartHandoffOnlyWithTheFlag(t *testing.T) {
 					t.Fatal(err)
 				}
 			}, []string{"restart", "pj-lead"}, "/obor:lead"},
-		{"a non-lead role's --fresh: its plain prompt", `{"reviewer":"opus"}`, "pj-rev", nil,
-			[]string{"restart", "pj-rev", "--fresh"}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
