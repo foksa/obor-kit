@@ -193,8 +193,8 @@ hook's list is replaced whole, so to drop one hook of a group write the event's 
 adds does not run (validate warns): add it to the project's own Codex hooks.
 
 OpenCode agents (all but the lead) keep your `~/.config/opencode` as it is. With an override file, the config obor
-generates for the start (`.obor/state/opencode.json`, named by `OPENCODE_CONFIG`, which OpenCode ranks above your
-own config) is your `opencode.json[c]` with the file merged over it, plus obor's MCP server and plugin
+generates for the start (`.obor/state/opencode-trimmed.json`, named by `OPENCODE_CONFIG`, which OpenCode ranks above
+your own config) is your `opencode.json[c]` with the file merged over it, plus obor's MCP server and plugin
 (`mcp.servers.obor` stays obor's). OpenCode still reads your own config below it, so a `null` there removes nothing;
 use OpenCode's own syntax: `"plugins": ["-<id>"]` removes a plugin (the id its module declares, e.g.
 `herdr.opencode`, not its file name), and `{"disabled": true}` on an MCP server of yours disables it (the merge

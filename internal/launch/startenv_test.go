@@ -75,7 +75,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v: %s", err, out)
 			}
-			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode.json", 1) + " " + c.pane + user
+			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode-trimmed.json", 1) + " " + c.pane + user
 			if got := strings.TrimSpace(string(out)); got != want {
 				t.Errorf("after a stale shell, the env line %q leaves %q, want %q", line, got, want)
 			}
@@ -84,14 +84,14 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 }
 
 // an OpenCode start, a lane's worker and a role agent alike, names its generated config in the env line
-// (OPENCODE_CONFIG=<project>/.obor/state/opencode.json, a path: the line stays short): the file that line names holds
-// obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another kind's start
-// names none.
+// (OPENCODE_CONFIG=<project>/.obor/state/opencode-trimmed.json, a path: the line stays short): the file that line
+// names holds obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another
+// kind's start names none.
 func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.AddModels(`{"oc":{"kind":"opencode","id":"go/ds"}}`),
 		testkit.Set("agents.roles", `{"reviewer":"oc","integrator":"opus"}`))
-	file := filepath.Join(x.p.Root, ".obor", "state", "opencode.json")
+	file := filepath.Join(x.p.Root, ".obor", "state", "opencode-trimmed.json")
 	if _, err := os.Stat(file); err == nil {
 		t.Fatal("precondition: no generated config yet")
 	}

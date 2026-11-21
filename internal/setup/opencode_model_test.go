@@ -46,7 +46,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			hasNot(t, calls, "XDG_STATE_HOME", "no state dir, the user's own untouched")
 			hasNot(t, calls, "OPENCODE_CONFIG_CONTENT", "no config content")
 			// the start's generated config, by path, with the launching kit's server and plugin.
-			file := filepath.Join(x.Root, ".obor", "state", "opencode.json")
+			file := filepath.Join(x.Root, ".obor", "state", "opencode-trimmed.json")
 			has(t, calls, "OPENCODE_CONFIG="+file, "the generated config named")
 			has(t, x.Read(file), `"`+filepath.Join(kit, "bin", "obor")+`"`, "the kit's bin/obor")
 			has(t, x.Read(file), `"file://`+filepath.Join(kit, "opencode")+`"`, "the kit's plugin dir")

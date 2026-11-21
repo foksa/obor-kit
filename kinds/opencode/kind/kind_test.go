@@ -272,6 +272,47 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 	}
 }
 
+// a lead's start (untrimmed) and a worker's (trimmed) name different generated configs, and two worker starts the
+// same one: the project's override file changes the trimmed config, so the two starts of a project never write one
+// path with different bytes. Each start's env names the file it wrote.
+func TestStartNamesOneFilePerContent(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	type written struct {
+		name, path string
+		bytes      []byte
+	}
+	startOf := func(trim bool) written {
+		t.Helper()
+		var got written
+		write := func(name string, data []byte) (string, error) {
+			got = written{name: name, path: "/p/.obor/state/" + name, bytes: data}
+			return got.path, nil
+		}
+		l, err := agents.StartOf(k, agents.Start{Kit: "/kit", TrimUser: trim,
+			Overrides: map[string]string{kind.OverrideFile: `{"plugins": ["-herdr.opencode"]}`}, WriteState: write})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.Env[kind.ConfigVar] != got.path {
+			t.Errorf("an env of %q, want the file's path %q", l.Env[kind.ConfigVar], got.path)
+		}
+		return got
+	}
+	lead, worker, again := startOf(false), startOf(true), startOf(true)
+	if lead.name != kind.ConfigFile || worker.name != kind.TrimmedConfigFile {
+		t.Errorf("lead wrote %q, worker %q; want %q and %q", lead.name, worker.name, kind.ConfigFile, kind.TrimmedConfigFile)
+	}
+	if bytes.Equal(lead.bytes, worker.bytes) {
+		t.Fatal("precondition: the override file changes a trimmed start's config")
+	}
+	if lead.path == worker.path {
+		t.Errorf("lead and worker name one file %q: want two", lead.path)
+	}
+	if again.name != worker.name || again.path != worker.path {
+		t.Errorf("two trimmed starts name %q and %q: want one file", worker.path, again.path)
+	}
+}
+
 // config validate notes a project file (any of the four OpenCode reads) defining mcp.servers.obor, JSONC
 // comments and trailing commas read, and one that does not parse; none for a clean project. Through the protocol
 // (project-warnings) the kind reads the files of the dir itself.
