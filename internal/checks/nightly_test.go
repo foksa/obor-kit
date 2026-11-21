@@ -30,11 +30,15 @@ func ran(name, then string) string {
 }
 
 // steps runs the nightly's steps and report (session.steps) on a plain dir, the way a nightly runs them in its
-// worktree at stepsSha. The session is built without open, and so with no lock and no worktree: git is plumbing
-// around these steps and they read none (the dir's HEAD for the flake log comes from the fake). The scrub that
-// puts a worktree back at the sha is left out, so the rows here prove the commands and the report, and the real
+// worktree at stepsSha, with no scrub. The session is built without open, and so with no lock and no worktree: git is
+// plumbing around these steps and they read none (the dir's HEAD for the flake log comes from the fake). The scrub
+// that puts a worktree back at the sha is left out, so the rows here prove the commands and the report, and the real
 // worktree's rows (TestNightly) its reset.
-func (k *fk) steps() Result {
+func (k *fk) steps() Result { return k.stepsScrub(nil) }
+
+// stepsScrub is steps with the worktree's scrub (its reset back at the sha, then the lane links again, as a nightly's
+// worktree has them).
+func (k *fk) stepsScrub(scrub func()) Result {
 	k.t.Helper()
 	k.out.Reset()
 	dir := filepath.Join(k.Base, "plain")
@@ -51,7 +55,57 @@ func (k *fk) steps() Result {
 	s.runner = newRunner(ctx, &s.Options, k.g, dir, "nightly")
 	s.sigCode = func() int { return s.signal }
 	defer s.close()
-	return *s.steps(stepsSha, nil)
+	return *s.steps(stepsSha, scrub)
+}
+
+// the scrub between the gating checks and the rest resets the worktree with `clean -fdq`, which takes the lane links
+// with the command artifacts: the nightly links them again before the commands after it (merge.nightly_commands).
+func TestNightlyStepsRelinksAfterScrub(t *testing.T) {
+	t.Parallel()
+	x := newFk(t, testkit.Set("lanes.links", []any{"local.env"}), nightly("sees"),
+		cmd("sees", `test -L local.env && echo linked || echo missing`))
+	x.Write("local.env", "main's own\n")
+	dir := filepath.Join(x.Base, "plain")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "local.env")
+	if err := os.Symlink(filepath.Join(x.Root, "local.env"), link); err != nil {
+		t.Fatal(err)
+	}
+	scrubbed := false
+	x.is(x.stepsScrub(func() {
+		scrubbed = true
+		if err := os.Remove(link); err != nil { // the reset's clean takes it
+			t.Fatalf("the scrub: %v", err)
+		}
+	}), OK, `^NIGHTLY GREEN `+stepsSha[:7]+` on main \(sees \(non-gating\) linked, [0-9]+s\)$`)
+	if !scrubbed {
+		t.Fatal("precondition: the scrub ran")
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the scrub took the link and the nightly did not link it again (%v)", err)
+	}
+	if got, err := os.Readlink(link); err != nil || got != filepath.Join(x.Root, "local.env") {
+		t.Errorf("the link = %q, %v; want the main checkout's local.env", got, err)
+	}
+}
+
+// the nightly tests merge.target_branch's head: open takes the target from the config, not from the branch the main
+// checkout has checked out (this fixture's root is a plain dir, on no branch).
+func TestNightlyTarget(t *testing.T) {
+	t.Parallel()
+	x := newFk(t, testkit.Set("merge.target_branch", "trunk"))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s, r := open(ctx, x.opts(), "nightly")
+	if r != nil {
+		t.Fatalf("open: %d %q; want the config's target", r.Code, r.Line)
+	}
+	defer s.close()
+	if s.target != "trunk" {
+		t.Errorf("nightly target = %q, want merge.target_branch %q", s.target, "trunk")
+	}
 }
 
 // flakeLog is the fixture's flake log (Flakes), failing the test on an error.

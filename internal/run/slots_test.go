@@ -74,6 +74,38 @@ func TestSlotsTry(t *testing.T) {
 
 func at(dir, name string) string { return filepath.Join(dir, name) }
 
+// the merge marker's name is the project's name (ProjectName: project.name, else the root's base name), never a
+// shared "default" for a config that names no project; CHECK_PROJECT still overrides it.
+func TestSlotsForMarker(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		edits []func(map[string]any)
+		env   []string
+		want  string
+	}{
+		{"project.name", nil, nil, "merge-running-proj"},
+		{"no project.name: the root's base name, not a shared default", []func(map[string]any){testkit.Set("project.name", "")}, nil,
+			"merge-running-proj"},
+		{"CHECK_PROJECT overrides", nil, []string{"CHECK_PROJECT=other"}, "merge-running-other"},
+		{"a name with white space is default", []func(map[string]any){testkit.Set("project.name", "two words")}, nil,
+			"merge-running-default"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p := testkit.NewDir(t)
+			p.Config(c.edits...)
+			cfg, err := config.Load(p.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := SlotsFor(cfg, p.Env(c.env...)).Marker; got != c.want {
+				t.Errorf("marker = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestCPUs(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

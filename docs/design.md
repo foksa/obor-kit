@@ -634,7 +634,7 @@ release only if the file still holds our PID. Workers don't start while a live `
 is serialised per path by an atomic `mkdir <path>.reclaim` guard: inside the guard re-read the holder, unlink only if
 it is still the same dead PID, create the file, then `rmdir` the guard. A guard older than 10 s is stale and may be
 removed. Normal acquisition (no stale file) is unchanged. axis-alies ports the identical rule to checkSlots.ts.
-**Per-project merge marker + block cap (agreed with axis-alies lead-mp 2026-10-08):** the marker is per project, `merge-running-<project>` (`<project>` = config `project.name`, env `CHECK_PROJECT` overrides;
+**Per-project merge marker + block cap (agreed with axis-alies lead-mp 2026-10-08):** the marker is per project, `merge-running-<project>` (`<project>` = the project's name: `project.name`, else the main checkout's base name; env `CHECK_PROJECT` overrides;
 content unchanged). A worker check waits only for its **own** project's live marker; **every** live marker of any
 project counts as one occupied slot toward `checks.heavy_at_once` for everyone (load stays machine-wide). A merge waits only for
 its own project's live marker. Cap: a marker older than 900 s (its epoch ms field)
@@ -670,7 +670,9 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   `also_on_full`. The result says `partial:<class>` or `full:<reason>` (the file that decided
   it). A failing guard → RED (never falls back). These checks run in the task's lane (see "Where tests run").
 - `obor nightly`: `check` + `check_milestone`, each skipped when unset, in its own nightly worktree
-  (`<lanes.dir>/merge-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
+  (`<lanes.dir>/merge-nightly`, not the merge scratch) at `merge.target_branch`'s head (whatever the main checkout has
+  checked out), under the merge window; its scrub between the gating checks and the rest resets the worktree to that
+  head and links the lane links again (the reset's `clean -fdq` takes them), so `nightly.also_run` runs with them; it then
   backs the store up, asks serve to prune the branches of tasks merged over 7 days ago (a non-gating line,
   `prune: N branches (oldest merge <date>)`; never `--unmerged`, never worktrees) and runs `nightly.also_run` in order, after the gates (each a `commands.<name>` that is no
   gating command; non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
@@ -735,7 +737,7 @@ and tests have one split, not tiers.
   `CHECK_CPUS` = the lane's budget. obor-kit's `lanes.env` sets `GOMAXPROCS` and `GOFLAGS=-p={cpus} -trimpath`.
 - **`obor run <heavy command>`** takes a check slot, exports `CHECK_SLOT_HELD`, `CHECK_CPUS` (`checks.cpus_per_check`, else
   `max(1, cores / checks.heavy_at_once)`) and, in a lane, `OBOR_CHANGED_FILES` (state file `.obor/state/run-changed-<lane>`): the
-  lane's files against its merge base with the target, committed and uncommitted (untracked too), the run marker not,
+  lane's files against its merge base with `merge.target_branch`, committed and uncommitted (untracked too), the run marker not,
   computed from the lane's content tree built with a temporary index (`GIT_INDEX_FILE`, `add -A`): no write to the
   lane's index or history. It writes no receipt.
 - **A lane tests with importers**: the lane's class check covers the changed packages and the packages that import

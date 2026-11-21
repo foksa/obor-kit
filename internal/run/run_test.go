@@ -24,11 +24,12 @@ import (
 func TestMain(m *testing.M) { testkit.Main(m) }
 
 type fx struct {
-	p     *testkit.Project
-	lane  string
-	slots string
-	cfg   *config.Config
-	git   GitFunc // Options.Git of the run (nil: real git)
+	p         *testkit.Project
+	lane      string
+	slots     string
+	cfg       *config.Config
+	git       GitFunc  // Options.Git of the run (nil: real git)
+	mergeBase []string // the args of the last merge-base the run asked for
 }
 
 // setup is a plain project (no repository) with lane L-01 and commands, its check slots in a temp dir (checks.slot_dir
@@ -53,7 +54,8 @@ var exitOne = sync.OnceValue(func() error { return exec.Command("sh", "-c", "exi
 
 // planGit is the git of a run in a plain project f: the lane L-01 and the main checkout are the worktrees (the top is
 // the one dir is in); the lane's .gitignore decides whether the run marker is ignored (check-ignore: no error when it
-// is, exit 1 when it is not); the changed-file list's reads answer a clean tree on main. Any other read fails the test.
+// is, exit 1 when it is not); the changed-file list's merge base and its diff answer a clean tree. Any other read
+// fails the test.
 func planGit(f *fx) GitFunc {
 	return func(_ context.Context, dir string, _ []string, args ...string) (string, error) {
 		top := f.p.Root
@@ -74,9 +76,8 @@ func planGit(f *fx) GitFunc {
 			return "", nil
 		case "write-tree":
 			return "0123456789abcdef0123456789abcdef01234567\n", nil
-		case "branch": // --show-current
-			return "main\n", nil
 		case "merge-base":
+			f.mergeBase = append([]string(nil), args...)
 			return "89abcdef0123456789abcdef0123456789abcdef\n", nil
 		}
 		return "", fmt.Errorf("git %s in %s: unplanned", strings.Join(args, " "), dir)
@@ -152,6 +153,24 @@ func TestRunNotInAGitWorktree(t *testing.T) {
 	}
 	if r := f.run(t, f.lane, nil, nil, "t"); r.rc != 2 || r.out != "FAIL not in a git worktree\n" || f.p.Exists(filepath.Join(f.lane, "ran.txt")) {
 		t.Errorf("not a worktree: %+v, ran %v", r, f.p.Exists(filepath.Join(f.lane, "ran.txt")))
+	}
+}
+
+// obor run's changed-file list is against merge.target_branch, whatever the main checkout has checked out: the merge
+// base is asked for the config's target, and git is never asked for the main checkout's branch.
+func TestRunChangedFilesBaseIsTarget(t *testing.T) {
+	t.Parallel()
+	f := setup(t, `{"files": {"cmd": "cat \"$OBOR_CHANGED_FILES\"", "heavy": true}}`)
+	f.cfg.Data.Merge.TargetBranch = "trunk"
+	r := f.run(t, f.lane, nil, nil, "files")
+	if r.rc != 0 {
+		t.Fatalf("rc: %+v", r)
+	}
+	if got := strings.Join(f.mergeBase, " "); got != "merge-base trunk HEAD" {
+		t.Errorf("the changed-file list's base: %q, want merge-base trunk HEAD", got)
+	}
+	if strings.Contains(r.errOut, "cannot list") {
+		t.Errorf("the run could not list the changed files: %s", r.errOut)
 	}
 }
 

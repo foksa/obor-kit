@@ -153,9 +153,9 @@ func Run(o Options) int {
 	return rc
 }
 
-// exportChangedFiles exports OBOR_CHANGED_FILES, the lane's changes against the merge base with the target (the main
-// checkout's branch) in .obor/state/run-changed-<lane>, as the gate does for its own run. Without a tree or a base the
-// command gets no list (its selector then runs everything).
+// exportChangedFiles exports OBOR_CHANGED_FILES, the lane's changes against the merge base with merge.target_branch
+// in .obor/state/run-changed-<lane>, as the gate does for its own run. Without a tree or a base the command gets no
+// list (its selector then runs everything).
 func (o Options) exportChangedFiles(ctx context.Context, top, lane string, environ *[]string) {
 	tree, err := tree(ctx, o.git(), top, o.Environ)
 	if err != nil {
@@ -178,17 +178,15 @@ func (o Options) exportChangedFiles(ctx context.Context, top, lane string, envir
 	}
 }
 
-// changedFiles is tree's files against the merge base of HEAD and the main checkout's branch.
+// changedFiles is tree's files against the merge base of HEAD and merge.target_branch, whatever the main checkout has
+// checked out.
 func (o Options) changedFiles(top, tree string) ([]string, error) {
 	git, ctx := o.git(), context.Background() // no ctx: as before, a signal does not end these reads
 
-	target, err := git(ctx, o.Cfg.Root, nil, "branch", "--show-current")
-	if err != nil || strings.TrimSpace(target) == "" {
-		return nil, fmt.Errorf("the main checkout is not on a branch")
-	}
-	base, err := git(ctx, top, nil, "merge-base", strings.TrimSpace(target), "HEAD")
+	target := o.Cfg.MainBranch()
+	base, err := git(ctx, top, nil, "merge-base", target, "HEAD")
 	if err != nil {
-		return nil, fmt.Errorf("no merge base with %s", strings.TrimSpace(target))
+		return nil, fmt.Errorf("no merge base with %s", target)
 	}
 	return changedFiles(ctx, git, top, strings.TrimSpace(base), tree)
 }
