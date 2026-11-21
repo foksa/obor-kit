@@ -64,6 +64,10 @@
       "terra": {
         "kind": "codex",
         "id": "gpt-6.1-terra"
+      },
+      "fable": {
+        "kind": "claude",
+        "id": "fable"
       }
     }
   },
