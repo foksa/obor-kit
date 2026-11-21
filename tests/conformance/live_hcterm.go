@@ -4,7 +4,7 @@
 // worker start through obor's own hc adapter (internal/hc: Write for the env line, Start, Prompt), in a kept, labelled
 // terminal of a throwaway hc session (hcLab: HC_SESSION=obor-probe-<kind>, scratch XDG dirs, the core started from a
 // scrubbed environment, stopped at the end; never the default session), with the scratch kit's stub as obor (lab's
-// makeKit) and the start args obor's launch builds for the kind's built-in model. The terminal gets the person's own
+// makeKit) and the start args obor's launch builds for the kind's smallest starter model. The terminal gets the person's own
 // XDG_CONFIG_HOME and XDG_STATE_HOME back (the scratch core's would hide each CLI's config, P4) and every update check
 // off (an update prompt is answered by the first key or send: T-1351 upgraded Codex so). hc is experimental: these
 // rows do not gate a merge (HD7), and a kind that cannot run SKIPs.
@@ -34,7 +34,7 @@ var hcUpdatesOff = map[string]string{"DISABLE_AUTOUPDATER": "1", "OPENCODE_DISAB
 // hcUpdateArgs are a kind's start args that turn off its update check (Codex reads it from its config).
 var hcUpdateArgs = map[string][]string{"codex": {"-c", "check_for_update_on_startup=false"}}
 
-// hcModels is the built-in model each kind's start runs: its smallest.
+// hcModels is the model each kind's start runs: its smallest of obor init's starter list (the lab config's models).
 var hcModels = map[string]string{"claude": "haiku", "codex": "luna", "opencode": "deepseek"}
 
 // liveOnHC runs each kind's hc rows (HC-T1 the start, HC-T2 the identity its obor server sees, HC-T3 with TURN=1 a
@@ -176,7 +176,7 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 	hcQuit(cl, hl, k, pane)
 }
 
-// hcLaunch is a worker's start of kind's smallest built-in model (hcModels) as obor's launch builds it, with the scratch kit's
+// hcLaunch is a worker's start of kind's smallest starter model (hcModels) as obor's launch builds it, with the scratch kit's
 // stub as obor and the kind's update check off.
 func hcLaunch(l *lab, kind string) (agents.Launch, agents.Kind, error) {
 	cfg, err := config.Load(l.main)
@@ -189,7 +189,7 @@ func hcLaunch(l *lab, kind string) (agents.Launch, agents.Kind, error) {
 	}
 	m, ok := cfg.Model(hcModels[kind])
 	if !ok {
-		return agents.Launch{}, k, fmt.Errorf("no built-in %s model", kind)
+		return agents.Launch{}, k, fmt.Errorf("the lab config has no %s model %s", kind, hcModels[kind])
 	}
 	m.Args = append(m.Args, hcUpdateArgs[kind]...)
 	over, err := cfg.Overrides(kind)

@@ -12,7 +12,7 @@ import (
 // left by the merge is unset in the effective config: a derived default, or absent).
 func TestOverlayMatchesJq(t *testing.T) {
 	cfg := `{"version":2,"project":{"agent_prefix":"pj"},"checks":{"output":{"summary":"T"},"heavy_at_once":4,"slot_dir":"/s"},
-		"agents":{"kinds":{"claude":{"args":["a","b"],"job_note":"P"}}},
+		"agents":{"models":{"opus":{"kind":"claude","id":"opus"}},"kinds":{"claude":{"args":["a","b"],"job_note":"P"}}},
 		"merge":{"check":{"cmd":"x","heavy":true,"timeout":5}}}`
 	local := `{"project":{"agent_prefix":"qq"},
 		"agents":{"kinds":{"claude":{"args":["c"],"job_note":null}}},

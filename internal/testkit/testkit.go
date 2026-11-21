@@ -423,7 +423,8 @@ func (p *Project) Lane(name, branch string) string {
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
 // Config is fx_config: the default config in shape 2 (project pj, lanes: the highest L-NN under proj-wt; the
-// kit's OpenCode plugin kind, as obor init writes it), changed by edit, written to .obor/config.json and
+// kit's OpenCode plugin kind, as obor init writes it; agents.models: each of config.UpgradeModels; agents.difficulty:
+// fixtureDifficulty), changed by edit, written to .obor/config.json and
 // committed on main (projects commit it; a plain project's stays uncommitted). An edit names shape 2's paths: the map
 // is written as it is. A setup call (setup.go).
 func (p *Project) Config(edit ...func(c map[string]any)) {
@@ -437,10 +438,11 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 		}
 	}
 	c := map[string]any{
-		"version":  2,
-		"project":  map[string]any{"name": "proj", "agent_prefix": "pj", "task_id_pattern": "T-[0-9]+[a-z]?"},
-		"lanes":    map[string]any{"count": lanes, "dir": "../proj-wt", "task_branch": "task/{id}", "links": []any{}},
-		"agents":   map[string]any{"kinds": map[string]any{"opencode": map[string]any{"plugin": config.KitKinds["opencode"]}}},
+		"version": 2,
+		"project": map[string]any{"name": "proj", "agent_prefix": "pj", "task_id_pattern": "T-[0-9]+[a-z]?"},
+		"lanes":   map[string]any{"count": lanes, "dir": "../proj-wt", "task_branch": "task/{id}", "links": []any{}},
+		"agents": map[string]any{"kinds": map[string]any{"opencode": map[string]any{"plugin": config.KitKinds["opencode"]}},
+			"models": fixtureModels(), "difficulty": fixtureDifficulty()},
 		"rules":    map[string]any{"protected_files": []any{}},
 		"merge":    map[string]any{"target_branch": "main"},
 		"commands": map[string]any{},
@@ -467,6 +469,22 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 	})
 }
 
+// fixtureModels is the fixture config's agents.models: each of config.UpgradeModels, name → {kind, id}.
+func fixtureModels() map[string]any {
+	out := map[string]any{}
+	for _, e := range config.UpgradeModels {
+		out[e.Name] = map[string]any{"kind": e.Kind, "id": e.ID}
+	}
+	return out
+}
+
+// fixtureDifficulty is the fixture config's agents.difficulty: hard opus at effort high, medium sonnet then deepseek,
+// simple deepseek, sonnet, haiku.
+func fixtureDifficulty() map[string]any {
+	return map[string]any{"hard": []any{"opus:high"}, "medium": []any{"sonnet", "deepseek"},
+		"simple": []any{"deepseek", "sonnet", "haiku"}}
+}
+
 // Set is a config edit: the value at a dotted path ("agents.roles.lead"), creating objects on the way. v may be a JSON text
 // (a string starting with { or [) or any value.
 func Set(path string, v any) func(map[string]any) {
@@ -481,6 +499,20 @@ func Set(path string, v any) func(map[string]any) {
 			c = next
 		}
 		c[keys[len(keys)-1]] = JSON(v)
+	}
+}
+
+// AddModels is a config edit: each member of entries (a JSON object text, name → {kind, id}) added to
+// agents.models beside the fixture's own.
+func AddModels(entries string) func(map[string]any) {
+	return func(c map[string]any) {
+		add, ok := JSON(entries).(map[string]any)
+		if !ok {
+			panic("testkit.AddModels: not a JSON object: " + entries)
+		}
+		for name, e := range add {
+			Set("agents.models."+name, e)(c)
+		}
 	}
 }
 

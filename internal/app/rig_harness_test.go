@@ -69,6 +69,13 @@ func countStep(t *testing.T, h *harness, step string) int {
 // the deep dive working holds no merge. A role's start is not admitted (it
 // reads the head once); the publish admission is config_set's only.
 
+// harnessModels are agents members for a config a harness test writes by hand: the models (testkit.Config's) and the
+// levels the dispatch tests pick from.
+const harnessModels = `"models":{"opus":{"kind":"claude","id":"opus"},"sonnet":{"kind":"claude","id":"sonnet"},` +
+	`"haiku":{"kind":"claude","id":"haiku"},"deepseek":{"kind":"opencode","id":"opencode-go/deepseek-v4.1-flash"},` +
+	`"terra":{"kind":"codex","id":"gpt-6.1-terra"},"luna":{"kind":"codex","id":"gpt-6-luna"}},` +
+	`"difficulty":{"hard":["opus:high"],"medium":["sonnet","deepseek"],"simple":["deepseek","sonnet","haiku"]}`
+
 // admitCfg is seedRoles' config with reviews.dir.
 const admitCfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}},"reviews":{"dir":"reviews"}}`
 

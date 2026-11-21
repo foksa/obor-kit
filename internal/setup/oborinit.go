@@ -216,7 +216,10 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		add("kinds", "done", "%s: manifest cached", strings.Join(kinds, ", "))
 	}
 
-	// roles, difficulty and the lane count: config edits, all before the commit
+	// models, roles, difficulty and the lane count: config edits, all before the commit
+	if err := s.initModels(); err != nil {
+		return err
+	}
 	types, err := s.initRoleTypes()
 	if err != nil {
 		return err
@@ -657,23 +660,15 @@ func (s *Setup) initRoleTypes() (string, error) {
 	return strings.Join(parts, ", "), nil
 }
 
-// initDifficulty writes `difficulty` from the kinds init detected: the built-in lists keep only the models
-// of the Claude kind, which init requires on PATH. A non-Claude model (deepseek on OpenCode) joins a list only when the
-// user lists it: init has no flag or prompt for that, so a machine without OpenCode never sends its first simple task
-// to a CLI that cannot start. An existing `difficulty` is kept.
+// initDifficulty writes `difficulty` from the kinds init detected: the starter lists keep only the models
+// of the Claude kind, which init requires on PATH (starterLevels). A non-Claude model (deepseek on OpenCode) joins a
+// list only when the user lists it: init has no flag or prompt for that, so a machine without OpenCode never sends its
+// first simple task to a CLI that cannot start. An existing `difficulty` is kept.
 func (s *Setup) initDifficulty() error {
 	if s.cfg.HasDifficulty() {
 		return nil
 	}
-	out := map[string][]string{}
-	for level, listed := range config.DifficultyDefault {
-		for _, ref := range listed {
-			typ, _ := config.ParseModelRef(ref)
-			if lt, ok := s.cfg.Model(typ); ok && lt.Kind == agents.Default {
-				out[level] = append(out[level], ref)
-			}
-		}
-	}
+	out := starterLevels(s.cfg)
 	if len(out) == 0 {
 		return nil
 	}

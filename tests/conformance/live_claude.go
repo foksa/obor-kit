@@ -173,7 +173,7 @@ func ccL7(l *lab, pane string, turn bool) {
 	k := kindOf("claude")
 	model, ok := liveModel("claude")
 	if !ok {
-		report("FAIL", "CC-L7", "the config's built-in model table has no claude model", at("internal/config/models.go", "var BuiltinModels")+", T-910")
+		report("FAIL", "CC-L7", "obor init's starter list has no claude model", at("internal/setup/models.go", "var StarterModels")+", T-910")
 		return
 	}
 	start, err := l.launchOf("claude", model, real, nil)

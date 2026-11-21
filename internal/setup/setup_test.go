@@ -78,7 +78,7 @@ type fx struct {
 	where func(context.Context, wire.WhereReq) (wire.WhereReply, error)
 }
 
-// newFx is a project with a config (prefix pj, lanes.dir ../proj-wt, the built-in models; edits on top) and a fake
+// newFx is a project with a config (prefix pj, lanes.dir ../proj-wt, the fixture's models and levels; edits on top) and a fake
 // herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each),
 // both shells of this project (workspace w1, cwd the root: the project's own tabs). The project is plain
 // (testkit.NewPlain): its role worktrees are laid out as files and no git process runs, so a lane comes from

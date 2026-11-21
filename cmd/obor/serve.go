@@ -299,8 +299,8 @@ func diskOf(root string) *app.Disk {
 		}}
 }
 
-// watchKinds are the agent kinds of every model cfg knows (its catalog: built-in and configured, the one dispatch
-// validates a model ref against), unique and sorted: the CLIs this project may start, so the ones whose version serve
+// watchKinds are the agent kinds of every model cfg knows (agents.models, the one table dispatch validates a model ref
+// against), unique and sorted: the CLIs this project may start, so the ones whose version serve
 // reads. A kind whose program is not installed gives no reading, as a failed --version does.
 func watchKinds(cfg *config.Config) []string {
 	var kinds []string

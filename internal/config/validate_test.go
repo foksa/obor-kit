@@ -99,7 +99,8 @@ func TestValidate(t *testing.T) {
 		{name: "cursor is no supported kind", edits: []edit{set("agents.models.cur", map[string]any{"kind": "cursor", "id": "c"})},
 			want: []string{`FAIL .agents.models.cur.kind: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "typo is no supported kind", edits: []edit{set("agents.models.opus", map[string]any{"kind": "claod", "id": "opus"})},
-			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
+			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`,
+				`FAIL .agents.difficulty.hard[0]: opus:high: kind claod has no bridge, so no effort`}},
 		{name: "a kinds key is a supported kind", edits: []edit{set("agents.kinds.cursor", map[string]any{"args": []any{"-x"}})},
 			want: []string{`FAIL .agents.kinds.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "every supported kind is accepted", edits: []edit{
@@ -116,7 +117,21 @@ func TestValidate(t *testing.T) {
 		{name: "no agents.kinds.opencode.plugin, OpenCode used: the kit's binary, clean", edits: []edit{del("agents.kinds")}},
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
 			want: []string{"FAIL .agents.models.cur.kind: required (claude, codex, opencode)"}},
-		{name: "a built-in's override may keep its kind", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})}},
+		// every entry names its kind, one obor init's starter list has too; a ref to it says the kind is missing.
+		{name: "an entry with a starter name needs its kind too", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})},
+			want: []string{"FAIL .agents.models.opus.kind: required (claude, codex, opencode)",
+				`FAIL .agents.roles.integrator: "opus" names no kind: set agents.models.opus.kind (claude, codex, opencode)`,
+				`FAIL .agents.difficulty.hard[0]: "opus" names no kind: set agents.models.opus.kind (claude, codex, opencode)`}},
+		// a model's name is the project's label: any string a ref and a Model: list can carry.
+		{name: "a versioned model name", edits: []edit{func(c map[string]any) {
+			c["agents"].(map[string]any)["models"].(map[string]any)["opus-4.6"] = map[string]any{"kind": "claude", "id": "claude-opus-4-6"}
+		}, set("agents.roles.lead", "opus-4.6:high")}},
+		{name: "a model name with a colon", edits: []edit{set("agents.models.op:1", map[string]any{"kind": "claude", "id": "opus"})},
+			want: []string{`FAIL .agents.models["op:1"]: has ':': a model name has no ":" (the effort separator), "," (the Model: list separator) or whitespace`}},
+		{name: "a model name with a comma", edits: []edit{set("agents.models.op,1", map[string]any{"kind": "claude", "id": "opus"})},
+			want: []string{`FAIL .agents.models["op,1"]: has ',': a model name has no ":" (the effort separator), "," (the Model: list separator) or whitespace`}},
+		{name: "a model name with a space", edits: []edit{set("agents.models.op 1", map[string]any{"kind": "claude", "id": "opus"})},
+			want: []string{`FAIL .agents.models["op 1"]: has whitespace (' '): a model name has no ":" (the effort separator), "," (the Model: list separator) or whitespace`}},
 		// owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
 		// without one, so the config is invalid without the entry and unchanged with it.
 		{name: "no roles.integrator", edits: []edit{del("agents.roles.integrator")},
@@ -135,26 +150,32 @@ func TestValidate(t *testing.T) {
 		{name: "no lanes", edits: []edit{set("lanes.count", 0)}},
 		{name: "negative lanes", edits: []edit{set("lanes.count", -1)},
 			want: []string{"FAIL .lanes.count: must be a non-negative integer (how many lanes), got -1"}},
-		// a project's difficulty entry names the levels and the lane types it has; the built-in default skips what it lacks.
-		{name: "difficulty names known models", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"opus"}})}},
-		{name: "difficulty with an unknown model", edits: []edit{set("agents.difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},
-			want: []string{`FAIL .agents.difficulty.medium[1]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
-		{name: "difficulty with an unknown level", edits: []edit{set("agents.difficulty", map[string]any{"easy": []any{"opus"}})},
-			want: []string{"FAIL .agents.difficulty.easy: is not a level: use hard, medium or simple"}},
+		// agents.difficulty names every level, each with models of the config.
+		{name: "difficulty without a level", edits: []edit{del("agents.difficulty.medium")},
+			want: []string{"FAIL .agents.difficulty.medium: required: the models a medium task goes to, a list of model refs"}},
+		{name: "no difficulty", edits: []edit{del("agents.difficulty")},
+			want: []string{"FAIL .agents.difficulty.hard: required: the models a hard task goes to, a list of model refs",
+				"FAIL .agents.difficulty.medium: required: the models a medium task goes to, a list of model refs",
+				"FAIL .agents.difficulty.simple: required: the models a simple task goes to, a list of model refs"}},
+		{name: "difficulty names known models", edits: []edit{set("agents.difficulty.hard", []any{"opus"})}},
+		{name: "difficulty with an unknown model", edits: []edit{set("agents.difficulty.medium", []any{"opus", "ghost"})},
+			want: []string{`FAIL .agents.difficulty.medium[1]: "ghost" is not a model (agents.models: deepseek, fable, haiku, luna, opus, sol, sonnet, terra)`}},
+		{name: "difficulty with an unknown level", edits: []edit{set("agents.difficulty.easy", []any{"opus"})},
+			want: []string{"FAIL .agents.difficulty.easy: is not a level: use hard, medium, simple"}},
 		// a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
 		{name: "difficulty mixes models and model:effort", edits: []edit{
-			set("agents.difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
+			set("agents.difficulty.hard", []any{"opus:high", "luna:xhigh", "opus"}),
 			set("agents.roles.lead", "opus:max"), set("agents.roles.reviewer", "luna:max")}},
-		{name: "difficulty with an effort its kind lacks", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
+		{name: "difficulty with an effort its kind lacks", edits: []edit{set("agents.difficulty.hard", []any{"opus", "opus:minimal"})},
 			want: []string{`FAIL .agents.difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
 		// an OpenCode effort rides on the model's id (obor never guesses OpenCode's model).
 		{name: "an opencode effort needs the model's id", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}),
-			set("agents.difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
+			set("agents.difficulty.hard", []any{"deepseek:high", "oc:high", "oc"})},
 			want: []string{`WARN agents.models.oc: opencode model without a model id (the kind's own default may not work, and an effort needs one): set its "id"`,
 				`FAIL .agents.difficulty.hard[1]: oc:high: kind opencode: start: effort high needs a model id (models.<name>.model, provider/model)`}},
-		{name: "difficulty with an unknown model and an effort", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"ghost:high"}})},
-			want: []string{`FAIL .agents.difficulty.hard[0]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+		{name: "difficulty with an unknown model and an effort", edits: []edit{set("agents.difficulty.hard", []any{"ghost:high"})},
+			want: []string{`FAIL .agents.difficulty.hard[0]: "ghost" is not a model (agents.models: deepseek, fable, haiku, luna, opus, sol, sonnet, terra)`}},
 		{name: "a role with an effort its kind lacks", edits: []edit{set("agents.roles.lead", "opus:turbo")},
 			want: []string{`FAIL .agents.roles.lead: opus:turbo: effort "turbo" is not one of claude's (low, medium, high, xhigh, max)`}},
 		{name: "a role with a colon and no effort", edits: []edit{set("agents.roles.integrator", "opus:")},
@@ -163,7 +184,7 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .agents.kinds.claude.args: `--` is not allowed: obor adds the first prompt itself"}},
 		{name: "kinds args with -- inside a value", edits: []edit{set("agents.kinds.claude.args", []any{"--x=--"})}},
 		{name: "roles.lead unknown", edits: []edit{set("agents.roles.lead", "ghost")},
-			want: []string{`FAIL .agents.roles.lead: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+			want: []string{`FAIL .agents.roles.lead: "ghost" is not a model (agents.models: deepseek, fable, haiku, luna, opus, sol, sonnet, terra)`}},
 		{name: "several problems: one line each", edits: []edit{set("version", 3), set("project.agent_prefix", "X"), set("agents.models.extra", map[string]any{})},
 			want: []string{"FAIL .version: must be 2, got 3", `FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
 				"FAIL .agents.models.extra.kind: required (claude, codex, opencode)"}},
@@ -208,7 +229,7 @@ func TestValidate(t *testing.T) {
 		{name: "workflow unknown kind", edits: []edit{set("merge.workflow", "x")},
 			want: []string{`FAIL .merge.workflow: must be one of scratch-ff, got "x"`}},
 		{name: "terminal herdr", edits: []edit{set("project.terminal", "herdr")}},
-		// hc: every built-in codex model starts with its kind's flag (HCRequiredArgs), so none is refused.
+		// hc: every codex model of the fixture starts with its kind's flag (HCRequiredArgs), so none is refused.
 		{name: "terminal hc", edits: []edit{set("project.terminal", "hc")}},
 		{name: "terminal unknown kind", edits: []edit{set("project.terminal", "x")},
 			want: []string{`FAIL .project.terminal: must be one of herdr, hc, got "x"`}},
@@ -243,7 +264,7 @@ func TestValidate(t *testing.T) {
 		{name: "roles.triage", edits: []edit{set("agents.roles.triage", "opus")}},
 		{name: "roles.deep_dive", edits: []edit{set("agents.roles.deep_dive", "opus:high")}},
 		{name: "deep_dive model unknown", edits: []edit{set("agents.roles.deep_dive", "ghost")},
-			want: []string{`FAIL .agents.roles.deep_dive: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+			want: []string{`FAIL .agents.roles.deep_dive: "ghost" is not a model (agents.models: deepseek, fable, haiku, luna, opus, sol, sonnet, terra)`}},
 		// bash config.test.sh case_validate_handoff_tokens
 		{name: "handoff_tokens 500000", edits: []edit{set("agents.handoff_tokens", 500000)}},
 		{name: "handoff_tokens 0", edits: []edit{set("agents.handoff_tokens", 0)}},
@@ -453,8 +474,10 @@ func TestValidateTemplates(t *testing.T) {
 		t.Errorf("local example overrides the template: lanes %d, dir %q; want 2, ../myproject-wt", c.LaneCount(),
 			c.LanesDirSetting())
 	}
-	if c.HasDifficulty() {
-		t.Error("the templates have a difficulty block: the built-in levels are the starting point")
+	for _, level := range []string{"hard", "medium", "simple"} {
+		if len(c.DifficultyList(level)) == 0 {
+			t.Errorf("template level %s names no model", level)
+		}
 	}
 }
 
@@ -476,7 +499,7 @@ func TestModelRef(t *testing.T) {
 	}
 	for ref, refusal := range map[string]string{"opus": "", "opus:high": "", "opus:bad": `effort "bad" is not one of claude's`,
 		"luna:xhigh": "", "luna:max": "", "terra:ultra": "", "luna:minimal": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`, "haiku:low": "",
-		"ghost": `"ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`, "opus:": "names no effort"} {
+		"ghost": `"ghost" is not a model (agents.models: deepseek, fable, haiku, luna, opus, sol, sonnet, terra)`, "opus:": "names no effort"} {
 		err := cfg.CheckModelRef(ref)
 		if refusal == "" && err != nil || refusal != "" && (err == nil || !strings.Contains(err.Error(), refusal)) {
 			t.Errorf("CheckModelRef(%q) = %v, want %q", ref, err, refusal)
@@ -490,8 +513,8 @@ func TestModelRef(t *testing.T) {
 	}
 }
 
-// a level's model refs are the project's difficulty entry, else the built-in default; a name that is no
-// level has none.
+// a level's model refs are the project's difficulty entry; a level it does not name, and a name that is no level,
+// have none.
 func TestDifficultyList(t *testing.T) {
 	p := newProject(t)
 	p.Config(set("agents.difficulty", map[string]any{"medium": []string{"haiku", "luna:high"}}))
@@ -499,7 +522,7 @@ func TestDifficultyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for level, want := range map[string]string{"hard": "opus:high", "medium": "haiku,luna:high", "simple": "deepseek,sonnet,haiku"} {
+	for level, want := range map[string]string{"hard": "", "medium": "haiku,luna:high", "simple": ""} {
 		if got := strings.Join(cfg.DifficultyList(level), ","); got != want {
 			t.Errorf("DifficultyList(%s) = %q, want %q", level, got, want)
 		}
@@ -687,7 +710,7 @@ func TestPluginKindEffortsFromDescribe(t *testing.T) {
 	}
 	mine := []edit{set("agents.kinds.mine", map[string]any{"plugin": "kinds/obor-kind-mine"}),
 		set("agents.models.m1", map[string]any{"kind": "mine", "id": ""}), set("agents.roles.reviewer", "m1:high"),
-		set("agents.difficulty", map[string]any{"hard": []any{"m1:high"}})}
+		set("agents.difficulty.hard", []any{"m1:high"})}
 	answer(`["low","high"]`)
 	state := filepath.Join(p.Root, ".obor", "state")
 	if _, err := os.Stat(plugin.CacheFile(state, "mine")); err == nil {
@@ -884,15 +907,20 @@ func TestValidateHCRequiresNoSharedServer(t *testing.T) {
 		t.Fatalf("precondition: the config without the flags on herdr validates %q, want OK", got)
 	}
 	got := validate(t, p, set("project.terminal", "hc"))
+	c, _, err := config.LoadForValidate(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{}
-	for _, b := range config.BuiltinModels {
-		if flag := config.HCRequiredArgs[b.Kind]; flag != "" {
-			want = append(want, "FAIL .agents.models."+b.Name+": a "+b.Kind+" start on an hc project (project.terminal) needs "+
+	for _, name := range c.ModelNames() {
+		m, _ := c.Model(name)
+		if flag := config.HCRequiredArgs[m.Kind]; flag != "" {
+			want = append(want, "FAIL .agents.models."+name+": a "+m.Kind+" start on an hc project (project.terminal) needs "+
 				flag+": its shared background server runs the agent's commands outside hc's terminal, with another env and cwd")
 		}
 	}
 	if len(want) < 2 {
-		t.Fatalf("precondition: the built-in models hold %d models with an hc-required flag, want two at least", len(want))
+		t.Fatalf("precondition: the fixture's models hold %d models with an hc-required flag, want two at least", len(want))
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("validate on hc = %q\nwant %q", got, want)

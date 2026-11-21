@@ -356,7 +356,7 @@ func newConcRig(t *testing.T) *concRig {
 		if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cfg := `{"version":2,"project":{"name":"` + name + `","agent_prefix":"` + name + `"},"agents":{"roles":{"integrator":""}}}`
+		cfg := `{"version":2,"project":{"name":"` + name + `","agent_prefix":"` + name + `"},"agents":{"roles":{"integrator":""},` + harnessModels + `}}`
 		if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 			t.Fatal(err)
 		}

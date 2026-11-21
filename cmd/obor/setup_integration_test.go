@@ -125,8 +125,9 @@ func initEnv(t *testing.T, more map[string]string) (env []string, log, home stri
 }
 
 // obor init in a clean project with the kit binary (the real obor-kind-opencode beside obor)
-// caches OpenCode's manifest before its panes, so obor setup mcp --model deepseek works with no hand step; init in a
-// project whose integrator is OpenCode's (its pane's start built from the manifest) succeeds, and so does its rerun.
+// caches OpenCode's manifest before its panes; init in a project whose integrator is OpenCode's (its pane's start
+// built from the manifest) succeeds, obor setup mcp --model deepseek works there with no hand step, and so does the
+// rerun.
 func TestInitCachesThePluginKinds(t *testing.T) {
 	t.Parallel()
 	cacheOf := func(p *testkit.Project) string {
@@ -151,9 +152,6 @@ func TestInitCachesThePluginKinds(t *testing.T) {
 	clean := testkit.New(t)
 	env, _, _ := initEnv(t, nil)
 	initIn(clean, env, "obor init in a clean project")
-	if rc, stdout, stderr := run(t, clean.Root, env, "setup", "mcp", "--model", "deepseek"); rc != 0 {
-		t.Errorf("obor setup mcp --model deepseek: exit %d\n%s%s", rc, stdout, stderr)
-	}
 
 	oc := testkit.New(t)
 	oc.Config(testkit.Set("agents.roles.integrator", "deepseek"))
@@ -162,6 +160,9 @@ func TestInitCachesThePluginKinds(t *testing.T) {
 	initIn(oc, env, "obor init with an OpenCode integrator")
 	if b, _ := os.ReadFile(filepath.Join(oc.Root, ".obor", "config.json")); !strings.Contains(string(b), `"integrator": "deepseek"`) {
 		t.Fatalf("precondition: the integrator stays OpenCode's deepseek:\n%s", b)
+	}
+	if rc, stdout, stderr := run(t, oc.Root, env, "setup", "mcp", "--model", "deepseek"); rc != 0 {
+		t.Errorf("obor setup mcp --model deepseek: exit %d\n%s%s", rc, stdout, stderr)
 	}
 	if err := os.Remove(cacheOf(oc)); err != nil { // the rerun caches it again itself
 		t.Fatal(err)

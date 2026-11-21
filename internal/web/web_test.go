@@ -256,7 +256,7 @@ func TestSetupAPI(t *testing.T) {
 	if want := []view.DispatchCount{{Level: "", Type: "", Recent: 2, All: 2}}; !slices.Equal(setup.Distribution, want) {
 		t.Errorf("distribution %+v, want the fixture's two dispatches, unknown", setup.Distribution)
 	}
-	// the built-in levels' refs, in level order, each once
+	// the fixture levels' refs, in level order, each once
 	var refs []string
 	for _, ty := range setup.Types {
 		refs = append(refs, ty.Ref)
@@ -264,8 +264,8 @@ func TestSetupAPI(t *testing.T) {
 	if want := []string{"opus:high", "sonnet", "deepseek", "haiku"}; !slices.Equal(refs, want) {
 		t.Errorf("types %+v, want %q", setup.Types, want)
 	}
-	if len(setup.Models) != 8 || setup.Models[0].Name != "opus" || !setup.Models[0].Builtin {
-		t.Errorf("models %+v, want the eight built-in ones", setup.Models)
+	if len(setup.Models) != 8 || setup.Models[0].Name != "deepseek" || setup.Models[0].Kind != "opencode" {
+		t.Errorf("models %+v, want the fixture's eight, config order", setup.Models)
 	}
 }
 

@@ -29,6 +29,14 @@ const editDoc = `{
     "difficulty": {
       "hard": [
         "opus:high"
+      ],
+      "medium": [
+        "sonnet"
+      ],
+      "simple": [
+        "deepseek",
+        "sonnet",
+        "haiku"
       ]
     },
     "kinds": {
@@ -46,6 +54,30 @@ const editDoc = `{
       "kimi": {
         "kind": "opencode",
         "id": "opencode-go/kimi"
+      },
+      "opus": {
+        "kind": "claude",
+        "id": "opus"
+      },
+      "sonnet": {
+        "kind": "claude",
+        "id": "sonnet"
+      },
+      "haiku": {
+        "kind": "claude",
+        "id": "haiku"
+      },
+      "deepseek": {
+        "kind": "opencode",
+        "id": "opencode-go/deepseek-v4.1-flash"
+      },
+      "terra": {
+        "kind": "codex",
+        "id": "gpt-6.1-terra"
+      },
+      "luna": {
+        "kind": "codex",
+        "id": "gpt-6-luna"
       }
     }
   }
@@ -178,7 +210,7 @@ func TestEditRefuses(t *testing.T) {
 	cfg := editProject(t)
 	for _, c := range []struct{ key, val, want string }{
 		{"agents.difficulty.extreme", `["opus"]`, "is not a level"},
-		{"agents.difficulty.hard", `["gpt"]`, `"gpt" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, kimi)`},
+		{"agents.difficulty.hard", `["gpt"]`, `"gpt" is not a model (agents.models: kimi, opus, sonnet, haiku, deepseek, terra, luna)`},
 		{"agents.difficulty.hard", `["opus:turbo"]`, `effort "turbo" is not one of claude's`},
 		{"agents.difficulty.hard", `"opus"`, "takes a list of model refs"},
 		{"agents.difficulty.hard", `null`, "takes a list of model refs"},
@@ -255,7 +287,7 @@ func TestEditIgnoresLocalElsewhere(t *testing.T) {
 		name, local, key, val, leak string
 		check                       func(doc []byte, n *Config) bool
 	}{
-		{"another level", `{"agents":{"difficulty":{"simple":["sonnet"]}}}`, "agents.difficulty.hard", `["opus"]`, "simple",
+		{"another level", `{"agents":{"difficulty":{"medium":["haiku:low"]}}}`, "agents.difficulty.hard", `["opus"]`, "haiku:low",
 			func(_ []byte, n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"opus"}) }},
 		{"another kind", `{"agents":{"kinds":{"claude":{"args":["--strict-mcp-config"]}}}}`, "agents.kinds.codex.args", `["--y"]`, "strict",
 			func(_ []byte, n *Config) bool {

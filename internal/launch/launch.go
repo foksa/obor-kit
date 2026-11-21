@@ -371,8 +371,8 @@ func (l *Launcher) model(t *target, typ string) error {
 	l.dispatchType(t, typ)
 	if t.info.Type != "" {
 		lt, ok := l.Cfg.Model(t.info.Type)
-		if !ok || lt.Kind == "" {
-			return project.Failf("unknown model %s (models: %s)", t.info.Type, strings.Join(l.Cfg.ModelNames(), ", "))
+		if !ok {
+			return project.Failf("%v", l.Cfg.UnknownModel(t.info.Type))
 		}
 		t.kind = lt.Kind
 	}

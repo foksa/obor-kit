@@ -9,12 +9,12 @@ const s: Setup = {
   difficulty: [{ level: "hard", types: ["opus:high"] }, { level: "medium", types: ["deepseek", "sonnet:medium"] }, { level: "simple", types: [] }],
   types: [],
   models: [
-    { name: "opus", kind: "claude", model: "opus", builtin: true, efforts: CLAUDE, paused: null },
-    { name: "sonnet", kind: "claude", model: "sonnet", builtin: true, efforts: CLAUDE, paused: null },
-    { name: "haiku", kind: "claude", model: "haiku", builtin: true, efforts: CLAUDE, paused: { until: null, reason: "quota", by: "owner" } },
-    { name: "fable", kind: "claude", model: "fable", builtin: true, efforts: CLAUDE, paused: null },
-    { name: "deepseek", kind: "opencode", model: "opencode-go/deepseek", builtin: true, efforts: [], paused: null },
-    { name: "terra", kind: "codex", model: "gpt-6.1-terra", builtin: false, efforts: ["low", "medium", "high", "xhigh"], paused: null },
+    { name: "opus", kind: "claude", model: "opus", efforts: CLAUDE, paused: null },
+    { name: "sonnet", kind: "claude", model: "sonnet", efforts: CLAUDE, paused: null },
+    { name: "haiku", kind: "claude", model: "haiku", efforts: CLAUDE, paused: { until: null, reason: "quota", by: "owner" } },
+    { name: "fable", kind: "claude", model: "fable", efforts: CLAUDE, paused: null },
+    { name: "deepseek", kind: "opencode", model: "opencode-go/deepseek", efforts: [], paused: null },
+    { name: "terra", kind: "codex", model: "gpt-6.1-terra", efforts: ["low", "medium", "high", "xhigh"], paused: null },
   ],
   kinds: [{ name: "claude", args: [], job_note: false }],
   lanes: [

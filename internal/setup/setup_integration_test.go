@@ -33,8 +33,12 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config loads: %v", err)
 	}
-	if _, fails := cfg.Validate(config.ValidateOptions{}); len(fails) > 0 {
-		t.Errorf("config validates: %v", fails)
+	// it validates but for the models: the roles' refs and the levels name agents.models entries init's models step
+	// writes after this one (TestOborInitModelsAndDifficultyOfDetectedKinds)
+	for _, f := range func() []string { _, fails := cfg.Validate(config.ValidateOptions{}); return fails }() {
+		if !strings.HasPrefix(f, "FAIL .agents.roles.") && !strings.HasPrefix(f, "FAIL .agents.difficulty.") {
+			t.Errorf("config validates but for the models: %s", f)
+		}
 	}
 	d := cfg.Data
 	if d.Project.Name != "My Proj" || d.Project.AgentPrefix != "mp" || d.Lanes.Dir != "../proj-wt" || cfg.LaneCount() != 0 {

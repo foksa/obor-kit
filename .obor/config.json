@@ -47,7 +47,25 @@
         "plugin": "obor-kind-opencode"
       }
     },
-    "confirmed": true
+    "confirmed": true,
+    "models": {
+      "opus": {
+        "kind": "claude",
+        "id": "opus"
+      },
+      "sonnet": {
+        "kind": "claude",
+        "id": "sonnet"
+      },
+      "deepseek": {
+        "kind": "opencode",
+        "id": "opencode-go/deepseek-v4.1-flash"
+      },
+      "terra": {
+        "kind": "codex",
+        "id": "gpt-6.1-terra"
+      }
+    }
   },
   "rules": {
     "may_push": [

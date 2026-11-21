@@ -50,13 +50,12 @@ type SetupType struct {
 	Effort string `json:"effort"`
 }
 
-// SetupModel is one model the config knows: its name, kind and model id, whether it is a built-in one
-// (models.<name> may override it), and the efforts its kind takes.
+// SetupModel is one model the config knows (agents.models): its name, kind and model id, and the efforts its kind
+// takes.
 type SetupModel struct {
 	Name    string   `json:"name"`
 	Kind    string   `json:"kind"`
 	Model   string   `json:"model"`
-	Builtin bool     `json:"builtin"`
 	Efforts []string `json:"efforts"`
 	// Paused is the model's pause in force (obor pause --model; nil: none): dispatch skips the model.
 	Paused *Pause `json:"paused"`
@@ -182,8 +181,7 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 		if k, ok := cfg.Kind(m.Kind); ok {
 			efforts = append(efforts, k.Efforts()...)
 		}
-		_, builtin := config.BuiltinModelNamed(name)
-		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Builtin: builtin, Efforts: efforts,
+		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Efforts: efforts,
 			Paused: v.ModelPauses[name]})
 	}
 	for _, kind := range cfg.Kinds().Names() {

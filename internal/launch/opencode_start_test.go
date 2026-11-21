@@ -18,7 +18,7 @@ func TestOpenCodeStartCarriesItsFixedFlags(t *testing.T) {
 			t.Run(terminal+" "+extra, func(t *testing.T) {
 				t.Parallel()
 				x := setup(t, testkit.Set("project.terminal", terminal),
-					testkit.Set("agents.models", `{"oc":{"kind":"opencode","id":"go/ds"}}`),
+					testkit.AddModels(`{"oc":{"kind":"opencode","id":"go/ds"}}`),
 					testkit.Set("agents.kinds", `{"opencode":{"args":`+extra+`}}`),
 					testkit.Set("agents.roles", `{"reviewer":"oc"}`))
 				x.shell("w1:p7", "pj-rev", "")

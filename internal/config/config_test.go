@@ -321,7 +321,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 // agent but a lead starts trimmed of the user's settings, each kind with its own switches (claude its
 // settings file in place of the user's source; codex its three -c keys); a lead start carries none of them.
 func TestLaunchArgs(t *testing.T) {
-	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{`+models+`}}`, "")
 	opus, _ := c.Model("opus")
 	luna, _ := c.Model("luna")
 	for _, tc := range []struct {
@@ -356,7 +356,7 @@ func TestLaunchArgs(t *testing.T) {
 // file that does not parse is an error naming it. Launch hands them to the kind on every start but a lead's: a
 // worker's Claude settings file holds the override's env key beside obor's own, a lead's start writes none.
 func TestOverrides(t *testing.T) {
-	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
+	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{`+models+`}}`, "")
 	write := func(rel, text string) {
 		t.Helper()
 		file := filepath.Join(root, rel)

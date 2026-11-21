@@ -75,8 +75,9 @@ from a shell in a herdr workspace of its own or one where none of another projec
 obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, agent panes, obor serve
 ```
 
-`obor init` detects the check commands and the agent CLIs on your machine, writes the lane count and the models of each
-difficulty level it found, installs the plugin and the git hooks and its `obor serve` and `obor web` launchd agents,
+`obor init` detects the check commands and the agent CLIs on your machine, writes the lane count, the models of each
+CLI it found (`agents.models`: name → kind and model id; add an entry for a new model or version, no obor release
+needed) and the models of each difficulty level, installs the plugin and the git hooks and its `obor serve` and `obor web` launchd agents,
 then prints each step and the file to change (`.obor/config.json`). Run it once on a machine with `claude` on PATH.
 With no pane of the project open yet, init creates a herdr workspace for it. The lead's first session shows the lane
 count and the models and asks you to confirm them (`agents.confirmed`).

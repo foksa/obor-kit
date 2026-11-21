@@ -589,7 +589,7 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
-	cfg := `{"version":2,"project":{"name":"pj"},"lanes":{"count":1},"agents":{"docs_dir":"doc/roles","kinds":{
+	cfg := `{"version":2,"project":{"name":"pj"},"lanes":{"count":1},"agents":{"docs_dir":"doc/roles",` + harnessModels + `,"kinds":{
 		"claude":{"job_note":"Claude extra."},"codex":{"job_note":"Codex extra."}}}}`
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
 	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)

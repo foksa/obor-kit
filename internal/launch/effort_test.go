@@ -45,7 +45,7 @@ func TestStartEffort(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`),
+			x := setup(t, testkit.AddModels(models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`),
 				testkit.Set("agents.kinds", `{"claude":{"args":["--effort","medium"]},"codex":{"args":["-c","model_reasoning_effort=high"]},`+
 					`"opencode":{"plugin":"obor-kind-opencode"}}`))
 			// a role's model ref: the reviewer's start; a lane row's: lane L-01's worker.
@@ -105,7 +105,7 @@ func TestStartEffortRefused(t *testing.T) {
 		{"bare", "high", "needs a model", false},
 	} {
 		// the fixture's HOME is a temp dir: no opencode config or state names a model
-		x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`))
+		x := setup(t, testkit.AddModels(models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`))
 		x.agent("w1:p7", "pj-rev", "claude", "idle")
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Effort: c.effort})
 		if ok || !strings.Contains(out, c.want) {

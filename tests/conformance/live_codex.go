@@ -147,7 +147,7 @@ func cxL4(l *lab, pane, codexHome string, turn bool) {
 	k := kindOf("codex")
 	model, ok := liveModel("codex")
 	if !ok {
-		report("FAIL", "CX-L4", "the config's built-in model table has no codex model", at("internal/config/models.go", "var BuiltinModels")+", T-910")
+		report("FAIL", "CX-L4", "obor init's starter list has no codex model", at("internal/setup/models.go", "var StarterModels")+", T-910")
 		return
 	}
 	start, err := l.launchOf("codex", model, real, nil)

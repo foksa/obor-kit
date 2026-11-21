@@ -238,8 +238,12 @@ set` refuses a model the config lacks) puts those models first, then the level's
   pane in a lanes tab, labelled the lane's worker, and the worker starts in it. A failed placement is a needs-you
   naming `obor setup pane <LANE>`.
 - `obor dispatch <T-xx> --model a,b` — overrides the level (a smoke test's model); no free lane is
-  a refusal, not a wait. A level's models are the config's `agents.difficulty` entry for it, else the built-in default: hard
-  `opus:high`, medium `sonnet, deepseek`, simple `deepseek, sonnet, haiku`; `obor setup show` prints them.
+  a refusal, not a wait. A level's models are the config's `agents.difficulty` entry for it (every level has one;
+  `obor config validate` fails on a missing level); `obor setup show` prints them and the models table.
+- Models: a model name means what the config's `agents.models.<name>` says (`kind` required, `id` passed to the CLI
+  verbatim), nothing else: a new model, version or variant is one more entry
+  (`"opus-4.6": {"kind": "claude", "id": "claude-opus-4-6"}`), no obor release. A name with no entry is refused
+  everywhere (`Model:`, `--model`, `obor pause --model`, the config), with the entry to paste when obor knows it.
 - `obor pause --model <name> [--for 3h] "<why>"` — dispatch skips that model (a quota, an outage) and a level's next
   one runs; `obor pause --model <name> --clear` ends it. A redo keeps its own model even while it is paused.
 - Effort: any model named here (`Model:`, `--model`, config `agents.difficulty`, `agents.roles.<role>`) may be `<model>:<effort>`:

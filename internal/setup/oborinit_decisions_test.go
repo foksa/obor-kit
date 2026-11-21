@@ -924,11 +924,12 @@ func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 	}
 }
 
-// obor init writes `difficulty` from the kinds it detected (Claude), so no level lists deepseek (OpenCode)
+// obor init writes agents.models from the starter list for the kinds whose CLI is on PATH (Claude and Codex here, no
+// OpenCode), in the list's order, and `difficulty` from the Claude kind's alone, so no level lists deepseek (OpenCode)
 // on a machine that never opted in; an existing `difficulty` (a user's opt-in) is kept on a rerun.
-func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
+func TestOborInitModelsAndDifficultyOfDetectedKinds(t *testing.T) {
 	t.Parallel()
-	x := newFakeGitInitFx(t, false)
+	x := newFakeGitInitFx(t, true)
 	x.init(t)
 	cfg, err := config.Load(x.Root)
 	if err != nil {
@@ -937,8 +938,20 @@ func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
 	if len(cfg.Data.Agents.Difficulty) == 0 {
 		t.Fatalf("difficulty not written:\n%s", x.Read(".obor/config.json"))
 	}
-	if _, ok := cfg.Model("deepseek"); !ok {
-		t.Fatal("precondition: deepseek is a lane type of the default config")
+	var want []string
+	for _, e := range StarterModels {
+		if e.Kind == "claude" || e.Kind == "codex" {
+			want = append(want, e.Name)
+		}
+		if m, ok := cfg.Model(e.Name); ok && (m.Kind != e.Kind || m.ID != e.ID) {
+			t.Errorf("model %s = %s %s, want the starter list's %s %s", e.Name, m.Kind, m.ID, e.Kind, e.ID)
+		}
+	}
+	if len(want) < 5 || !slices.Contains(want, "luna") {
+		t.Fatalf("precondition: the starter list has claude and codex models: %q", want)
+	}
+	if got := cfg.ModelNames(); !slices.Equal(got, want) {
+		t.Errorf("agents.models = %q, want the starter list's claude and codex models %q (no opencode: not on PATH)", got, want)
 	}
 	for level, list := range cfg.Data.Agents.Difficulty {
 		for _, ref := range list {
