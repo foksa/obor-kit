@@ -6,7 +6,6 @@ package herdr
 // herdr's tabs into app/layout's types and carries out its answer.
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -14,9 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 
 	"obor/internal/app/layout"
 	"obor/internal/app/port"
@@ -349,38 +349,41 @@ func (h *Setup) CloseProject(ctx context.Context, c port.CloseProject) ([]string
 
 // --- herdr's setting for a restart ------------------------------------------------------------------------------
 
-var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)
-
 // ResumeHint: after a herdr restart obor serve restores obor's panes itself, replacing an agent herdr resumed in one
 // (launch.Restorer), so herdr's own resume of them is a double start. Unless herdr's config.toml ($HERDR_CONFIG_PATH,
 // else ~/.config/herdr/config.toml) sets `[session] resume_agents_on_restore = false`: the line that saves it, saying
-// it is optional and user-global; "" when it is set. Never edited.
+// it is optional and user-global; "" when it is set. A file that does not parse is read as setting nothing, so the
+// hint shows: obor cannot tell that it is set. The file is never edited.
 func (h *Setup) ResumeHint() string {
 	path := h.Env.Get("HERDR_CONFIG_PATH")
 	if path == "" {
 		path = filepath.Join(h.Env.Get("HOME"), ".config", "herdr", "config.toml")
 	}
-	value := ""
-	if f, err := os.Open(path); err == nil {
-		section := ""
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if strings.HasPrefix(line, "[") {
-				head, _, _ := strings.Cut(line, "]")
-				section = strings.TrimSpace(strings.TrimPrefix(head, "["))
-			} else if m := resumeRE.FindStringSubmatch(line); m != nil && section == "session" {
-				value = m[1]
-			}
-		}
-		f.Close()
-	}
-	if value == "false" {
+	if resumeOff(path) {
 		return ""
 	}
 	return "hint: after a herdr restart obor replaces the agents herdr resumes in its panes; to save that double start, " +
 		"set resume_agents_on_restore = false under [session] in " + path +
 		" (optional; user-global: affects every herdr pane, not only obor's; those come back as shells)"
+}
+
+// resumeOff: config.toml at path sets [session] resume_agents_on_restore = false; a file that is absent or does not
+// parse sets nothing.
+func resumeOff(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		Session struct {
+			ResumeAgentsOnRestore *bool `toml:"resume_agents_on_restore"`
+		} `toml:"session"`
+	}
+	if _, err := toml.Decode(string(b), &cfg); err != nil {
+		return false
+	}
+	v := cfg.Session.ResumeAgentsOnRestore
+	return v != nil && !*v
 }
 
 // --- project rename ----------------------------------------------------------------------------------------------

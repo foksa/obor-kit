@@ -302,8 +302,8 @@ func TestStartProjectConfig(t *testing.T) {
 		{"a multi-line value before the key", "notify = [\n  \"a]\",\n  [\"b\"],\n]\nsandbox_mode = \"read-only\" # c\n", noSandbox},
 		{"a multi-line string before the key", "x = \"\"\"\nsandbox_mode = 1\n\"\"\"\ncheck_for_update_on_startup = true\n", base},
 		{"the keys under a table: not top-level", "model = \"m\"\n[profiles.x]\nsandbox_mode = \"read-only\"\ncheck_for_update_on_startup = true\n", all},
-		{"a top-level key above a table part that does not scan: still read", "sandbox_mode = \"read-only\"\n[t]\nwhat ever\n", noSandbox},
 		{"does not parse: as absent", "sandbox_mode \"read-only\"\n", all},
+		{"a part that does not parse: as absent", "sandbox_mode = \"read-only\"\n[t]\nwhat ever\n", all},
 		{"an open value: as absent", "check_for_update_on_startup = true\nx = [1,\n", all},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -327,7 +327,7 @@ func TestStartProjectConfig(t *testing.T) {
 
 // a trimmed start (every agent but a lead) turns off the user's plugins, the app connectors and the bundled skills,
 // after the write dirs and before the update check; an untrimmed start carries none of the three. A key the project's
-// .codex/config.toml sets is left to it, in each form TOML gives it (dotted, under its table, quoted, or inside a
+// .codex/config.toml sets is left to it, in each form TOML gives it (dotted, under its table, quoted, or an entry of a
 // table assigned whole), and so is a key the type's args set; the other keys still go. A key of another table, a
 // commented line, a bare table header or a file that does not parse skips nothing.
 func TestStartTrimUser(t *testing.T) {
@@ -355,7 +355,7 @@ func TestStartTrimUser(t *testing.T) {
 		{"under its table", "model = \"m\"\n\n[features] # mine\nplugins = true\napps = true\n", want(bundled)},
 		{"a table two deep", "[skills.bundled]\nenabled = true\n", want(plugins, apps)},
 		{"a dotted key under a table", "[skills]\nbundled.enabled = true\n", want(plugins, apps)},
-		{"a table assigned whole, top-level", "features = { plugins = true }\n", want(bundled)},
+		{"a table assigned whole: its entries are set, its other keys are not", "features = { plugins = true }\n", want(apps, bundled)},
 		{"a table assigned whole, under a table", "[skills]\nbundled = { enabled = true }\n", want(plugins, apps)},
 		{"all three set", "features.plugins = false\nfeatures.apps = true\n[skills.bundled]\nenabled = true\n", want()},
 		{"the key in another table", "[profiles.x.features]\nplugins = true\n[other]\nfeatures.apps = true\n", want(plugins, apps, bundled)},
@@ -639,17 +639,23 @@ func TestOverrideWarnings(t *testing.T) {
 	}
 }
 
-// config validate notes a config file that does not parse; none for a clean or absent one.
+// config validate notes a config file that does not parse, naming the file and the parse error; none for a clean or
+// absent one.
 func TestProjectWarnings(t *testing.T) {
 	k, _ := split()
 	pc, ok := k.(agents.ProjectChecker)
 	if !ok {
 		t.Fatal("codex reads no project file")
 	}
-	for file, want := range map[string]int{"": 0, "sandbox_mode = \"x\"\n[t]\nwhat ever\n": 0, "what ever\n": 1} {
+	for file, want := range map[string]int{"": 0, "sandbox_mode = \"x\"\n[t]\nwhat ever\n": 1, "what ever\n": 1} {
 		if got := pc.ProjectWarnings("/lane", projectFS(file)); len(got) != want {
 			t.Errorf("%q: warnings %q, want %d", file, got, want)
 		}
+	}
+	// The one line names the file and the parse error.
+	got := pc.ProjectWarnings("/lane", projectFS("what ever\n"))
+	if len(got) != 1 || !strings.HasPrefix(got[0], ".codex/config.toml: does not parse: toml: ") {
+		t.Errorf("warnings %q, want the file and the parse error", got)
 	}
 }
 
