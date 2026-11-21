@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"obor/internal/app"
 	"obor/internal/app/event"
@@ -121,8 +120,7 @@ func TestDriveModelHonoured(t *testing.T) {
 		r := newLoopRig(t, dispatching(), withConfig(testkit.Set("lanes.count", 3)))
 		r.addLanes(port.Lane{Name: "L-02", Dir: r.p.Lane("L-02", ""), State: "free"},
 			port.Lane{Name: "L-03", Dir: r.p.Lane("L-03", ""), State: "free"})
-		r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
-		r.driveWait = time.Second // the held prepare never finishes: each reply is not Prepared, after a second
+		r.holdPrepare() // the held prepare never finishes: each reply is not Prepared
 		r.start()
 		if _, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 			Role: "lead", Agent: "lead", CallID: "s2"}, Task: "T-2",
@@ -536,6 +534,32 @@ func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
 		if reply, err := r.tellLead("t3", "pj-l-01-drive", "driver", "L-01", "back driving"); err != nil ||
 			!strings.HasPrefix(reply, "TOLD pj-lead (T-1;") {
 			t.Errorf("tell-lead after the sendback: %q, %v; want posted again", reply, err)
+		}
+	})
+}
+
+// A drive still dispatched (its lane's prepare held, so not driving yet) is refused too: the lead could not answer it.
+func TestTellLeadRefusedWhileTheDriveIsDispatched(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, dispatching())
+		r.holdPrepare()
+		r.start()
+		if _, err := r.drive("v1", "web"); err != nil {
+			t.Fatalf("drive: %v", err)
+		}
+		r.waitStep("1 intent lane.prepare") // the loop is in prepare, held: the drive stays dispatched
+		if st := r.stateOf("T-1"); st != "dispatched" {
+			t.Fatalf("precondition: T-1 is %s, want dispatched", st)
+		}
+		n := len(r.records())
+		want := "tell-lead: T-1 is dispatched (landed: gate, review and merge follow; the lead cannot answer a drive " +
+			"until it is driving again)"
+		if _, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "hi"); err == nil || err.Error() != want {
+			t.Errorf("tell-lead on a dispatched drive: %v; want %q", err, want)
+		}
+		if got := len(r.records()); got != n {
+			t.Errorf("the refused tell-lead recorded %q", r.steps()[n:])
 		}
 	})
 }
