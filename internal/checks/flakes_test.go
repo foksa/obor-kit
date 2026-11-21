@@ -2,12 +2,14 @@ package checks
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
 )
 
@@ -220,4 +222,140 @@ func TestFlakyTests(t *testing.T) {
 			}
 		})
 	}
+}
+
+// flakeLaneTest is the lane test of k's green candidate, which changes feature.txt.
+func flakeLaneTest(t *testing.T, k *fk) (port.Candidate, port.TestOutcome) {
+	t.Helper()
+	c := k.green(lane(k.submit()))
+	k.g.answers["Changed "+c.Target+" "+c.SHA] = "feature.txt"
+	o, err := k.s.Test(ctx, port.TestInput{Task: "T-05", Lane: "L-01", Branch: "task/T-05", SHA: c.SHA, Target: c.Target})
+	if err != nil {
+		t.Fatalf("lane test: %v\noutput:\n%s", err, k.out.String())
+	}
+	return c, o
+}
+
+// the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), and never on a
+// green run; a log it cannot write is a warning, never a red.
+func TestFlakeLog(t *testing.T) {
+	t.Parallel()
+	// Two test failures and the package summary line: the two test names, not the package.
+	const twoFails = `echo "--- FAIL: TestAlpha (0.01s)"; echo "--- FAIL: TestBeta (0.02s)"; ` +
+		`echo "FAIL example.com/pkg 0.03s"; exit 1`
+	t.Run("red run: one line per failing test with the run's task and sha", func(t *testing.T) {
+		t.Parallel()
+		k := newFk(t, cmd("check", twoFails), goLines())
+		c, o := flakeLaneTest(t, k)
+		if o.Kind != port.OutcomeRed || !strings.HasPrefix(o.Line, "RED check ") {
+			t.Fatalf("lane test: %s %q; want red check", o.Kind, o.Line)
+		}
+		got, err := Flakes(k.Root)
+		if err != nil || len(got) != 2 {
+			t.Fatalf("flake lines %+v (%v), want 2", got, err)
+		}
+		for i, want := range []string{"TestAlpha", "TestBeta"} {
+			f := got[i]
+			k.eq(f.Test, want, "test")
+			k.eq(f.Check, "check", "check")
+			k.eq(f.Task, "T-05", "task")
+			k.eq(f.SHA, c.SHA, "sha: the candidate the lane test ran on")
+			k.eq(fmt.Sprint(f.Retried, f.PassedOnRetry), "false false", "retried and passed_on_retry")
+			if f.Time == 0 {
+				t.Errorf("%s: no time", want)
+			}
+		}
+	})
+
+	t.Run("green run: no log", func(t *testing.T) {
+		t.Parallel()
+		k := newFk(t, cmd("check", "echo 2 pass"))
+		if _, o := flakeLaneTest(t, k); o.Kind != port.OutcomeGreen {
+			t.Fatalf("lane test: %s %q; want green", o.Kind, o.Line)
+		}
+		k.gone(k.Path(".obor/state/flakes.jsonl"), "no flake log")
+	})
+
+	t.Run("unwritable flake log: a warning line, the check result unchanged", func(t *testing.T) {
+		t.Parallel()
+		k := newFk(t, cmd("check", twoFails), goLines())
+		if err := os.MkdirAll(k.Path(".obor/state/flakes.jsonl"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, o := flakeLaneTest(t, k)
+		if o.Kind != port.OutcomeRed || !strings.HasPrefix(o.Line, "RED check ") {
+			t.Fatalf("lane test: %s %q; want red check", o.Kind, o.Line)
+		}
+		k.contains(k.out.String(), "warning: flake log:", "warning line")
+		if info, err := os.Stat(k.Path(".obor/state/flakes.jsonl")); err != nil || !info.IsDir() {
+			t.Errorf("flakes.jsonl: %v, %v; want the directory that made the write fail", info, err)
+		}
+	})
+}
+
+// the nightly's runner (task "nightly", it retests): every gating command of the full tier logs a red run, and the
+// race step's red logs nothing (its WARN line is nonGatingLine's).
+func TestFlakeLogNightly(t *testing.T) {
+	t.Parallel()
+	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
+	nightlyRunner := func(t *testing.T, edits ...func(map[string]any)) (*fk, *runner) {
+		k := newFk(t, append([]func(map[string]any){goLines()}, edits...)...)
+		o := k.s.Options
+		r := newRunner(ctx, &o, k.g, k.Root, "nightly")
+		r.retest = true
+		t.Cleanup(r.releaseSlot)
+		return k, &r
+	}
+	t.Run("check and check_milestone", func(t *testing.T) {
+		t.Parallel()
+		k, r := nightlyRunner(t, cmd("check", failing("check")), cmd("check_milestone", failing("milestone")))
+		for _, name := range []string{"check", "check_milestone"} {
+			if o, ok, h, _ := r.retested(name); !ok || h != nil || o.rc != 1 {
+				t.Fatalf("precondition: %s is red (rc 1), got ok %v, rc %d, halt %+v", name, ok, o.rc, h)
+			}
+		}
+		got, err := Flakes(k.Root)
+		if err != nil || len(got) != 2 {
+			t.Fatalf("flake lines %+v (%v), want 2", got, err)
+		}
+		for i, name := range []string{"check", "check_milestone"} {
+			k.eq(got[i].Test, "Test_"+strings.TrimPrefix(name, "check_"), "test")
+			k.eq(got[i].Check, name, "check")
+			k.eq(got[i].Task, "nightly", "task")
+			k.eq(got[i].SHA, k.main(), "sha: the nightly's head")
+			k.eq(fmt.Sprint(got[i].Retried, got[i].PassedOnRetry), "false false", "no retry: no commands.retest")
+		}
+	})
+
+	t.Run("lane_setup timeout: logged", func(t *testing.T) {
+		t.Parallel()
+		k, r := nightlyRunner(t, cmd("lane_setup", map[string]any{"cmd": `echo "--- FAIL: Test_setup (0.01s)"; sleep 5`, "timeout": 1}))
+		if h := r.laneSetup(); h == nil || h.red == nil || h.red.rc != 124 {
+			t.Fatalf("precondition: lane_setup timed out (red, rc 124), got %+v", h)
+		}
+		got, err := Flakes(k.Root)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("flake lines %+v (%v), want 1", got, err)
+		}
+		k.eq(fmt.Sprint(got[0].Test, "/", got[0].Check, "/", got[0].Retried, "/", got[0].PassedOnRetry),
+			"Test_setup/lane_setup/false/false", "log")
+	})
+
+	t.Run("green run: no log", func(t *testing.T) {
+		t.Parallel()
+		k, r := nightlyRunner(t, cmd("check", "echo 1 pass"))
+		if o, ok, h, _ := r.retested("check"); !ok || h != nil || o.rc != 0 {
+			t.Fatalf("precondition: check is green, got ok %v, rc %d, halt %+v", ok, o.rc, h)
+		}
+		k.gone(k.Path(".obor/state/flakes.jsonl"), "no flake log")
+	})
+
+	t.Run("a race step's red: no flake line", func(t *testing.T) {
+		t.Parallel()
+		k, r := nightlyRunner(t, cmd("race", `echo "--- FAIL: TestRace (0.01s)"; exit 1`))
+		if o, ok, h := r.run("race"); !ok || h != nil || o.rc != 1 {
+			t.Fatalf("precondition: race is red (rc 1), got ok %v, rc %d, halt %+v", ok, o.rc, h)
+		}
+		k.gone(k.Path(".obor/state/flakes.jsonl"), "no flake log")
+	})
 }

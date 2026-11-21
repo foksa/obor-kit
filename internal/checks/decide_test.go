@@ -431,6 +431,18 @@ func TestGateDecisions(t *testing.T) {
 			r.lacks(w, "UpdateRef", "a red gate pins nothing")
 		}
 	})
+	t.Run("lane_setup fails: a fail naming its rc, compile not run; with no compile it does not run", func(t *testing.T) {
+		t.Parallel()
+		k := newFk(t, cmd("lane_setup", `touch "$TMP_DIR/setup-ran"; exit 3`), cmd("compile", `touch "$TMP_DIR/compile-ran"; echo 1 pass`))
+		o := k.gate(lane(k.submit()))
+		k.eq(string(o.Kind)+"|"+o.Line, port.OutcomeFail+"|FAIL lane_setup (rc 3)", "the gate's outcome")
+		k.there(filepath.Join(k.Base, "setup-ran"), "lane_setup ran")
+		k.gone(filepath.Join(k.Base, "compile-ran"), "compile never ran after a failed lane_setup")
+		n := newFk(t, cmd("lane_setup", `touch "$TMP_DIR/setup-ran"; exit 3`))
+		o = n.gate(lane(n.submit()))
+		k.eq(string(o.Kind)+"|"+o.Line, port.OutcomeGreen+"|GREEN T-05 (merged, no commands.compile)", "no compile: green")
+		n.gone(filepath.Join(n.Base, "setup-ran"), "lane_setup runs only before a compile")
+	})
 	t.Run("no commands.compile: a moved input runs merge.check with the lane's env, red stops it; a lane input runs nothing", func(t *testing.T) {
 		t.Parallel()
 		check := cmd("check", `echo run >> "$TMP_DIR/check-runs"; echo 1 pass`)

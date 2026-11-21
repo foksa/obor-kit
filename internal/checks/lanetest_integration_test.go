@@ -4,7 +4,6 @@ package checks
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,43 +32,6 @@ func (y *sx) probed(name string) string {
 // test runs the lane test of c in L-01 (its dispatch's branch task/T-05) under ctx.
 func (y *sx) test(c context.Context, cand port.Candidate) (port.TestOutcome, error) {
 	return y.s.Test(c, port.TestInput{Task: "T-05", Lane: "L-01", Branch: "task/T-05", SHA: cand.SHA, Target: cand.Target})
-}
-
-// The gate runs commands.compile and never the class's checks: green names compile's counts; a compile that fails is
-// red; a lane_setup that fails before it is a fail, its rc named (internal/app's scripted "FAIL lane_setup"
-// gate holds on this); with no compile configured nothing runs (lane_setup neither) and the merge is green.
-func TestGateCompilesOnly(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name, compile, want string
-		kind                string
-		setupRC             int // lane_setup's exit code
-	}{
-		{"compile green", "echo 1 pass", `^GREEN T-05 \(compile 1 pass\)$`, port.OutcomeGreen, 0},
-		{"compile red", "echo '0 pass, 1 fail'; exit 1", `^RED compile \(0 pass, 1 fail\)`, port.OutcomeRed, 0},
-		{"lane_setup fails", "echo 1 pass", `^FAIL lane_setup \(rc 3\)$`, port.OutcomeFail, 3},
-		{"no compile", "", `^GREEN T-05 \(merged, no commands.compile\)$`, port.OutcomeGreen, 0},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			edits := []func(map[string]any){cmd("check", probe),
-				cmd("lane_setup", fmt.Sprintf(`touch "$TMP_DIR/setup-ran"; exit %d`, c.setupRC))}
-			if c.compile != "" {
-				edits = append(edits, cmd("compile", c.compile))
-			}
-			y := newSx(t, edits...)
-			o := y.gate(lane(y.submit()))
-			if o.Kind != c.kind {
-				t.Fatalf("gate: %s %q; want %s", o.Kind, o.Line, c.kind)
-			}
-			y.match(o.Line, c.want, "the gate's line")
-			y.eq(y.probed("pwd"), "", "the class's check never runs in the gate")
-			_, err := os.Stat(filepath.Join(y.Base, "setup-ran"))
-			if got := err == nil; got != (c.compile != "") {
-				t.Errorf("lane_setup ran %v; want %v (only before a compile)", got, c.compile != "")
-			}
-		})
-	}
 }
 
 // The candidate's patch is the task's own diff Base..S (Base: merge-base(S, target)): a move in the patch's context
