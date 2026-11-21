@@ -61,6 +61,13 @@ func (r *loopRig) keysTo(agent string) int {
 // no free lane: the task waits for one; every model of the request paused: it waits, the reply says why. The rig has
 // lanes L-01 and L-02, both free.
 
+// holdPrepare holds every lane prepare before it runs, so a task stays dispatched; a new drive's reply, which waits
+// for its lane's prepare, gives up after a second (of the bubble's clock). Call it before start.
+func (r *loopRig) holdPrepare() {
+	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
+	r.driveWait = time.Second
+}
+
 // dispatchLevel is the lead's dispatch of T-1 by its spec's level (no lane, no types).
 func (r *loopRig) dispatchLevel(callID string, types ...string) (string, error) {
 	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
