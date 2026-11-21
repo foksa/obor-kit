@@ -416,6 +416,33 @@ func AddModels(doc []byte, models []NamedModel) (Write, error) {
 	return Write{Doc: doc, Key: "agents.models", Val: "+ " + strings.Join(names, ", ")}, nil
 }
 
+// MigrateModels returns doc with `obor setup agents`' shared migration: each of fills, an entry without a kind, given
+// its kind (its id and every other member kept), then each of add added to agents.models (AddModels); the line names
+// both.
+func MigrateModels(doc []byte, fills, add []NamedModel) (Write, error) {
+	var parts []string
+	var names []string
+	for _, e := range fills {
+		var err error
+		if doc, err = EditJSON(doc, p("agents", "models", e.Name, "kind"), e.Kind); err != nil {
+			return Write{}, err
+		}
+		names = append(names, e.Name)
+	}
+	if len(names) > 0 {
+		parts = append(parts, "kind "+strings.Join(names, ", "))
+	}
+	if len(add) > 0 {
+		w, err := AddModels(doc, add)
+		if err != nil {
+			return Write{}, err
+		}
+		doc = w.Doc
+		parts = append(parts, w.Val)
+	}
+	return Write{Doc: doc, Key: "agents.models", Val: strings.Join(parts, "; ")}, nil
+}
+
 // SetDifficulty returns doc with agents.difficulty = levels.
 func SetDifficulty(doc []byte, levels map[string][]string) (Write, error) {
 	return write("agents.difficulty", doc, p("agents", "difficulty"), levels)

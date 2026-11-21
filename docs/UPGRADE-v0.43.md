@@ -31,7 +31,10 @@ obor release.
 - The web page's Setup tab lists the config's models with no "project's" mark.
 
 The step below adds an entry for each of the eight former names your levels and roles use (with its former kind and
-id) and writes nothing else; run it in the project's main checkout and commit `.obor/config.json`. A second run
+id), gives such a name's existing entry without a `kind` its former kind (keeping its `id` and every other member; an
+entry that names a `kind` is left as it is), and writes nothing else; run it in the project's main checkout and commit
+`.obor/config.json`. It decides from `.obor/config.json` alone, not `.obor/local.json`: a model `local.json` names
+without an entry is not written anywhere, and a local entry does not keep a shared one from being added. A second run
 changes nothing. A name only a spec's `Model:` line or a `--model` uses is not in the config: add its entry by hand
 (the refusal prints it).
 

@@ -28,8 +28,8 @@ func (e NamedModel) Member() string {
 }
 
 // UpgradeModels are the entries `obor setup agents` adds for a name the config's levels or roles name without an
-// agents.models entry (UpgradeEntries), and the entry an unknown-model refusal quotes ready to paste (UnknownModel).
-// No name resolves from it.
+// agents.models entry (UpgradeEntries), the kind it gives an existing entry with no kind (KindFills), and the entry an
+// unknown-model refusal quotes ready to paste (UnknownModel). No name resolves from it.
 var UpgradeModels = []NamedModel{
 	{"opus", "claude", "opus"},
 	{"sonnet", "claude", "sonnet"},
@@ -48,6 +48,19 @@ func (c *Config) UpgradeEntries() []NamedModel {
 	var out []NamedModel
 	for _, e := range UpgradeModels {
 		if _, has := c.Data.Agents.Models.M[e.Name]; !has && slices.Contains(used, e.Name) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// KindFills are the UpgradeModels entries an existing agents.models entry has without a kind, in UpgradeModels' order:
+// what `obor setup agents` gives its former kind, its id and every other member kept. c is the shared config
+// (LoadMain): only the entries .obor/config.json has are filled, and an explicit kind is left as it is.
+func (c *Config) KindFills() []NamedModel {
+	var out []NamedModel
+	for _, e := range UpgradeModels {
+		if m, ok := c.Data.Agents.Models.M[e.Name]; ok && m.Kind == "" {
 			out = append(out, e)
 		}
 	}

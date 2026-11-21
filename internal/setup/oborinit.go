@@ -36,7 +36,8 @@ package setup
 //	           the model), and every lane an existing config counts, so init leaves no configured lane without a
 //	           worktree; roles.lead,
 //	           roles.integrator and roles.reviewer keep their model when its kind's CLI is on PATH, else opus (the
-//	           example's reviewer is a Codex model: no codex → opus). A
+//	           example's reviewer is a Codex model: no codex → opus), whose starter entry init adds when the config has
+//	           none, so the role it writes resolves. A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
 //	           lane_setup marker) is skipped; one whose lane_setup failed the last time (or whose lane_ready does) is
 //	           set up again, and lane_ready must pass after that, else the lane's step FAILs.
@@ -625,12 +626,16 @@ func (s *Setup) detectedLine() string {
 
 // --- roles ------------------------------------------------------------------------------------------------------
 
+// fallbackRoleModel is the model init falls a role back to when its model does not run here: a Claude model (the kind
+// init requires on PATH) whose starter entry (StarterModels) init adds when the config has none, so the role it writes
+// resolves.
+const fallbackRoleModel = "opus"
+
 // initRoleTypes keeps the lead's, the integrator's and the reviewer's model ref when it names a model whose kind's
-// CLI is on PATH, else sets it to opus: "lead opus, integrator opus, reviewer sol" (a change written "reviewer sol →
-// opus").
+// CLI is on PATH, else sets it to fallbackRoleModel: "lead opus, integrator opus, reviewer sol" (a change written
+// "reviewer sol → opus"). A config with no entry for the fallback gets its starter entry (initFallbackModel).
 func (s *Setup) initRoleTypes() (string, error) {
-	var parts []string
-	changed := false
+	var parts, falls []string
 	for _, role := range []string{"lead", "integrator", "reviewer"} {
 		rc, _ := s.cfg.Role(role)
 		lt, _ := s.cfg.Model(rc.Type)
@@ -640,22 +645,28 @@ func (s *Setup) initRoleTypes() (string, error) {
 				continue
 			}
 		}
-		if err := s.editConfig(func(doc []byte) (config.Write, error) {
-			return config.SetRoleModel(doc, role, "opus")
-		}); err != nil {
-			return "", err
-		}
 		was := config.ModelRef(rc.Type, rc.Effort)
 		if was == "" {
 			was = "unset"
 		}
-		parts = append(parts, role+" "+was+" → opus")
-		changed = true
+		parts = append(parts, role+" "+was+" → "+fallbackRoleModel)
+		falls = append(falls, role)
 	}
-	if changed {
-		if err := s.load(); err != nil {
+	if len(falls) == 0 {
+		return strings.Join(parts, ", "), nil
+	}
+	if err := s.initFallbackModel(); err != nil {
+		return "", err
+	}
+	for _, role := range falls {
+		if err := s.editConfig(func(doc []byte) (config.Write, error) {
+			return config.SetRoleModel(doc, role, fallbackRoleModel)
+		}); err != nil {
 			return "", err
 		}
+	}
+	if err := s.load(); err != nil {
+		return "", err
 	}
 	return strings.Join(parts, ", "), nil
 }

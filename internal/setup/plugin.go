@@ -160,7 +160,8 @@ func (s *Setup) hooksLine(root string) string {
 }
 
 // agentsCmd is `obor setup agents` (once per user, and after an upgrade): in a project, the agents.models entries its
-// levels and roles name without one are added (upgradeModels), then each plugin kind its config names
+// levels and roles name without one are added and its former built-in entries with no kind get theirs
+// (upgradeModels: decided from config.json alone), then each plugin kind its config names
 // (kinds.<name>.command: the kit's OpenCode) is described and its manifest cached in the state dir
 // (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
 // a failure is a FAIL. A kind installs nothing user-global, so each is said once.
