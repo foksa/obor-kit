@@ -39,7 +39,7 @@ func TestValidateTrunkRefIsGits(t *testing.T) {
 	}
 	want = "merge.compile is empty and merge.target_branch main is the default branch: a moved candidate re-runs " +
 		"the full check (no compile)"
-	if got := c.NoCompileWarning(); got != want {
+	if got := c.NoCompileWarning(""); got != want {
 		t.Errorf("obor init's warning: %q, want %q", got, want)
 	}
 	if got := validateWith(t, p, git, set("merge.target_branch", "trunk"), noCompile); len(got) != 0 {
@@ -48,7 +48,7 @@ func TestValidateTrunkRefIsGits(t *testing.T) {
 	if c, err = config.Load(p.Root); err != nil { // target trunk, no compile
 		t.Fatal(err)
 	}
-	if got := c.NoCompileWarning(); got != "" {
+	if got := c.NoCompileWarning(""); got != "" {
 		t.Errorf("obor init's warning, target a branch other than the default: %q, want none", got)
 	}
 	bare := newProject(t) // no repository: nothing to look in, target main or not

@@ -89,9 +89,45 @@ func TestOborInitSummaryHasNoTableAndEndsWithTheLeadLine(t *testing.T) {
 	if i := strings.Index(out, "obor init proj:\n"); i < 0 || !strings.Contains(out[i:], "  serve ") {
 		t.Errorf("the step lines are gone:\n%s", out)
 	}
+	// the one merge.compile line is the no-compile warning (TestOborInitWarnsOfNoCompileOnTheDefaultBranch)
+	prose := strings.ReplaceAll(out, "warning: merge.compile is empty and merge.target_branch main is the default branch: "+
+		config.NoCompile+"\n", "")
+	if prose == out {
+		t.Errorf("precondition: the no-compile warning is in the output:\n%s", out)
+	}
 	for _, gone := range []string{"models and effort", "\nlanes: ", "\nroles: ", "\nconfirmed:", "starting point", "merge.check is what",
 		"merge.compile", "--no-verify", "change any of it", "next:", "waiting on"} {
-		hasNot(t, out, gone, "the trimmed summary")
+		hasNot(t, prose, gone, "the trimmed summary")
+	}
+}
+
+// obor init warns that merge.compile is empty when merge.target_branch is the repository's default branch (the branch
+// init read through its git), and says nothing when the target is another branch. The warning's own rule is
+// config's (TestNoCompileWarningTakesTheCallersBranch).
+func TestOborInitWarnsOfNoCompileOnTheDefaultBranch(t *testing.T) {
+	t.Parallel()
+	const warning = "warning: merge.compile is empty and merge.target_branch "
+	for _, c := range []struct {
+		name, target string
+		warns        bool
+	}{
+		{"target is the checked-out branch: warns", "main", true},
+		{"target is another branch: none", "trunk", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFakeGitInitFx(t, true)
+			x.Config(func(cfg map[string]any) {
+				cfg["merge"] = map[string]any{"target_branch": c.target}
+			})
+			if got, _ := x.fake.Git(x.Root, "symbolic-ref", "-q", "--short", "HEAD"); strings.TrimSpace(got) != "main" {
+				t.Fatalf("precondition: the repository is on main: %q", got)
+			}
+			out := x.init(t)
+			if got := strings.Contains(out, warning+c.target+" is the default branch: "+config.NoCompile); got != c.warns {
+				t.Errorf("warning present %v, want %v:\n%s", got, c.warns, out)
+			}
+		})
 	}
 }
 

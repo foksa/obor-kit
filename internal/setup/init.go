@@ -249,6 +249,11 @@ func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 	return true, nil
 }
 
+// defaultBranch is the project repository's default branch (config.DefaultBranch), read through the git seam.
+func (s *Setup) defaultBranch() string {
+	return config.DefaultBranch(func(args ...string) (string, error) { return s.git().Git(s.root, args...) })
+}
+
 // initPaths are init's own paths in root, relative to it: the config, .gitignore, the docs initTemplates copies and the
 // plugin's .claude/settings.json. The agents dir is the config's there, else the default.
 func (s *Setup) initPaths(root string) []string {
