@@ -13,6 +13,8 @@ its own plugin kinds, and serve reads one config per pass. Visible effects:
 - `obor drive` refuses while serve still runs another obor build (it restarts onto the new binary once nothing
   runs): run it again then.
 - On hc a plugin kind added to the config starts without a serve restart.
+- For contributors: a full test run starts half the git processes (5,351 → 2,671), and `internal/app`'s tests run on
+  a terminal-neutral fake (`testkit.Term`); herdr and hc keep their own adapter tests.
 - The nightly's budget line warns per package when its test lines grew faster than its code.
 
 ```sh
