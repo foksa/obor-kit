@@ -339,6 +339,7 @@ type concRig struct {
 	apps   map[string]*App   // project → its app
 	roots  map[string]string // project → root
 	fakes  map[string]*concFakes
+	kept   map[string]*Loop // project → the Loop its factory copies per call (setup writes it before a pass; a pass never does)
 	kit    string
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -347,7 +348,7 @@ type concRig struct {
 func newConcRig(t *testing.T) *concRig {
 	base := t.TempDir()
 	kit, _ := filepath.Abs("../..")
-	r := &concRig{t: t, apps: map[string]*App{}, roots: map[string]string{}, fakes: map[string]*concFakes{}, kit: kit}
+	r := &concRig{t: t, apps: map[string]*App{}, roots: map[string]string{}, fakes: map[string]*concFakes{}, kept: map[string]*Loop{}, kit: kit}
 	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
 	lane := filepath.Join(base, "pj-wt", "L-02")
 	for _, name := range []string{"pj", "pq", "pr"} {
@@ -366,6 +367,7 @@ func newConcRig(t *testing.T) *concRig {
 		if name == "pj" {
 			fx.Specs = f
 		}
+		r.kept[name] = fx
 		a := newTestApp(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 		a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 		loadRoot(t, a)
@@ -563,7 +565,12 @@ func (r *concRig) refuseLogs(name string, err error) {
 	p.log.Refuse = func(event.Record) error { return err }
 }
 
-// concLoop is name's app's Loop (the rig's one fake for it).
+// keptLoop is the Loop name's factory copies for each pass: a test sets its adapters here before a pass runs, as
+// runStep and the rig's drivers see them. Never write it while a pass runs.
+func (r *concRig) keptLoop(name string) *Loop { return r.kept[name] }
+
+// concLoop is a Loop of name's app as its factory builds one now (a copy of the kept Loop on the config as it reads):
+// the one a test passes to a pass it runs itself, and may write.
 func (r *concRig) concLoop(name string) *Loop {
 	a, p := r.app(name), r.proj(name)
 	fx, err := a.opt.Loop(p.root)

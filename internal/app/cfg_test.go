@@ -30,11 +30,13 @@ func cfgAt(root string) *config.Config {
 	return cfg
 }
 
-// withCfg is l on the config of the project at root as its files read now: the Loop a test's adapters build, as serve
-// builds its own.
+// withCfg is a copy of l on the config of the project at root as its files read now: the Loop a test's adapters build,
+// as serve builds its own, a fresh one per call. It never writes l: a factory that keeps its Loop and returns
+// withCfg(root, kept) is called from the merge loop and a drop at once, and each pass gets its own.
 func withCfg(root string, l *Loop) *Loop {
-	l.Cfg = cfgAt(root)
-	return l
+	c := *l
+	c.Cfg = cfgAt(root)
+	return &c
 }
 
 // withAppCfg is l on the config of the project a serves, for a pass a test runs on a itself.

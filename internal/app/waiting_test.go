@@ -45,7 +45,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 			t.Fatal(err)
 		}
 	}
-	return h, fx
+	return h, withCfg(h.root, fx) // the pass's Loop on the config as it reads: the factory copies fx and never writes it
 }
 
 func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {
