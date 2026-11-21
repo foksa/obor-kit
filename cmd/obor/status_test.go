@@ -414,7 +414,8 @@ func TestWebStatus(t *testing.T) {
 }
 
 // the running line right under serve's says what serve does without an agent: one row through view.Build gives each
-// step the configured command it runs (the line never guesses one); on the view's own steps the rest is the wording:
+// step the configured command it runs, serve's own step name when the config sets none (the line never guesses one);
+// on the view's own steps the rest is the wording:
 // the gate and what it runs with its elapsed time, two steps at once both, a publish (git alone) and the nightly check,
 // a pending self-restart, and `running: nothing` when none is open.
 func TestStatusRunningLine(t *testing.T) {
@@ -425,14 +426,16 @@ func TestStatusRunningLine(t *testing.T) {
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Running: []wire.RunningStep{
 		{Step: event.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
 		{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
-		// between two commands (the runner clears it as each ends) serve names none, so the line names no command either.
+		// a command the config does not set shows serve's name alone; between two commands (the runner clears it as
+		// each ends) serve names none, so the line names none either.
+		{Step: event.StepTest, Task: "T-6", Command: "guard", Since: now.Add(-9 * time.Second).Unix()},
 		{Step: event.StepGate, Task: "T-657", Since: now.Add(-14 * time.Second).Unix()},
 		{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()},
 		{Step: event.StepNightly, Since: now.Add(-90 * time.Second).Unix()}}}}
 	_, text := statusOf(t, p, ss, nil, now)
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	want := "running: gate T-656 (make -s check, 2m14s) · test T-5 (make -s check-affected, 2m00s) · " +
-		"gate T-657 (14s) · after_merge T-655 (make build, 12s) · nightly check (make -s check, 1m30s)"
+		"test T-6 (guard, 9s) · gate T-657 (14s) · after_merge T-655 (make build, 12s) · nightly check (make -s check, 1m30s)"
 	if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: ") {
 		t.Fatalf("the first line is not serve's:\n%s", text)
 	}
