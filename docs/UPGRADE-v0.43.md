@@ -41,3 +41,11 @@ changes nothing. A name only a spec's `Model:` line or a `--model` uses is not i
 ```sh
 obor setup agents
 ```
+
+Also in v0.43.0, nothing to do for any of them:
+
+- The nightly tests the head of `merge.target_branch`, not the main checkout's current branch; `obor run`'s changed
+  files are measured against the same branch. The nightly relinks the lane links after its scrub.
+- A Codex project `config.toml` that does not parse counts as absent at an agent's start (obor's own flags apply);
+  `obor config validate` warns naming the file and the parse error. Codex itself refuses the file when it starts.
+- Guard denials name the config's real keys (`rules.may_push`, `rules.deny_commands`, `rules.protected_files`).
