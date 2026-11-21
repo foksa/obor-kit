@@ -51,18 +51,18 @@ func TestNightly(t *testing.T) {
 				x.gone(x.Path(".obor/state/logs/nightly-"+name+".log"), "no log for a passing "+name)
 			}
 		}},
-		// bash case_scratch_reset_to_current_branch
-		{"an existing worktree is reset to the current branch's head, untracked junk cleaned", func(t *testing.T) {
+		// The nightly tests the target's head (owner 11-09), whatever the main checkout has checked out.
+		{"the main checkout off the target: the nightly runs at merge.target_branch's head, untracked junk cleaned", func(t *testing.T) {
 			x := newFx(t, cmd("check", logged("check", "test ! -e junk.txt")))
 			x.Git(x.Root, "worktree", "add", "-q", "--detach", x.nightlyDir(), "main~1")
 			x.Write(filepath.Join(x.nightlyDir(), "junk.txt"), "junk\n")
+			target := x.head(x.Root)
 			x.Git(x.Root, "checkout", "-q", "-b", "ms/m1")
 			x.Write("b.txt", "two\n")
 			x.Git(x.Root, "add", "b.txt")
 			x.Git(x.Root, "commit", "-q", "-m", "milestone work")
-			head := x.head(x.Root)
-			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on ms/m1 `)
-			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+head+" merge\n", "ran at the head, junk cleaned")
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+target[:7]+` on main `)
+			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+target+" merge\n", "ran at the target's head, junk cleaned")
 		}},
 		// bash case_live_lock_waits_then_fails
 		{"a live nightly lock → waits (line), FAIL after its wait, nothing run", func(t *testing.T) {

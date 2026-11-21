@@ -46,8 +46,8 @@ type Slots struct {
 const DefaultBlockMax = 900 * time.Second
 
 // SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_PROJECT, else slots.dir / slots.max /
-// name, else /tmp/obor-check-slots, 2, "default" (a project name with / or white space is "default" too). The merge
-// marker's cap is 900 s.
+// the project's name (ProjectName: project.name, else the main checkout's base name), else /tmp/obor-check-slots, 2,
+// "default" (a project name with / or white space is "default" too). The merge marker's cap is 900 s.
 func SlotsFor(cfg *config.Config, env project.Env) Slots {
 	heavy, heavySet := cfg.HeavyAtOnce()
 	maxSetting := ""
@@ -71,7 +71,7 @@ func SlotsFor(cfg *config.Config, env project.Env) Slots {
 	if s.Dir == "" {
 		s.Dir = "/tmp/obor-check-slots"
 	}
-	name := setting("CHECK_PROJECT", cfg.Name())
+	name := setting("CHECK_PROJECT", cfg.ProjectName())
 	if name == "" || strings.ContainsAny(name, "/ \t\n\r\v\f") {
 		name = "default"
 	}

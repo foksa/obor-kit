@@ -77,7 +77,7 @@ type session struct {
 	cancel  context.CancelFunc
 	signal  int // the signal's exit code once interrupted
 	sigDone chan struct{}
-	target  string // the main checkout's current branch
+	target  string // merge.target_branch: the branch the nightly tests
 	scratch string // <lanes.dir>/merge-<name>: -nightly
 	window  *project.Lock
 	locked  bool
@@ -85,7 +85,8 @@ type session struct {
 }
 
 // open starts a session named name (nightly: its worktree <lanes.dir>/merge-<name> and its logs' prefix):
-// the target branch and the worktree path; a signal on Interrupted or the end of ctx cancels its context.
+// the target branch (merge.target_branch, never the main checkout's current branch) and the worktree path; a signal
+// on Interrupted or the end of ctx cancels its context.
 func open(ctx context.Context, o Options, name string) (*session, *Result) {
 	s := &session{Options: o, start: time.Now()}
 	s.scratch = o.Cfg.ScratchDir() + "-" + name
@@ -105,12 +106,7 @@ func open(ctx context.Context, o Options, name string) (*session, *Result) {
 	}()
 	s.window = project.NewLock(filepath.Join(s.state, "nightly.flock"))
 	s.window.Output = io.Discard
-	branch, err := s.git(s.root, "branch", "--show-current")
-	if err != nil || branch == "" {
-		s.close()
-		return nil, result(Fail, "FAIL the main checkout %s is not on a branch", s.root)
-	}
-	s.target = branch
+	s.target = o.Cfg.MainBranch()
 	return s, nil
 }
 

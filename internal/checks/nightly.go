@@ -14,8 +14,9 @@ import (
 )
 
 // Nightly is `obor nightly`: the milestone check tier in
-// its own worktree (<lanes.dir>/merge-nightly, added when missing) reset to the head of the main checkout's current
-// branch: lanes.setup, then check and check_milestone, each skipped when unset. Non-blocking: every command
+// its own worktree (<lanes.dir>/merge-nightly, added when missing) reset to the head of merge.target_branch (the
+// branch tasks merge into, whatever the main checkout has checked out): lanes.setup, then check and check_milestone,
+// each skipped when unset. Non-blocking: every command
 // runs even after a failure (a failed lane_setup stops the rest). A red check reruns its named failing tests once by
 // merge.retest inside the slot it holds; green then is the step's green and its line names the rerun.
 // It then backs up the project's database (wire.Backup), sweeps.obor (project.Sweep: each removal it could not
@@ -51,14 +52,16 @@ func (s *session) nightly() *Result {
 	}
 	sha, _ := s.git(s.scratch, "rev-parse", "HEAD")
 	linkLaneLinks(s.Cfg, s.root, s.scratch)
-	// The session's own reset, not gitIO.Clean: that one keeps obor's links, this `clean -fdq` does not.
+	// The session's own reset, not gitIO.Clean: that one keeps obor's links, this `clean -fdq` does not, and steps
+	// links them again after it.
 	return s.steps(sha, func() { s.reset(sha) })
 }
 
 // steps runs the nightly's commands in s.dir (the checks, the backup, the sweep, merge.nightly_commands), writes
 // last-full-check for sha and returns the result line. It reads no git itself: scrub is what puts the worktree back
 // at sha between the gating checks and the rest, "no command artifacts left behind" (nil: nothing to scrub), so a
-// test runs it on a plain dir.
+// test runs it on a plain dir. That reset's `clean -fdq` takes the lane links with the artifacts, so the nightly
+// links them again before the commands that follow it.
 func (s *session) steps(sha string, scrub func()) *Result {
 	var results, failed, details, evidence []string
 	// step runs commands.<name>; retest is whether a red's failing tests are rerun once (the nightly's check and
@@ -109,6 +112,7 @@ func (s *session) steps(sha string, scrub func()) *Result {
 	s.releaseSlot()
 	if scrub != nil {
 		scrub() // no command artifacts left behind
+		linkLaneLinks(s.Cfg, s.root, s.scratch)
 	}
 	sock := wire.SocketPath(s.Cfg.Root)
 	ctx := s.callCtx
