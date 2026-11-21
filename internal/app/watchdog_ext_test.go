@@ -97,20 +97,17 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 	})
 }
 
-// T-951: the stall watchdog samples the pane it already observed: a ready agent costs no read of its pane's agent per
-// tick, while the child-process check still runs.
-func TestWatchdogAsksNoAgentGetPerTick(t *testing.T) {
+// The stall watchdog samples a ready agent at every check: each tick asks the terminal for the pane's process info,
+// the child-process check of its activity.
+func TestWatchdogSamplesProcessInfoPerTick(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
 		r.start()
-		gets, procs := r.calls(opAgent), r.calls(opProcessInfo)
+		procs := r.calls(opProcessInfo)
 		r.settle() // two more full checks, each sampling both ready agents
-		if n := r.calls(opAgent) - gets; n != 0 {
-			t.Errorf("agent reads over two quiet ticks = %d, want 0 (the sample reads its observed pane)", n)
-		}
-		if n := r.calls(opProcessInfo) - procs; n == 0 {
-			t.Fatal("no process info over two ticks: the sample did not run (vacuous)")
+		if n := r.calls(opProcessInfo) - procs; n < 2 {
+			t.Fatalf("process info over two ticks = %d, want the sample at each", n)
 		}
 	})
 }

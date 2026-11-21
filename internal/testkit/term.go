@@ -3,7 +3,7 @@ package testkit
 // Term: an in-memory terminal for the core's tests, in the port's words only. A flow test states a scenario as
 // port.Pane, port.Event and a call of a port operation, which every terminal adapter has to meet; the adapters' own
 // wires are their packages' tests. Term has no behaviour of its own: a call answers from the table, a change sends the
-// event that says it, and what a test scripts (a failure, a hook) decides the rest.
+// event that says it, and the hook a test sets decides the rest.
 
 import (
 	"context"
@@ -89,14 +89,12 @@ type Term struct {
 	info   map[string]port.ProcessInfo // by pane: its process info
 	stream *termStream                 // the live stream (nil: none)
 	calls  []Call
-	fail   map[string][]error // by op: the next calls' failures
 	before func(Call) error
 }
 
 // NewTerm is an empty terminal.
 func NewTerm() *Term {
-	return &Term{names: map[string]string{}, screen: map[string]string{}, info: map[string]port.ProcessInfo{},
-		fail: map[string][]error{}}
+	return &Term{names: map[string]string{}, screen: map[string]string{}, info: map[string]port.ProcessInfo{}}
 }
 
 // Add puts p in the table (a pane of that id is replaced) and sends its created event.
@@ -204,13 +202,6 @@ func (t *Term) Streaming() bool {
 	return t.stream != nil
 }
 
-// Fail makes the next call of op fail with err.
-func (t *Term) Fail(op string, err error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.fail[op] = append(t.fail[op], err)
-}
-
 // Before runs fn with each call before it is answered (nil: none); an error fails the call. fn may block.
 func (t *Term) Before(fn func(Call) error) {
 	t.mu.Lock()
@@ -231,22 +222,14 @@ func (t *Term) Calls(op string) []Call {
 	return out
 }
 
-// call logs c, runs the hook, then the scripted failure of its op: the error the call answers (nil: answer it).
+// call logs c and runs the hook: the error the call answers (nil: answer it).
 func (t *Term) call(c Call) error {
 	t.mu.Lock()
 	t.calls = append(t.calls, c)
 	before := t.before
 	t.mu.Unlock()
 	if before != nil {
-		if err := before(c); err != nil {
-			return err
-		}
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if errs := t.fail[c.Op]; len(errs) > 0 {
-		t.fail[c.Op] = errs[1:]
-		return errs[0]
+		return before(c)
 	}
 	return nil
 }

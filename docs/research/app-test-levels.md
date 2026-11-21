@@ -295,7 +295,7 @@ Same area, but a different decision or different inputs. One line each. Cross-fi
 ### watchdog
 - `watchdog_ext_test.go:54` TestWorkingAgainResumes. Despite its name it asserts no resume: two lanes, T-2 stalls, T-1 stalls 1 min after its first quiet baseline. The closest in-package rows (T-335 :242–243) are single-lane with scripted Busy.
 - `watchdog_ext_test.go:72` TestNotStalledWhileAChildRuns, `:129` TestNotStalledWhileTheTranscriptChanges ↔ rows :295–318 (#13) and :371–376 (#9). Same decisions (a child process or transcript write postpones the stall; the first quiet sample is a baseline), but ext uses real process trees and file mtimes, in-package scripts Busy and the transcript time.
-- No in-package row for `watchdog_ext_test.go:113` TestWatchdogAsksNoAgentGetPerTick and `:260` TestClosedTaskWatchdogFactsEnd. `watchdog_test.go:463/:492/:539` (question text) has no ext pair.
+- No in-package row for `watchdog_ext_test.go:102` TestWatchdogSamplesProcessInfoPerTick and `:226` TestClosedTaskWatchdogFactsEnd. `watchdog_test.go:463/:492/:539` (question text) has no ext pair.
 
 ## Unknowns
 
