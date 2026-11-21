@@ -26,7 +26,7 @@ func plainFx(t *testing.T, edits ...func(map[string]any)) *fx {
 // reports.
 func commandCalls(t *testing.T, opts Options, dir string) (*runner, *[]string) {
 	t.Helper()
-	r := newRunner(context.Background(), &opts, dir, "T-5")
+	r := newRunner(context.Background(), &opts, realGit{Scratch{Options: opts}}, dir, "T-5")
 	got := &[]string{}
 	r.onCommand = func(name string) { *got = append(*got, name) }
 	return &r, got
@@ -198,7 +198,7 @@ func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 	o2 := x2.opts()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r2 := newRunner(ctx, &o2, x2.Root, "T-5")
+	r2 := newRunner(ctx, &o2, realGit{Scratch{Options: o2}}, x2.Root, "T-5")
 	var calls []string
 	started := make(chan struct{})
 	r2.onCommand = func(name string) {

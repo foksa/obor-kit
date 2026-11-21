@@ -174,7 +174,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 		}
 	}
 
-	r := newRunner(ctx, &s.Options, dir, in.Task)
+	r := newRunner(ctx, &s.Options, g, dir, in.Task)
 	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two
 	defer r.releaseSlot()
 	if steps := s.gateSteps(&r, in.Kind); len(steps) > 0 {
@@ -710,7 +710,7 @@ func (s Scratch) afterMergeRun(ctx context.Context, g gitReader, c port.Candidat
 		fmt.Fprintln(s.Out, line)
 		return line, nil
 	}
-	r := newRunner(ctx, &s.Options, s.Cfg.Root, c.Task)
+	r := newRunner(ctx, &s.Options, g, s.Cfg.Root, c.Task)
 	o, _, h := r.run("after_merge", s.Cfg.Root)
 	if h != nil {
 		return "", fmt.Errorf("after_merge interrupted (exit %d)", h.code)

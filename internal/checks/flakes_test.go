@@ -142,7 +142,7 @@ func TestLogFlakes(t *testing.T) {
 			root := t.TempDir()
 			var warn strings.Builder
 			c.o.Git, c.o.Out = "false", &warn // git cannot name a sha
-			r := newRunner(t.Context(), c.o, root, "T-05")
+			r := newRunner(t.Context(), c.o, realGit{Scratch{Options: *c.o}}, root, "T-05")
 			r.root, r.state = root, filepath.Join(root, "state")
 			r.logFlakes(c.check, false, false, output{text: c.out})
 			if warn.Len() != 0 {

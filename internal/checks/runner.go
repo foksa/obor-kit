@@ -21,6 +21,7 @@ import (
 // It holds no lock and no scratch state: obor serve's Scratch makes one per gate and per lane test.
 type runner struct {
 	*Options
+	reader      gitReader // the git the runner reads: the changed files, the commit the checks ran on
 	ctx         context.Context
 	sigCode     func() int // the exit code of the signal that ended ctx (nil: Fail)
 	root, state string     // the main checkout and its .obor/state
@@ -38,8 +39,8 @@ type runner struct {
 	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line)
 }
 
-func newRunner(ctx context.Context, o *Options, dir, logName string) runner {
-	return runner{Options: o, ctx: ctx, root: o.Cfg.Root, state: project.StateDir(o.Cfg.Root), dir: dir, logName: logName}
+func newRunner(ctx context.Context, o *Options, g gitReader, dir, logName string) runner {
+	return runner{Options: o, reader: g, ctx: ctx, root: o.Cfg.Root, state: project.StateDir(o.Cfg.Root), dir: dir, logName: logName}
 }
 
 // interrupted is the signal's exit code once ctx ended, 0 while it runs.
@@ -331,13 +332,11 @@ func (opt *Options) printLines(ls []string) {
 	}
 }
 
-// changed lists the files changed in rev (a range, or the merge base: against the worktree) into
-// .obor/state/<changedFile> (exported as OBOR_CHANGED_FILES) and classifies the merge.
-func (r *runner) changed(task, rev string) *halt {
+// changed lists the files from..to changes (a rename is a deletion plus an addition, so its source path is classified
+// too) into .obor/state/<changedFile> (exported as OBOR_CHANGED_FILES) and classifies the merge.
+func (r *runner) changed(from, to string) *halt {
 	path := filepath.Join(r.state, r.changedFile)
-	// --no-renames: a rename is a deletion plus an addition, so its source path is classified too.
-	out, err := r.git(r.dir, "diff", "--no-renames", "--name-only", rev)
-	files := lines(out)
+	files, err := r.reader.Changed(from, to)
 	if err == nil {
 		err = os.WriteFile(path, []byte(strings.Join(append(slices.Clone(files), ""), "\n")), 0o644)
 	}

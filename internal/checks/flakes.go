@@ -127,11 +127,11 @@ func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
 // sha is the commit the checks ran on (a lane test's candidate; a nightly's head); "" when git cannot name
 // one.
 func (r *runner) sha() string {
-	out, err := r.git(r.dir, "rev-parse", "HEAD")
+	sha, err := r.reader.Rev(r.dir, "HEAD")
 	if err != nil {
 		return ""
 	}
-	return out
+	return sha
 }
 
 // appendFlakes appends entries to state's flakes.jsonl, one JSON line each (the state dir is created when missing).

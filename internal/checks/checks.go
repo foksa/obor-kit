@@ -91,7 +91,7 @@ func open(ctx context.Context, o Options, name string) (*session, *Result) {
 	s.scratch = o.Cfg.ScratchDir() + "-" + name
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.Options.gitCtx = ctx // a signal kills a running git too
-	s.runner = newRunner(ctx, &s.Options, s.scratch, name)
+	s.runner = newRunner(ctx, &s.Options, realGit{Scratch{Options: s.Options}}, s.scratch, name)
 	s.sigDone = make(chan struct{})
 	s.sigCode = func() int { <-s.sigDone; return s.signal }
 	go func() {

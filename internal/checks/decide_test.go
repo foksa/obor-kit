@@ -157,6 +157,10 @@ var fakeSteps = []fakeStep{
 			k.eq(k.g.refs[resolvedRefs+"T-05"], in.sha, "resolved pin")
 		},
 	},
+	fakeLaneTest("lane test", false, cmd("check", "echo 1 pass")),
+	fakeLaneTest("lane test retested", true, goLines(),
+		cmd("check", `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`),
+		cmd("retest", `echo "1 pass"`)),
 	{
 		name:  "unpin",
 		setup: func(k *fk) cutIn { return cutIn{c: k.green(lane(k.submit()))} },
@@ -167,6 +171,48 @@ var fakeSteps = []fakeStep{
 			k.eq(k.pins("T-05"), "submitted=- candidate=- resolved=-", "pins deleted")
 		},
 	},
+}
+
+// fakeLaneTest is the lane test of a green candidate in L-01 (dispatched on task/T-05) whose check passes or, with
+// retested, fails one test that passes on commands.retest. The step detaches the lane at the candidate, lists
+// the files the candidate changes on the target (OBOR_CHANGED_FILES), runs the checks, and restores the lane; its
+// writes are those four, in that order, and a flaked test is logged with the candidate's sha, the lane's HEAD.
+func fakeLaneTest(name string, retested bool, edits ...func(map[string]any)) fakeStep {
+	return fakeStep{
+		name:  name,
+		edits: edits,
+		setup: func(k *fk) cutIn {
+			c := k.green(lane(k.submit()))
+			k.g.answers["Changed "+c.Target+" "+c.SHA] = "feature.txt\ndocs/a.md"
+			return cutIn{c: c}
+		},
+		call: func(k *fk, in cutIn) (string, any, error) {
+			o, err := k.s.Test(ctx, port.TestInput{Task: "T-05", Lane: "L-01", Branch: "task/T-05", SHA: in.c.SHA,
+				Target: in.c.Target})
+			return fmt.Sprintf("%s %q", o.Kind, k.norm(o.Line)), o, err
+		},
+		end: func(k *fk, in cutIn, out any) {
+			o := out.(port.TestOutcome)
+			k.eq(string(o.Kind), string(port.OutcomeGreen), "a green lane test")
+			k.match(o.Line, `^GREEN T-05 \(1 pass, `, "the checks' counts")
+			k.eq(strings.Join(k.g.writeCalls(), "; "), fmt.Sprintf("Detach %[1]s %[2]s; Reset %[1]s; Clean %[1]s; Switch %[1]s task/T-05",
+				k.lane, in.c.SHA), "the lane is detached at the candidate, then restored to its branch")
+			k.eq(k.g.branch[k.lane], "task/T-05", "the lane is back on its branch")
+			k.eq(k.Read(k.Path(".obor/state/lane-changed-files-L-01")), "feature.txt\ndocs/a.md\n",
+				"OBOR_CHANGED_FILES names the files the reader gave")
+			flakes, err := Flakes(k.Root)
+			if err != nil {
+				k.t.Fatalf("flake log: %v", err)
+			}
+			if got := len(flakes) > 0; got != retested {
+				k.t.Fatalf("flake log %+v; want a line: %v", flakes, retested)
+			}
+			for _, f := range flakes {
+				k.eq(f.SHA, in.c.SHA, "the flake's sha is the lane's HEAD in the test: the candidate")
+				k.eq(fmt.Sprint(f.Retried, f.PassedOnRetry), "true true", "retried and passed")
+			}
+		},
+	}
 }
 
 // published is a green lane candidate of the fixture's submit, published.
@@ -182,8 +228,8 @@ func (k *fk) published() port.Candidate {
 // The cut table: for each step, its N-th git call fails, one N per write and the step's first read; that run is an
 // error (not decided) that writes nothing after the failed call, and the step run again gives the uncut run's outcome and end
 // state. The cut runs over an in-memory fake (a shim over real git took 47 s); the decisions are the same.
-// The lane test's step (Scratch.Test) is not here: its runner lists the changed files with git of its own
-// (runner.go), so its cut cases are TestLaneTest*'s, on real git.
+// The lane test's steps (Scratch.Test: its runner reads the changed files and the commit through the same git) are
+// rows here; what real git does in the lane (the check's cwd and HEAD, discards, a cut by ctx) is TestLaneTest*'s.
 func TestScratchCutTable(t *testing.T) {
 	t.Parallel()
 	for _, st := range fakeSteps {
