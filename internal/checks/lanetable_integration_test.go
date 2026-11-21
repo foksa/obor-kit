@@ -20,6 +20,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
+	"obor/internal/testkit"
 )
 
 func ltGit(t testing.TB, dir string, args ...string) {
@@ -57,7 +58,7 @@ func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 		return base
 	}))
 	if len(lanes) > 0 {
-		repairWorktrees(t, base)
+		testkit.RepairWorktrees(t, base)
 	}
 	root := filepath.Join(base, "proj")
 	c, err := config.Load(root)

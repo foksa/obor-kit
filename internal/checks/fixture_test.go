@@ -116,7 +116,7 @@ func copySx(t *testing.T, src string) *sx {
 	p := testkit.Adopt(t, base)
 	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), scratch: filepath.Join(base, "proj-wt", "merge"),
 		slots: filepath.Join(base, "slots"), sig: make(chan int, 1)}
-	repairWorktrees(t, base)
+	testkit.RepairWorktrees(t, base)
 	if err := os.MkdirAll(p.Path(".obor/state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -125,35 +125,6 @@ func copySx(t *testing.T, src string) *sx {
 		t.Fatal(err)
 	}
 	return &sx{fx: x, s: Scratch{Options: x.opts()}, cut: filepath.Join(base, "cut"), serve: x.scratch, real: real}
-}
-
-// repairWorktrees points every copied worktree under base/proj-wt at base: its .git file at the repo's copied admin
-// dir, and that admin dir's gitdir at the worktree (what `git worktree repair` writes, with no git process).
-func repairWorktrees(t testing.TB, base string) {
-	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(base, "proj-wt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		wt := filepath.Join(base, "proj-wt", e.Name())
-		dotgit := filepath.Join(wt, ".git")
-		b, err := os.ReadFile(dotgit)
-		if err != nil {
-			continue // not a worktree
-		}
-		old, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
-		if !ok {
-			t.Fatalf("repair worktrees: %s is not a gitdir file: %q", dotgit, b)
-		}
-		admin := filepath.Join(base, "proj", ".git", "worktrees", filepath.Base(old))
-		if err := os.WriteFile(dotgit, []byte("gitdir: "+admin+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(admin, "gitdir"), []byte(dotgit+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 // built holds the fixture bases built once per key for the run (key -> func() string): a fixture that only differs
@@ -199,7 +170,7 @@ func editedTemplate(edits []func(map[string]any)) string {
 	}
 	return builtBase("fx "+editsKey(fxConfig(edits...)), func(base string) string {
 		copyDir(mainTB{}, tmpl(), base)
-		repairWorktrees(mainTB{}, base)
+		testkit.RepairWorktrees(mainTB{}, base)
 		testkit.Adopt(mainTB{}, base).Config(fxConfig(edits...)...)
 		return base
 	})
@@ -272,7 +243,7 @@ func newFx(t testing.TB, edits ...func(map[string]any)) *fx {
 	base := snapshot(t, editedTemplate(edits))
 	p := testkit.Adopt(t, base)
 	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), sig: make(chan int, 1)}
-	repairWorktrees(t, base)
+	testkit.RepairWorktrees(t, base)
 	x.scratch = filepath.Join(p.Base, "proj-wt", "merge")
 	x.slots = filepath.Join(p.Base, "slots")
 	if err := os.MkdirAll(p.Path(".obor/state"), 0o755); err != nil { // serve's state dir (its database lives there)
