@@ -239,8 +239,36 @@ func TestRestartJobUnreadableLaneRow(t *testing.T) {
 	}
 }
 
-// obor restart (internal/launch has the behaviour): the result line last, FAIL → exit 1 (a --stop that gives up
-// prints its evidence first).
+// obor restart's argument check (usage, the flags it does not take, --stop with --fresh or --handoff) ends before the
+// command reads its directory: the rows call restart. A refused --handoff is TestRestartHandoffRefusedForANonLead's.
+func TestRestartArguments(t *testing.T) {
+	usage := "FAIL " + help.Usage("restart")
+	for _, c := range []struct {
+		args []string
+		last string
+	}{
+		{nil, usage},
+		{[]string{"a", "b"}, usage},
+		{[]string{"pj-l-01", "--stop", "--fresh"}, "FAIL --stop takes no --fresh"},
+		{[]string{"pj-l-01", "--stop", "--handoff"}, "FAIL --stop takes no --handoff"},
+		{[]string{"pj-l-01", "--fresh", "--keep-inbox"}, usage}, // --keep-inbox is an unknown flag
+		// the flags restart does not take are unknown flags: the usage.
+		{[]string{"pj-l-01", "--prompt", "go"}, usage},
+		{[]string{"pj-l-01", "--type", "luna"}, usage},
+		{[]string{"pj-l-01", "--effort", "high"}, usage},
+		{[]string{"pj-l-01", "--sid", "sid-9"}, usage},
+		{[]string{"pj-l-01", "--type=luna"}, usage},
+	} {
+		rc, stdout := callCmd(t, restart, c.args...)
+		if rc != 1 || stdout != c.last+"\n" {
+			t.Errorf("restart %q: exit %d, %q; want 1 and %q", c.args, rc, stdout, c.last)
+		}
+	}
+}
+
+// obor restart on the binary (internal/launch has the behaviour): the result line last, FAIL → exit 1 (a --stop that
+// gives up prints its evidence first). The rows are the ones that need the project: an agent no config knows, serve
+// down for an agent that may hold a job, a stop of a pane at its shell.
 func TestRestartCommand(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -261,21 +289,6 @@ func TestRestartCommand(t *testing.T) {
 		rc   int
 		last string
 	}{
-		{[]string{"restart"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "a", "b"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --fresh"},
-		{[]string{"restart", "pj-l-01", "--stop", "--handoff"}, 1, "FAIL --stop takes no --handoff"},
-		// --handoff is the lead's alone: a worker's and the integrator's restart is refused, nothing started.
-		{[]string{"restart", "pj-l-01", "--handoff"}, 1, "FAIL --handoff is the lead's handoff restart: pj-l-01 is not the lead"},
-		{[]string{"restart", "pj-int", "--handoff"}, 1, "FAIL --handoff is the lead's handoff restart: pj-int is not the lead"},
-		// --keep-inbox is an unknown flag.
-		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + help.Usage("restart")},
-		// the flags restart does not take are unknown flags: the usage.
-		{[]string{"restart", "pj-l-01", "--prompt", "go"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "pj-l-01", "--type", "luna"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + help.Usage("restart")},
-		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role or recorded session)"},
 		// serve is down and may hold an open job for the integrator: refused, not restarted without a wake.
 		{[]string{"restart", "pj-int", "--fresh"}, 1, "FAIL restart pj-int: obor serve is not running; it may hold an " +

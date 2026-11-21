@@ -8,6 +8,16 @@ import (
 	"obor/internal/testkit"
 )
 
+// obor watch's argument check ends before the command reads its directory or sends a request: the rows call watchCmd.
+func TestWatchArguments(t *testing.T) {
+	for _, args := range [][]string{{"--rm"}, {"--rm", "T-1", "T-2"}, {"--all"}, {"T-1", "--rm"}, {"--note", "x"}, {"T-1", "--note"},
+		{"--rm", "T-1", "--note", "x"}} {
+		if rc, stdout := callCmd(t, watchCmd, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor watch") {
+			t.Errorf("watch %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
+		}
+	}
+}
+
 // obor watch <T-xx> [<T-yy> …] is one watch request per task as the caller, serve's reply printed for each;
 // no task is one request for the list; --rm <T-xx> one request that ends the watch. A usage error or a bad task id
 // sends nothing; those and serve's refusal are FAIL on stdout, exit 1.
@@ -17,11 +27,9 @@ func TestWatchRequest(t *testing.T) {
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "WATCHING", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	for _, args := range [][]string{{"watch", "--rm"}, {"watch", "--rm", "T-1", "T-2"}, {"watch", "--all"},
-		{"watch", "T-1", "--rm"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor watch") {
-			t.Errorf("obor %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
-		}
+	// a usage error sends nothing (the rows: TestWatchArguments)
+	if rc, stdout, _ := run(t, p.Root, env, "watch", "--all"); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor watch") {
+		t.Errorf("obor watch --all: exit %d, %q; want 1, FAIL usage", rc, stdout)
 	}
 	if rc, stdout, _ := run(t, p.Root, env, "watch", "nope"); rc != 1 || !strings.HasPrefix(stdout, "FAIL nope is no task id") {
 		t.Errorf("a bad task id: exit %d, %q", rc, stdout)

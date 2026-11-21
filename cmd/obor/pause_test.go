@@ -9,6 +9,22 @@ import (
 	"obor/internal/testkit"
 )
 
+// obor pause's argument check ends before the command reads its directory or sends a request: the rows call pauseCmd.
+func TestPauseArguments(t *testing.T) {
+	for _, args := range [][]string{{}, {"--stat"}, {"--status"}, {"--for", "2h"}, {"--for", "2h", "--stat"}, {"--for 2h"},
+		{""}, {"a", "b"}} {
+		if rc, stdout := callCmd(t, pauseCmd, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor pause") {
+			t.Errorf("pause %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
+		}
+	}
+	for _, d := range []string{"tomorrow", "2days", "0s", "-1h"} {
+		if rc, stdout := callCmd(t, pauseCmd, "--for", d, "later"); rc != 1 ||
+			stdout != "FAIL bad duration: "+d+" (usage: obor pause [--model <name>] [--for <dur>] \"<why>\" | obor pause [--model <name>] --clear)\n" {
+			t.Errorf("--for %s: exit %d, %q; want 1, bad duration", d, rc, stdout)
+		}
+	}
+}
+
 // obor pause [--for <dur>] "<why>" | --clear is one pause request to obor serve as the caller (the lead, the
 // owner with no role), serve's reply printed; a usage error or a bad duration sends nothing and writes no file; those,
 // serve down or its refusal are FAIL on stdout, exit 1.
@@ -20,17 +36,13 @@ func TestPauseRequest(t *testing.T) {
 	env := func(role string) []string {
 		return []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=" + role, "OBOR_AGENT=pj-lead"}
 	}
-	for _, args := range [][]string{{"pause"}, {"pause", "--stat"}, {"pause", "--status"}, {"pause", "--for", "2h"},
-		{"pause", "--for", "2h", "--stat"}, {"pause", "--for 2h"}, {"pause", ""}, {"pause", "a", "b"}} {
-		if rc, stdout, _ := run(t, p.Root, env("lead"), args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor pause") {
-			t.Errorf("obor %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
-		}
+	// a usage error and a bad duration send nothing (the rows: TestPauseArguments)
+	if rc, stdout, _ := run(t, p.Root, env("lead"), "pause"); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor pause") {
+		t.Errorf("obor pause: exit %d, %q; want 1, FAIL usage", rc, stdout)
 	}
-	for _, d := range []string{"tomorrow", "2days", "0s", "-1h"} {
-		if rc, stdout, _ := run(t, p.Root, env("lead"), "pause", "--for", d, "later"); rc != 1 ||
-			stdout != "FAIL bad duration: "+d+" (usage: obor pause [--model <name>] [--for <dur>] \"<why>\" | obor pause [--model <name>] --clear)\n" {
-			t.Errorf("--for %s: exit %d, %q; want 1, bad duration", d, rc, stdout)
-		}
+	if rc, stdout, _ := run(t, p.Root, env("lead"), "pause", "--for", "tomorrow", "later"); rc != 1 ||
+		!strings.HasPrefix(stdout, "FAIL bad duration: tomorrow (usage: obor pause") {
+		t.Errorf("--for tomorrow: exit %d, %q; want 1, bad duration", rc, stdout)
 	}
 	if _, n := serve.requests(); n != 0 {
 		t.Fatalf("a refused command sent %d requests", n)

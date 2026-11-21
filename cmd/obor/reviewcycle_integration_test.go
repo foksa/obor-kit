@@ -77,6 +77,16 @@ var reviewTmpl struct {
 	dir, head string
 }
 
+// obor review close's argument check ends before the command reads its directory or sends a request: the rows call
+// reviewCloseCmd.
+func TestReviewCloseArguments(t *testing.T) {
+	for _, args := range [][]string{{}, {"x", "--accept"}, {"x", "y"}, {"x", "--force", "--force"}} {
+		if rc, stdout := callCmd(t, reviewCloseCmd, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review close") {
+			t.Errorf("review close %q: exit %d, %q; want FAIL usage", args, rc, stdout)
+		}
+	}
+}
+
 // obor review close is one review_close request to serve: the summary, each --accept line (spaces folded) and
 // --force as the call's fields, serve's reply printed; a usage error sends nothing; serve's refusal is the FAIL line.
 func TestReviewCloseCall(t *testing.T) {
@@ -84,11 +94,9 @@ func TestReviewCloseCall(t *testing.T) {
 	p, _ := reviewFixture(t)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "CLOSED RV-4 closed · abcdef0 · accepted 2 · T-5 (fix)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	for _, args := range [][]string{{"review", "close"}, {"review", "close", "x", "--accept"}, {"review", "close", "x", "y"},
-		{"review", "close", "x", "--force", "--force"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review close") {
-			t.Errorf("obor %q: exit %d, %q; want FAIL usage", args, rc, stdout)
-		}
+	// a usage error sends nothing (the rows: TestReviewCloseArguments)
+	if rc, stdout, _ := run(t, p.Root, env, "review", "close"); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review close") {
+		t.Errorf("obor review close: exit %d, %q; want FAIL usage", rc, stdout)
 	}
 	if _, n := serve.requests(); n != 0 {
 		t.Fatalf("a usage error sent %d requests", n)
@@ -218,110 +226,78 @@ func TestReviewGitClose(t *testing.T) {
 	}
 }
 
-// a close with --accept creates docs/accepted.md when it is missing; BACKLOG.md without an "## Open" section is
-// no refusal.
-func TestReviewGitCloseCreatesAccepted(t *testing.T) {
+// the close accepts a dirty BACKLOG.md in the main checkout, at the root or in any directory (here docs/), unstaged
+// (" M docs/BACKLOG.md", whose leading space a trimmed line lost) or staged ("M  BACKLOG.md"), and commits that edit
+// with the close; another modified tracked file is refused, named by its untrimmed status line. The accepted lines go
+// to docs/accepted.md. The two backlogs are dirty in one close, one staged at the root and one unstaged in a
+// directory: the status line's two columns and the path's directory are what differ, and every path is read the same.
+func TestReviewGitCloseDirtyBacklog(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
-	p.Write("BACKLOG.md", "# Backlog\n")
-	p.Git(p.Root, "commit", "-q", "-am", "backlog without Open")
 	g := reviewGit{root: p.Root}
-	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
-	if p.Exists(app.AcceptedFile) {
-		t.Fatal("precondition: docs/accepted.md exists before the close")
+	ctx := context.Background()
+	p.Write("docs/reviews/RV-4.md", "# RV-4\n") // in the main checkout: untracked, RV-4's own
+	const backlogText = "# Backlog\n\n## Open\n- old line\n\n## Concerns\n"
+	p.Write("docs/BACKLOG.md", backlogText) // the project's backlog also lives in a directory: tracked, then dirty below
+	p.Git(p.Root, "add", "docs/BACKLOG.md")
+	p.Git(p.Root, "commit", "-q", "-m", "backlog at docs/BACKLOG.md")
+	before := p.Git(p.Root, "rev-parse", "HEAD")
+
+	p.Write("fix.txt", "changed\n")
+	if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != "M fix.txt" { // p.Git trims: the line is " M fix.txt"
+		t.Fatalf("precondition: fix.txt modified unstaged, status %q", st)
 	}
-	if err := g.Close(context.Background(), closeOf(p, head, "rare case")); err != nil {
-		t.Fatalf("close with no docs/accepted.md: %v; want created", err)
+	if err := g.Close(ctx, closeOf(p, head)); err == nil ||
+		err.Error() != "the main checkout is dirty outside a BACKLOG.md, docs/accepted.md and RV-4's files ( M fix.txt): nothing changed" {
+		t.Errorf("a modified fix.txt: %v; want refused", err)
+	}
+	if p.Git(p.Root, "rev-parse", "HEAD") != before {
+		t.Fatalf("a refused close committed")
+	}
+	p.Git(p.Root, "checkout", "-q", "--", "fix.txt")
+
+	const edited = "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n"
+	p.Write("BACKLOG.md", edited)
+	p.Git(p.Root, "add", "BACKLOG.md")
+	p.Write("docs/BACKLOG.md", edited)
+	if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != "M  BACKLOG.md\n M docs/BACKLOG.md" {
+		t.Fatalf("precondition: the root backlog staged and docs/'s unstaged, status %q", st)
+	}
+	if err := g.Close(ctx, closeOf(p, head, "rare case")); err != nil {
+		t.Fatalf("close with a staged and an unstaged backlog: %v; want accepted", err)
+	}
+	for _, path := range []string{"BACKLOG.md", "docs/BACKLOG.md"} {
+		backlog := p.Git(p.Root, "show", "HEAD:"+path)
+		if !strings.Contains(backlog, "## Open\n- lead's line\n- old line\n") {
+			t.Errorf("%s committed without the edit:\n%s", path, backlog)
+		}
+		if strings.Contains(backlog, "accepted)") {
+			t.Errorf("%s committed carries an accepted line:\n%s", path, backlog)
+		}
 	}
 	if accepted, want := p.Git(p.Root, "show", "HEAD:"+app.AcceptedFile),
 		strings.TrimSpace(acceptedHeadText+"- (RV-4, accepted) rare case\n"); accepted != want {
 		t.Errorf("docs/accepted.md committed:\n%q\nwant:\n%q", accepted, want)
 	}
-	if backlog := p.Git(p.Root, "show", "HEAD:BACKLOG.md"); strings.Contains(backlog, "accepted)") {
-		t.Errorf("BACKLOG.md committed carries an accepted line:\n%s", backlog)
-	}
-	if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); st != "" {
+	if st := p.Git(p.Root, "status", "--porcelain"); st != "" {
 		t.Errorf("the main checkout is dirty after the close: %q", st)
-	}
-}
-
-// the close accepts a dirty BACKLOG.md in the main checkout, at the root or in any directory (here docs/), unstaged
-// (" M docs/BACKLOG.md", whose leading space a trimmed line lost) or staged ("M  docs/BACKLOG.md"), and commits that
-// edit with the close; another modified tracked file is refused, named by its untrimmed status line. The accepted
-// lines go to docs/accepted.md.
-func TestReviewGitCloseDirtyBacklog(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, path string
-		staged     bool
-	}{
-		{"root unstaged", "BACKLOG.md", false},
-		{"root staged", "BACKLOG.md", true},
-		{"directory unstaged", "docs/BACKLOG.md", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p, head := reviewFixture(t)
-			g := reviewGit{root: p.Root}
-			ctx := context.Background()
-			p.Write("docs/reviews/RV-4.md", "# RV-4\n") // in the main checkout: untracked, RV-4's own
-			if tc.path != "BACKLOG.md" {                // the project's backlog lives in a directory: tracked, then dirty below
-				p.Write(tc.path, "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
-				p.Git(p.Root, "add", tc.path)
-				p.Git(p.Root, "commit", "-q", "-m", "backlog at "+tc.path)
-			}
-			before := p.Git(p.Root, "rev-parse", "HEAD")
-
-			p.Write("fix.txt", "changed\n")
-			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != "M fix.txt" { // p.Git trims: the line is " M fix.txt"
-				t.Fatalf("precondition: fix.txt modified unstaged, status %q", st)
-			}
-			if err := g.Close(ctx, closeOf(p, head)); err == nil ||
-				err.Error() != "the main checkout is dirty outside a BACKLOG.md, docs/accepted.md and RV-4's files ( M fix.txt): nothing changed" {
-				t.Errorf("a modified fix.txt: %v; want refused", err)
-			}
-			if p.Git(p.Root, "rev-parse", "HEAD") != before {
-				t.Fatalf("a refused close committed")
-			}
-			p.Git(p.Root, "checkout", "-q", "--", "fix.txt")
-
-			p.Write(tc.path, "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
-			want := " M " + tc.path
-			if tc.staged {
-				p.Git(p.Root, "add", tc.path)
-				want = "M  " + tc.path
-			}
-			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != strings.TrimSpace(want) {
-				t.Fatalf("precondition: %s, status %q", tc.name, st)
-			}
-			if err := g.Close(ctx, closeOf(p, head, "rare case")); err != nil {
-				t.Fatalf("close with %s: %v; want accepted", tc.name, err)
-			}
-			backlog := p.Git(p.Root, "show", "HEAD:"+tc.path)
-			if !strings.Contains(backlog, "## Open\n- lead's line\n- old line\n") {
-				t.Errorf("%s committed without the %s edit:\n%s", tc.path, tc.name, backlog)
-			}
-			if strings.Contains(backlog, "accepted)") {
-				t.Errorf("%s committed carries an accepted line:\n%s", tc.path, backlog)
-			}
-			if accepted, want := p.Git(p.Root, "show", "HEAD:"+app.AcceptedFile),
-				strings.TrimSpace(acceptedHeadText+"- (RV-4, accepted) rare case\n"); accepted != want {
-				t.Errorf("docs/accepted.md committed:\n%q\nwant:\n%q", accepted, want)
-			}
-			if st := p.Git(p.Root, "status", "--porcelain"); st != "" {
-				t.Errorf("the main checkout is dirty after the close: %q", st)
-			}
-		})
 	}
 }
 
 // an untracked file is no dirt, whatever its name: a file outside the allowed paths and an untracked BACKLOG.md in a
 // directory leave the close to commit only docs/accepted.md, and each file is still untracked afterwards. A modified
-// tracked one still refuses (TestReviewGitClose, TestReviewGitCloseDirtyBacklog).
+// tracked one still refuses (TestReviewGitClose, TestReviewGitCloseDirtyBacklog). The close with --accept creates
+// docs/accepted.md when it is missing; a BACKLOG.md without an "## Open" section is no refusal.
 func TestReviewGitCloseUntracked(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
+	p.Write("BACKLOG.md", "# Backlog\n")
+	p.Git(p.Root, "commit", "-q", "-am", "backlog without Open")
+	head = p.Git(p.Root, "rev-parse", "HEAD")
 	g := reviewGit{root: p.Root}
+	if p.Exists(app.AcceptedFile) {
+		t.Fatal("precondition: docs/accepted.md exists before the close")
+	}
 	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
 	p.Write("output/x", "art\n")
 	p.Write("notes/BACKLOG.md", "# Backlog\n\n## Open\n- a stray backlog\n")
@@ -352,40 +328,37 @@ func TestReviewGitCloseUntracked(t *testing.T) {
 }
 
 // git status -z: the close reads every changed path whole, so a review's files in a directory whose name has a space,
-// a quote or a non-ASCII character commit like any other, a renamed tracked BACKLOG.md (status "R  new\0old") commits
+// a quote and a non-ASCII character commit like any other, a renamed tracked BACKLOG.md (status "R  new\0old") commits
 // the rename, both halves, and a tracked BACKLOG.md under a directory named notes* commits alone, not the untracked
 // notes2/BACKLOG.md its path would match as a pattern; the checkout is clean after each (the stray one stays untracked).
 func TestReviewGitClosePathShapes(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ name, dir string }{
-		{"space", "docs/review files"},
-		{"quote", `docs/re"views`},
-		{"non-ASCII", "docs/réviews"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p, head := reviewFixture(t)
-			g := reviewGit{root: p.Root}
-			file, verify := tc.dir+"/RV-4.md", tc.dir+"/RV-4-verify.md"
-			p.Write(file, "# RV-4\n")
-			p.Write(verify, "# RV-4 verify\n")
-			c := closeOf(p, head, "rare case")
-			c.File = p.Path(file)
-			if err := g.Close(context.Background(), c); err != nil {
-				t.Fatalf("close with %s in its dir: %v; want committed", tc.name, err)
-			}
-			if p.Exists(file) || p.Exists(verify) {
-				t.Errorf("the close kept the review's files")
-			}
-			if accepted, want := p.Git(p.Root, "show", "HEAD:"+app.AcceptedFile),
-				strings.TrimSpace(acceptedHeadText+"- (RV-4, accepted) rare case\n"); accepted != want {
-				t.Errorf("docs/accepted.md committed:\n%q\nwant:\n%q", accepted, want)
-			}
-			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); st != "" {
-				t.Errorf("the main checkout is dirty after the close: %q", st)
-			}
-		})
-	}
+	// a directory name with a space, a quote and a non-ASCII character: git status -z gives each path whole, so the
+	// three shapes are read the same way.
+	t.Run("space, quote and non-ASCII in the directory", func(t *testing.T) {
+		t.Parallel()
+		p, head := reviewFixture(t)
+		g := reviewGit{root: p.Root}
+		dir := `docs/ré "view files`
+		file, verify := dir+"/RV-4.md", dir+"/RV-4-verify.md"
+		p.Write(file, "# RV-4\n")
+		p.Write(verify, "# RV-4 verify\n")
+		c := closeOf(p, head, "rare case")
+		c.File = p.Path(file)
+		if err := g.Close(context.Background(), c); err != nil {
+			t.Fatalf("close with %q as its dir: %v; want committed", dir, err)
+		}
+		if p.Exists(file) || p.Exists(verify) {
+			t.Errorf("the close kept the review's files")
+		}
+		if accepted, want := p.Git(p.Root, "show", "HEAD:"+app.AcceptedFile),
+			strings.TrimSpace(acceptedHeadText+"- (RV-4, accepted) rare case\n"); accepted != want {
+			t.Errorf("docs/accepted.md committed:\n%q\nwant:\n%q", accepted, want)
+		}
+		if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); st != "" {
+			t.Errorf("the main checkout is dirty after the close: %q", st)
+		}
+	})
 
 	// the path is a pathspec: a dirty backlog under notes* is staged as itself, never as a pattern for the untracked
 	// notes2/BACKLOG.md it would match.
@@ -491,102 +464,95 @@ func TestReviewFixGone(t *testing.T) {
 // files, BACKLOG.md and docs/accepted.md (content and index) as they were before the call, and returns the error; a
 // docs/accepted.md the close creates is removed again, nothing of it staged. A close that succeeds removes the
 // files only after the commit.
-// Slow: eight cases, each a real commit through a pre-commit hook on a fixture of 14 git processes (the code under test
-// runs git), ≈0.45 s a case: 0.2 s the fixture, the rest the close's own git (measured on this fixture).
+// Each path's restore is its own (a BACKLOG.md staged or not, an accepted file there or created) and the hook's
+// failure is the commit's either way, so two cases cover the four states and the two failures: a rejecting hook with
+// a staged BACKLOG.md and an accepted file that is there, a cancelled context with an unstaged BACKLOG.md and an
+// accepted file the close creates.
 func TestReviewGitCloseCommitFails(t *testing.T) {
 	t.Parallel()
-	for _, hook := range []string{"reject", "cancel"} {
-		for _, tc := range []struct {
-			name, backlog string
-			accepted      bool
-		}{
-			{"clean", "clean", false}, {"unstaged", "unstaged", false}, {"staged", "staged", false},
-			{"accepted", "clean", true},
-		} {
-			t.Run(hook+"/"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				p, head := reviewFixture(t)
-				g := reviewGit{root: p.Root}
-				review, verify := p.Path("docs/reviews/RV-4.md"), p.Path("docs/reviews/RV-4-verify.md")
-				p.Write(review, "# RV-4\n")
-				p.Write(verify, "# RV-4 verify\n")
-				switch tc.backlog {
-				case "unstaged", "staged":
-					p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
-				}
-				if tc.backlog == "staged" {
-					p.Git(p.Root, "add", "BACKLOG.md")
-				}
-				if tc.accepted {
-					p.Write(app.AcceptedFile, acceptedHeadText+"- (RV-3, accepted) an old line\n")
-					p.Git(p.Root, "add", app.AcceptedFile)
-					p.Git(p.Root, "commit", "-q", "-m", "accepted findings")
-				}
-				marker := filepath.Join(t.TempDir(), "hook-ran")
-				script := "#!/bin/sh\nexec >/dev/null 2>&1\ntouch " + marker + "\nexit 1\n"
-				if hook == "cancel" {
-					script = "#!/bin/sh\nexec >/dev/null 2>&1\ntouch " + marker + "\nsleep 3\n"
-				}
-				hookPath := filepath.Join(p.Root, strings.TrimSpace(p.Git(p.Root, "rev-parse", "--git-path", "hooks")), "pre-commit")
-				if err := os.WriteFile(hookPath, []byte(script), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				content, status := p.Read("BACKLOG.md"), p.Git(p.Root, "status", "--porcelain", "--untracked-files=all")
-				staged := p.Git(p.Root, "diff", "--cached", "--", "BACKLOG.md")
-				if (tc.backlog == "staged") != (staged != "") {
-					t.Fatalf("precondition: BACKLOG.md %s, staged diff %q", tc.backlog, staged)
-				}
-				acceptedContent := p.Read(app.AcceptedFile)
-				acceptedStatus := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all", "--", app.AcceptedFile)
-				acceptedStaged := p.Git(p.Root, "diff", "--cached", "--", app.AcceptedFile)
-				if tc.accepted != p.Exists(app.AcceptedFile) {
-					t.Fatalf("precondition: docs/accepted.md exists %v, want %v", p.Exists(app.AcceptedFile), tc.accepted)
-				}
-				before := p.Git(p.Root, "rev-parse", "HEAD")
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				if hook == "cancel" {
-					go func() {
-						for !fileThere(marker) {
-							time.Sleep(5 * time.Millisecond)
-						}
-						cancel()
-					}()
-				}
-				if err := g.Close(ctx, closeOf(p, head, "rare case")); err == nil {
-					t.Fatal("the close returned no error although its commit failed")
-				}
-				if !fileThere(marker) {
-					t.Fatal("the commit never ran its hook: the failure is not the commit's")
-				}
-				if !p.Exists(review) || !p.Exists(verify) {
-					t.Errorf("a failed commit removed the review's files")
-				}
-				if p.Git(p.Root, "rev-parse", "HEAD") != before {
-					t.Errorf("a failed commit moved HEAD")
-				}
-				if got := p.Read("BACKLOG.md"); got != content {
-					t.Errorf("BACKLOG.md after the failed close:\n%s\nwant:\n%s", got, content)
-				}
-				if got := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); got != status {
-					t.Errorf("status after the failed close %q, want %q", got, status)
-				}
-				if got := p.Git(p.Root, "diff", "--cached", "--", "BACKLOG.md"); got != staged {
-					t.Errorf("BACKLOG.md's index entry after the failed close:\n%s\nwant:\n%s", got, staged)
-				}
-				if got := p.Read(app.AcceptedFile); got != acceptedContent {
-					t.Errorf("docs/accepted.md after the failed close:\n%s\nwant:\n%s", got, acceptedContent)
-				}
-				if got := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all", "--", app.AcceptedFile); got != acceptedStatus {
-					t.Errorf("docs/accepted.md's status after the failed close %q, want %q", got, acceptedStatus)
-				}
-				if got := p.Git(p.Root, "diff", "--cached", "--", app.AcceptedFile); got != acceptedStaged {
-					t.Errorf("docs/accepted.md's index entry after the failed close:\n%s\nwant:\n%s", got, acceptedStaged)
-				}
-				if !tc.accepted && p.Exists(app.AcceptedFile) {
-					t.Errorf("a failed commit left the docs/accepted.md it created")
-				}
-			})
-		}
+	for _, tc := range []struct {
+		name, hook, backlog string
+		accepted            bool // docs/accepted.md is committed before the close; else the close creates it
+	}{
+		{"reject/staged BACKLOG.md, accepted file there", "reject", "staged", true},
+		{"cancel/unstaged BACKLOG.md, accepted file created", "cancel", "unstaged", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, head := reviewFixture(t)
+			g := reviewGit{root: p.Root}
+			review, verify := p.Path("docs/reviews/RV-4.md"), p.Path("docs/reviews/RV-4-verify.md")
+			p.Write(review, "# RV-4\n")
+			p.Write(verify, "# RV-4 verify\n")
+			if tc.accepted {
+				p.Write(app.AcceptedFile, acceptedHeadText+"- (RV-3, accepted) an old line\n")
+				p.Git(p.Root, "add", app.AcceptedFile)
+				p.Git(p.Root, "commit", "-q", "-m", "accepted findings")
+			}
+			p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
+			if tc.backlog == "staged" {
+				p.Git(p.Root, "add", "BACKLOG.md")
+			}
+			marker := filepath.Join(t.TempDir(), "hook-ran")
+			script := "#!/bin/sh\nexec >/dev/null 2>&1\ntouch " + marker + "\nexit 1\n"
+			if tc.hook == "cancel" {
+				script = "#!/bin/sh\nexec >/dev/null 2>&1\ntouch " + marker + "\nsleep 3\n"
+			}
+			hookPath := filepath.Join(p.Root, strings.TrimSpace(p.Git(p.Root, "rev-parse", "--git-path", "hooks")), "pre-commit")
+			if err := os.WriteFile(hookPath, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			content, status := p.Read("BACKLOG.md"), p.Git(p.Root, "status", "--porcelain", "--untracked-files=all")
+			staged := p.Git(p.Root, "diff", "--cached", "--", "BACKLOG.md")
+			if (tc.backlog == "staged") != (staged != "") {
+				t.Fatalf("precondition: BACKLOG.md %s, staged diff %q", tc.backlog, staged)
+			}
+			acceptedContent := p.Read(app.AcceptedFile)
+			acceptedStaged := p.Git(p.Root, "diff", "--cached", "--", app.AcceptedFile)
+			if tc.accepted != p.Exists(app.AcceptedFile) {
+				t.Fatalf("precondition: docs/accepted.md exists %v, want %v", p.Exists(app.AcceptedFile), tc.accepted)
+			}
+			before := p.Git(p.Root, "rev-parse", "HEAD")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.hook == "cancel" {
+				go func() {
+					for !fileThere(marker) {
+						time.Sleep(5 * time.Millisecond)
+					}
+					cancel()
+				}()
+			}
+			if err := g.Close(ctx, closeOf(p, head, "rare case")); err == nil {
+				t.Fatal("the close returned no error although its commit failed")
+			}
+			if !fileThere(marker) {
+				t.Fatal("the commit never ran its hook: the failure is not the commit's")
+			}
+			if !p.Exists(review) || !p.Exists(verify) {
+				t.Errorf("a failed commit removed the review's files")
+			}
+			if p.Git(p.Root, "rev-parse", "HEAD") != before {
+				t.Errorf("a failed commit moved HEAD")
+			}
+			if got := p.Read("BACKLOG.md"); got != content {
+				t.Errorf("BACKLOG.md after the failed close:\n%s\nwant:\n%s", got, content)
+			}
+			if got := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); got != status {
+				t.Errorf("status after the failed close %q, want %q", got, status)
+			}
+			if got := p.Git(p.Root, "diff", "--cached", "--", "BACKLOG.md"); got != staged {
+				t.Errorf("BACKLOG.md's index entry after the failed close:\n%s\nwant:\n%s", got, staged)
+			}
+			if got := p.Read(app.AcceptedFile); got != acceptedContent {
+				t.Errorf("docs/accepted.md after the failed close:\n%s\nwant:\n%s", got, acceptedContent)
+			}
+			if got := p.Git(p.Root, "diff", "--cached", "--", app.AcceptedFile); got != acceptedStaged {
+				t.Errorf("docs/accepted.md's index entry after the failed close:\n%s\nwant:\n%s", got, acceptedStaged)
+			}
+			if !tc.accepted && p.Exists(app.AcceptedFile) {
+				t.Errorf("a failed commit left the docs/accepted.md it created")
+			}
+		})
 	}
 }

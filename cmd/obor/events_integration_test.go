@@ -85,11 +85,9 @@ func TestEventsCommand(t *testing.T) {
 		!strings.HasPrefix(stdout, strconv.FormatInt(last, 10)+" ") || strings.Count(stdout, "\n") != 1 {
 		t.Errorf("the text form after %d: exit %d, %q; want one line leading with seq %d", last-1, rc, stdout, last)
 	}
-	for _, bad := range [][]string{{"--after"}, {"--after", "-1"}, {"--after", "x"}, {"--json", "--json"}, {"nope"}} {
-		if rc, _, stderr := run(t, p.Root, env, append([]string{"events"}, bad...)...); rc != 2 ||
-			!strings.Contains(stderr, "usage: obor events") {
-			t.Errorf("obor events %q: exit %d, %q; want the usage, exit 2", bad, rc, stderr)
-		}
+	// a usage error is exit 2 (the argument rows: TestEventsArguments)
+	if rc, _, stderr := run(t, p.Root, env, "events", "nope"); rc != 2 || !strings.Contains(stderr, "usage: obor events") {
+		t.Errorf("obor events nope: exit %d, %q; want the usage, exit 2", rc, stderr)
 	}
 
 	// --follow from the end: the next record, as serve writes it.

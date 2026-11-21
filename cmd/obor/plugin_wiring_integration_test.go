@@ -157,28 +157,25 @@ func TestOtherHooksNoBinaryAllow(t *testing.T) {
 }
 
 // case_session_start_no_binary_allows, the hanging binary: the other hooks allow with the hint, the binary is killed
-// (its pid is gone), it never runs the hook; rebuilt, it runs.
-// Slow: each hook waits out the shim's hang watchdog (OBOR_HOOK_TIMEOUT, 1 s here: whole seconds, bin/obor's sleep).
+// (its pid is gone), it never runs the hook; rebuilt, it runs. The shim's path is the same whatever the hook's name
+// (TestOtherHooksNoBinaryAllow runs each name through the steps it reaches), so the first hook takes the hang.
+// Slow: it waits out the shim's hang watchdog (OBOR_HOOK_TIMEOUT, 1 s here: whole seconds, bin/obor's sleep).
 func TestOtherHooksHangingBinaryAllow(t *testing.T) {
 	t.Parallel()
-	for _, c := range otherHooks {
-		t.Run(c.hook, func(t *testing.T) {
-			t.Parallel()
-			k := newGitNoBinKit(t)
-			event, _ := json.Marshal(c.event(k.lane))
-			dist := filepath.Join(k.dir, "dist/obor")
-			k.stub(t, dist, "hang")
-			// No wall-clock bound: allows needs no output and exit 0, which the stub's own hook would not leave
-			// (it prints "go stub"), so only a shim that gave up on the hang passes.
-			k.allows(t, c.hook, string(event), "hanging binary")
-			if log := k.stubLog(); log != "has hook "+c.hook {
-				t.Errorf("hanging binary: stub log %q, want has asked once, never run", log)
-			}
-			k.reaped(t)
-			k.stub(t, dist, "good")
-			k.runs(t, c.hook, string(event), "rebuilt binary")
-		})
+	c := otherHooks[0]
+	k := newGitNoBinKit(t)
+	event, _ := json.Marshal(c.event(k.lane))
+	dist := filepath.Join(k.dir, "dist/obor")
+	k.stub(t, dist, "hang")
+	// No wall-clock bound: allows needs no output and exit 0, which the stub's own hook would not leave
+	// (it prints "go stub"), so only a shim that gave up on the hang passes.
+	k.allows(t, c.hook, string(event), "hanging binary")
+	if log := k.stubLog(); log != "has hook "+c.hook {
+		t.Errorf("hanging binary: stub log %q, want has asked once, never run", log)
 	}
+	k.reaped(t)
+	k.stub(t, dist, "good")
+	k.runs(t, c.hook, string(event), "rebuilt binary")
 }
 
 // newGitNoBinKit is newNoBinKit in a git project (testkit.New, lane L-01 a real worktree): the hooks' binary-less

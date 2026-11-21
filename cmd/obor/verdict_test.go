@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,18 +24,16 @@ func TestResumeRequest(t *testing.T) {
 	env := func(role string) []string {
 		return []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=" + role, "OBOR_AGENT=pj-lead", "OBOR_LANE="}
 	}
-	for _, args := range [][]string{{"resume"}, {"resume", "T-01", ""}, {"resume", "T-01", "a", "b"},
-		{"resume", "T-01", "--regate", "--sendback"}, {"resume", "T-01", "--reprompt", "yes"}, {"resume", "--regate", "T-01"}} {
-		if rc, stdout, _ := run(t, p.Root, env("lead"), args...); rc != 1 || !strings.Contains(stdout, "FAIL "+help.Usage("resume")) {
-			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
-		}
+	// the usage line is printed for an argument set wire.ResumeArgs refuses (its rows: internal/app TestResumeArgs)
+	if rc, stdout, _ := run(t, p.Root, env("lead"), "resume"); rc != 1 || !strings.Contains(stdout, "FAIL "+help.Usage("resume")) {
+		t.Errorf("obor resume: exit %d, %q; want the usage", rc, stdout)
 	}
 	if rc, stdout, _ := run(t, p.Root, env("lead"), "resume", "X-1", "yes"); rc != 1 || !strings.Contains(stdout, "X-1 is no task id") {
 		t.Errorf("a bad task id: exit %d, %q", rc, stdout)
 	}
-	for _, verb := range []string{"answer", "sendback"} {
-		if rc, _, stderr := run(t, p.Root, env("lead"), verb, "T-01", "yes"); rc != 2 || !strings.Contains(stderr, "unknown subcommand: "+verb) {
-			t.Errorf("obor %s: exit %d, %q; want gone (T-775)", verb, rc, stderr)
+	for _, verb := range []string{"answer", "sendback"} { // no subcommands: main does not dispatch them
+		if slices.Contains(dispatched(t), verb) {
+			t.Errorf("obor %s is dispatched; want gone", verb)
 		}
 	}
 	if _, n := serve.requests(); n != 0 {
@@ -74,10 +73,10 @@ func TestResumeRequest(t *testing.T) {
 	}
 }
 
-// obor resume with obor serve not running: the arguments that are no request are the usage (a blank text, a flag
-// with a text, two texts, no task), a bad task id is its own line, and every request that reaches serve is the one
-// FAIL line saying it is down (a word that is no mode is a text); the integrator's verdicts are no subcommands.
-// With serve answering: TestResumeRequest.
+// obor resume with obor serve not running: a request that reaches serve is the one FAIL line saying it is down; the
+// task id check holds for a task and not for nightly (a word that is no mode is a text). The arguments that are no
+// request are wire.ResumeArgs' (internal/app TestResumeArgs). With serve answering: TestResumeRequest. The integrator's
+// verdicts are no subcommands: main does not dispatch them, and the capability check says so.
 func TestResumeServeDownAndNoVerdictVerbs(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -87,20 +86,9 @@ func TestResumeServeDownAndNoVerdictVerbs(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"resume", "T-01", " "}, "FAIL " + help.Usage("resume")},        // a blank text
-		{[]string{"resume", "T-01", "yes"}, "FAIL obor serve is not running"},    // a one-word text
-		{[]string{"resume", "T-01", "regate"}, "FAIL obor serve is not running"}, // no keyword: a text
-		{[]string{"resume", "T-01", "--regate", " "}, "FAIL usage: obor resume"},
-		{[]string{"resume"}, "FAIL usage: obor resume"},
+		{[]string{"resume", "T-01", "yes"}, "FAIL obor serve is not running"},
 		{[]string{"resume", "X-1"}, "FAIL X-1 is no task id (task_id_pattern T-[0-9]+[a-z]?)"},
-		{[]string{"resume", "T-01", "--regate"}, "FAIL obor serve is not running"},
-		{[]string{"resume", "T-01", "--sendback", "why"}, "FAIL obor serve is not running"},
-		{[]string{"resume", "T-01", "yes", "more"}, "FAIL usage: obor resume"},
-		{[]string{"resume", "T-01", "--reprompt", "yes"}, "FAIL usage: obor resume"}, // no keyword: a text
-		{[]string{"resume", "T-01", "the owner says yes"}, "FAIL obor serve is not running"},
 		{[]string{"resume", "nightly", "the flake is fixed"}, "FAIL obor serve is not running"}, // nightly is no task id
-		{[]string{"resume", "nightly", "--regate", "why"}, "FAIL obor serve is not running"},    // the flag: serve's refusal
-		{[]string{"resume", "nightly", " "}, "FAIL usage: obor resume"},
 	} {
 		rc, stdout, _ := run(t, p.Root, env, c.args...)
 		if got := strings.TrimSpace(stdout); rc != 1 || !strings.HasPrefix(got, c.want) {
@@ -108,11 +96,10 @@ func TestResumeServeDownAndNoVerdictVerbs(t *testing.T) {
 		}
 	}
 	for _, verb := range []string{"accept", "reject", "resolved", "hold"} {
-		rc, _, stderr := run(t, p.Root, env, verb, "T-01", "why")
-		if rc != 2 || !strings.Contains(stderr, "unknown subcommand: "+verb) {
-			t.Errorf("obor %s: exit %d, %q; want 2 and unknown subcommand", verb, rc, stderr)
+		if slices.Contains(dispatched(t), verb) {
+			t.Errorf("obor %s is dispatched; want it an MCP tool only", verb)
 		}
-		if rc, _, _ := run(t, p.Root, env, "has", verb); rc != 1 {
+		if rc := has([]string{verb}); rc != 1 {
 			t.Errorf("obor has %s: exit %d, want 1", verb, rc)
 		}
 	}

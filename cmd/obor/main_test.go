@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -155,39 +156,76 @@ func TestVersionPrintsBuildAndPaths(t *testing.T) {
 }
 
 // `obor has` is the capability check hooks and the shim run before trusting a binary: 0 implemented, 1 not,
-// never any output.
+// 2 a usage error, never any output. The table calls has; the binary runs one row per exit code (main's `has` case
+// passes the arguments and the code through).
 func TestHas(t *testing.T) {
-	bin := build(t)
 	for _, c := range []struct {
 		args []string
 		rc   int
 	}{
-		{[]string{"has", "hook", "pre-tool-use"}, 0}, {[]string{"has", "hook", "noop"}, 0}, {[]string{"has", "hook"}, 0},
-		{[]string{"has", "hook", "stop"}, 0}, {[]string{"has", "hook", "session-start"}, 0},
-		{[]string{"has", "hook", "user-prompt-submit"}, 0}, {[]string{"has", "hook", "stop-failure"}, 0},
-		{[]string{"has", "dispatch"}, 0}, {[]string{"has", "drop"}, 0}, {[]string{"has", "sendback"}, 1},
-		{[]string{"has", "status"}, 0}, {[]string{"has", "restart"}, 0}, {[]string{"has", "version"}, 0}, {[]string{"has", "config", "get"}, 0},
-		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
-		{[]string{"has", "flakes"}, 0},
-		{[]string{"has", "monitor"}, 1}, {[]string{"has", "setup", "monitor"}, 1}, // obor monitor is no subcommand; the setup step is unknown too
-		{[]string{"has", "plugin"}, 1}, {[]string{"has", "plugin", "restore"}, 1}, // the herdr plugin's command is no subcommand
-		{[]string{"has", "setup", "migrate"}, 1}, // no migration step
-		{[]string{"has", "merge"}, 1},            // obor serve merges
-		{[]string{"has", "hook", "no-such"}, 1}, {[]string{"has", "no-such"}, 1}, {[]string{"has", "status", "x"}, 1},
-		{[]string{"has"}, 2}, {[]string{"has", "hook", "noop", "x"}, 2},
+		{[]string{"hook", "pre-tool-use"}, 0}, {[]string{"hook", "noop"}, 0}, {[]string{"hook"}, 0},
+		{[]string{"hook", "stop"}, 0}, {[]string{"hook", "session-start"}, 0},
+		{[]string{"hook", "user-prompt-submit"}, 0}, {[]string{"hook", "stop-failure"}, 0},
+		{[]string{"dispatch"}, 0}, {[]string{"drop"}, 0}, {[]string{"sendback"}, 1},
+		{[]string{"status"}, 0}, {[]string{"restart"}, 0}, {[]string{"version"}, 0}, {[]string{"config", "get"}, 0},
+		{[]string{"send"}, 0}, {[]string{"brief"}, 0}, {[]string{"tell"}, 1}, {[]string{"inbox"}, 1},
+		{[]string{"flakes"}, 0},
+		{[]string{"monitor"}, 1}, {[]string{"setup", "monitor"}, 1}, // obor monitor is no subcommand; the setup step is unknown too
+		{[]string{"plugin"}, 1}, {[]string{"plugin", "restore"}, 1}, // the herdr plugin's command is no subcommand
+		{[]string{"setup", "migrate"}, 1}, // no migration step
+		{[]string{"merge"}, 1},            // obor serve merges
+		{[]string{"hook", "no-such"}, 1}, {[]string{"no-such"}, 1}, {[]string{"status", "x"}, 1},
+		{nil, 2}, {[]string{"hook", "noop", "x"}, 2},
 	} {
-		var stdout, stderr bytes.Buffer
-		cmd := exec.Command(bin, c.args...)
-		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		err := cmd.Run()
-		rc := 0
-		if ee, ok := err.(*exec.ExitError); ok {
-			rc = ee.ExitCode()
+		if rc := has(c.args); rc != c.rc {
+			t.Errorf("has %v = %d, want %d", c.args, rc, c.rc)
 		}
-		if rc != c.rc || stdout.Len() != 0 || stderr.Len() != 0 {
-			t.Errorf("obor %v: exit %d, stdout %q, stderr %q; want exit %d, no output", c.args, rc, stdout.String(),
-				stderr.String(), c.rc)
+	}
+	for _, c := range []struct {
+		args []string
+		rc   int
+	}{{[]string{"has", "hook", "noop"}, 0}, {[]string{"has", "sendback"}, 1}, {[]string{"has"}, 2}} {
+		rc, stdout, stderr := run(t, t.TempDir(), nil, c.args...)
+		if rc != c.rc || stdout != "" || stderr != "" {
+			t.Errorf("obor %v: exit %d, stdout %q, stderr %q; want exit %d, no output", c.args, rc, stdout, stderr, c.rc)
 		}
+	}
+}
+
+// callCmd runs a command's function in this process with out captured: its exit code and what it wrote. For the rows
+// of a command's argument check (usage, a refused flag), which end before the command reads its directory or
+// environment. It swaps the package's one writer, so the test calling it is not parallel (a parallel test resumes
+// only after the sequential ones end).
+func callCmd(t *testing.T, cmd func([]string) int, args ...string) (int, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	outMu.Lock()
+	prev := out
+	out = bufio.NewWriter(&buf)
+	outMu.Unlock()
+	defer func() {
+		outMu.Lock()
+		out = prev
+		outMu.Unlock()
+	}()
+	rc := cmd(args)
+	outMu.Lock()
+	defer outMu.Unlock()
+	if err := out.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	return rc, buf.String()
+}
+
+// obor merge is no subcommand (obor serve's merge loop is the only merger): main does not dispatch it and the capability
+// check says so; the unknown-subcommand line and its exit code are TestExitCodes' and TestMonitorIsUnknown's, so there
+// is nothing here to merge.
+func TestMergeIsUnknown(t *testing.T) {
+	if slices.Contains(dispatched(t), "merge") {
+		t.Error("obor merge is dispatched; want no subcommand")
+	}
+	if rc := has([]string{"merge"}); rc != 1 {
+		t.Errorf("obor has merge: exit %d, want 1", rc)
 	}
 }
 

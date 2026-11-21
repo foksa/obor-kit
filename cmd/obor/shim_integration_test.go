@@ -157,6 +157,18 @@ func newShimFixture(t *testing.T) *shimFixture {
 	return f
 }
 
+// newKitFixture is a shimFixture with no git: the stable kit and the kit at Root (marker "main"), HOME at <Base>/home.
+// For the shim's runs that never ask git (OBOR_NO_SELF_HOST=1 in Root: which binary runs, the fetch, the hook's hint);
+// self-hosting, lanes and other repos are newShimFixture's.
+func newKitFixture(t *testing.T) *shimFixture {
+	t.Helper()
+	p := testkit.NewDir(t)
+	f := &shimFixture{Project: p, stable: filepath.Join(p.Base, "stable"), home: filepath.Join(p.Base, "home")}
+	kit(t, f.stable, "stable")
+	kit(t, p.Root, "main")
+	return f
+}
+
 // shim runs bash <script> args… in dir with stdin /dev/null, HOME = f.home, and env added: exit code, stdout, stderr.
 func (f *shimFixture) shim(t *testing.T, dir string, env []string, script string, args ...string) (int, string, string) {
 	t.Helper()
@@ -179,7 +191,7 @@ var noSelfHost = []string{"OBOR_NO_SELF_HOST=1"}
 // bash tests/bin.test.sh case_cli_dispatch_and_usage
 func TestShimDispatchAndUsage(t *testing.T) {
 	t.Parallel()
-	f := newShimFixture(t)
+	f := newKitFixture(t)
 	obor := filepath.Join(f.stable, "bin", "obor")
 	for _, c := range []struct {
 		args []string
@@ -228,7 +240,7 @@ func TestShimDispatchAndUsage(t *testing.T) {
 // running; the real serve's own output is covered by serve_test.go's tests.
 func TestShimServeReachesBinary(t *testing.T) {
 	t.Parallel()
-	f := newShimFixture(t)
+	f := newKitFixture(t)
 	writeExec(t, filepath.Join(f.Root, "dist", "obor"), `#!/bin/bash
 printf 'argv:'
 for arg in "$@"; do printf ' <%s>' "$arg"; done
@@ -331,37 +343,26 @@ func TestShimHelpPrintsPluginRoot(t *testing.T) {
 
 // bash tests/bin.test.sh case_dev_binary_preferred, case_pin_selects_installed_binary,
 // case_hook_subcommand_reaches_binary: which binary runs, and that it gets the argv in order and the version source.
+// The rows run in turn on one fixture: a leftover project pin in the second does not change what the release row asserts.
 func TestShimPicksBinary(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name  string
-		setup func(t *testing.T, f *shimFixture)
-		args  []string
-		want  string // %s: the project root
-	}{
-		{"a built dev binary in the checkout takes precedence", func(t *testing.T, f *shimFixture) {
-			fakeGo(t, filepath.Join(f.Root, "dist", "obor"))
-			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
-		}, []string{"version"}, "argv: <version> source=dev build root=%s\n"},
-		{"a leftover project pin is ignored: the kit's VERSION selects the release", func(t *testing.T, f *shimFixture) {
-			os.Remove(filepath.Join(f.Root, "dist", "obor"))
-			f.Config(testkit.Set("obor", `{"version": "pin-9"}`))
-			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
-		}, []string{"version"}, "argv: <version> source=kit default root=%s\n"},
-		{"hook and its argument reach the installed release in order", func(t *testing.T, f *shimFixture) {
-			os.Remove(filepath.Join(f.Root, "dist", "obor"))
-			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
-		}, []string{"hook", "noop"}, "argv: <hook> <noop> source=kit default root=%s\n"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			f := newShimFixture(t)
-			c.setup(t, f)
-			rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), c.args...)
-			if want := fmt.Sprintf(c.want, f.Root); rc != 0 || stdout != want {
-				t.Errorf("exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
-			}
-		})
+	f := newKitFixture(t)
+	obor := filepath.Join(f.Root, "bin", "obor")
+	release := filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion))
+	fakeGo(t, filepath.Join(f.Root, "dist", "obor"))
+	fakeGo(t, release)
+	rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, obor, "version")
+	if want := "argv: <version> source=dev build root=" + f.Root + "\n"; rc != 0 || stdout != want {
+		t.Errorf("a built dev binary in the checkout takes precedence: exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
+	}
+	// no dev binary: a leftover project pin is ignored, the kit's VERSION selects the release, and hook and its argument
+	// reach it in order
+	os.Remove(filepath.Join(f.Root, "dist", "obor"))
+	f.Write(".obor/config.json", `{"obor": {"version": "pin-9"}}`+"\n")
+	rc, stdout, stderr = f.shim(t, f.Root, noSelfHost, obor, "hook", "noop")
+	if want := "argv: <hook> <noop> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
+		t.Errorf("a leftover pin is ignored, hook and its argument reach the release in order: exit %d, %q (stderr %q); want %q",
+			rc, stdout, stderr, want)
 	}
 }
 
@@ -370,7 +371,7 @@ func TestShimPicksBinary(t *testing.T) {
 // says "unknown subcommand": make build).
 func TestShimHookSkipsStaleDevBuild(t *testing.T) {
 	t.Parallel()
-	f := newShimFixture(t)
+	f := newKitFixture(t)
 	obor := filepath.Join(f.Root, "bin", "obor")
 	staleGo(t, filepath.Join(f.Root, "dist", "obor"))
 	fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
@@ -395,7 +396,7 @@ func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 // skipped (OBOR_HOOK_TIMEOUT, 1 s here) and killed (its own pid: no process group); the release runs.
 func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	t.Parallel()
-	f := newShimFixture(t)
+	f := newKitFixture(t)
 	hangGo(t, filepath.Join(f.Root, "dist", "obor"), f.Base)
 	fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
 	rc, stdout, stderr := f.shim(t, f.Root, append([]string{hookTimeoutEnv}, noSelfHost...),
@@ -440,7 +441,7 @@ func TestShimFetchVerifiesChecksum(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			f := newShimFixture(t)
+			f := newKitFixture(t)
 			os.Remove(filepath.Join(f.Root, "dist", "obor"))
 			f.Write("VERSION", c.version+"\n")
 			asset := shimAsset(c.version)
@@ -490,7 +491,7 @@ func TestShimFetchesKindBinaries(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			f := newShimFixture(t)
+			f := newKitFixture(t)
 			os.Remove(filepath.Join(f.Root, "dist", "obor"))
 			f.Write("VERSION", "0.9.1\n")
 			asset, kind := shimAsset("0.9.1"), "obor-kind-opencode-0.9.1-"+runtime.GOOS+"-"+runtime.GOARCH
@@ -550,7 +551,7 @@ func shimVersionFiles(t *testing.T, dir, v string, when time.Time) {
 // stays.
 func TestShimFetchPrunesOldBinaries(t *testing.T) {
 	t.Parallel()
-	f := newShimFixture(t)
+	f := newKitFixture(t)
 	os.Remove(filepath.Join(f.Root, "dist", "obor"))
 	f.Write("VERSION", "0.9.1\n")
 	asset := shimAsset("0.9.1")
@@ -601,7 +602,7 @@ func TestShimFetchPrunesOldBinaries(t *testing.T) {
 // bash tests/bin.test.sh case_missing_hook_never_fetches_but_command_fails, case_missing_curl_fails_with_install_hint
 func TestShimNoBinary(t *testing.T) {
 	t.Parallel()
-	f := newShimFixture(t)
+	f := newKitFixture(t)
 	obor := filepath.Join(f.Root, "bin", "obor")
 	os.Remove(filepath.Join(f.Root, "dist", "obor"))
 	if rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, obor, "hook", "noop"); rc != 0 || stdout != "" || stderr != "" {

@@ -24,71 +24,33 @@ func TestDispatchServeRequest(t *testing.T) {
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
-	for _, c := range []struct {
-		name string
-		args []string
-		want sentCall
-	}{
-		{"level", []string{"dispatch", "T-07"}, sentCall{Task: "T-07"}},
-		{"level, force", []string{"dispatch", "T-07", "--force"}, sentCall{Task: "T-07", Force: true}},
-		{"models", []string{"dispatch", "T-07", "--model", "sonnet,opus"}, sentCall{Task: "T-07", Types: []string{"sonnet", "opus"}}},
-		{"models, force first", []string{"dispatch", "--force", "--model", "opus", "T-07"},
-			sentCall{Task: "T-07", Types: []string{"opus"}, Force: true}},
-		{"level, after", []string{"dispatch", "T-07", "--after", "T-05,T-06"},
-			sentCall{Task: "T-07", After: []string{"T-05", "T-06"}}},
-		{"models, after first", []string{"dispatch", "--after", "T-05", "T-07", "--model", "opus"},
-			sentCall{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
-	} {
-		before, _ := serve.requests()
-		rc, stdout, stderr := run(t, p.Root, env, c.args...)
-		if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (queued)\n" {
-			t.Errorf("%s: exit %d, %q (stderr %q); want the reply", c.name, rc, stdout, stderr)
-		}
-		calls, _ := serve.requests()
-		if len(calls) != len(before)+1 {
-			t.Errorf("%s: %d requests, want one more than %d", c.name, len(calls), len(before))
-			continue
-		}
-		got := calls[len(calls)-1]
-		if got.CallID == "" {
-			t.Errorf("%s: no call id", c.name)
-		}
-		got.CallID = ""
-		c.want.Root, c.want.Agent, c.want.Role = p.Root, "pj-lead", "lead"
-		c.want.Version = version.Version // every call names its binary
-		if !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: call %+v, want %+v", c.name, got, c.want)
-		}
+	// one row with every field: the arguments' order and each field alone are TestDispatchArguments'
+	before, _ := serve.requests()
+	rc, stdout, stderr := run(t, p.Root, env, "dispatch", "--force", "--after", "T-05,T-06", "T-07", "--model", "sonnet,opus")
+	if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (queued)\n" {
+		t.Errorf("exit %d, %q (stderr %q); want the reply", rc, stdout, stderr)
+	}
+	calls, _ := serve.requests()
+	if len(calls) != len(before)+1 {
+		t.Fatalf("%d requests, want one more than %d", len(calls), len(before))
+	}
+	got := calls[len(calls)-1]
+	if got.CallID == "" {
+		t.Error("no call id")
+	}
+	got.CallID = ""
+	want := sentCall{Task: "T-07", Types: []string{"sonnet", "opus"}, After: []string{"T-05", "T-06"}, Force: true}
+	want.Root, want.Agent, want.Role = p.Root, "pj-lead", "lead"
+	want.Version = version.Version // every call names its binary
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("call %+v, want %+v", got, want)
 	}
 
+	// a usage error and a bad task id ask serve nothing (the rows: TestDispatchArguments)
 	_, n := serve.requests()
-	for _, c := range []struct {
-		name string
-		args []string
-	}{
-		{"agent", []string{"dispatch", "T-07", "--agent", "x"}},
-		{"no-prompt", []string{"dispatch", "T-07", "--no-prompt"}},
-		{"strict", []string{"dispatch", "T-07", "--strict"}},
-		{"fresh", []string{"dispatch", "T-07", "--fresh"}},
-		{"lane form (gone)", []string{"dispatch", "L-01", "T-07"}},
-		{"lane form with models", []string{"dispatch", "L-01", "T-07", "--model", "opus"}},
-		{"models without a task", []string{"dispatch", "--model", "opus"}},
-		{"empty model", []string{"dispatch", "T-07", "--model", "opus,"}},
-		{"models without a value", []string{"dispatch", "T-07", "--model"}},
-		{"two tasks", []string{"dispatch", "T-07", "T-08"}},
-		{"unknown flag", []string{"dispatch", "T-07", "--bogus"}},
-		{"after without a value", []string{"dispatch", "T-07", "--after"}},
-		{"empty after", []string{"dispatch", "T-07", "--after", "T-05,"}},
-		{"after twice", []string{"dispatch", "T-07", "--after", "T-05", "--after", "T-06"}},
-	} {
-		rc, stdout, _ := run(t, p.Root, env, c.args...)
-		if rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor dispatch <T-xx> ") {
-			t.Errorf("%s: exit %d, %q; want a usage error", c.name, rc, stdout)
-		}
-	}
-	if rc, stdout, _ := run(t, p.Root, env, "dispatch", "X-1"); rc != 1 ||
-		stdout != "FAIL X-1 is no task id (task_id_pattern T-[0-9]+[a-z]?)\n" {
-		t.Errorf("bad task id: exit %d, %q", rc, stdout)
+	if rc, stdout, _ := run(t, p.Root, env, "dispatch", "T-07", "--bogus"); rc != 1 ||
+		!strings.HasPrefix(stdout, "FAIL usage: obor dispatch <T-xx> ") {
+		t.Errorf("usage: exit %d, %q; want a usage error", rc, stdout)
 	}
 	if rc, stdout, _ := run(t, p.Root, env, "dispatch", "T-07", "--after", "T-05,X-2"); rc != 1 ||
 		stdout != "FAIL X-2 is no task id (task_id_pattern T-[0-9]+[a-z]?)\n" {

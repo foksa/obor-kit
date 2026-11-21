@@ -15,10 +15,21 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
+
+// obor send's argument check (a project and a text that is not blank) ends before the command reads its directory or
+// sends a request: the rows call sendCmd.
+func TestSendArguments(t *testing.T) {
+	for _, args := range [][]string{nil, {"other"}, {"other", " "}, {"", "hi"}, {"other", "hi", "x"}} {
+		if rc, stdout := callCmd(t, sendCmd, args...); rc != 1 || stdout != "FAIL "+help.Usage("send")+"\n" {
+			t.Errorf("send %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
+		}
+	}
+}
 
 // obor send <project> "<text>" is one send request, as the caller, to the target's serve: the
 // target by a known name (obor projects), lead@<name> (the same thing), or a path into it; its serve on <target
@@ -44,9 +55,6 @@ func TestSendRequest(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"send"}, `FAIL usage: obor send <project> "<text>"`},
-		{[]string{"send", "other"}, `FAIL usage: obor send <project> "<text>"`},
-		{[]string{"send", "other", " "}, `FAIL usage: obor send <project> "<text>"`},
 		{[]string{"send", p.Root, "hi"}, "FAIL obor send goes to another project's lead, not this one"},
 		{[]string{"send", "other", "hi"}, unknownOther},
 		{[]string{"send", "lead@other", "hi"}, unknownOther},

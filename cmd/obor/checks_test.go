@@ -9,10 +9,18 @@ import (
 	"obor/internal/testkit"
 )
 
+// obor nightly's usage errors end before the command reads a directory or sends a request: the rows call nightlyCmd.
+func TestNightlyUsage(t *testing.T) {
+	for _, args := range [][]string{{"on"}, {"on", "03:00", "x"}, {"off", "03:00"}, {"now"}, {"03:00"}} {
+		if rc, stdout := callCmd(t, nightlyCmd, args...); rc != 1 || stdout != "FAIL "+help.Usage("nightly")+"\n" {
+			t.Errorf("nightly %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
+		}
+	}
+}
+
 // obor nightly on HH:MM | off is one config_set request to obor serve as the caller: nightly.at set to the
 // time (a JSON string) or null (the key's shape-2 name). Serve's SET is NIGHTLY ON at HH:MM / NIGHTLY OFF,
-// its UNCHANGED the same "already"; its refusal (a bad time, a lane role) is FAIL, exit 1. A usage error sends nothing
-// and leaves the config as it was.
+// its UNCHANGED the same "already"; its refusal (a bad time, a lane role) is FAIL, exit 1.
 func TestNightlySwitch(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -20,19 +28,6 @@ func TestNightlySwitch(t *testing.T) {
 	before := p.Read(".obor/config.json")
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, `SET nightly.at unset → "03:00"`, "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	for _, args := range [][]string{{"nightly", "on"}, {"nightly", "on", "03:00", "x"}, {"nightly", "off", "03:00"},
-		{"nightly", "now"}, {"nightly", "03:00"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || stdout != "FAIL "+help.Usage("nightly")+"\n" {
-			t.Errorf("obor %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
-		}
-	}
-	if _, n := serve.requests(); n != 0 {
-		t.Fatalf("a usage error sent %d requests", n)
-	}
-	if got := p.Read(".obor/config.json"); got != before {
-		t.Errorf("a usage error changed the config:\n%s", got)
-	}
-
 	if rc, stdout, _ := run(t, p.Root, env, "nightly", "on", "03:00"); rc != 0 || stdout != "NIGHTLY ON at 03:00\n" {
 		t.Errorf("on: exit %d, %q; want NIGHTLY ON at 03:00", rc, stdout)
 	}

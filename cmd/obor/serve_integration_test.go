@@ -105,9 +105,6 @@ func TestServeBinary(t *testing.T) {
 	if rc, _, stderr := run(t, p.Root, env, "serve", "nope"); rc != 2 || !strings.Contains(stderr, "usage: obor serve") {
 		t.Errorf("obor serve nope: exit %d, %q", rc, stderr)
 	}
-	if rc, _, stderr := run(t, p.Root, env, "serve", "forget"); rc != 2 || !strings.Contains(stderr, "usage: obor serve") {
-		t.Errorf("obor serve forget (gone): exit %d, %q", rc, stderr)
-	}
 	if rc, _, stderr := run(t, p.Base, env, "serve"); rc != 1 || !strings.Contains(stderr, "FAIL obor serve: "+p.Base+" is not in an obor project") {
 		t.Errorf("obor serve outside a project: exit %d, %q", rc, stderr)
 	}
@@ -124,7 +121,7 @@ func TestServeBinary(t *testing.T) {
 	if rc, stdout, _ := run(t, lane, env, "status"); rc != 0 || !strings.Contains(stdout, "serve: down") {
 		t.Errorf("obor status after TERM: exit %d, %q; want serve down", rc, stdout)
 	}
-	if rc, _, _ := run(t, p.Root, env, "has", "serve", "status"); rc != 1 { // no such subcommand
+	if rc := has([]string{"serve", "status"}); rc != 1 { // no such subcommand
 		t.Errorf("obor has serve status: exit %d, want 1", rc)
 	}
 }
