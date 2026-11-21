@@ -108,7 +108,7 @@ func TestEditSetsEachField(t *testing.T) {
 		if !c.check(n) {
 			t.Errorf("%s = %s: not set in the result:\n%s", c.key, c.val, ch.Doc)
 		}
-		if _, fails := n.Validate(ValidateOptions{}); len(fails) > 0 {
+		if _, fails := n.Validate(noGit); len(fails) > 0 {
 			t.Errorf("%s = %s: the result fails validate: %q", c.key, c.val, fails)
 		}
 		// the layout is the file's: indented by two, a final newline; only the edited member's lines differ

@@ -27,7 +27,7 @@ var (
 // merge.by_path.no_check glob overlapping a rule's glob, an agent named like another lane).
 // Shapes are checked by the load (types by Load, unknown keys by LoadForValidate); these are the checks a typed decode cannot make.
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
-	v := &validator{c: c, d: &c.Data, env: o.Env}
+	v := &validator{c: c, d: &c.Data, env: o.Env, trunkExists: o.Trunk}
 	if v.env == nil {
 		v.env = os.Getenv
 	}
@@ -163,6 +163,9 @@ type ValidateOptions struct {
 	Env func(string) string
 	// Tracked: git tracks the path in the main checkout (lanes.links entries are noted when it does); nil: skipped.
 	Tracked func(path string) bool
+	// Trunk: refs/heads/<branch> resolves in the main checkout (merge.target_branch's check); nil: asks git, and a
+	// directory that is no repository has no trunk to check.
+	Trunk func(branch string) bool
 }
 
 type validator struct {
@@ -171,6 +174,8 @@ type validator struct {
 	warns []string
 	fails []string
 	env   func(string) string // ValidateOptions.Env
+	// trunkExists is ValidateOptions.Trunk
+	trunkExists func(branch string) bool
 	// described are the plugin kinds as their describe answered (pluginKind), for the model refs' efforts
 	described map[string]agents.Kind
 }
@@ -605,10 +610,19 @@ func (v *validator) bareLaneName(lane string, roleAgents []string) {
 // trunk: refs/heads/<merge.target_branch> resolves in the main checkout; serve pauses the project when it does not.
 func (v *validator) trunk() {
 	name := v.d.Merge.TargetBranch
-	if name == "" || gitCmd("-C", v.c.Root, "rev-parse", "--git-dir").Run() != nil {
-		return // no repository to look in (a bare config directory)
+	if name == "" {
+		return
 	}
-	if gitCmd("-C", v.c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+name).Run() != nil {
+	exists := v.trunkExists
+	if exists == nil {
+		if gitCmd("-C", v.c.Root, "rev-parse", "--git-dir").Run() != nil {
+			return // no repository to look in (a bare config directory)
+		}
+		exists = func(branch string) bool {
+			return gitCmd("-C", v.c.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+		}
+	}
+	if !exists(name) {
 		v.fail(".merge.target_branch", "refs/heads/"+name+" does not exist: set merge.target_branch: your trunk is not "+
 			name)
 	}

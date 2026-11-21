@@ -126,7 +126,7 @@ func TestValidCustomRoles(t *testing.T) {
 // the project or into .obor/, a missing role doc (naming the file to write), an allow_push listing a custom role, an
 // object for a table role and a roles.driver.
 func TestCustomRoleRefusals(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
 	for _, c := range []struct {
 		name  string
@@ -164,7 +164,7 @@ func TestCustomRoleRefusals(t *testing.T) {
 
 	// The doc: a custom row without <agents.docs_dir>/<name>.md fails naming the file; a default row needs none (the kit
 	// ships its text).
-	p = newPlainProject(t)
+	p = newProject(t)
 	got := validate(t, p, set("agents.roles.designer", "opus"), set("agents.roles.advisor", "opus"))
 	if want := []string{"FAIL .agents.roles.designer: no role doc: write docs/agents/designer.md (what the role does, what it writes)"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
@@ -268,7 +268,7 @@ func TestEditCustomRoleModel(t *testing.T) {
 // default row's validate and reach Role (its HasVerb, nothing else granted, the effective config keeps them); validate
 // refuses an unknown method, one listed twice and verbs on a built-in role.
 func TestCustomRoleVerbs(t *testing.T) {
-	p := newPlainProject(t)
+	p := newProject(t)
 	p.Write("docs/agents/tracker.md", "# Role: tracker\n")
 	if got := validate(t, p, set("agents.roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`),
 		set("agents.roles.triage", `{"model": "sonnet", "verbs": ["send"]}`)); len(got) != 0 {

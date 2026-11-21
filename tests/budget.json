@@ -62,7 +62,7 @@
     },
     "obor/internal/config": {
       "full_s": 3.9,
-      "git_procs": 321
+      "git_procs": 34
     },
     "obor/internal/guard": {
       "full_s": 1.9,
@@ -86,7 +86,7 @@
     },
     "obor/internal/launch": {
       "full_s": 6,
-      "git_procs": 45
+      "git_procs": 36
     },
     "obor/internal/mcp": {
       "full_s": 1.4,

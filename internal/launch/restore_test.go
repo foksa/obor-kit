@@ -15,7 +15,6 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
@@ -34,34 +33,23 @@ type rfx struct {
 	// prompts is the first prompt the restore's restart carried, by agent ("": none).
 	prompts map[string]string
 	fail    map[string]bool
+	// free are the lanes the lane table answers free (a lane with its task is working): the table's own reading of
+	// git is checks' test.
+	free map[string]bool
 }
 
 func newRfx(t *testing.T) *rfx {
 	t.Helper()
-	return newRfxAt(t, false)
-}
-
-// newGitRfx is newRfx over a real repository: for the test of the lane state read (checks.LaneTable runs git).
-func newGitRfx(t *testing.T) *rfx {
-	t.Helper()
-	return newRfxAt(t, true)
-}
-
-func newRfxAt(t *testing.T, git bool) *rfx {
-	t.Helper()
 	p := testkit.NewPlain(t)
-	if git {
-		p = testkit.New(t)
-	}
-	f := &rfx{t: t, p: p, fail: map[string]bool{}, prompts: map[string]string{}}
+	f := &rfx{t: t, p: p, fail: map[string]bool{}, prompts: map[string]string{}, free: map[string]bool{}}
 	f.h = newTerm()
 	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.h, Now: func() time.Time { return time.Unix(0, 0) },
 		Sessions: store.CurrentAt, // the App's fold stands in as the store the tests record into
 		LaneState: func(cfg *config.Config, l config.Lane) string {
-			if !git {
-				return port.LaneWorking // a lane with its task: the free-lane skip is newGitRfx's
+			if f.free[l.Name] {
+				return port.LaneFree
 			}
-			return checks.NewLaneTable(context.Background(), cfg).LaneState(l).State
+			return port.LaneWorking
 		}}
 	f.pl.Restart = func(_ context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
 		c := cfg.Root + " restart " + req.Agent + " --pane " + req.Pane
@@ -392,8 +380,9 @@ func TestRestoreRolePanesWhenTheOpenWorkReadFails(t *testing.T) {
 
 // A free lane's worker is skipped: obor dispatch starts its worker.
 func TestRestoreFreeLaneSkipped(t *testing.T) {
-	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
-	o1 := f.p.Lane("L-01", "task/T-01")
+	f := newRfx(t)
+	o1 := f.p.PlainLane("L-01", "task/T-01")
+	f.free["L-01"] = true
 	f.p.Config()
 	f.shell("w1:p1", o1, "pj-l-01")
 	f.pl.OpenWork = func(string, string) (bool, error) {
@@ -495,8 +484,9 @@ func (f *rfx) resumedPane(pane, cwd, label string) {
 func TestRestoreReplacesTheTerminalsResumedAgents(t *testing.T) {
 	for _, resumed := range []bool{true, false} {
 		t.Run(map[bool]string{true: "resume on: herdr's agents", false: "resume off: shells"}[resumed], func(t *testing.T) {
-			f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
-			o1, o3 := f.p.Lane("L-01", "task/T-01"), f.p.Lane("L-03", "task/T-03")
+			f := newRfx(t)
+			o1, o3 := f.p.PlainLane("L-01", "task/T-01"), f.p.PlainLane("L-03", "task/T-03")
+			f.free["L-03"] = true
 			f.p.Config(testkit.Set("agents.roles", `{"reviewer": "opus"}`))
 			f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
 			pane := f.shell
