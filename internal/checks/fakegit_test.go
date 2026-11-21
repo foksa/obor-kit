@@ -17,10 +17,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// fakeGit is gitIO over a small model of the repository: its refs, each worktree's HEAD, branch, status and
-// open merge, and the commits Scratch made (their parents, messages and dates). Writes change the model as git does
-// for the calls Scratch makes (a commit moves HEAD and closes a merge, a reset clears the worktree, a fast-forward
-// moves the branch); the reads it does not model (diffs, the log, a blob's sha) answer from answers, keyed by the
+// fakeGit is gitIO (and Lane's laneGit) over a small model of the repository: its refs, each worktree's HEAD, branch,
+// status and open merge, and the commits Scratch made (their parents, messages and dates). Writes change the model as
+// git does for the calls Scratch and Lane make (a commit moves HEAD and closes a merge, a reset clears the worktree, a
+// fast-forward moves the branch, a branch delete refuses one a worktree has checked out); the reads it does not model (diffs, the log, a blob's sha) answer from answers, keyed by the
 // call ("Diff <from> <to>"), "" when unscripted. A merge of a sha in conflicts stops: its paths stay unmerged (none:
 // a replayed resolution). cut fails the cut-th call (as a git shim over real git would); every call is
 // logged in calls, "<Method> <args…>".
@@ -44,14 +44,17 @@ type fakeGit struct {
 	cut       int
 }
 
-var _ gitIO = (*fakeGit)(nil)
+var (
+	_ gitIO   = (*fakeGit)(nil)
+	_ laneGit = (*fakeGit)(nil)
+)
 
 // errCut is the error of the cut call.
 var errCut = errors.New("cut: git call failed")
 
 // writes are fakeGit's writing methods: the cut table cuts each.
 var writes = []string{"AddAll", "Commit", "Amend", "Merge", "WriteTree", "UpdateRef", "DeleteRef", "FF", "Reset", "Clean",
-	"Detach", "Switch", "AddWorktree"}
+	"Detach", "Switch", "AddWorktree", "NewBranch", "DeleteBranch"}
 
 // newFakeGit is the model of the fixture repo (fixture_test.go's template): main at main0 checked out in root, lane
 // dir on task/T-05 forked there with its uncommitted feature.txt.
@@ -459,6 +462,53 @@ func (f *fakeGit) Switch(dir, branch string) error {
 	}
 	f.branch[dir] = branch
 	return nil
+}
+
+// NewBranch is checkout -B: branch made (or moved) at target and checked out in dir, its status kept.
+func (f *fakeGit) NewBranch(dir, branch, target string) error {
+	if err := f.call("NewBranch", dir, branch, target); err != nil {
+		return err
+	}
+	sha := f.resolve(dir, target)
+	if sha == "" {
+		return fmt.Errorf("git checkout in %s: invalid reference: %s", dir, target)
+	}
+	f.refs["refs/heads/"+branch], f.branch[dir] = sha, branch
+	delete(f.head, dir)
+	return nil
+}
+
+// DeleteBranch is branch -D: refused, as git refuses it, for a branch a worktree has checked out.
+func (f *fakeGit) DeleteBranch(dir, branch string) error {
+	if err := f.call("DeleteBranch", dir, branch); err != nil {
+		return err
+	}
+	for wt, b := range f.branch {
+		if b == branch {
+			return fmt.Errorf("git branch in %s: cannot delete branch '%s' used by worktree at '%s'", dir, branch, wt)
+		}
+	}
+	delete(f.refs, "refs/heads/"+branch)
+	return nil
+}
+
+// Ahead is log --oneline from..to over first parents: the commits to has that from does not, newest first,
+// "<short sha> <message>" each.
+func (f *fakeGit) Ahead(dir, from, to string) (string, error) {
+	if err := f.call("Ahead", dir, from, to); err != nil {
+		return "", err
+	}
+	base := f.resolve(dir, from)
+	var out []string
+	for c := f.resolve(dir, to); c != "" && !f.isAncestor(c, base); {
+		out = append(out, c[:min(7, len(c))]+" "+f.msgs[c])
+		if p := f.parents[c]; len(p) > 0 {
+			c = p[0]
+		} else {
+			c = ""
+		}
+	}
+	return strings.Join(out, "\n"), nil
 }
 
 func (f *fakeGit) AddWorktree(dir, rev string) error {
