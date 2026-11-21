@@ -626,47 +626,66 @@ func (s *Setup) detectedLine() string {
 
 // --- roles ------------------------------------------------------------------------------------------------------
 
-// fallbackRoleModel is the model init falls a role back to when its model does not run here: a Claude model (the kind
-// init requires on PATH) whose starter entry (StarterModels) init adds when the config has none, so the role it writes
-// resolves.
-const fallbackRoleModel = "opus"
-
 // initRoleTypes keeps the lead's, the integrator's and the reviewer's model ref when it names a model whose kind's
-// CLI is on PATH, else sets it to fallbackRoleModel: "lead opus, integrator opus, reviewer sol" (a change written
-// "reviewer sol → opus"). A config with no entry for the fallback gets its starter entry (initFallbackModel).
+// CLI is on PATH, else sets it to a Claude model (the kind init requires on PATH): "lead opus, integrator opus,
+// reviewer sol" (a change written "reviewer sol → opus"). It decides from .obor/config.json alone, the file it
+// writes (.obor/local.json left out), after the kind fill of `obor setup agents` (a former built-in entry with no
+// kind has its kind). The Claude model a role falls back to is the first agents.models entry of that kind in config
+// order, else the starter entry fallbackStarter, added; a config whose fallbackStarter name is another kind's has
+// none to add: init fails naming the roles and the entry to add, and writes nothing for them.
 func (s *Setup) initRoleTypes() (string, error) {
-	var parts, falls []string
-	for _, role := range []string{"lead", "integrator", "reviewer"} {
-		rc, _ := s.cfg.Role(role)
-		lt, _ := s.cfg.Model(rc.Type)
-		if rc.Type != "" && lt.Kind != "" {
-			if _, err := project.LookPath(s.Env.Get("PATH"), lt.Kind); err == nil {
-				parts = append(parts, role+" "+config.ModelRef(rc.Type, rc.Effort))
+	shared, err := s.fillModelKinds()
+	if err != nil {
+		return "", err
+	}
+	roles := []string{"lead", "integrator", "reviewer"}
+	was := map[string]string{} // the ref of each role that falls back
+	var falls []string
+	for _, role := range roles {
+		rc, _ := shared.Role(role)
+		if m, ok := shared.Model(rc.Type); ok {
+			if _, err := project.LookPath(s.Env.Get("PATH"), m.Kind); err == nil {
 				continue
 			}
 		}
-		was := config.ModelRef(rc.Type, rc.Effort)
-		if was == "" {
-			was = "unset"
+		was[role] = config.ModelRef(rc.Type, rc.Effort)
+		if was[role] == "" {
+			was[role] = "unset"
 		}
-		parts = append(parts, role+" "+was+" → "+fallbackRoleModel)
 		falls = append(falls, role)
 	}
-	if len(falls) == 0 {
-		return strings.Join(parts, ", "), nil
-	}
-	if err := s.initFallbackModel(); err != nil {
-		return "", err
-	}
-	for _, role := range falls {
-		if err := s.editConfig(func(doc []byte) (config.Write, error) {
-			return config.SetRoleModel(doc, role, fallbackRoleModel)
-		}); err != nil {
+	var to string
+	if len(falls) > 0 {
+		var add *config.NamedModel
+		if to, add, err = fallbackModel(shared, falls); err != nil {
+			return "", err
+		}
+		if add != nil {
+			if err := s.editConfig(func(doc []byte) (config.Write, error) {
+				return config.AddModels(doc, []config.NamedModel{*add})
+			}); err != nil {
+				return "", err
+			}
+		}
+		for _, role := range falls {
+			if err := s.editConfig(func(doc []byte) (config.Write, error) {
+				return config.SetRoleModel(doc, role, to)
+			}); err != nil {
+				return "", err
+			}
+		}
+		if err := s.load(); err != nil {
 			return "", err
 		}
 	}
-	if err := s.load(); err != nil {
-		return "", err
+	var parts []string
+	for _, role := range roles {
+		if from, fell := was[role]; fell {
+			parts = append(parts, role+" "+from+" → "+to)
+			continue
+		}
+		rc, _ := shared.Role(role)
+		parts = append(parts, role+" "+config.ModelRef(rc.Type, rc.Effort))
 	}
 	return strings.Join(parts, ", "), nil
 }
