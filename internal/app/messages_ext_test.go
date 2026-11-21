@@ -9,9 +9,8 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 )
 
 // A worked brief ends with the usual finished line once its agent is gone: its pane at its shell or closed, or
@@ -40,7 +39,7 @@ func TestBriefEndsWhenItsAgentIsGone(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := briefWorked(t)
-			r.agentGone("w1:p6", "pj-rev", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+			r.agentGone("w1:p6", "pj-rev", func(p *port.Pane) { p.Agent, p.Status = "", "" })
 			r.waitFor("the finished line", func() bool { return finishedLines(r) == 1 })
 			r.passes()
 			if n, b := finishedLines(r), r.briefs(); n != 1 || len(b) != 0 {
@@ -52,7 +51,7 @@ func TestBriefEndsWhenItsAgentIsGone(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := briefWorked(t)
-			r.f.Remove("w1:p6")
+			r.removePane("w1:p6")
 			r.waitFor("the finished line", func() bool { r.push(); return finishedLines(r) == 1 })
 			if b := r.briefs(); len(b) != 0 {
 				t.Errorf("briefs %+v, want none open", b)
@@ -64,7 +63,8 @@ func TestBriefEndsWhenItsAgentIsGone(t *testing.T) {
 		bubble(t, func(t *testing.T) {
 			r := briefWorked(t)
 			// The pane still runs its agent, but nothing proves it is pj-rev (its label and name gone).
-			r.agentGone("w1:p6", "pj-rev", func(p *herdrtest.Pane) { p.Name, p.Label = "", "" })
+			r.setName("w1:p6", "")
+			r.agentGone("w1:p6", "pj-rev", func(p *port.Pane) { p.Label = "" })
 			r.passes()
 			r.later(30 * time.Second)
 			if n, b := finishedLines(r), r.briefs(); n != 0 || len(b) != 1 {
@@ -89,7 +89,7 @@ func TestBriefNotWorkedStaysOpenWhenItsAgentStops(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.waitBriefDelivered()
-		r.agentGone("w1:p6", "pj-rev", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+		r.agentGone("w1:p6", "pj-rev", func(p *port.Pane) { p.Agent, p.Status = "", "" })
 		r.later(2 * time.Minute)
 		if n, b := finishedLines(r), r.briefs(); n != 0 || len(b) != 1 || b[0].To != "pj-rev" {
 			t.Errorf("%d finished lines, briefs %+v; want none, pj-rev's open", n, b)
@@ -102,7 +102,7 @@ func TestBriefUnderAStopStaysOpenWhenItsAgentIsGone(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := claudeRoleStop(t, true, "rate_limit", resetIn(time.Hour))
-		r.agentGone("w1:p6", "pj-rev", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+		r.agentGone("w1:p6", "pj-rev", func(p *port.Pane) { p.Agent, p.Status = "", "" })
 		r.later(2 * time.Minute)
 		if n, b := finishedLines(r), r.briefs(); n != 0 || len(b) != 1 {
 			t.Errorf("%d finished lines, briefs %+v; want none, one open", n, b)
@@ -115,8 +115,8 @@ func TestReplayedWorkedBriefOfAGoneAgentEnds(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, noCheck())
-		r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root)
-		r.f.Shell("w1:p6", "pj-rev", r.p.Root) // its agent stopped
+		r.addPane(port.Pane{ID: "w1:p5", Label: "pj-lead", Agent: "claude", Status: "idle", Cwd: r.p.Root})
+		r.addPane(port.Pane{ID: "w1:p6", Label: "pj-rev", Cwd: r.p.Root}) // its agent stopped
 		at := r.clock.Now().Add(-2 * time.Hour)
 		brief, _ := json.Marshal(event.Message{To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] look at x"})
 		if err := app.WriteLog(r.p.Root, at, event.Record{Task: event.MsgTask, Step: event.StepBriefed,
@@ -166,7 +166,7 @@ func retryWake(t *testing.T, kind string, recorded bool) *loopRig {
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 result work")
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind = kind })
+	r.setPane("w1:p1", func(p *port.Pane) { p.Agent = kind })
 	r.workerIs("working")
 	r.waitFor("pj-l-01 seen as "+kind, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
@@ -323,7 +323,7 @@ func TestBriefByKind(t *testing.T) {
 				if !c.recorded {
 					r.inbox.unrecord("pj-rev")
 				}
-				r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.kind })
+				r.setPane("w1:p6", func(p *port.Pane) { p.Agent = c.kind })
 				r.start()
 				const line = "[obor pj-lead] verify"
 				if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify"}); err != nil {
@@ -401,10 +401,8 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 		if n := r.typedTo("pj-lead", line); n != 0 {
 			t.Errorf("typed %d times into the lead's pane, want 0", n)
 		}
-		for _, req := range r.srv.Requests() {
-			if req.Method == "agent.send_keys" {
-				t.Errorf("keys sent: %s", req.Params)
-			}
+		if n := r.calls(opKeys); n != 0 {
+			t.Errorf("keys sent: %d calls", n)
 		}
 	})
 }
@@ -560,9 +558,8 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, noCheck())
-		r.f.Agent("w1:p5", "", "idle", r.p.Root) // the lead's pane, unnamed
-		rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
-		rev.Label = "pj-rev"
+		r.addPane(port.Pane{ID: "w1:p5", Agent: "claude", Status: "idle", Cwd: r.p.Root}) // the lead's pane, unnamed
+		r.addPane(port.Pane{ID: "w1:p6", Label: "pj-rev", Agent: "claude", Status: "working", Cwd: r.p.Root})
 		r.start()
 		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
 		if want := "SENT to pj-lead in proj (posted to its session)"; err != nil || reply != want {
@@ -591,9 +588,9 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, noCheck())
-		r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root)
-		sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
-		sol.Label, sol.Kind = "pj-sol", "codex"
+		r.addPane(port.Pane{ID: "w1:p5", Label: "pj-lead", Agent: "claude", Status: "idle", Cwd: r.p.Root})
+		r.addPane(port.Pane{ID: "w1:p6", Label: "pj-sol", Agent: "codex", Status: "idle", Cwd: r.p.Root})
+		r.setName("w1:p6", "") // herdr holds no name for it: only the label proves it
 		r.start()
 		reply, err := r.line("b1", &wire.BriefReq{To: "pj-sol", Text: "look at x"})
 		if err != nil || reply != "BRIEFED pj-sol (delivered when its pane is idle; the lead hears when it finishes)" {
@@ -601,12 +598,10 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 		}
 		r.waitFor("the brief typed into w1:p6", func() bool { return r.typedTo("w1:p6", "[obor pj-lead] look at x") == 1 })
 		r.waitBriefDelivered()
-		r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "working" })
-		r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "working", "agent": "codex"})
+		r.statusEvent("w1:p6", "working", "codex")
 		r.waitFor("its work logged", func() bool { return r.taskStep(event.MsgTask, "fact worked") == 1 })
 		r.clock.Add(2 * time.Minute)
-		r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "idle" })
-		r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "idle", "agent": "codex"})
+		r.statusEvent("w1:p6", "idle", "codex")
 		const done = "[obor] pj-sol finished (briefed 2m ago)"
 		r.waitFor("the finished line posted to the lead", func() bool { return r.inbox.count("pj-lead", done) == 1 })
 	})
@@ -676,8 +671,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := lineRig(t, "idle", "working")
-		sol := r.f.Agent("w1:p7", "pj-sol", "working", r.p.Root)
-		sol.Label = "pj-sol"
+		r.addPane(port.Pane{ID: "w1:p7", Label: "pj-sol", Agent: "claude", Status: "working", Cwd: r.p.Root})
 		r.inbox.unrecord("pj-lead") // its lines wait
 		r.start()
 		if _, err := r.line("s1", &wire.BriefReq{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works

@@ -10,9 +10,8 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/background"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 )
 
 // An idle agent's stall and its needs-you, seen through obor status: the facts in force and the agent's age. (When the
@@ -21,7 +20,7 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
-		r.f.Pane("w1:p2").Status = "working" // L-02 is not idle: only T-1 stalls
+		r.setPane("w1:p2", func(p *port.Pane) { p.Status = "working" }) // L-02 is not idle: only T-1 stalls
 		r.start()
 		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-1 stalled{idle}")
@@ -46,13 +45,12 @@ func TestWorkingAgainResumes(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
-		r.f.Pane("w1:p2").Status = "working"
+		r.setPane("w1:p2", func(p *port.Pane) { p.Status = "working" })
 		r.start()
 		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-1 stalled{idle}")
-		r.srv.WaitSubscribed(t, herdr.EventStatus, "w1:p1")
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = "working" })
-		r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p1", "agent_status": "working", "agent": "claude"})
+		r.waitSubscribed(t, port.EventStatus, "w1:p1")
+		r.statusEvent("w1:p1", "working", "claude")
 		r.waitFacts("T-1 stalled{idle}", "T-1 resumed")
 		if f := r.app.Status().Project.Facts; len(f) != 0 {
 			t.Errorf("facts in force after resumed: %+v", f)
@@ -66,7 +64,7 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 		r := newRig(t)
 		// L-01's agent is pid 2: an MCP server in its own group (3, does not count) and a Bash tool command in a group of
 		// its own (50 → 51). L-02's agent is pid 7 with nothing under it: it stalls, so the watchdogs did look.
-		r.f.Pane("w1:p2").Foreground = 7
+		r.setForeground("w1:p2", 7)
 		r.setProcs([]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 3, PPID: 2, PGID: 2},
 			{PID: 50, PPID: 2, PGID: 50}, {PID: 51, PPID: 50, PGID: 50}, {PID: 7, PPID: 1, PGID: 7}}...)
 		r.start()
@@ -80,8 +78,8 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 		r.waitFacts("T-2 stalled{idle}")
 		r.settle()
 		eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts while L-01's command runs")
-		if r.count("pane.process_info") == 0 {
-			t.Fatal("the watchdog never asked herdr for process info")
+		if r.calls(opProcessInfo) == 0 {
+			t.Fatal("the watchdog never asked the terminal for process info")
 		}
 
 		if quiet, _ := app.Quiet(r.app, r.root, "T-1"); !quiet.IsZero() {
@@ -99,19 +97,19 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 	})
 }
 
-// T-951: the stall watchdog samples the pane it already observed: a ready agent costs no agent.get per tick, while
-// the child-process check still runs.
+// T-951: the stall watchdog samples the pane it already observed: a ready agent costs no read of its pane's agent per
+// tick, while the child-process check still runs.
 func TestWatchdogAsksNoAgentGetPerTick(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
 		r.start()
-		gets, procs := r.count("agent.get"), r.count("pane.process_info")
+		gets, procs := r.calls(opAgent), r.calls(opProcessInfo)
 		r.settle() // two more full checks, each sampling both ready agents
-		if n := r.count("agent.get") - gets; n != 0 {
-			t.Errorf("agent.get over two quiet ticks = %d, want 0 (the sample reads its observed pane)", n)
+		if n := r.calls(opAgent) - gets; n != 0 {
+			t.Errorf("agent reads over two quiet ticks = %d, want 0 (the sample reads its observed pane)", n)
 		}
-		if n := r.count("pane.process_info") - procs; n == 0 {
+		if n := r.calls(opProcessInfo) - procs; n == 0 {
 			t.Fatal("no process info over two ticks: the sample did not run (vacuous)")
 		}
 	})
@@ -128,7 +126,7 @@ func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
 		if err := os.Chtimes(transcript, r.clock.Now(), r.clock.Now()); err != nil {
 			t.Fatal(err)
 		}
-		r.f.Pane("w1:p1").Transcript = transcript
+		r.setPane("w1:p1", func(p *port.Pane) { p.Transcript = transcript })
 		r.start()
 		if _, seen := app.Quiet(r.app, r.root, "T-1"); !seen.Equal(r.clock.Now()) {
 			t.Fatalf("precondition: L-01's watermark %v after the first check, want the write at 0", seen)
@@ -164,11 +162,9 @@ func TestPaneExitedNeedsYou(t *testing.T) {
 		r := newRig(t)
 		r.submitted("T-2", "L-02") // T-2 is done: its pane closing is no alarm
 		r.start()
-		r.srv.WaitSubscribed(t, herdr.EventExited, "")
-		r.f.Remove("w1:p2")
-		r.srv.Push("pane_closed", map[string]any{"pane_id": "w1:p2"})
-		r.f.Remove("w1:p1")
-		r.srv.Push("pane_exited", map[string]any{"pane_id": "w1:p1"})
+		r.waitSubscribed(t, port.EventExited, "")
+		r.closePane("w1:p2")
+		r.exitPane("w1:p1")
 		r.waitFacts("T-2 submitted", "T-1 needs-you{pane exited}")
 		if f := r.app.Status().Project.Facts; len(f) != 1 {
 			t.Errorf("facts in force = %+v, want pane exited (the lane still holds T-1)", f)
@@ -182,7 +178,7 @@ func TestReplayAfterRestart(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
-		r.f.Pane("w1:p2").Status = "working"
+		r.setPane("w1:p2", func(p *port.Pane) { p.Status = "working" })
 		r.start()
 		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-1 stalled{idle}")
@@ -208,9 +204,9 @@ func TestPaneInAnotherGroupIgnored(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
 		// A pane of group "other" in L-01's worktree, idle; L-01's own pane is working, L-02's idle.
-		r.f.Pane("w1:p1").Status = "working"
-		r.f.Agent("w2:p1", "x-l-01", "idle", r.lane("L-01"))
-		r.f.Agent("w9:p1", "y", "idle", r.lane("L-01")) // a group the terminal did not name
+		r.setPane("w1:p1", func(p *port.Pane) { p.Status = "working" })
+		r.addPane(port.Pane{ID: "w2:p1", Label: "x-l-01", Agent: "claude", Status: "idle", Cwd: r.lane("L-01")})
+		r.addPane(port.Pane{ID: "w9:p1", Label: "y", Agent: "claude", Status: "idle", Cwd: r.lane("L-01")}) // a group the terminal did not name
 		r.start()
 		r.clock.Add(11 * time.Minute)
 		r.waitFacts("T-2 stalled{idle}")

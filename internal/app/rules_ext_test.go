@@ -17,7 +17,7 @@ func TestNeedsYouIsPostedToTheLeadOnce(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r, line := refusedRig(t)
 		r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-		r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.waitFor("the notification", func() bool { return len(r.notifications()) == 1 })
 		r.advance(0)
 		r.advance(0)
 		r.stop()
@@ -42,7 +42,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 		})
 		r.start()
 		r.mustDispatch("d1")
-		r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.waitFor("the notification", func() bool { return len(r.notifications()) == 1 })
 		// The needs rule's line is the toast's record: once it is in the log, a restart sends none again.
 		r.waitFor("the needs line recorded", func() bool { return len(r.needsLineFacts()) == 1 })
 		r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 })
@@ -61,7 +61,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 		}
 		r.inbox.record("pj-lead")
 		r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", w.Line) == 1 })
-		if n := countReq(r.srv, "notification.show"); n != 1 {
+		if n := len(r.notifications()); n != 1 {
 			t.Errorf("notifications %d, want 1", n)
 		}
 	})
@@ -84,7 +84,7 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 		r.waitFor("the line's needs-you", func() bool { return r.taskStep(event.MsgTask, want) == 1 })
 		r.advance(0)
 		r.advance(0)
-		if w, notes := r.waiting(), countReq(r.srv, "notification.show"); len(w) != 1 ||
+		if w, notes := r.waiting(), len(r.notifications()); len(w) != 1 ||
 			!strings.HasPrefix(w[0].Line, "[obor other]") || notes != 0 {
 			t.Errorf("waiting %+v, notifications %d; want only the original line, none", w, notes)
 		}

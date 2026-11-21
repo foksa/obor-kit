@@ -31,7 +31,7 @@ func TestDispatchDelivery(t *testing.T) {
 		}
 		r.later(5 * time.Minute)
 		r.waitStep("1 fact needs-you{job not delivered: T-1/1/work prompted twice to pj-l-01}")
-		r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.waitFor("one notification", func() bool { return len(r.notifications()) == 1 })
 		r.needsYouState()
 		r.mustResume("r1", "", "RESUMED T-1: retry (job not delivered)")
 		r.waitJob("pj-l-01", "T-1/1/work.2")

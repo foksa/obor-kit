@@ -16,7 +16,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 )
 
 // The lane test of a candidate (row 18b) at the app boundary: the fake Scratch's Test refuses a dirty lane and "checks
@@ -274,7 +273,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		name:  "live unlabelled worker: stopped by pane, not not running",
 		where: "identified w1:p1 session",
 		arm: func(r *loopRig) {
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "" })
+			r.setPane("w1:p1", func(p *port.Pane) { p.Label = "" })
 			r.paneCreated("w1:p1", "")
 		},
 		want: outcome{ok: true, stops: []string{"pj-l-01 w1:p1"}},
@@ -282,17 +281,16 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		name:  "worker gone: not running, the next step goes on",
 		where: "unavailable",
 		arm: func(r *loopRig) {
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status, p.Transcript = "", "", "", "" })
+			r.setPane("w1:p1", func(p *port.Pane) { p.Agent, p.Status, p.Transcript = "", "", "" })
 		},
 		want: outcome{ok: true},
 	}, {
 		name:  "ambiguous: refused, nothing stopped",
 		where: "ambiguous w1:p1 w1:p3",
 		arm: func(r *loopRig) {
-			var transcript string
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { transcript = p.Transcript })
-			r.f.Agent("w1:p3", "pj-l-01", "idle", r.lane)
-			r.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Label, p.Transcript = "pj-l-01", transcript })
+			transcript := r.paneOf("w1:p1").Transcript
+			r.addPane(port.Pane{ID: "w1:p3", Label: "pj-l-01", Agent: "claude", Status: "idle", Cwd: r.lane})
+			r.setPane("w1:p3", func(p *port.Pane) { p.Transcript = transcript })
 			r.paneCreated("w1:p3", "pj-l-01")
 		},
 		want: outcome{why: "pj-l-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01"},
@@ -300,8 +298,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		name:  "herdr disconnected: nothing stopped, the stop waits",
 		where: "unavailable not connected",
 		arm: func(r *loopRig) {
-			r.srv.Fail("session.snapshot", "unavailable", "herdr is down")
-			r.srv.DropConns()
+			r.terminalDown("herdr is down")
 		},
 		want: outcome{waits: true},
 	}, {
@@ -340,9 +337,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 						(r.app.Status().Connected || strings.HasSuffix(c.where, "not connected"))
 				})
 				if c.where == "identified w1:p1 session" { // the label is not what holds it
-					var label string
-					r.f.Set("w1:p1", func(p *herdrtest.Pane) { label = p.Label })
-					if label != "" {
+					if label := r.paneOf("w1:p1").Label; label != "" {
 						t.Fatalf("precondition: w1:p1 still labelled %q", label)
 					}
 				}

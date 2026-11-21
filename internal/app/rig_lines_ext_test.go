@@ -203,16 +203,6 @@ func (r *loopRig) redLine() string {
 	return line
 }
 
-func countReq(srv *herdrtest.Server, method string) int {
-	n := 0
-	for _, req := range srv.Requests() {
-		if req.Method == method {
-			n++
-		}
-	}
-	return n
-}
-
 // setSpec stores text as T-1's spec through serve's socket, as the lead (obor spec set).
 func (r *loopRig) setSpec(callID, text string) string {
 	r.t.Helper()

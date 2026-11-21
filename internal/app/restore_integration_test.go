@@ -152,7 +152,7 @@ func TestServeRestoresAfterTerminalBack(t *testing.T) {
 	r.srv.Die()
 	r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })
 	was := r.recorded()
-	before := r.count("session.snapshot")
+	before := r.calls(opSnapshot)
 	r.srv.Revive(t)
 	if r.instance() == was {
 		t.Fatalf("precondition: the revived herdr's instance is the recorded one (%s)", was)
@@ -183,7 +183,7 @@ func TestServeRestoresAfterTerminalBack(t *testing.T) {
 func TestServeNoRestoreWithoutLoss(t *testing.T) {
 	t.Parallel()
 	r, fr := restoreRig(t, false)
-	before := r.count("session.snapshot")
+	before := r.calls(opSnapshot)
 	r.srv.PushError("events_lost", "subscriber lagged")
 	r.waitFor("the stream end line", func() bool { return strings.Contains(r.out.String(), "events_lost") })
 	r.settled(before)
@@ -200,11 +200,11 @@ func TestServeNoRestoreWithoutLoss(t *testing.T) {
 func TestServeRestoresDoNotOverlap(t *testing.T) {
 	t.Parallel()
 	r, fr := restoreRig(t, true)
-	before := r.count("session.snapshot")
+	before := r.calls(opSnapshot)
 	r.srv.DropConns()
 	r.waitFor("the first restore running", func() bool { _, running, _ := fr.runs(); return running == 1 })
 	r.settled(before)
-	before = r.count("session.snapshot")
+	before = r.calls(opSnapshot)
 	r.srv.DropConns()
 	r.waitFor("the second reconnect's line", func() bool {
 		return strings.Contains(r.out.String(), "reconnected again: one more restore")

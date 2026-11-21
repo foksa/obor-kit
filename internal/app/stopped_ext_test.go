@@ -9,8 +9,8 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 )
 
 // The plugin's exact StopFailure error shape reaches the OpenCode Reset through both stoppedCall paths: worker
@@ -34,7 +34,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 				var r *loopRig
 				if c.roleAgent {
 					r = lineRig(t, "idle", "idle")
-					r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.agentKind })
+					r.setPane("w1:p6", func(p *port.Pane) { p.Agent = c.agentKind })
 					r.start()
 					if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review"}); err != nil {
 						t.Fatal(err)
@@ -44,7 +44,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 					r.passes()
 				} else {
 					r = fetchRig(t)
-					r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind = c.agentKind })
+					r.setPane("w1:p1", func(p *port.Pane) { p.Agent = c.agentKind })
 					r.start()
 					r.mustDispatch("d1")
 					r.waitStep("1 result work")
@@ -385,15 +385,14 @@ func TestStoppedCodexResumeIntoDialog(t *testing.T) {
 		if r.inForce() != 1 || r.has("0 fact resumed") {
 			t.Fatalf("precondition: the stop in force before the next turn: %q", r.steps())
 		}
-		if reads := countReq(r.srv, "pane.read"); reads != 0 {
-			t.Fatalf("precondition: pane.read %d times with no dialog: want none", reads)
+		if reads := r.calls(opScreen); reads != 0 {
+			t.Fatalf("precondition: screen reads %d with no dialog: want none", reads)
 		}
-		reads := countReq(r.srv, "pane.read")
+		reads := r.calls(opScreen)
 		r.stop()
 		r.append(cdxStarted2)
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) {
-			p.Status, p.Screen = "blocked", "Allow `go test` to run? (y/n)"
-		})
+		r.setPane("w1:p1", func(p *port.Pane) { p.Status = "blocked" })
+		r.setScreen("w1:p1", "Allow `go test` to run? (y/n)")
 		r.start()
 		r.waitFor("the dialog's needs-you", func() bool {
 			for _, f := range r.app.Status().Project.Facts {
@@ -406,8 +405,8 @@ func TestStoppedCodexResumeIntoDialog(t *testing.T) {
 		if !r.has("0 fact resumed") || r.inForce() != 0 {
 			t.Errorf("after the next turn: %q, %d stops in force; want the resumed fact and none", r.steps(), r.inForce())
 		}
-		if n := countReq(r.srv, "pane.read") - reads; n != 1 {
-			t.Errorf("pane.read %d times for the dialog, want 1: the resume and its needs-you are one check", n)
+		if n := r.calls(opScreen) - reads; n != 1 {
+			t.Errorf("screen reads %d for the dialog, want 1: the resume and its needs-you are one check", n)
 		}
 	})
 }
@@ -423,7 +422,7 @@ func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {
 			r := codexStopped(t)
 			r.stop()
 			r.append(next)
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = "working" })
+			r.setPane("w1:p1", func(p *port.Pane) { p.Status = "working" })
 			if r.inForce() != 1 || r.has("0 fact resumed") {
 				t.Fatalf("precondition: the stop in force before the replay: %q", r.steps())
 			}
@@ -441,9 +440,9 @@ func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {
 			if r.inForce() != 1 || r.has("0 fact resumed") {
 				t.Fatalf("precondition: the stop in force before the reconnect: %q", r.steps())
 			}
-			r.srv.DropConns()
+			r.endStream()
 			r.append(next)
-			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = "working" })
+			r.setPane("w1:p1", func(p *port.Pane) { p.Status = "working" })
 			r.waitFor("fact resumed", func() bool { return r.has("0 fact resumed") })
 			if r.inForce() != 0 {
 				t.Errorf("the stop in force after the reconnect: %+v", r.app.Status().Project.Facts)

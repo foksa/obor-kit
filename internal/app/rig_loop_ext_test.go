@@ -96,11 +96,10 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 // first start), roles.integrator (pj-int, not running until started) and the app not started yet (unless an option
 // starts it). merge.check is configured ("echo 1 pass": its outcome is the fake's, Script).
 type loopRig struct {
+	term
 	t       *testing.T
 	p       *testkit.Project
 	lane    string
-	f       *herdrtest.Fake
-	srv     *herdrtest.Server
 	lanes   *laneTable
 	scratch *app.FakeWorkflow
 	starts  atomic.Int32
@@ -190,7 +189,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 		opt(&o)
 	}
 	p := testkit.NewDir(t)
-	r := &loopRig{t: t, p: p, f: herdrtest.New(), lanes: &laneTable{},
+	r := &loopRig{term: term{f: herdrtest.New()}, t: t, p: p, lanes: &laneTable{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
 	r.lane = p.Lane("L-01", "task/T-1")
 	edits := []func(map[string]any){testkit.Set("agents.roles.integrator", "")}

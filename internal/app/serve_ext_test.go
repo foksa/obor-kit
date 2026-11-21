@@ -23,13 +23,11 @@ func TestServeWaitsForHerdr(t *testing.T) {
 			t.Fatalf("precondition: not connected, or gone already:\n%s", out)
 		}
 
-		r.srv.Die()
+		r.terminalGone()
 		r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })
 		r.waitFor("disconnected", func() bool { return !r.app.Status().Connected })
-		if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("dispatch with herdr down: %q, %v", reply, err)
-		}
-		subs := r.srv.Subscriptions()
+		r.dispatched(r.dispatch("d1", "L-01"))
+		subs := r.subscribed()
 		time.Sleep(300 * time.Millisecond) // several retries (5 ms doubling to 40 ms)
 		select {
 		case <-r.done:
@@ -42,11 +40,11 @@ func TestServeWaitsForHerdr(t *testing.T) {
 		if n := strings.Count(r.out.String(), "terminal: gone"); n != 1 {
 			t.Errorf("%d gone lines, want 1:\n%s", n, r.out)
 		}
-		if len(subs) != 0 {
-			t.Errorf("subscriptions while herdr is dead: %v", subs)
+		if subs != 0 {
+			t.Errorf("%d subscriptions while herdr is dead, want none", subs)
 		}
 
-		r.srv.Revive(t)
+		r.terminalBack(t)
 		r.waitFor("the back line", func() bool { return strings.Contains(r.out.String(), "terminal: back") })
 		r.waitStep("1 result work")
 		r.waitJob("pj-l-01", "T-1/1/work")
@@ -68,7 +66,7 @@ func TestServeStartsWithHerdrDown(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
-		r.srv.Die()
+		r.terminalGone()
 		r.launch()
 		// Revive only once serve has logged herdr gone: serve's replay alone takes its time, so a fixed wait could
 		// connect to a live herdr and the gone/back lines never happen.
@@ -76,7 +74,7 @@ func TestServeStartsWithHerdrDown(t *testing.T) {
 		go func() {
 			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 				if strings.Contains(out.String(), "terminal: gone") {
-					r.srv.Revive(t)
+					r.terminalBack(t)
 					return
 				}
 			}

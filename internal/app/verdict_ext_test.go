@@ -410,8 +410,7 @@ func TestStartIntegrator(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := verdictRig(t)
 		ag := &agents{}
-		p := r.f.Agent("w1:p9", "pj-int", "idle", r.root)
-		p.Label = "pj-int"
+		r.addPane(port.Pane{ID: "w1:p9", Label: "pj-int", Agent: "claude", Status: "idle", Cwd: r.root})
 		r.stop()
 		r.start() // its snapshot has the integrator
 		if n := len(r.app.Status().Project.Agents); n != 3 {
@@ -423,7 +422,7 @@ func TestStartIntegrator(t *testing.T) {
 			t.Fatalf("integrator running: %q, %v, restarts %+v; want none", line, err, ag.restarts)
 		}
 
-		r.f.Remove("w1:p9")
+		r.removePane("w1:p9")
 		r.stop()
 		r.start()
 		if n := len(r.app.Status().Project.Agents); n != 2 {

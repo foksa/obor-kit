@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 )
 
 // limitStop is the fetch rig with T-1's worker working, then its turn ended on the API error errText with the details
@@ -209,10 +209,8 @@ const roleContinue = "[obor] Your usage limit has reset: continue your brief whe
 // notified is how many owner notifications ended with suffix.
 func notified(r *loopRig, suffix string) int {
 	n := 0
-	for _, req := range r.srv.Requests() {
-		var p struct{ Body string }
-		_ = json.Unmarshal(req.Params, &p)
-		if req.Method == "notification.show" && strings.HasSuffix(p.Body, suffix) {
+	for _, note := range r.notifications() {
+		if strings.HasSuffix(note.Body, suffix) {
 			n++
 		}
 	}
@@ -241,7 +239,7 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 			}
 		}
 		appendTo(cdxStarted)
-		r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind, p.Transcript = "codex", rollout })
+		r.setPane("w1:p6", func(p *port.Pane) { p.Agent, p.Transcript = "codex", rollout })
 		r.start()
 		if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review T-1"}); err != nil {
 			t.Fatal(err)

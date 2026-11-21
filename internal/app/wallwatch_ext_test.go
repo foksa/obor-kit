@@ -202,9 +202,7 @@ func TestRigStoreLockDuringAServeWrite(t *testing.T) {
 		if err := <-hold; err != nil {
 			t.Fatalf("the rig's write lock: %v", err)
 		}
-		if derr != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("dispatch: %q, %v; want T-1 dispatched once the rig let go", reply, derr)
-		}
+		r.dispatched(reply, derr)
 		r.waitStep("1 fact dispatch")
 	})
 }

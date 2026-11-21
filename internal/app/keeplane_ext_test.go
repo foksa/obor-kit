@@ -45,9 +45,7 @@ func TestKeepLaneRunsATaskListInOneSession(t *testing.T) {
 		if got := r.workerStops(); len(got) != 0 {
 			t.Fatalf("precondition: stops %q", got)
 		}
-		if reply, err := r.dispatchTo("d1", "T-1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("T-1: %q, %v", reply, err)
-		}
+		r.dispatched(r.dispatchTo("d1", "T-1", "L-01"))
 		// dispatch lane pick: a dispatch naming the busy keep lane queues behind its task, in dispatch order.
 		for _, c := range []struct{ id, task, behind string }{{"d2", "T-2", "T-1"}, {"d3", "T-3", "T-2"}} {
 			want := "WAITING " + c.task + " (queued): behind " + c.behind + " on keep lane L-01"
@@ -130,9 +128,7 @@ func TestFreshLaneStillStopsAfterMerge(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching(), started())
-		if reply, err := r.dispatchTo("d1", "T-1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("T-1: %q, %v", reply, err)
-		}
+		r.dispatched(r.dispatchTo("d1", "T-1", "L-01"))
 		r.waitJob("pj-l-01", "T-1/1/work")
 		r.runToMerge("T-1", nil)
 		r.waitFor("T-1's agent.stop", func() bool {
@@ -160,9 +156,7 @@ func keepSecond(t *testing.T, sessionless bool, setup func(r *loopRig), c wire.D
 	r.disp.mu.Lock()
 	r.disp.sessionless = sessionless
 	r.disp.mu.Unlock()
-	if reply, err := r.dispatchTo("d1", "T-1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-		t.Fatalf("T-1: %q, %v", reply, err)
-	}
+	r.dispatched(r.dispatchTo("d1", "T-1", "L-01"))
 	r.waitJob("pj-l-01", "T-1/1/work")
 	r.runToMerge("T-1", nil)
 	if _, ok := r.record("T-1", event.KindResult, event.StepStartWork); !ok {
@@ -319,9 +313,7 @@ func TestKeepLaneHighWaitRunsBeforeAnOlderOrdinaryOne(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r, _ := keepRig(t)
 		r.specOf("T-3", "# T-3 — High\n\nDifficulty: medium\nPriority: high\n")
-		if reply, err := r.dispatchTo("d1", "T-1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("T-1: %q, %v", reply, err)
-		}
+		r.dispatched(r.dispatchTo("d1", "T-1", "L-01"))
 		for _, c := range []struct{ id, task string }{{"d2", "T-2"}, {"d3", "T-3"}} {
 			want := "WAITING " + c.task + " (queued): behind T-1 on keep lane L-01"
 			if reply, err := r.dispatchTo(c.id, c.task, "L-01"); err != nil || reply != want {
@@ -353,9 +345,7 @@ func TestKeepLaneWaitOnAPausedModelDoesNotBlockTheNext(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r, _ := keepRig(t)
-		if reply, err := r.dispatchTo("d1", "T-1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
-			t.Fatalf("T-1: %q, %v", reply, err)
-		}
+		r.dispatched(r.dispatchTo("d1", "T-1", "L-01"))
 		if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
 			Role: "lead", CallID: "d2"}, Task: "T-2", Lane: "L-01",
 			Types: []string{"opus"}}); err != nil || reply != "WAITING T-2 (queued): behind T-1 on keep lane L-01" {

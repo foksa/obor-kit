@@ -8,8 +8,8 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 )
 
 // herdrDown is the error a stop gives while herdr does not answer (port.NotRunning).
@@ -107,7 +107,7 @@ func TestMoveWorkerAlreadyGone(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, working())
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+		r.setPane("w1:p1", func(p *port.Pane) { p.Agent, p.Status = "", "" })
 		r.waitFor("pj-l-01 gone", func() bool {
 			if !app.IsIdentified(r.app, r.p.Root, "pj-l-01") {
 				return true
