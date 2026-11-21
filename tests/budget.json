@@ -126,7 +126,7 @@
     },
     "obor/internal/testkit": {
       "full_s": 0.5,
-      "git_procs": 6
+      "git_procs": 45
     },
     "obor/internal/version": {
       "full_s": 0.4,
