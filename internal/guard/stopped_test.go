@@ -2,6 +2,7 @@ package guard
 
 import (
 	"encoding/json"
+	"io"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestHooksStandDownInAStoppedProject(t *testing.T) {
 	turn, _ := json.Marshal(map[string]any{"cwd": o1})
 	failure, _ := json.Marshal(map[string]any{"cwd": o1, "error": "rate_limit"})
 	acts := func() (deny bool, stop, prompt, session string, turned, failed bool) {
-		code, _ := Run(commit, f.Env("OBOR_ROLE=worker", "OBOR_AGENT=pj-l1"))
+		code, _ := Run(commit, f.Env("OBOR_ROLE=worker", "OBOR_AGENT=pj-l1"), io.Discard)
 		r := f.stop(t, "-", o1, "")
 		_, turned = Turn(turn, f.Env("OBOR_AGENT=pj-l1"))
 		_, failed, _ = StopFailure(failure, f.Env("OBOR_AGENT=pj-l1"), time.Now())

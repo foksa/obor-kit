@@ -338,14 +338,15 @@ func sessionBegan(b guard.Began, log io.Writer) {
 	}
 }
 
-// preToolUse is the PreToolUse hook (bin/obor execs it): the hook JSON on stdin; allow = exit 0, no output; deny = exit 2, one line
-// "obor: …" on stderr. Anything else (unreadable stdin, an internal error) allows.
+// preToolUse is the PreToolUse hook (bin/obor execs it): the hook JSON on stdin; allow = exit 0, no output (one line
+// on stderr after the guard's recovered panic); deny = exit 2, one line "obor: …" on stderr. Anything else
+// (unreadable stdin, an internal error) allows.
 func preToolUse() int {
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return 0
 	}
-	code, reason := guard.Run(input, project.OSEnv)
+	code, reason := guard.Run(input, project.OSEnv, os.Stderr)
 	if code == 2 {
 		errf("obor: %s", reason)
 	}
