@@ -37,7 +37,7 @@ import (
 //     path policy as the editor tools (protected files, the role's write profile, a final symlink at its target).
 //   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads, and a reviewer or deep
 //     dive also a checkout or switch to a commit in its own role worktree (headCheckout).
-//   - commands the project's guards.deny_commands matches: the rule's regex runs on the resolved command line
+//   - commands the project's rules.deny_commands matches: the rule's regex runs on the resolved command line
 //     (the program by its basename, its words one space apart); a rule with Alone denies at once, one without denies
 //     two matching commands at once (sibling background units, a literal fan-out above one under xargs / parallel).
 //
@@ -59,7 +59,7 @@ type shell struct {
 	ctx    []string // the words of the commands a nested string came from (sh -c, eval, find -exec)
 	bg     bool     // this scope runs in the background (an & of an enclosing statement)
 	par    bool     // this command runs under a parallel fan-out (xargs -P, parallel)
-	bgUnit *[]bool  // per guards.deny_commands rule: this background sibling matched the rule
+	bgUnit *[]bool  // per rules.deny_commands rule: this background sibling matched the rule
 }
 
 // script checks every statement of src in a new shell scope (a child process: its cd and variables stay inside).
@@ -538,9 +538,9 @@ func positionals(args, valueOpts []string) []string {
 	return out
 }
 
-// ---- guards.deny_commands ------------------------------------------------------------------------------------
+// ---- rules.deny_commands ------------------------------------------------------------------------------------
 
-// denyCommands denies command W[k:] when a guards.deny_commands rule matches its resolved line: the program by its
+// denyCommands denies command W[k:] when a rules.deny_commands rule matches its resolved line: the program by its
 // basename, its words one space apart (quotes removed, known variables substituted). A rule with Alone denies at once;
 // one without denies only when two matching commands run at once — s.par is a literal fan-out, and stmts counts the
 // background units it marked (the generic form of the two-at-once rule).
@@ -1370,13 +1370,13 @@ func (g *guard) gitTop(dir, gitDir, workTree string) string {
 	return ""
 }
 
-// checkPush: a push is allowed only for a non-worker whose role is in guards.allow_push (config.PushAllowed:
+// checkPush: a push is allowed only for a non-worker whose role is in rules.may_push (config.PushAllowed:
 // an entry is a role, or a derived name read as its slot).
 func (g *guard) checkPush(what string) {
 	if g.cfg.MayPush(g.role) { // never a worker's or a driver's
 		return
 	}
-	deny(what + " is blocked — only a non-worker role listed in guards.allow_push may push; otherwise the user pushes")
+	deny(what + " is blocked — only a non-worker role listed in rules.may_push may push; otherwise the user pushes")
 }
 
 // gh <args>: pushes are `repo create … --push`, `pr create` and `repo sync <repo>`.

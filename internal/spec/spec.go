@@ -1,6 +1,6 @@
 // Package spec reads a task spec's text once (Parse) into the fields its readers use, refuses what obor spec set may
-// not store (Validate); and matches path globs (config globs: protected_files, merge classes). The text is the store's
-// (internal/store specs): a row carries the parsed value.
+// not store (Validate); and matches path globs (config globs: rules.protected_files, merge classes). The text is the
+// store's (internal/store specs): a row carries the parsed value.
 package spec
 
 import (

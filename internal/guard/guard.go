@@ -1,9 +1,10 @@
 // Package guard is obor's Claude Code hooks: the Stop, SessionStart and UserPromptSubmit hooks (stop.go, session.go,
 // prompt.go) and the PreToolUse hook (`obor hook pre-tool-use`, run through bin/obor): the event JSON in,
-// allow (exit 0, no output) or deny (exit 2, one line "obor: …" on stderr). Bash commands are parsed with
-// mvdan.cc/sh/v3/syntax (shell.go); a command the project's guards.deny_commands matches is denied for every role
+// allow (exit 0: normally no output, one line on stderr after a recovered panic) or deny (exit 2, one line "obor: …"
+// on stderr). Bash commands are parsed with
+// mvdan.cc/sh/v3/syntax (shell.go); a command the project's rules.deny_commands matches is denied for every role
 // (obor-kit's config carries the Go load-run rule); writes — the editor tools and the Bash write targets
-// alike (checkWrite) — are checked against protected_files and the role's write profile (config.Role: a
+// alike (checkWrite) — are checked against rules.protected_files and the role's write profile (config.Role: a
 // reviewer or deep_dive writes only under the main checkout's reviews.dir, never in its own role
 // worktree; a custom role — advisor, researcher, triage, a project's own — only its write list; a role
 // whose roles.<name> row is missing while its agent runs writes nothing and reads git only; a final symlink at
@@ -20,7 +21,8 @@
 // variable set by an earlier call). The git pre-push hook is the backstop for pushes. Writes by an interpreter or a
 // script (python, node, a script file) are not checked at all.
 //
-// Fails open: no project, no .obor/config.json, bad input or any internal error → allow. Only a matched rule denies.
+// Fails open: no project, no .obor/config.json, bad input or any internal error → allow; a panic that is not a
+// denial allows and leaves one line on stderr. Only a matched rule denies.
 // Fails closed on a.obor/config.json that exists but does not load (an unknown key is ignored): every
 // session but a lead (and a role-less one in the main checkout) is denied writes inside the repo's worktrees and git
 // writes; git push, pkill/killall and headless agent runs stay denied for everyone, on the default config.
@@ -29,6 +31,8 @@ package guard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -48,14 +52,14 @@ type denial struct{ reason string }
 
 func deny(reason string) { panic(denial{reason}) }
 
-// denyRule is one compiled guards.deny_commands entry.
+// denyRule is one compiled rules.deny_commands entry.
 type denyRule struct {
 	re      *regexp.Regexp
 	alone   bool // deny a matching command run alone; without it only two matching commands at once are denied
 	message string
 }
 
-// denyRules compiles the project's guards.deny_commands. A pattern that does not compile is skipped: config validate
+// denyRules compiles the project's rules.deny_commands. A pattern that does not compile is skipped: config validate
 // refuses it, and the guard fails open (only a matched rule denies).
 func denyRules(cfg *config.Config) []denyRule {
 	if cfg == nil {
@@ -73,15 +77,12 @@ func denyRules(cfg *config.Config) []denyRule {
 }
 
 // Run checks one hook call (the PreToolUse event JSON) in the environment env: 0 and "" to allow, 2 and the reason
-// line (without "obor: ") to deny.
-func Run(input []byte, env project.Env) (code int, reason string) {
+// line (without "obor: ") to deny. A panic that is not a denial allows and leaves one line naming the guard and the
+// panic on errw (fail open: the hook contract reads exit 2 as a denial).
+func Run(input []byte, env project.Env, errw io.Writer) (code int, reason string) {
 	defer func() {
 		if r := recover(); r != nil {
-			if d, ok := r.(denial); ok {
-				code, reason = 2, d.reason
-				return
-			}
-			code, reason = 0, ""
+			code, reason = recovered(r, errw)
 		}
 	}()
 	g := load(input, env)
@@ -93,6 +94,18 @@ func Run(input []byte, env project.Env) (code int, reason string) {
 		g.recordBackground()
 	} else {
 		g.edit()
+	}
+	return 0, ""
+}
+
+// recovered is the answer a recovered panic ends the check with: a denial denies; any other panic allows and says so
+// on errw (nil writes nowhere), never re-panicking (Go exits 2 there, which the hook reads as a denial).
+func recovered(r any, errw io.Writer) (code int, reason string) {
+	if d, ok := r.(denial); ok {
+		return 2, d.reason
+	}
+	if errw != nil {
+		fmt.Fprintf(errw, "obor guard: internal panic; allowing the call: %v\n", r)
 	}
 	return 0, ""
 }
@@ -121,7 +134,7 @@ type guard struct {
 	broken                 error // the config does not load (cfg is config.Fallback): fail closed
 	root, top              string
 
-	rules []denyRule // guards.deny_commands, compiled once per call
+	rules []denyRule // rules.deny_commands, compiled once per call
 
 	protected []string
 
@@ -217,7 +230,7 @@ func load(input []byte, env project.Env) *guard {
 func norm(p string) string { return filepath.Clean("/" + p) }
 
 // detectRole: the session's role (design "Roles"): project.DetectRole (a lane cwd makes a worker, whatever the env).
-// protected_files bind every session but a lead and a role-less one in the main checkout.
+// rules.protected_files bind every session but a lead and a role-less one in the main checkout.
 func (g *guard) detectRole() {
 	g.detected = project.DetectRole(g.repo, g.cfg, g.env)
 	g.role, g.lane = g.detected.Role, g.detected.Lane
@@ -339,7 +352,7 @@ func (g *guard) protectedAt(p string) {
 				who += "; a lead can unlock it for one task by naming the exact path under the spec's \"" +
 					spec.ProtectedHeading + "\"; don't write it through a script or another tool"
 			}
-			deny(r + " is a protected file (protected_files in .obor/config.json; " + who)
+			deny(r + " is a protected file (rules.protected_files in .obor/config.json; " + who)
 		}
 	}
 }

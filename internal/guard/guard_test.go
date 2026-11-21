@@ -2,6 +2,8 @@ package guard
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -73,7 +75,7 @@ func runAs(p *testkit.Project, who string, input []byte, env ...string) (int, st
 	if role == "-" {
 		role = ""
 	}
-	return Run(input, p.Env(append([]string{"OBOR_ROLE=" + role, "OBOR_AGENT=" + agent}, env...)...))
+	return Run(input, p.Env(append([]string{"OBOR_ROLE=" + role, "OBOR_AGENT=" + agent}, env...)...), io.Discard)
 }
 
 func check(t *testing.T, p *testkit.Project, cases []tc, env ...string) {
@@ -148,22 +150,22 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 		bash("lead", P, "gh repo sync owner/repo", ""),
 		bash("lead pj-old-lead", P, "git push", ""), // a stale OBOR_AGENT changes nothing
 		// Listed, but a worker: OBOR_ROLE=worker, or a lane cwd (even with a non-worker OBOR_ROLE).
-		bash("worker", P, "git push", "guards.allow_push"),
-		bash("worker pj-lead", P, "gh pr create", "guards.allow_push"),
-		bash("-", L, "git push", "guards.allow_push"),
-		bash("lead", L, "gh repo create r --push", "guards.allow_push"),
-		bash("- pj-l-01", L, "git push", "guards.allow_push"),
+		bash("worker", P, "git push", "rules.may_push"),
+		bash("worker pj-lead", P, "gh pr create", "rules.may_push"),
+		bash("-", L, "git push", "rules.may_push"),
+		bash("lead", L, "gh repo create r --push", "rules.may_push"),
+		bash("- pj-l-01", L, "git push", "rules.may_push"),
 		// An unlisted role, or no role: an OBOR_AGENT naming the lead is no identity.
-		bash("integrator", P, "git push", "guards.allow_push"),
-		bash("integrator pj-lead", P, "git -C x push", "guards.allow_push"),
+		bash("integrator", P, "git push", "rules.may_push"),
+		bash("integrator pj-lead", P, "git -C x push", "rules.may_push"),
 		bash("reviewer", P, "gh repo create r --push", "gh repo create --push"),
 		bash("reviewer", P, "gh pr create", "gh pr create (pushes the branch)"),
 		bash("reviewer", P, "gh pr create --head b --base main", "gh pr create"),
 		bash("reviewer", P, "gh repo sync owner/repo", "gh repo sync <repo>"),
 		bash("reviewer", P, "gh repo sync -b main owner/repo", "gh repo sync"),
 		bash("reviewer", P, "bash -c 'gh pr create'", "gh pr create"),
-		bash("- pj-lead", P, "git push", "guards.allow_push"),
-		bash("-", P, "gh pr create", "guards.allow_push"),
+		bash("- pj-lead", P, "git push", "rules.may_push"),
+		bash("-", P, "gh pr create", "rules.may_push"),
 		// Not pushes.
 		bash("reviewer", P, "gh repo create r", ""),
 		bash("reviewer", P, "gh repo sync", ""),
@@ -173,7 +175,7 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 		bash("reviewer", P, "echo gh pr create", ""),
 		bash("reviewer", P, "gh", ""),
 	})
-	// No guards.allow_push, or an entry that names no role (an agent's derived name too) → everyone denied.
+	// No rules.may_push, or an entry that names no role (an agent's derived name too) → everyone denied.
 	for _, list := range []string{"", `["pj-boss"]`, `["pj-lead"]`} {
 		edits := []func(map[string]any){testkit.Set("rules.protected_files", `["src/core/types.ts"]`)}
 		if list != "" {
@@ -181,8 +183,8 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 		}
 		f.Config(edits...)
 		check(t, f.Project, []tc{
-			bash("lead", P, "git push", "guards.allow_push"),
-			bash("lead pj-boss", P, "gh pr create", "guards.allow_push"),
+			bash("lead", P, "git push", "rules.may_push"),
+			bash("lead pj-boss", P, "gh pr create", "rules.may_push"),
 		})
 	}
 }
@@ -313,7 +315,7 @@ func TestHeadlessByArgvStructure(t *testing.T) {
 	})
 }
 
-// kitDenyCommands is obor-kit's guards.deny_commands (testdata/deny-commands.json, the two entries its
+// kitDenyCommands is obor-kit's rules.deny_commands (testdata/deny-commands.json, the two entries its
 // .obor/config.json carries): the Go load-run rule the config holds — the flag forms that run the tests many times
 // (alone) and two test commands at once.
 func kitDenyCommands(t *testing.T) string {
@@ -325,7 +327,7 @@ func kitDenyCommands(t *testing.T) string {
 	return string(b)
 }
 
-// guards.deny_commands is a project's own deny rules, in config. obor-kit's two rules deny the commands its Go
+// rules.deny_commands is a project's own deny rules, in config. obor-kit's two rules deny the commands its Go
 // load-run rule names, with the same messages; a config that sets a rule of its own (a bun project's) denies it there,
 // a config with no rules denies nothing, and a rule without Alone denies only two matching commands at once.
 func TestDenyCommands(t *testing.T) {
@@ -896,7 +898,7 @@ func TestProtectedFilesDeniedForNonLeads(t *testing.T) {
 	f.Write(f.Base+"/outside/types.ts", "")
 	check(t, f.Project, []tc{
 		edit("-", L, "Edit", L+"/src/core/other.ts", ""),
-		edit("-", L, "Edit", L+"/src/core/types.ts", "src/core/types.ts is a protected file (protected_files in .obor/config.json; lead-only) — don't change it; ask the lead"),
+		edit("-", L, "Edit", L+"/src/core/types.ts", "src/core/types.ts is a protected file (rules.protected_files in .obor/config.json; lead-only) — don't change it; ask the lead"),
 		edit("-", L, "NotebookEdit", L+"/src/core/types.ts", "protected"),
 		edit("integrator", P, "Edit", P+"/src/core/types.ts", "protected"),
 		edit("reviewer", P, "Write", P+"/src/core/types.ts", "protected"),
@@ -942,7 +944,7 @@ func TestProtectedFileUnlockedByExactSpecEntry(t *testing.T) {
 	unlock := "a lead can unlock it for one task by naming the exact path under the spec's \"Protected files this task may edit\"; don't write it through a script or another tool"
 	// Not in the spec at all → denied as today, with the unlock hint for a worker.
 	check(t, f.Project, []tc{
-		edit("-", L, "Edit", L+"/src/core/types.ts", "src/core/types.ts is a protected file (protected_files in .obor/config.json; lead-only) — don't change it; ask the lead (final message or QUESTIONS.md); "+unlock),
+		edit("-", L, "Edit", L+"/src/core/types.ts", "src/core/types.ts is a protected file (rules.protected_files in .obor/config.json; lead-only) — don't change it; ask the lead (final message or QUESTIONS.md); "+unlock),
 		bash("-", L, "echo x > src/core/types.ts", unlock),
 	})
 	// Globs that match only → still denied, with the hint; so is the exact path under an earlier files heading.
@@ -1205,6 +1207,22 @@ func TestOtherToolsAndBadInputAllow(t *testing.T) {
 	}
 }
 
+// A panic that is not a denial still allows, and leaves one line on the guard's stderr; a denial still denies.
+func TestRecoveredPanicAllowsAndSaysSo(t *testing.T) {
+	t.Parallel()
+	var buf strings.Builder
+	code, reason := recovered(errors.New("boom"), &buf)
+	if code != 0 || reason != "" {
+		t.Errorf("panic: %d %q, want allow with no reason", code, reason)
+	}
+	if got, want := buf.String(), "obor guard: internal panic; allowing the call: boom\n"; got != want {
+		t.Errorf("line %q, want %q", got, want)
+	}
+	if code, reason := recovered(denial{"git push is blocked"}, io.Discard); code != 2 || reason != "git push is blocked" {
+		t.Errorf("denial: %d %q, want 2 and its reason", code, reason)
+	}
+}
+
 // bash case_timing_50_runs (OBOR_TEST_PERF): go test -run - -bench Guard ./internal/guard
 func BenchmarkGuardBash(b *testing.B) {
 	b.StopTimer()
@@ -1212,7 +1230,7 @@ func BenchmarkGuardBash(b *testing.B) {
 	in := bash("-", f.L, "cd src && git status --short && echo ok > /tmp/obor-x.txt", "").input(nil)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		if code, reason := Run(in, f.Env()); code != 0 {
+		if code, reason := Run(in, f.Env(), io.Discard); code != 0 {
 			b.Fatal(reason)
 		}
 	}
@@ -1736,7 +1754,7 @@ func TestGitReadForms(t *testing.T) {
 }
 
 // the owner's drive agent (OBOR_ROLE=driver) in its lane edits only there (no other worktree, the main checkout
-// included), no protected file (its spec unlocks none), and never pushes, even when guards.allow_push names it; unlike
+// included), no protected file (its spec unlocks none), and never pushes, even when rules.may_push names it; unlike
 // a worker it commits on its branch (obor land commits nothing).
 func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
 	t.Parallel()

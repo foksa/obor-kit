@@ -214,13 +214,13 @@ func recordable(agent string) bool {
 	return agent != "" && !strings.Contains(agent, "/") && !strings.HasPrefix(agent, ".")
 }
 
-// loadRuns is the hooks-line clause of guards.deny_commands: how many rules this project's config denies
+// loadRuns is the hooks-line clause of rules.deny_commands: how many rules this project's config denies
 // with.
 func loadRuns(n int) string {
 	if n == 1 {
-		return "1 deny rule from guards.deny_commands"
+		return "1 deny rule from rules.deny_commands"
 	}
-	return fmt.Sprintf("%d deny rules from guards.deny_commands", n)
+	return fmt.Sprintf("%d deny rules from rules.deny_commands", n)
 }
 
 // headlessForms are the headless runs the guard denies, one per kind of kinds (agents.Kind.Headless): its first program

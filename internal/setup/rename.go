@@ -8,7 +8,7 @@ package setup
 //	0 stop     no serve holds .obor/state/serve.flock (a flock held, or a pid in the file that still lives) and no
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
 //	1 config, .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them;
-//	           a derived name in guards.allow_push becomes its role)
+//	           a derived name in rules.may_push becomes its role)
 //	           (no store step: a lane's agent is derived from the config, no lane row stores one)
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
@@ -191,7 +191,7 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 	return append(ind.Bytes(), '\n'), nil
 }
 
-// pushRoles rewrites each guards.allow_push entry that is a role's derived name under the old prefix ("ob-lead") to the
+// pushRoles rewrites each rules.may_push entry that is a role's derived name under the old prefix ("ob-lead") to the
 // role ("lead"): a derived name would resolve against the new prefix and name no role. Role entries and unrelated
 // entries stay. It runs before the prefix changes.
 func (r *renamer) pushRoles(out *[]byte) error {
