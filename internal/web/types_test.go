@@ -3,7 +3,7 @@ package web
 // The page's hand-kept copy of the API's JSON, tied to the Go structs that write it (docs/research/data-model.md
 // task A1): every interface of web/src/lib/types.ts has the same property names as its Go struct's json tags, and every
 // string set of web/src/lib is made of Go's constants. A field one side has and the other lacks fails here, before it
-// can drift to a page that reads a field Go never sets (Lane.hold) or misses one Go sends (TaskStatus.stage).
+// can drift to a page that reads a field Go never sets (Lane.hold) or misses one Go sends (MergeItem.stage).
 
 import (
 	"encoding/json"
@@ -42,7 +42,6 @@ var goStructs = map[string]reflect.Type{
 	"FullCheck":        reflect.TypeOf(view.FullCheck{}),
 	"Pause":            reflect.TypeOf(view.Pause{}),
 	"PendingStep":      reflect.TypeOf(wire.PendingStep{}),
-	"TaskStatus":       reflect.TypeOf(wire.TaskStatus{}),
 	"AgentStatus":      reflect.TypeOf(wire.AgentStatus{}),
 	"MessageStatus":    reflect.TypeOf(wire.MessageStatus{}),
 	"WatchStatus":      reflect.TypeOf(wire.WatchStatus{}),
@@ -56,6 +55,7 @@ var goStructs = map[string]reflect.Type{
 	"Queue":            reflect.TypeOf(view.Queue{}),
 	"Event":            reflect.TypeOf(view.Event{}),
 	"EventsPage":       reflect.TypeOf(view.EventsPage{}),
+	"Cursor":           reflect.TypeOf(Cursor{}),
 	"LaneDot":          reflect.TypeOf(LaneDot{}),
 	"Waiting":          reflect.TypeOf(Waiting{}),
 	"ProjectsEntry":    reflect.TypeOf(ProjectsEntry{}),

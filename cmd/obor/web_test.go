@@ -5,6 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/config"
+	"obor/internal/hc"
+	"obor/internal/herdr"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -48,5 +52,36 @@ func TestWebPortHeld(t *testing.T) {
 		strings.Count(strings.TrimSpace(stderr), "\n") != 0 {
 		t.Errorf("a held port: exit %d, %q, %q; want 1, nothing on stdout and one line naming %s", rc, stdout, stderr,
 			ln.Addr())
+	}
+}
+
+// obor web reads each project's panes through that project's own terminal (project.terminal): hc's client for an hc
+// project, herdr's socket for one on the default, beside each other in one web; a project with no config reads none.
+func TestWebProcessPicksEachProjectsTerminal(t *testing.T) {
+	t.Parallel()
+	env := project.Env(func(k string) (string, bool) {
+		v, ok := map[string]string{"HC_SOCKET": "/tmp/hc.sock", "HERDR_SOCKET_PATH": "/tmp/herdr.sock"}[k]
+		return v, ok
+	})
+	onHC := testkit.NewPlain(t)
+	onHC.Config(func(c map[string]any) { c["project"].(map[string]any)["terminal"] = config.TerminalHC })
+	onHerdr := testkit.NewPlain(t)
+	onHerdr.Config()
+	if cfg, err := config.Load(onHC.Root); err != nil || cfg.TerminalKind() != config.TerminalHC {
+		t.Fatalf("precondition: the hc project's config names hc: %v", err)
+	}
+	ht, err := webTerminal(env, onHC.Root)
+	if cl, ok := ht.Control.(*hc.Client); err != nil || !ok || cl.Path != "/tmp/hc.sock" {
+		t.Errorf("the hc project's terminal: control %T, %v; want hc's client of /tmp/hc.sock", ht.Control, err)
+	}
+	dt, err := webTerminal(env, onHerdr.Root)
+	if s, ok := dt.Control.(*herdr.Socket); err != nil || !ok || s.Path != "/tmp/herdr.sock" {
+		t.Errorf("the herdr project's terminal: control %T, %v; want herdr's socket /tmp/herdr.sock", dt.Control, err)
+	}
+	if webProcess(env)(onHC.Root) == nil || webProcess(env)(onHerdr.Root) == nil {
+		t.Errorf("webProcess reads no process info of a project whose terminal builds")
+	}
+	if f := webProcess(env)(testkit.NewDir(t).Root); f != nil {
+		t.Errorf("webProcess of a project with no config reads process info, want none")
 	}
 }

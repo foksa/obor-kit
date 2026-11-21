@@ -163,4 +163,11 @@ func TestDocSearchSnippets(t *testing.T) {
 	if !strings.Contains(got, "beta") {
 		t.Errorf("snippet = %q, want the earliest word beta in it", got)
 	}
+	// İ lower-cases to more bytes than it has: the needle at character 201 still opens the window snippetCut/4
+	// characters before it
+	dotted := strings.Repeat("İ", 200) + " needle " + strings.Repeat("y", 300)
+	got = snippet(dotted, []string{"NEEDLE"})
+	if want := string([]rune(dotted)[201-snippetCut/4 : 201-snippetCut/4+snippetCut]); got != want {
+		t.Errorf("snippet of a line of İ = %q, want the window around needle %q", got, want)
+	}
 }

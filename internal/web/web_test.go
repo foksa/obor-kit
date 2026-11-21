@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -410,6 +411,39 @@ func TestAgentPageOfRoles(t *testing.T) {
 	}
 }
 
+// TestCursorIsTheNewestSeq: /api/cursor answers with the seq of the store's newest record — the Seq a read of every
+// record since 0 ends on, worded or not — without building the view; a project with no store answers 0.
+func TestCursorIsTheNewestSeq(t *testing.T) {
+	p, _, s := fixture(t)
+	s.Wait, s.Poll = 50*time.Millisecond, 10*time.Millisecond
+	s.Build = func(context.Context, string) (view.Project, error) {
+		t.Error("/api/cursor built the view")
+		return view.Project{}, errors.New("no view")
+	}
+	bare := testkit.NewPlain(t)
+	s.Projects = func() []project.Project {
+		return []project.Project{{Name: "pj", Root: p.Root}, {Name: "bare", Root: bare.Root}}
+	}
+	h := s.Handler()
+	var all view.EventsPage
+	decode(t, get(t, h, "/api/events?project=pj&since=0"), &all)
+	if all.Seq < 3 {
+		t.Fatalf("precondition: %d records, want a store with a history", all.Seq)
+	}
+	r := get(t, h, "/api/cursor?project=pj")
+	if r.Code != http.StatusOK {
+		t.Fatalf("cursor: %d %s", r.Code, r.Body.String())
+	}
+	if got := strings.TrimSpace(r.Body.String()); got != fmt.Sprintf(`{"seq":%d}`, all.Seq) {
+		t.Errorf("/api/cursor: %s, want the newest seq %d and nothing else", got, all.Seq)
+	}
+	var c Cursor
+	decode(t, get(t, h, "/api/cursor?project=bare"), &c)
+	if c.Seq != 0 {
+		t.Errorf("/api/cursor of a project with no store: seq %d, want 0", c.Seq)
+	}
+}
+
 // TestEventsSince: /api/events answers with the records newer than since only (the store's seq is the cursor), and
 // with its Seq as the next since.
 func TestEventsSince(t *testing.T) {
@@ -571,7 +605,7 @@ func TestEveryRouteRefusesAForeignHost(t *testing.T) {
 	h := s.Handler()
 	gets := []string{"/api/projects", "/api/view?project=pj", "/api/setup?project=pj",
 		"/api/task?project=pj&task=T-01", "/api/agent?project=pj&agent=pj-l1", "/api/job?project=pj&job=T-01/1/work",
-		"/api/events?project=pj&since=" + since, "/api/help", "/"}
+		"/api/cursor?project=pj", "/api/events?project=pj&since=" + since, "/api/help", "/"}
 	posts := []struct{ url, body string }{
 		{"/api/config?project=pj", `{"changes":[{"key":"lanes.L-01","value":"opus"}],"base":"r1"}`},
 		{"/api/pause?project=pj", `{"clear":true}`},

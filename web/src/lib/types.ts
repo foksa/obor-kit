@@ -121,32 +121,6 @@ export interface PendingStep {
   failed_at?: number;
 }
 
-export interface TaskStatus {
-  task: string;
-  lane: string;
-  attempt: number;
-  state: string;
-  ended?: boolean;
-  phase: string;
-  stage?: string;
-  running?: string;
-  after?: string[];
-  why?: string;
-  high?: boolean; // its dispatch goes first for the next free lane when it waits
-  waiting?: boolean; // the merge loop's waiting predicate: the view's queue lists it
-  rank?: number; // waiting: its place in serve's pass order, the queue's order (absent: not a waiting dispatch)
-  level?: string;
-  types?: string[];
-  difficulty?: string;
-  model?: string;
-  ref?: string; // its spec's Ref: an external tracker's id
-  effort?: string;
-  job?: string;
-  delivered?: boolean;
-  stopping?: string;
-  started?: number; // when serve last tried to start its lane agent (epoch seconds)
-}
-
 export interface AgentStatus {
   machine: string;
   workspace: string;
@@ -269,6 +243,11 @@ export interface Event {
 export interface EventsPage {
   seq: number;
   events: Event[];
+}
+
+// Cursor is /api/cursor's answer: the project's newest record's seq, a page's first /api/events since.
+export interface Cursor {
+  seq: number;
 }
 
 export interface ProjectView {

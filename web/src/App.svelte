@@ -4,11 +4,10 @@
   import { onDestroy } from "svelte";
   import { router, go } from "./lib/router.svelte";
   import { href, pageKey } from "./lib/route";
-  import { Live, mark } from "./lib/live.svelte";
-  import { api } from "./lib/api";
+  import { mark } from "./lib/live.svelte";
+  import { projects, holdProjects } from "./lib/projects.svelte";
   import { build, reload } from "./lib/build.svelte";
   import { projectState } from "./lib/fleet";
-  import type { ProjectsEntry } from "./lib/types";
   import Fleet from "./pages/Fleet.svelte";
   import Project from "./pages/Project.svelte";
   import Task from "./pages/Task.svelte";
@@ -23,10 +22,8 @@
 
   const route = $derived(router.route);
 
-  // The projects list feeds the sidebar on every page (the fleet page reads its own, live).
-  const projects = new Live<ProjectsEntry[]>((s) => api.projects(s));
-  projects.start();
-  onDestroy(() => projects.stop());
+  // The projects list feeds the sidebar on every page (the fleet page shows the same read).
+  onDestroy(holdProjects());
 
   // crumbs is where you are, after the fleet.
   const crumbs = $derived.by(() => {

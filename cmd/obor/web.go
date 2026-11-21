@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/web"
@@ -55,14 +57,7 @@ func webCmd(args []string) int {
 		errf("obor web: %v%s", err, heldBy(project.OSEnv, addr))
 		return 1
 	}
-	// One terminal for the machine's overviews: the projects' panes' process info (each project's own kind is the
-	// default until a second terminal exists).
-	t, err := terminal(nil, project.OSEnv)
-	if err != nil {
-		errf("obor web: %v", err)
-		return 1
-	}
-	srv := &http.Server{Handler: (&web.Server{Events: statusEvents, Process: t.Control.ProcessInfo}).Handler(),
+	srv := &http.Server{Handler: (&web.Server{Events: statusEvents, Process: webProcess(project.OSEnv)}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second}
 	fmt.Fprintf(out, "obor web: http://%s/ (localhost; Ctrl-C ends it)\n", ln.Addr())
 	out.Flush() // said before the first request, not when the process ends
@@ -99,6 +94,28 @@ func webCmd(args []string) int {
 		return 1
 	}
 	return 0 // only a test's selfExec returns nil
+}
+
+// webProcess is obor web's process info of a project's panes: its own terminal's (webTerminal). A project whose
+// terminal obor cannot build reads none, as obor status shows none.
+func webProcess(env project.Env) func(root string) func(context.Context, string) (port.ProcessInfo, error) {
+	return func(root string) func(context.Context, string) (port.ProcessInfo, error) {
+		t, err := webTerminal(env, root)
+		if err != nil {
+			return nil
+		}
+		return t.Control.ProcessInfo
+	}
+}
+
+// webTerminal is the terminal of the project at root (project.terminal), its config read at each call so a changed
+// terminal counts.
+func webTerminal(env project.Env, root string) (port.Terminal, error) {
+	cfg, err := config.Load(root)
+	if err != nil {
+		return port.Terminal{}, err
+	}
+	return terminal(cfg, env)
 }
 
 // webFollowEvery is how often obor web asks whether a new obor binary is there; a test shortens it.

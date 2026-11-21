@@ -3,9 +3,8 @@
   // work — the lead and the role agents —, the steps running), the counts across them, a card per project (with the
   // agents waiting for the owner's input), and their events together.
   import { onDestroy } from "svelte";
-  import { Live } from "../lib/live.svelte";
+  import { projects, holdProjects } from "../lib/projects.svelte";
   import Stale from "../ui/Stale.svelte";
-  import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { dur, human, now, tone, unixOf } from "../lib/format";
   import { fleetRoles, waitingText } from "../lib/fleet";
@@ -23,9 +22,8 @@
   import TaskLink from "../ui/TaskLink.svelte";
   import AgentLink from "../ui/AgentLink.svelte";
 
-  const live = new Live<ProjectsEntry[]>((s) => api.projects(s));
-  live.start();
-  onDestroy(() => live.stop());
+  const live = projects; // the shell's read, shared
+  onDestroy(holdProjects());
 
   const ps = $derived(live.data || []);
   const sum = (f: (p: ProjectsEntry) => number) => ps.reduce((n, p) => n + f(p), 0);
