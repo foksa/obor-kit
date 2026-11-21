@@ -6,7 +6,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 	"os"
 	"path/filepath"
@@ -72,7 +71,7 @@ func codexStoppedOn(t *testing.T, limited, reason string) codexRig {
 		return n
 	}
 	c.append(cdxStarted)
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Transcript = "codex", rollout })
+	r.setPane("w1:p1", func(p *port.Pane) { p.Agent, p.Transcript = "codex", rollout })
 	r.workerIs("idle") // the turn's start is the last event: running, not stopped
 	r.passes()
 	if r.taskStep(event.MsgTask, "fact stopped") != 0 || r.hasPrefix("0 fact needs-you") {
@@ -177,10 +176,8 @@ func (r *loopRig) wakes() int { return r.typedTo("pj-l-01", continueLine) }
 // alarms is how many notifications the owner got of T-1's alarm.
 func (r *loopRig) alarms() int {
 	n := 0
-	for _, req := range r.srv.Requests() {
-		var p struct{ Body string }
-		_ = json.Unmarshal(req.Params, &p)
-		if req.Method == "notification.show" && strings.HasPrefix(p.Body, "T-1 ") && strings.HasSuffix(p.Body, stillStopped) {
+	for _, p := range r.notifications() {
+		if strings.HasPrefix(p.Body, "T-1 ") && strings.HasSuffix(p.Body, stillStopped) {
 			n++
 		}
 	}
@@ -333,7 +330,7 @@ func (r *loopRig) resumes() int {
 	return r.disp.resumes
 }
 
-// startedWith waits for the rule's first start applied, moving the clock past the settle while there is none (a herdr
+// startedWith waits for the rule's first start applied, moving the clock past the settle while there is none (a
 // resubscribe gap, which the rig's pushes cause, holds no condition for a pass and so starts the settle again), then
 // for pj-l-01 up again; that start was in w1:p1 with job's wake.
 func (r *loopRig) startedWith(job string) {

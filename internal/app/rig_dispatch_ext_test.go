@@ -10,8 +10,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 	"path/filepath"
 	"slices"
@@ -43,13 +41,11 @@ func (r *loopRig) agentGone(pane, agent string, fn func(p *port.Pane)) {
 // Claude session gets them posted to its inbox (nothing typed into its pane, no ctrl+u), Codex and OpenCode panes get
 // them typed into theirs. A Claude session with no inbox record: a line stays queued, a job wake is typed (the fallback).
 
-// keysTo is the agent.send_keys requests to agent.
+// keysTo is the keys sent to agent (its name, or its pane): keys, and a prompt's clear of the input line.
 func (r *loopRig) keysTo(agent string) int {
 	n := 0
-	for _, req := range r.srv.Requests() {
-		var p struct{ Target string }
-		_ = json.Unmarshal(req.Params, &p)
-		if req.Method == "agent.send_keys" && p.Target == agent {
+	for _, c := range r.tt.Calls("") {
+		if rigAgent(c.Pane) == agent && (c.Op == testkit.OpKeys || c.Op == testkit.OpPrompt && c.Submit) {
 			n++
 		}
 	}
@@ -126,7 +122,7 @@ type dispatchFakes struct {
 	hit  map[string]bool
 }
 
-func (d *dispatchFakes) loop(fx *app.Loop, panes herdr.Panes) {
+func (d *dispatchFakes) loop(fx *app.Loop) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	kit, _ := filepath.Abs("../..")
@@ -134,7 +130,7 @@ func (d *dispatchFakes) loop(fx *app.Loop, panes herdr.Panes) {
 		fx.Workflow, fx.Specs = app.WorkflowOf(fx.Workflow, d), d
 	}
 	fx.Kit = kit
-	fx.Prompter = cutPrompter{d, panes.S}
+	fx.Prompter = cutPrompter{d, d.r.tt}
 }
 
 // enter counts a call of method and gives its armed failure (nil: act).
@@ -224,17 +220,18 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 		d.session++
 	}
 	transcript := "/s/" + string(rune('0'+d.session)) + ".jsonl"
-	sid := transcript // herdr's session id of the agent: what the start reports and the pane shows
+	sid := transcript // the terminal's session id of the agent: what the start reports and the pane shows
 	if d.sessionless {
 		sid = ""
 	}
 	d.mu.Unlock()
 	// The lane's pane the start names: the lane's own, or the one serve placed for it.
-	if !d.r.f.Set(req.Pane, func(p *herdrtest.Pane) {
-		p.Kind, p.Name, p.Status, p.Transcript, p.Session = "claude", "pj-l-01", "idle", transcript, sid
+	if !d.r.setPane(req.Pane, func(p *port.Pane) {
+		p.Agent, p.Status, p.Transcript, p.Session = "claude", "idle", transcript, sid
 	}) {
 		return port.Started{}, errors.New("unexpected start of pj-l-01 in " + req.Pane)
 	}
+	d.r.setName(req.Pane, "pj-l-01")
 	d.r.push()
 	d.mu.Lock()
 	gate := d.gate
@@ -252,7 +249,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	return port.Started{Line: "STARTED pj-l-01", Pane: req.Pane, Kind: "claude", Session: sid}, nil
 }
 
-// cutPrompter is the herdr prompter with the work job's cut points.
+// cutPrompter is the terminal's prompter with the work job's cut points.
 type cutPrompter struct {
 	d     *dispatchFakes
 	inner port.Prompter
@@ -331,10 +328,10 @@ func (r *loopRig) dispatchedOnto(reply string, err error) {
 	}
 }
 
-// workerIs sets pj-l-01's status in the fake herdr and waits until the app sees it.
+// workerIs sets pj-l-01's status in the terminal and waits until the app sees it.
 func (r *loopRig) workerIs(status string) {
 	r.t.Helper()
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = status })
+	r.setPane("w1:p1", func(p *port.Pane) { p.Status = status })
 	r.waitFor("pj-l-01 "+status, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == "pj-l-01" && a.Status == status {
@@ -460,7 +457,7 @@ func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 // gap answered "its agent is not running" under load.
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
-	r.f.Agent("w1:p5", "pj-l-01-drive", "idle", r.lane, func(p *herdrtest.Pane) { p.Label = "pj-l-01-drive" })
+	r.addPane(agentPane("w1:p5", "pj-l-01-drive", r.lane))
 	r.waitFor("pj-l-01-drive identified", func() bool {
 		if app.IsIdentified(r.app, r.p.Root, "pj-l-01-drive") {
 			return true
@@ -470,11 +467,11 @@ func (r *loopRig) driveAgentUp() {
 	})
 }
 
-// paneCreated tells serve pane exists: a pane.created event, which serve answers by reading the pane again, in place (no
-// refresh). The pane is the event's own, so serve's proof reads its label and workspace from here.
+// paneCreated tells serve pane exists: its created event, which serve answers in place (no refresh). The pane is the
+// event's own, so serve's proof reads its label and group from here.
 func (r *loopRig) paneCreated(pane, label string) {
-	r.srv.Push("pane_created", map[string]any{"type": "pane_created", "pane_id": pane,
-		"pane": map[string]any{"pane_id": pane, "label": label, "workspace_id": "w1"}})
+	r.setPane(pane, func(p *port.Pane) { p.Label = label })
+	r.announce(pane)
 }
 
 // driveLines is the lead's lines that a drive came back to its owner.
@@ -547,7 +544,7 @@ func (r *loopRig) toDrive(line string) int {
 // driveStatus sets the drive agent's pane status and waits until the app sees it.
 func (r *loopRig) driveStatus(status string) {
 	r.t.Helper()
-	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Status = status })
+	r.setPane("w1:p5", func(p *port.Pane) { p.Status = status })
 	r.waitFor("pj-l-01-drive "+status, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == "pj-l-01-drive" && a.Status == status {
@@ -989,10 +986,10 @@ func (r *loopRig) idleAcked() string {
 
 // The integrator's jobs: their delivery and stall timers on the app's clock, obor hold and obor resume.
 
-// integratorIs sets pj-int's status in the fake herdr and waits until the app sees it.
+// integratorIs sets pj-int's status in the terminal and waits until the app sees it.
 func (r *loopRig) integratorIs(status string) {
 	r.t.Helper()
-	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Status = status })
+	r.setPane("w1:p9", func(p *port.Pane) { p.Status = status })
 	r.waitFor("pj-int "+status, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == "pj-int" && a.Status == status {
@@ -1008,13 +1005,13 @@ func (r *loopRig) integratorIs(status string) {
 // its idle is gone again once the next pass stops it, so a wait on obor status's "idle" can miss it;
 // the stop is a rule now and is done when the pane is at its shell.
 //
-// One refresh, then no push while it waits: the rule stops pj-int only on a pass that stays on one herdr stream
+// One refresh, then no push while it waits: the rule stops pj-int only on a pass that stays on one stream
 // from its start to the rule (whereIs is "not connected" in a resubscribe's gap), and a push ends the stream. Pushed
 // on every poll, the streams were shorter than a pass under load, so the stop waited a minute and more; serve's tick
 // runs the passes, and the stop's own refreshes (the rig's Stop) end once serve sees pj-int gone.
 func (r *loopRig) integratorStops() {
 	r.t.Helper()
-	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Status = "idle" })
+	r.setPane("w1:p9", func(p *port.Pane) { p.Status = "idle" })
 	r.connectedAgain() // serve reads the idle from a snapshot taken after the Set
 	r.waitFor("the stop of pj-int", func() bool { return slices.Contains(r.app.Status().Project.Stopped, "pj-int") })
 }
@@ -1023,7 +1020,7 @@ func (r *loopRig) integratorStops() {
 // (its Gone grace counts from that pass, on the fake clock).
 func (r *loopRig) integratorGone(job string) {
 	r.t.Helper()
-	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+	r.setPane("w1:p9", func(p *port.Pane) { p.Agent, p.Status = "", "" })
 	r.waitFor("pj-int gone", func() bool {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == "pj-int" {
@@ -1048,36 +1045,31 @@ func (r *loopRig) quietBaseline(job string) {
 	r.waitTimer("the quiet baseline of "+job, func(j string, _, quiet time.Time) bool { return j == job && !quiet.IsZero() })
 }
 
-// workspaceEvent is the rig's workspace-created event: pushed, it makes the app read a new snapshot.
-var workspaceEvent = map[string]any{"type": "workspace_created",
-	"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}}
+// push makes the app read a new snapshot: it ends serve's stream as a refresh, and serve subscribes again.
+func (r *loopRig) push() { r.refresh() }
 
-// push makes the app read a new snapshot: a workspace event ends serve's stream (a refresh) and serve subscribes again.
-func (r *loopRig) push() { r.srv.Push("workspace_created", workspaceEvent) }
-
-// connectedAgain waits, as an event, until serve works from a herdr stream that began after the rig's pushes: a refresh
-// reaches the stream serve has now, serve reads it and ends that stream, and subscribes again — the wait is that new
-// stream's lifecycle subscription and serve's connection to it. Status().Connected alone is no such event: it
-// is still true in the instant before serve ends a stream (serve closes the stream, then clears the flag), and a push
-// is only a socket write that the stream may read after the caller looked — the call then lands in the resubscribe's
-// gap and is refused "serve is not connected to herdr".
+// connectedAgain waits, as an event, until serve works from a stream that began after the rig's pushes: a refresh
+// ends the stream serve has now, and serve subscribes again — the wait is that new stream's subscribe and serve's
+// connection to it. Status().Connected alone is no such event: it is still true in the instant before serve ends a
+// stream (serve closes the stream, then clears the flag), so a call then lands in the resubscribe's gap and is refused
+// "serve is not connected".
 func (r *loopRig) connectedAgain() {
 	r.t.Helper()
-	var next func() bool // that stream ended and a stream after it subscribed: true once it connected too
-	r.waitFor("serve connected to herdr on the stream after the rig's pushes", func() bool {
-		if next == nil {
-			var reached bool
-			if reached, next = r.srv.Refresh(workspaceEvent); !reached { // serve is between two streams: none to end
-				next = nil
-				return false
+	subs := -1 // the subscribes before the refresh that ended serve's stream (-1: none ended yet)
+	r.waitFor("serve connected on the stream after the rig's pushes", func() bool {
+		if subs < 0 {
+			n := len(r.tt.Calls(testkit.OpSubscribe))
+			if !r.tt.End(testkit.Refresh()) || len(r.tt.Calls(testkit.OpSubscribe)) != n {
+				return false // serve is between two streams (none to end), or subscribed beside the end: again
 			}
+			subs = n
 		}
-		return r.app.Status().Connected && next()
+		return r.app.Status().Connected && len(r.tt.Calls(testkit.OpSubscribe)) > subs
 	})
 }
 
 // passes waits for two more passes of the merge loop: the second one started after the call, so it saw the clock and
-// the state the test set before it. Only passes that ran connected to one herdr stream count (StreamPasses): the
+// the state the test set before it. Only passes that ran connected to one stream count (StreamPasses): the
 // rig's pushes end serve's stream, and a pass in the resubscribe's gap skips the project.
 func (r *loopRig) passes() {
 	r.t.Helper()

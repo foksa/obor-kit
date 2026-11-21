@@ -13,8 +13,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
 	"regexp"
 	"slices"
@@ -28,17 +26,12 @@ import (
 
 type sent struct{ to, text string }
 
-// prompts is every agent.prompt the fake herdr got, to the agent the rig runs in its target (serve addresses a job
-// prompt to the agent's pane by its registry: w1:p1 is pj-l-01's, w1:p9 pj-int's).
+// prompts is every prompt the terminal got, to the agent the rig runs in its target (serve addresses a job prompt to
+// the agent's pane by its registry: w1:p1 is pj-l-01's, w1:p9 pj-int's).
 func (r *loopRig) prompts() []sent {
 	var out []sent
-	for _, req := range r.srv.Requests() {
-		if req.Method != "agent.prompt" {
-			continue
-		}
-		var p struct{ Target, Text string }
-		_ = json.Unmarshal(req.Params, &p)
-		out = append(out, sent{rigAgent(p.Target), p.Text})
+	for _, c := range r.prompted() {
+		out = append(out, sent{rigAgent(c.Pane), c.Text})
 	}
 	return out
 }
@@ -48,23 +41,12 @@ func rigAgent(target string) string {
 	return cmp.Or(map[string]string{"w1:p1": "pj-l-01", "w1:p9": "pj-int"}[target], target)
 }
 
-// cleared is, for each agent.prompt to agent in order, whether an agent.send_keys ctrl+u to it came since the one
-// before (a retry clears the input line before it types).
+// cleared is, for each prompt to agent in order, whether it cleared the input line before it typed (a retry does).
 func (r *loopRig) cleared(agent string) []bool {
 	var out []bool
-	clear := false
-	for _, req := range r.srv.Requests() {
-		var p struct {
-			Target string
-			Keys   []string
-		}
-		_ = json.Unmarshal(req.Params, &p)
-		switch {
-		case rigAgent(p.Target) != agent:
-		case req.Method == "agent.send_keys" && strings.Join(p.Keys, " ") == "ctrl+u":
-			clear = true
-		case req.Method == "agent.prompt":
-			out, clear = append(out, clear), false
+	for _, c := range r.prompted() {
+		if rigAgent(c.Pane) == agent {
+			out = append(out, c.Submit)
 		}
 	}
 	return out
@@ -451,8 +433,9 @@ func (r *loopRig) lineResults() []string {
 // each in status lead / rev.
 func lineRig(t *testing.T, lead, rev string) *loopRig {
 	r := newLoopRig(t, noCheck())
-	for _, a := range []*herdrtest.Pane{r.f.Agent("w1:p5", "pj-lead", lead, r.p.Root), r.f.Agent("w1:p6", "pj-rev", rev, r.p.Root)} {
-		a.Label = a.Name // labelled by its launch
+	for _, a := range []port.Pane{agentPane("w1:p5", "pj-lead", r.p.Root), agentPane("w1:p6", "pj-rev", r.p.Root)} {
+		a.Status = map[string]string{"w1:p5": lead, "w1:p6": rev}[a.ID]
+		r.addPane(a) // labelled by its launch
 	}
 	return r
 }
@@ -460,7 +443,7 @@ func lineRig(t *testing.T, lead, rev string) *loopRig {
 // agentIs sets the status of the agent in pane and waits until the app sees it.
 func (r *loopRig) agentIs(pane, name, status string) {
 	r.t.Helper()
-	r.f.Set(pane, func(p *herdrtest.Pane) { p.Status = status })
+	r.setPane(pane, func(p *port.Pane) { p.Status = status })
 	r.waitFor(name+" "+status, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == name && a.Status == status {
@@ -482,7 +465,7 @@ func (r *loopRig) line(callID string, c wire.Req) (string, error) {
 	return r.ask(c)
 }
 
-// typedTo is the prompts the fake herdr got for agent (its name, or its pane: typed lines address the pane id, the
+// typedTo is the prompts the terminal got for agent (its name, or its pane: typed lines address the pane id, the
 // line rig's role panes w1:p5 and w1:p6 count as pj-lead's and pj-rev's) with exactly text.
 func (r *loopRig) typedTo(agent, text string) int {
 	n := 0
@@ -653,27 +636,24 @@ var (
 )
 
 // startWithAgents starts the app as start does, with agents as its loop's Agents: a real launcher, so the start's
-// args reach the fake herdr.
+// args reach the terminal.
 func (r *loopRig) startWithAgents(agents port.Launcher) {
 	r.t.Helper()
-	c := r.srv.Client()
-	panes := herdr.Panes{S: c}
+	at := r.adapter()
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Screen: c.Screen, Procs: quietProcs, Refresh: func(err error) bool {
-			var e *herdr.Error
-			return errors.As(err, &e) && e.Code == "refresh"
-		}, Loop: func(root string) (*app.Loop, error) {
+		Now: r.clock.Now, Out: r.out, Info: at.Info, Screen: at.Screen, Procs: quietProcs, Refresh: port.Refreshed,
+		Loop: func(root string) (*app.Loop, error) {
 			cfg, err := config.Load(root)
 			if err != nil {
 				return nil, err
 			}
-			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch), Agents: agents, Prompter: c}
-			r.disp.loop(fx, panes)
+			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch), Agents: agents, Prompter: r.tt}
+			r.disp.loop(fx)
 			return fx, nil
 		}},
-		panes, r.lanes)
+		at.Panes, r.lanes)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {
@@ -844,9 +824,7 @@ func (r *loopRig) foreign() string {
 	r.scratch.AddLane("L-02", lane, "task/T-20")
 	r.p.State("L-02", map[string]any{"lane": "L-02", "task": "T-20", "branch": "task/T-20", "agent": "pj-l-02",
 		"base": "main", "dispatched_at": 1})
-	r.f.Agent("w1:p2", "pj-l-02", "idle", lane, func(w *herdrtest.Pane) {
-		w.Label = "pj-l-02" // labelled by its launch
-	})
+	r.addPane(agentPane("w1:p2", "pj-l-02", lane)) // labelled by its launch
 	return lane
 }
 

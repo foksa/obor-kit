@@ -11,8 +11,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
 	"obor/internal/testkit"
 	"os"
@@ -87,16 +85,16 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 	return "", nil
 }
 
-// The merge loop at the app boundary: the herdr socket client on the fake herdr socket (snapshot, job prompts,
-// notifications), the package's in-memory Scratch (app.FakeWorkflow: no git), a scripted lane table, and an
-// integrator start that puts pj-int into the fake herdr.
+// The merge loop at the app boundary: the rig's terminal (snapshot, job prompts, notifications), the package's
+// in-memory Scratch (app.FakeWorkflow: no git), a scripted lane table, and an integrator start that puts pj-int into
+// the terminal.
 
 // loopRig is project proj (a plain dir: its config written, no git) with lane L-01 on task/T-1 (a plain dir the fake
 // Scratch snapshots; its worker pj-l-01 idle in it; without the dispatch option T-1's dispatch fact in the log at the
 // first start), roles.integrator (pj-int, not running until started) and the app not started yet (unless an option
 // starts it). merge.check is configured ("echo 1 pass": its outcome is the fake's, Script).
 type loopRig struct {
-	term
+	*term
 	t       *testing.T
 	p       *testkit.Project
 	lane    string
@@ -189,7 +187,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 		opt(&o)
 	}
 	p := testkit.NewDir(t)
-	r := &loopRig{term: term{f: herdrtest.New()}, t: t, p: p, lanes: &laneTable{},
+	r := &loopRig{term: newTerm(map[string]string{"w1": "proj"}), t: t, p: p, lanes: &laneTable{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
 	r.lane = p.Lane("L-01", "task/T-1")
 	edits := []func(map[string]any){testkit.Set("agents.roles.integrator", "")}
@@ -203,12 +201,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	// and T-1's is its submission's.
 	p.Config(append(edits, o.edits...)...)
 	r.lanes.lanes = []port.Lane{{Name: "L-01", Dir: r.lane, Task: "T-1", Agent: "pj-l-01"}}
-	r.f.Group("w1", "proj")
-	w := r.f.Agent("w1:p1", "pj-l-01", "idle", r.lane)
-	w.Label = "pj-l-01" // labelled by its launch: serve's identity of it (registry.go)
-	r.srv = serveHerdr(t, r.f)
-	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
-	r.srv.Reply("agent.prompt", prompted)
+	r.addPane(agentPane("w1:p1", "pj-l-01", r.lane)) // labelled by its launch: serve's identity of it (registry.go)
 	r.scratch = app.NewFakeWorkflow("")
 	r.scratch.Dir = filepath.Join(p.Base, "proj-wt", "merge")
 	if !o.check {
@@ -219,7 +212,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 		r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
 			fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}
 		r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.State = "", "", "free" })
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/s/0.jsonl" })
+		r.setPane("w1:p1", func(p *port.Pane) { p.Transcript = "/s/0.jsonl" })
 	}
 	if o.pool {
 		r.addLanes(port.Lane{Name: "L-02", Dir: p.LaneDir("L-02"), State: "free"})
@@ -239,11 +232,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	return r
 }
 
-// prompted is the fake herdr's answer to agent.prompt.
-var prompted = map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "x", "pane_id": "w1:p1",
-	"agent_status": "working"}}
-
-// Launch is the integrator's start: pj-int (session int-1) appears in the project's workspace and the app sees it (a workspace event
+// Launch is the integrator's start: pj-int (session int-1) appears in the project's group and the app sees it (a refresh
 // makes it read a new snapshot) before the start returns, as launch's start returns once the agent is ready.
 func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, error) {
 	r.mu.Lock()
@@ -264,9 +253,9 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 			return port.Started{}, err
 		}
 	}
-	r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root, func(a *herdrtest.Pane) {
-		a.Label, a.Session = "pj-int", "int-1" // launch labels the pane
-	})
+	int1 := agentPane("w1:p9", "pj-int", r.p.Root) // launch labels the pane
+	int1.Session = "int-1"
+	r.addPane(int1)
 	seen := false
 	poll(r.t, "pj-int in the app's status", 5*time.Second, 5*time.Millisecond, nil, func() bool {
 		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane
@@ -276,8 +265,7 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 			seen = seen || a.Name == "pj-int"
 		}
 		if !seen {
-			r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
-				"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+			r.refresh()
 		}
 		return seen
 	})
@@ -290,8 +278,8 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 	return port.Started{}, errors.New("pj-int never seen")
 }
 
-// Stop is the worker's stop: the agent leaves its pane (""; the pane labelled agent) in the fake herdr and the app
-// sees it gone (a workspace event makes it read a new snapshot) before the stop returns.
+// Stop is the worker's stop: the agent leaves its pane (""; the pane its agent's name is in) in the terminal and the app
+// sees it gone (a refresh makes it read a new snapshot) before the stop returns.
 func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string, error) {
 	r.mu.Lock()
 	r.stops = append(r.stops, agent+" "+pane)
@@ -303,15 +291,13 @@ func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string,
 		}
 	}
 	if pane == "" {
-		r.f.Locked(func() {
-			for _, p := range r.f.Panes {
-				if p.Name == agent {
-					pane = p.ID
-				}
+		for _, p := range r.panes() {
+			if r.nameOf(p.ID) == agent {
+				pane = p.ID
 			}
-		})
+		}
 	}
-	r.f.Set(pane, func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+	r.setPane(pane, func(p *port.Pane) { p.Agent, p.Status = "", "" })
 	gone := false
 	poll(r.t, agent+" gone from the app's status", 5*time.Second, 5*time.Millisecond, nil, func() bool {
 		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane gone
@@ -322,8 +308,7 @@ func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string,
 			gone = gone && a.Name != agent
 		}
 		if !gone {
-			r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
-				"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+			r.refresh()
 		}
 		return gone
 	})
@@ -347,8 +332,8 @@ func (r *loopRig) stopped() []string {
 type placedPane struct{ lane, pane string }
 
 // placeLane is the Loop's PlaceLane on the rig: a shell pane in the lane, labelled the lane's worker (obor setup pane
-// <LANE>'s placement is setup's, which the app does not run), and herdr's created event for it, so the app starts the
-// worker there. placeErr fails it instead.
+// <LANE>'s placement is setup's, which the app does not run), and its created event, so the app starts the worker
+// there. placeErr fails it instead.
 func (r *loopRig) placeLane(_ context.Context, lane string) (string, error) {
 	r.mu.Lock()
 	err := r.placeErr
@@ -360,9 +345,8 @@ func (r *loopRig) placeLane(_ context.Context, lane string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	r.f.Shell(id, "pj-"+strings.ToLower(lane), r.p.LaneDir(lane))
-	r.srv.Push(herdr.EventCreated, map[string]any{"type": "pane_created",
-		"pane": map[string]any{"pane_id": id, "cwd": r.p.LaneDir(lane)}})
+	r.addPane(port.Pane{ID: id, Label: "pj-" + strings.ToLower(lane), Cwd: r.p.LaneDir(lane)})
+	r.announce(id)
 	return id, nil
 }
 
@@ -423,7 +407,7 @@ func (r *loopRig) firstCheck() {
 	r.waitFor("the first check", func() bool { checks, _ := app.Counts(r.app); return checks >= 1 })
 }
 
-// launch runs the app as start does, without waiting for a check and without its socket (herdr may be down).
+// launch runs the app as start does, without waiting for a check and without its socket (the terminal may be down).
 func (r *loopRig) launch() {
 	r.t.Helper()
 	switch recs := r.records(); {
@@ -433,8 +417,7 @@ func (r *loopRig) launch() {
 	default:
 		r.p.Dispatched("L-01") // serve holds T-1 open: its task_done submits it
 	}
-	c := r.srv.Client()
-	panes := herdr.Panes{S: c}
+	at, c := r.adapter(), r.tt
 	r.out = &syncBuf{}
 	tick := 2 * time.Millisecond
 	if r.tick != 0 {
@@ -447,11 +430,8 @@ func (r *loopRig) launch() {
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
 		StepRetry: retry, StepRetryMax: retryMax, DriveWait: r.driveWait,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
-		Info: c.ProcessInfo, Screen: c.Screen, Procs: quietProcs,
-		Refresh: func(err error) bool {
-			var e *herdr.Error
-			return errors.As(err, &e) && e.Code == "refresh"
-		}, Loop: func(root string) (*app.Loop, error) {
+		Info: at.Info, Screen: at.Screen, Procs: quietProcs, Refresh: port.Refreshed,
+		Loop: func(root string) (*app.Loop, error) {
 			r.mu.Lock()
 			err := r.loopErr
 			r.mu.Unlock()
@@ -469,11 +449,11 @@ func (r *loopRig) launch() {
 			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
 				Inbox: r.inbox, Restart: r.restart, Config: r.config, PlaceLane: r.placeLane}
 			if r.disp != nil {
-				r.disp.loop(fx, panes)
+				r.disp.loop(fx)
 			}
 			return fx, nil
 		}},
-		panes, r.lanes)
+		at.Panes, r.lanes)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {
