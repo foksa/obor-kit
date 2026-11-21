@@ -26,19 +26,8 @@ type SpecRow struct {
 	Spec         spec.Spec
 }
 
-// specCols is the select list of a spec row in db: a specs table older than schema 10 (a serve that has not
-// restarted, read by a newer CLI) has no note column, its rows read none.
-func specCols(db *sql.DB) (string, error) {
-	var n int
-	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('specs') WHERE name = 'note'").Scan(&n); err != nil {
-		return "", fmt.Errorf("specs: %w", err)
-	}
-	note := "note"
-	if n == 0 {
-		note = "''"
-	}
-	return "task, text, rev, set_by, set_at, " + note, nil
-}
+// specCols is the select list of a spec row in db.
+const specCols = "task, text, rev, set_by, set_at, note"
 
 // scanSpec reads one row of specCols' select list into r, parsing its text.
 func scanSpec(scan func(...any) error, r *SpecRow) error {
@@ -89,12 +78,8 @@ func SetSpec(db *sql.DB, task, text, note, by string, now time.Time) (int, bool,
 
 // ReadSpec is task's spec in db: ok false when it has none.
 func ReadSpec(db *sql.DB, task string) (SpecRow, bool, error) {
-	cols, err := specCols(db)
-	if err != nil {
-		return SpecRow{}, false, err
-	}
 	var r SpecRow
-	err = scanSpec(db.QueryRow("SELECT "+cols+" FROM specs WHERE task = ?", task).Scan, &r)
+	err := scanSpec(db.QueryRow("SELECT "+specCols+" FROM specs WHERE task = ?", task).Scan, &r)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return SpecRow{}, false, nil
@@ -106,11 +91,7 @@ func ReadSpec(db *sql.DB, task string) (SpecRow, bool, error) {
 
 // ReadSpecs is db's specs, by task.
 func ReadSpecs(db *sql.DB) ([]SpecRow, error) {
-	cols, err := specCols(db)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := db.Query("SELECT " + cols + " FROM specs ORDER BY task")
+	rows, err := db.Query("SELECT " + specCols + " FROM specs ORDER BY task")
 	if err != nil {
 		return nil, fmt.Errorf("specs: %w", err)
 	}

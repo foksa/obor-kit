@@ -29,36 +29,8 @@ type LaneRow struct {
 	Landed                 bool
 }
 
-// laneCols is the select list of a lane row in db: a lanes table older than schema 9 (a serve that has not
-// restarted) has no type column, one older than schema 12 no blocked one and one older than schema 13
-// no landed one; its rows read none, false and false.
-func laneCols(db *sql.DB) (string, error) {
-	typ, err := laneCol(db, "type", "''")
-	if err != nil {
-		return "", err
-	}
-	blocked, err := laneCol(db, "blocked", "0")
-	if err != nil {
-		return "", err
-	}
-	landed, err := laneCol(db, "landed", "0")
-	if err != nil {
-		return "", err
-	}
-	return "lane, task, branch, base, head, dispatched_at, finished, " + typ + ", " + blocked + ", " + landed, nil
-}
-
-// laneCol is col, or missing when the lanes table does not have it.
-func laneCol(db *sql.DB, col, missing string) (string, error) {
-	var n int
-	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('lanes') WHERE name = ?", col).Scan(&n); err != nil {
-		return "", fmt.Errorf("lanes: %w", err)
-	}
-	if n == 0 {
-		return missing, nil
-	}
-	return col, nil
-}
+// laneCols is the select list of a lane row in db.
+const laneCols = "lane, task, branch, base, head, dispatched_at, finished, type, blocked, landed"
 
 // scanLane reads one row of laneCols' select list into r.
 func scanLane(scan func(...any) error, r *LaneRow) error {
@@ -68,11 +40,7 @@ func scanLane(scan func(...any) error, r *LaneRow) error {
 
 // ReadLanes is db's lane rows, by lane.
 func ReadLanes(db *sql.DB) ([]LaneRow, error) {
-	cols, err := laneCols(db)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := db.Query("SELECT " + cols + " FROM lanes ORDER BY lane")
+	rows, err := db.Query("SELECT " + laneCols + " FROM lanes ORDER BY lane")
 	if err != nil {
 		return nil, fmt.Errorf("lanes: %w", err)
 	}
@@ -145,12 +113,8 @@ func ReadLaneAt(root, lane string) (LaneRow, bool, error) {
 		return LaneRow{}, false, nil
 	}
 	defer db.Close()
-	cols, err := laneCols(db)
-	if err != nil {
-		return LaneRow{}, false, err
-	}
 	var r LaneRow
-	err = scanLane(db.QueryRow("SELECT "+cols+" FROM lanes WHERE lane = ?", lane).Scan, &r)
+	err = scanLane(db.QueryRow("SELECT "+laneCols+" FROM lanes WHERE lane = ?", lane).Scan, &r)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return LaneRow{}, false, nil
