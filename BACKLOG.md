@@ -24,10 +24,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   the check-then-act findings. (3) Parked until the owner decides a second terminal: D3 and terminal plan steps 6-9
   (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
 ## Owner decisions pending
-- (test plan, not verified) Role agents (reviewer, deep dive, advisor) start with no CPU cap: their own `go test` uses
-  all cores outside the check slots, the likely bulk of the 11-20 load. Capping it is a start env change (owner OK,
-  live conformance per kind).
-
 ## Later candidates
 - (DD-architecture verify 2, not scheduled) `Pane.Agent` → `Pane.Kind` rename (wide) and the remaining `Start` names (`agents.Start`, `port.AgentStart`, `port.Started` → `KindStart`/`TerminalStart`): take with the next task that rewrites those types. Spec rule for the next merge of two flows: list the texts that differ AND the refusals one side has and the other lacks.
 - (herdr restore, RV-225 design note) A live probe in a throwaway named herdr session with resume on and several staggered panes, covering serve's replacement end to end (the recorded probe covers one bare resume): makes the 60 s settle boundary testable against herdr upgrades.
