@@ -103,14 +103,12 @@ const (
 	opKeys        op = "keys"         // PaneControl.SendKeys, and a prompt's clear of the input line
 	opProcessInfo op = "process-info" // PaneControl.ProcessInfo
 	opScreen      op = "screen"       // PaneControl.Screen: the pane's visible text
-	opAgent       op = "agent"        // PaneControl.Pane: the terminal's read of the pane and its agent
 )
 
 // opCalls is the terminal's operations each op counts.
 var opCalls = map[op][]string{
 	opSnapshot: {testkit.OpSnapshot, testkit.OpSubscribe}, opNotify: {testkit.OpNotify},
 	opKeys: {testkit.OpKeys}, opProcessInfo: {testkit.OpProcessInfo}, opScreen: {testkit.OpScreen},
-	opAgent: {testkit.OpPane},
 }
 
 // refreshEnds is the event kind of the subscription a stream ends as a refresh: a moved pane or a new group, which

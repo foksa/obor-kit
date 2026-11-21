@@ -17,9 +17,14 @@ func TestSocketProcessInfo(t *testing.T) {
 	f := fixture()
 	f.Pane("w1:p1").Procs = []herdr.Process{{PID: 2, Name: "claude", Argv0: "claude"}}
 	srv := herdrtest.Serve(t, f)
+	before := len(srv.Requests())
 	info, err := srv.Client().ProcessInfo(ctx, "w1:p1")
 	if err != nil || info.ShellPID != 1 || info.FgPGID != 2 || info.Foreground() != "claude" {
 		t.Errorf("ProcessInfo = %+v, %v", info, err)
+	}
+	// The sample is one request (the watchdog makes it per ready agent per tick): no agent.get, no pane.get beside it.
+	if sent := srv.Requests()[before:]; len(sent) != 1 || sent[0].String() != "pane.process_info pane_id=w1:p1" {
+		t.Errorf("the call sent %d requests (%q), want only pane.process_info for w1:p1", len(sent), srv.Calls())
 	}
 	if got := lastParams(t, srv, "pane.process_info"); got != `{"pane_id":"w1:p1"}` {
 		t.Errorf("params = %s", got)
