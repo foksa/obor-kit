@@ -24,7 +24,7 @@ const restoreWait = 30 * time.Second
 //     test cut before its restore).
 //  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay; obor's links the candidate tracks give
 //     way to the tracked file, the others are in place: project.CheckoutWorktree).
-//  3. The changed files in.Target..in.SHA (OBOR_CHANGED_FILES), classified; lane_setup; the class's checks and the
+//  3. The changed files from in.Target to in.SHA (OBOR_CHANGED_FILES), classified; lane_setup; the class's checks and the
 //     guard (runChecks, as the gate runs them), holding a pool slot (prio worker, never the merge
 //     marker: slots.max bounds how many lanes test at once), the lane's CPU budget in their environment. A red whose
 //     failing tests and packages it names is rerun once by commands.retest at the same commit: green then is
@@ -72,7 +72,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 		}
 	}()
 
-	r := newRunner(ctx, &s.Options, dir, in.Task)
+	r := newRunner(ctx, &s.Options, g, dir, in.Task)
 	r.changedFile = "lane-changed-files-" + in.Lane
 	r.prio, r.pre, r.onCommand, r.retest = "worker", in.Target, in.Command, true
 	// The lane's env: the generic facts and the project's lanes.env, and CHECK_CPUS the lane's CPU budget,
@@ -81,7 +81,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
 	defer r.releaseSlot()
 	for _, h := range []func() *halt{
-		func() *halt { return r.changed(in.Task, in.Target+".."+in.SHA) },
+		func() *halt { return r.changed(in.Target, in.SHA) },
 		r.laneSetup,
 		r.runChecks,
 	} {
