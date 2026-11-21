@@ -4,6 +4,7 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-21 (owner, T-1425): **`internal/testkit` git_procs cap 6 → 45.** Its new tests compare a cached setup with one git builds (30 git a run, ×1.5); the cache cuts 494 git across seven packages. Same day (owner): the checks test plan (`docs/research/checks-test-seam-advice.md`, tasks A-G on the existing `gitIO` port) runs after the T-1425..T-1428 wave.
 - 2026-11-21 Check CPUs: 2 per heavy check, lanes and gates alike (owner: "2 was ok before both for lanes and gates"); `checks.cpus_per_check` 5 → 2, `lanes.cpus` stays 2, two heavy checks at once. TP-3 closed with no code change.
 - 2026-11-20 (owner: "yes, run refactors, after that plan tests"; `docs/reviews/DD-architecture-2026-11-20.md`, Fable): **The deep dive's waves A-D run**: A cheap fixes (T-1393..T-1397), B one placement rule (T-1398..T-1400), C one start flow (T-1401, T-1402), D the config in serve (T-1403, T-1404), in that order. Then the tests are planned (finding 5: core tests on a neutral fake, the rig split).
 - 2026-11-20 (owner: "no, that seems fragile"): **obor does not unset `HERDR_ENV` to keep herdr from resuming its panes.** herdr 0.9.5 has no per-workspace or per-pane restore switch (docs: only the global `[session] resume_agents_on_restore`); hiding obor's panes from herdr's integration hooks was the one per-pane route, rejected. The global line stays required on herdr.
