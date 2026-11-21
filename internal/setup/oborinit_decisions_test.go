@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/project"
@@ -732,6 +733,35 @@ func (x *initFx) paneOf(name string) string {
 		}
 	}
 	return ""
+}
+
+// A project whose own Claude model is the only one configured, with Codex absent: init falls the reviewer back to
+// opus and adds its starter entry, so the role it writes resolves; a second run writes nothing.
+func TestOborInitAddsTheFallbackModel(t *testing.T) {
+	t.Parallel()
+	x := newFakeGitInitFx(t, false)
+	x.Config(testkit.Set("agents.models", `{"custom": {"kind": "claude", "id": "claude-opus-5"}}`),
+		testkit.Set("agents.roles", `{"lead": "custom", "integrator": "custom", "reviewer": "sol"}`),
+		testkit.Set("agents.difficulty", `{"hard": ["custom"], "medium": ["custom"], "simple": ["custom"]}`))
+	out := x.init(t)
+	has(t, summary(out, "lanes"), "reviewer sol → opus", "lanes step")
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc, _ := cfg.Role("reviewer"); rc.Type != "opus" {
+		t.Errorf("reviewer type %q, want opus", rc.Type)
+	}
+	if m, ok := cfg.Model("opus"); !ok || m.Kind != agents.Default || m.ID != "opus" {
+		t.Errorf("opus = %+v, %v; want the starter entry (kind %s, id opus)", m, ok, agents.Default)
+	}
+	if err := cfg.CheckModelRef("opus"); err != nil {
+		t.Errorf("the role's model does not resolve: %v", err)
+	}
+	before := x.Read(".obor/config.json")
+	if x.init(t); x.Read(".obor/config.json") != before {
+		t.Errorf("config changed on a rerun")
+	}
 }
 
 // the template names the lead's model (kept by init); a hand-written config with no roles.lead gets opus

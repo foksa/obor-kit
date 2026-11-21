@@ -536,13 +536,29 @@ func LoadWith(root string, doc []byte) (*Config, error) {
 	return c, err
 }
 
-// readWith is read with doc as config.json's bytes (nil: the file's): one struct, one decode. local.json has no
-// version of its own: a key it holds that this binary does not know is an unknown key like any other (WARN for
-// readers, refused by validate, decision 2026-11-09).
+// LoadMain is Load of the project's .obor/config.json alone, without .obor/local.json: what a migration of the
+// committed file decides from (obor setup agents'), so a per-machine overlay adds no reference to it and suppresses
+// none of its entries.
+func LoadMain(root string) (*Config, error) {
+	c, _, err := readWithLocal(root, nil, false)
+	return c, err
+}
+
+// readWith is readWithLocal with local.json read as it is.
 func readWith(root string, doc []byte) (*Config, []string, error) {
+	return readWithLocal(root, doc, true)
+}
+
+// readWithLocal is read with doc as config.json's bytes (nil: the file's): one struct, one decode; withLocal false
+// leaves local.json out. local.json has no version of its own: a key it holds that this binary does not know is an
+// unknown key like any other (WARN for readers, refused by validate, decision 2026-11-09).
+func readWithLocal(root string, doc []byte, withLocal bool) (*Config, []string, error) {
 	names := []string{"config.json", "local.json"}
 	var files [2][]byte
 	for i, name := range names {
+		if i > 0 && !withLocal {
+			break
+		}
 		path := filepath.Join(root, ".obor", name)
 		b, err := os.ReadFile(path)
 		if i == 0 && doc != nil {

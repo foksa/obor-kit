@@ -4,6 +4,8 @@ package setup
 // reads these lists; a project's models are its config's (config.Config.Model).
 
 import (
+	"slices"
+
 	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -50,19 +52,53 @@ func (s *Setup) initModels() error {
 	return s.load()
 }
 
-// upgradeModels is obor setup agents' config step: the agents.models entries the config's levels and roles name
-// without one (config.Config.UpgradeEntries), added to .obor/config.json uncommitted; nothing else is written, and a
-// config that has them all is left as it is.
+// upgradeModels is obor setup agents' config step: the agents.models entries the shared config's levels and roles
+// name without one (config.Config.UpgradeEntries) are added and its former built-in entries with no kind get their
+// former kind (config.Config.KindFills), both in .obor/config.json uncommitted; nothing else is written, and a config
+// with neither is left as it is. The step decides from config.json alone (.obor/local.json left out): a per-machine
+// reference adds no entry to the committed file, and a local entry does not suppress one it needs.
 func (s *Setup) upgradeModels() error {
-	add := s.cfg.UpgradeEntries()
-	if len(add) == 0 {
+	shared, err := config.LoadMain(s.root)
+	if err != nil {
+		return project.Failf("%v", err)
+	}
+	fill, add := shared.KindFills(), shared.UpgradeEntries()
+	if len(fill) == 0 && len(add) == 0 {
 		return nil
 	}
-	if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.AddModels(doc, add) },
+	if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.MigrateModels(doc, fill, add) },
 		": commit it"); err != nil {
 		return err
 	}
 	return s.load()
+}
+
+// initFallbackModel adds the fallback model's starter entry (StarterModels) when agents.models has no entry of that
+// name: initRoleTypes falls a role back to it, so the role it writes resolves. An entry the config has is never
+// replaced.
+func (s *Setup) initFallbackModel() error {
+	if _, ok := s.cfg.Data.Agents.Models.M[fallbackRoleModel]; ok {
+		return nil
+	}
+	e, ok := starterModel(fallbackRoleModel)
+	if !ok {
+		return project.Failf("no starter entry for %s: the role falls back to it", fallbackRoleModel)
+	}
+	if err := s.editConfig(func(doc []byte) (config.Write, error) {
+		return config.AddModels(doc, []config.NamedModel{e})
+	}); err != nil {
+		return err
+	}
+	return s.load()
+}
+
+// starterModel is the StarterModels entry of name (ok false: none).
+func starterModel(name string) (config.NamedModel, bool) {
+	i := slices.IndexFunc(StarterModels, func(e config.NamedModel) bool { return e.Name == name })
+	if i < 0 {
+		return config.NamedModel{}, false
+	}
+	return StarterModels[i], true
 }
 
 // starterLevels is StarterDifficulty with only the Claude kind's models (agents.Default, which init requires on
