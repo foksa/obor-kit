@@ -142,7 +142,7 @@ func TestNarrowReadsWithoutServe(t *testing.T) {
 		t.Errorf("agent read: %v, serve error %q, %d roles; want serve's error and no stale roles",
 			err, d.Project.Serve.Error, len(d.Project.Roles))
 	}
-	s, err := LoadSetupGit(context.Background(), p.Root, laneGit(p, oneLane))
+	s, err := LoadSetup(context.Background(), p.Root, laneGit(p, oneLane))
 	if err != nil || len(s.Lanes) != 1 || s.Lanes[0].Lane != "L-01" || s.Lanes[0].State != "working" {
 		t.Errorf("setup read: %v, lanes %+v; want L-01 working (the injected git's reading)", err, s.Lanes)
 	}

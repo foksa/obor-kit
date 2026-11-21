@@ -193,14 +193,9 @@ func (o Options) changedFiles(top, tree string) ([]string, error) {
 	return changedFiles(ctx, git, top, strings.TrimSpace(base), tree)
 }
 
-// Tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
+// tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
 // submit commits a lane (add -A), the run marker excluded. It is computed with a temporary index (its own git, under
 // the caller's ctx: a canceled run's Tree ends with it), so dir's index and history are not touched.
-func Tree(ctx context.Context, dir string, environ []string) (string, error) {
-	return tree(ctx, project.GitCtxEnv, dir, environ)
-}
-
-// tree is Tree over git.
 func tree(ctx context.Context, git GitFunc, dir string, environ []string) (string, error) {
 	tmp, err := os.MkdirTemp("", "obor-tree-")
 	if err != nil {
@@ -224,13 +219,8 @@ func tree(ctx context.Context, git GitFunc, dir string, environ []string) (strin
 	return run("write-tree")
 }
 
-// ChangedFiles is the files a tree changes against base (names only, a rename as a deletion and an addition: the
+// changedFiles is the files a tree changes against base (names only, a rename as a deletion and an addition: the
 // merge's own listing).
-func ChangedFiles(dir, base, tree string) ([]string, error) {
-	return changedFiles(context.Background(), project.GitCtxEnv, dir, base, tree)
-}
-
-// changedFiles is ChangedFiles over git.
 func changedFiles(ctx context.Context, git GitFunc, dir, base, tree string) ([]string, error) {
 	out, err := git(ctx, dir, nil, "diff", "--no-renames", "--name-only", base, tree)
 	if err != nil {

@@ -68,9 +68,11 @@ type Server struct {
 	Process func(ctx context.Context, pane string) (port.ProcessInfo, error)
 	// Task, Agent and Setup are the drill-down pages' narrow reads (defaults: view.LoadTask, view.LoadAgent,
 	// view.LoadSetup): a page never builds the overview.
-	Task   func(context.Context, string) (view.Detail, error)
-	Agent  func(context.Context, string) (view.Detail, error)
-	Setup  func(context.Context, string) (view.Setup, error)
+	Task  func(context.Context, string) (view.Detail, error)
+	Agent func(context.Context, string) (view.Detail, error)
+	Setup func(context.Context, string) (view.Setup, error)
+	// Git runs the git reads of the default setup read's lane table (nil: project.GitCtx): a test's lanes are files.
+	Git    func(ctx context.Context, dir string, args ...string) (string, error)
 	Events int           // worded events in a view (0: 20)
 	Wait   time.Duration // how long /api/events holds a poll (0: 20s)
 	Poll   time.Duration // how often it asks the store (0: 300ms)
@@ -715,7 +717,7 @@ func (s *Server) setupRead(ctx context.Context, root string) (view.Setup, error)
 	if s.Setup != nil {
 		return s.Setup(ctx, root)
 	}
-	return view.LoadSetup(ctx, root)
+	return view.LoadSetup(ctx, root, s.Git)
 }
 
 // eventsAPI is /api/events?project=<name>&since=<seq>: a long poll on the store's seq. It answers at once when a record

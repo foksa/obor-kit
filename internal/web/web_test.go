@@ -86,9 +86,7 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 		Agent: func(context.Context, string) (view.Detail, error) {
 			return view.Detail{Root: p.Root, Project: want}, nil
 		},
-		Setup: func(ctx context.Context, root string) (view.Setup, error) {
-			return view.LoadSetupGit(ctx, root, laneGit(p, oneLane))
-		},
+		Git:    laneGit(p, oneLane),
 		Events: 20,
 	}
 	return p, want, s
