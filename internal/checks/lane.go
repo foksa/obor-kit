@@ -17,14 +17,46 @@ import (
 )
 
 // Lane is port.LaneSetup for one project: the lane.prepare step of a dispatched task
-// and the lane a drop gives back. Its git is real, run in the lane's worktree with the caller's ctx.
+// and the lane a drop gives back. Its git is laneGit: real git in the lane's worktree with the caller's ctx.
 type Lane struct {
-	Cfg *config.Config
-	Out io.Writer // progress lines (nil: none)
-	Git string    // the git binary ("" : git on PATH); a test puts a shim here that fails a chosen call
+	Cfg  *config.Config
+	Out  io.Writer // progress lines (nil: none)
+	Git  string    // the git binary ("" : git on PATH); a test puts a shim here (a lock's holder)
+	fake laneGit   // the tests' git (fakegit_test.go); nil: real git
 }
 
 var _ port.LaneSetup = Lane{}
+
+// laneGit is the git Lane runs in a lane's worktree: each method one question or one change. Prepare and Free decide
+// over its answers only (and the config, the lane dir on disk), so the decision tests run them on fakeGit.
+type laneGit interface {
+	// Dirt is the lane's uncommitted work, obor's own links left out (project.LaneDirt): its paths.
+	Dirt(dir string) ([]string, error)
+	// Verify is rev-parse -q --verify ref: its sha, ok false (and no error) when ref does not resolve.
+	Verify(dir, ref string) (sha string, ok bool, err error)
+	// Ancestor reports whether a is an ancestor of b (or b itself).
+	Ancestor(dir, a, b string) (bool, error)
+	// Ahead is log --oneline from..to: the commits to has that from does not, a line each.
+	Ahead(dir, from, to string) (string, error)
+	// NewBranch checks branch out in dir, made (or moved) at target (checkout -B), obor's links kept around it.
+	NewBranch(dir, branch, target string) error
+	// Reset is reset --hard rev ("": HEAD) in dir; Clean removes its untracked files (ignored ones and obor's links,
+	// project.LinksIn, stay).
+	Reset(dir, rev string) error
+	Clean(dir string) error
+	// Detach checks sha out detached in dir, obor's links kept around it.
+	Detach(dir, sha string) error
+	// DeleteBranch deletes branch (branch -D).
+	DeleteBranch(dir, branch string) error
+}
+
+// lgit is the git l works through under ctx: its fake when a test set one, else laneReal.
+func (l Lane) lgit(ctx context.Context) laneGit {
+	if l.fake != nil {
+		return l.fake
+	}
+	return laneReal{l: l, ctx: ctx}
+}
 
 // Prepare puts in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is) and runs lane_ready (then
 // lane_setup and lane_ready again when it was red). It returns the target sha the branch is based on: serve's lane row
@@ -36,7 +68,7 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 		return port.Prepared{}, port.Refused{Line: "no lane dir " + in.Dir}
 	}
 	if !in.Redo {
-		if err := l.checkout(ctx, in.Dir, in.Target, "-B", in.Branch, in.Target); err != nil {
+		if err := l.lgit(ctx).NewBranch(in.Dir, in.Branch, in.Target); err != nil {
 			return port.Prepared{}, fmt.Errorf("checkout -B %s %s in %s: %w%s", in.Branch, in.Target, in.Dir, err,
 				lockHint(in.Dir, err))
 		}
@@ -87,26 +119,24 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if !project.IsDir(in.Dir) {
 		return "", port.Refused{Line: "no lane dir " + in.Dir}
 	}
-	git := func(dir string, args ...string) (string, error) { return l.gitRaw(ctx, dir, args...) }
-	dirt, err := project.LaneDirt(l.Cfg, in.Dir, git)
+	git := l.lgit(ctx)
+	dirt, err := git.Dirt(in.Dir)
 	if err != nil {
 		return "", fmt.Errorf("git status in %s: %w", in.Dir, err)
 	}
 	status := strings.Join(dirt, "\n")
-	_, branchErr := l.git(ctx, in.Dir, "rev-parse", "-q", "--verify", "refs/heads/"+in.Branch)
-	exists, err := exit1(branchErr)
+	_, exists, err := git.Verify(in.Dir, "refs/heads/"+in.Branch)
 	if err != nil {
 		return "", fmt.Errorf("read branch %s: %w", in.Branch, err)
 	}
 	var commits string
 	if exists {
-		_, ancestryErr := l.git(ctx, in.Dir, "merge-base", "--is-ancestor", "refs/heads/"+in.Branch, in.Target)
-		merged, err := exit1(ancestryErr)
+		merged, err := git.Ancestor(in.Dir, "refs/heads/"+in.Branch, in.Target)
 		if err != nil {
 			return "", fmt.Errorf("check branch %s ancestry: %w", in.Branch, err)
 		}
 		if !merged {
-			commits, err = l.git(ctx, in.Dir, "log", "--oneline", in.Target+"..refs/heads/"+in.Branch)
+			commits, err = git.Ahead(in.Dir, in.Target, "refs/heads/"+in.Branch)
 			if err != nil {
 				return "", fmt.Errorf("read unmerged commits on %s: %w", in.Branch, err)
 			}
@@ -122,14 +152,10 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	}
 	var lines []string
 	if status != "" {
-		if _, err := l.git(ctx, in.Dir, "reset", "-q", "--hard"); err != nil {
+		if err := git.Reset(in.Dir, ""); err != nil {
 			return "", fmt.Errorf("git reset --hard in %s: %w", in.Dir, err)
 		}
-		clean := []string{"clean", "-q", "-fd"}
-		for _, link := range project.LinksIn(l.Cfg, in.Dir, git) {
-			clean = append(clean, "-e", "/"+globEscape.Replace(link))
-		}
-		if _, err := l.git(ctx, in.Dir, clean...); err != nil {
+		if err := git.Clean(in.Dir); err != nil {
 			return "", fmt.Errorf("git clean -fd in %s: %w", in.Dir, err)
 		}
 		lines = append(lines, "discarded in "+in.Lane+":\n  "+strings.ReplaceAll(status, "\n", "\n  "))
@@ -137,15 +163,75 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if commits != "" {
 		lines = append(lines, "discarded commits on "+in.Branch+":\n  "+strings.ReplaceAll(commits, "\n", "\n  "))
 	}
-	if err := l.checkout(ctx, in.Dir, in.Target, "--detach", in.Target); err != nil {
+	if err := git.Detach(in.Dir, in.Target); err != nil {
 		return "", fmt.Errorf("git checkout --detach %s in %s: %w", in.Target, in.Dir, err)
 	}
 	if exists {
-		if _, err := l.git(ctx, in.Dir, "branch", "-q", "-D", in.Branch); err != nil {
+		if err := git.DeleteBranch(in.Dir, in.Branch); err != nil {
 			return "", fmt.Errorf("git branch -D %s: %w — run the same obor drop again to finish it", in.Branch, err)
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// laneReal is laneGit over real git: each method Lane's own git call (gitRaw: obor's git environment, the lock rule,
+// its error line), under ctx.
+type laneReal struct {
+	l   Lane
+	ctx context.Context
+}
+
+var _ laneGit = laneReal{}
+
+func (g laneReal) run(dir string, args ...string) (string, error) {
+	return g.l.gitRaw(g.ctx, dir, args...)
+}
+
+func (g laneReal) Dirt(dir string) ([]string, error) { return project.LaneDirt(g.l.Cfg, dir, g.run) }
+
+func (g laneReal) Verify(dir, ref string) (string, bool, error) {
+	sha, err := g.l.git(g.ctx, dir, "rev-parse", "-q", "--verify", ref)
+	ok, err := exit1(err)
+	if !ok {
+		sha = ""
+	}
+	return sha, ok, err
+}
+
+func (g laneReal) Ancestor(dir, a, b string) (bool, error) {
+	_, err := g.l.git(g.ctx, dir, "merge-base", "--is-ancestor", a, b)
+	return exit1(err)
+}
+
+func (g laneReal) Ahead(dir, from, to string) (string, error) {
+	return g.l.git(g.ctx, dir, "log", "--oneline", from+".."+to)
+}
+
+func (g laneReal) NewBranch(dir, branch, target string) error {
+	return g.l.checkout(g.ctx, dir, target, "-B", branch, target)
+}
+
+func (g laneReal) Reset(dir, rev string) error {
+	_, err := g.l.git(g.ctx, dir, nonEmpty("reset", "-q", "--hard", rev)...)
+	return err
+}
+
+func (g laneReal) Clean(dir string) error {
+	args := []string{"clean", "-q", "-fd"}
+	for _, link := range project.LinksIn(g.l.Cfg, dir, g.run) {
+		args = append(args, "-e", "/"+globEscape.Replace(link))
+	}
+	_, err := g.l.git(g.ctx, dir, args...)
+	return err
+}
+
+func (g laneReal) Detach(dir, sha string) error {
+	return g.l.checkout(g.ctx, dir, sha, "--detach", sha)
+}
+
+func (g laneReal) DeleteBranch(dir, branch string) error {
+	_, err := g.l.git(g.ctx, dir, "branch", "-q", "-D", branch)
+	return err
 }
 
 // git runs git -C dir args… (l.Git, else git on PATH): its stdout, trimmed.
