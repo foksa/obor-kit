@@ -388,21 +388,18 @@ func TestValidateTrunkRef(t *testing.T) {
 	if got := on("main", "trunk")(set("merge.target_branch", "trunk"), noCompile); len(got) != 0 {
 		t.Errorf("no compile, target a branch other than the default: %q, want none", got)
 	}
-}
-
-// NoCompileWarning on a branch its caller read: it warns when merge.compile is empty and merge.target_branch is that
-// branch, and runs no git (a Root with no repository: a read of its own would find none and give no warning).
-func TestNoCompileWarningTakesTheCallersBranch(t *testing.T) {
+	// NoCompileWarning on a branch its caller read runs no git (a Root with no repository: a read of its own would
+	// find none and give no warning).
 	cfg := func(target, compile string) *config.Config {
 		c := &config.Config{Root: t.TempDir()}
 		c.Data.Merge.TargetBranch = target
 		c.Data.Merge.Compile.Cmd = compile
 		return c
 	}
-	want := "merge.compile is empty and merge.target_branch trunk is the default branch: " + config.NoCompile
+	warning := "merge.compile is empty and merge.target_branch trunk is the default branch: " + config.NoCompile
 	for _, row := range []struct{ name, target, compile, def, want string }{
-		{"target is the default branch: warns", "trunk", "", "trunk", want},
-		{"target is another branch: none", "main", "", "trunk", ""},
+		{"passed branch is the target: warns", "trunk", "", "trunk", warning},
+		{"passed branch is another: none", "main", "", "trunk", ""},
 		{"a compile is set: none", "trunk", "make build", "trunk", ""},
 		{"no target: none", "", "", "trunk", ""},
 	} {
