@@ -503,6 +503,99 @@ func TestStartTrimUserSkills(t *testing.T) {
 	}
 }
 
+// a lane's start (a worker, the owner's drive agent: StrictMCP) switches off each MCP server of the user's
+// config.toml ($CODEX_HOME or ~/.codex) that the project does not declare, each by Codex's own key `enabled = false`,
+// obor's own never; a lead's or a role agent's start switches off none. The project declares a server by name in its
+// .codex/config.toml, in config_override.toml or in the type's args, and a name the override sets is left to it. A
+// name that needs quotes is one inline table at mcp_servers, before the override's options and the trim (a dotted key
+// cannot carry a quoted part), and none is passed under mcp_servers when the type's args set a key there.
+func TestStartLaneMCPServers(t *testing.T) {
+	k, _ := split()
+	base := []string{"-a", "never"}
+	trim := []string{"-c", "features.plugins=false", "-c", "features.apps=false", "-c", "skills.bundled.enabled=false"}
+	update := []string{"-c", "check_for_update_on_startup=false"}
+	opts := func(keys ...string) []string {
+		var out []string
+		for _, key := range keys {
+			out = append(out, "-c", key)
+		}
+		return out
+	}
+	// want is the start's options: the args, before (the servers' switches among them), the trim, the update check.
+	want := func(args, before []string) []string { return slices.Concat(args, before, trim, update) }
+	home := func(k string) string { return map[string]string{"HOME": "/home/u"}[k] }
+	codexHome := func(k string) string { return map[string]string{"CODEX_HOME": "/cx"}[k] }
+	const userDir = "/home/u/.codex"
+	const user = "[mcp_servers.a]\ncommand = \"a\"\n[mcp_servers.b]\ncommand = \"b\"\n[mcp_servers.obor]\ncommand = \"x\"\n"
+	if got, w := k.Start(agents.Start{Args: base, Dir: "/lane", Env: home,
+		Read: files(map[string]string{userDir + "/config.toml": user})}), slices.Concat(base, update); !slices.Equal(got, w) {
+		t.Fatalf("precondition: an untrimmed start switches off no server:\n %q\nwant\n %q", got, w)
+	}
+	for _, c := range []struct {
+		name          string
+		env           func(string) string
+		user, project string
+		override      string
+		args          []string
+		notLane       bool // a role agent's start: trimmed, not a lane's
+		before        []string
+	}{
+		{"no project file: the user's a and b, obor never", home, user, "", "", nil, false,
+			opts("mcp_servers.a.enabled=false", "mcp_servers.b.enabled=false")},
+		{"a server the project's config defines is left to it", home, user, "[mcp_servers.b]\ncommand = \"b\"\n", "", nil, false,
+			opts("mcp_servers.a.enabled=false")},
+		{"a server the override sets is left to it",
+			home, user, "", "[mcp_servers.a]\ncommand = \"x\"\n", nil, false,
+			opts(`mcp_servers.a.command="x"`, "mcp_servers.b.enabled=false")},
+		{"a server the type's args declare is left to them", home, user, "", "",
+			append(slices.Clone(base), "-c", `mcp_servers.a.command="a"`), false, opts("mcp_servers.b.enabled=false")},
+		{"$CODEX_HOME's config: the user's servers", codexHome, user, "", "", nil, false,
+			opts("mcp_servers.a.enabled=false", "mcp_servers.b.enabled=false")},
+		{"a name that needs quotes: one inline table before the override's key and the trim",
+			home, "[mcp_servers.\"a b\"]\ncommand = \"x\"\n[mcp_servers.c]\ncommand = \"c\"\n", "",
+			"model_reasoning_summary = \"none\"\n", nil, false,
+			opts(`mcp_servers={"a b"={enabled=false}}`, `model_reasoning_summary="none"`, "mcp_servers.c.enabled=false")},
+		{"a key the type's args set under mcp_servers: no inline table", home,
+			"[mcp_servers.\"a b\"]\ncommand = \"x\"\n", "", "", append(slices.Clone(base), "-c", `mcp_servers.c.command="c"`), false, nil},
+		{"a role agent's start: the user's servers stay", home, user, "", "", nil, true, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := map[string]string{userDir + "/config.toml": c.user, "/cx/config.toml": c.user}
+			if c.project != "" {
+				m["/lane/"+codex.ConfigFile] = c.project
+			}
+			overrides := map[string]string{}
+			if c.override != "" {
+				overrides[codex.ConfigOverride] = c.override
+			}
+			args := c.args
+			if args == nil {
+				args = base
+			}
+			in := agents.Start{Args: args, TrimUser: true, StrictMCP: !c.notLane, Overrides: overrides, Dir: "/lane",
+				Env: c.env, Read: files(m)}
+			if got, w := k.Start(in), want(args, c.before); !slices.Equal(got, w) {
+				t.Errorf("Start =\n %q\nwant\n %q", got, w)
+			}
+		})
+	}
+	// No server to switch off: no user config, one that does not parse, no home in the environment.
+	for _, c := range []struct {
+		name string
+		env  func(string) string
+		read agents.ReadFile
+	}{
+		{"no user config", home, files(nil)},
+		{"a user config that does not parse", home, files(map[string]string{userDir + "/config.toml": "what ever\n"})},
+		{"no home in the environment", func(string) string { return "" }, files(map[string]string{userDir + "/config.toml": user})},
+	} {
+		in := agents.Start{Args: base, TrimUser: true, StrictMCP: true, Dir: "/lane", Env: c.env, Read: c.read}
+		if got, w := k.Start(in), want(base, nil); !slices.Equal(got, w) {
+			t.Errorf("%s: Start =\n %q\nwant\n %q", c.name, got, w)
+		}
+	}
+}
+
 // a start's override files become -c options around the trim switches. Before them: each key config_override.toml
 // sets with its value as TOML, a table as dotted keys down to its leaves (an inline table only for the entries whose
 // key needs quotes, first), skipped where the project's .codex/config.toml sets it, so that no table cancels a trim

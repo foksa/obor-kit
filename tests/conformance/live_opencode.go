@@ -386,7 +386,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 			return "", err
 		}
 		return path, os.WriteFile(path, data, 0o644)
-	})
+	}, nil)
 	if err != nil || start.env[ocConfigVar] == "" {
 		report("FAIL", "OC-L6", fmt.Sprintf("the launch of %s names no generated config (%v, %v)", model, start.env, err),
 			at("internal/config/models.go", "func (m Model) Launch")+", T-910")

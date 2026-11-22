@@ -150,7 +150,14 @@ func cxL4(l *lab, pane, codexHome string, turn bool) {
 		report("FAIL", "CX-L4", "obor init's starter list has no codex model", at("internal/setup/models.go", "var StarterModels")+", T-910")
 		return
 	}
-	start, err := l.launchOf("codex", model, real, nil)
+	// The args are the shipped worker launch's, read in the environment the pane runs codex in: its scratch
+	// CODEX_HOME. A switch off a server that home does not define would make codex refuse the start.
+	start, err := l.launchOf("codex", model, real, nil, func(k string) string {
+		if k == "CODEX_HOME" {
+			return codexHome
+		}
+		return os.Getenv(k)
+	})
 	if err != nil {
 		report("FAIL", "CX-L4", "the launch of "+model+" cannot be built: "+err.Error(), at("internal/config/models.go", "func (m Model) Launch")+", T-910")
 		return

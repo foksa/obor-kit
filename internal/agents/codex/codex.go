@@ -1,6 +1,6 @@
 // Package codex is the Codex CLI bridge (agents.Kind): `resume <sid>` first, obor's MCP server as -c options on every
-// start (~/.codex/config.toml is never edited), its startup update check off, /quit, `codex exec` denied, rollout
-// transcripts, prompts typed.
+// start (~/.codex/config.toml is never edited), the user's MCP servers off on a lane's start, its startup update check
+// off, /quit, `codex exec` denied, rollout transcripts, prompts typed.
 package codex
 
 import (
@@ -42,8 +42,10 @@ func EnvVarsTOML() string {
 // -c model_reasoning_effort=<effort>), then --add-dir per write dir, then on a start that trims the user's settings
 // (in.TrimUser) the override's options and the default's (configArgs: the keys ConfigOverride sets; trimKeys false:
 // no plugins, no app connectors, no bundled skills; skills.config with the user's skills off, skillsOff; hooksOff:
-// the user's hooks HooksOverride drops; the rest of the user's config applies), then obor's server (with a kit),
-// then the update check off, then the prompt (a resume carries none). Codex takes no settings.
+// the user's hooks HooksOverride drops; the rest of the user's config applies) and, on a lane's start (in.StrictMCP:
+// a worker, the owner's drive agent), the switches of the user's own MCP servers the project does not declare
+// (serversOff), then obor's server (with a kit), then the update check off, then the prompt (a resume carries none).
+// Codex takes no settings.
 //
 // The project's committed .codex/config.toml in in.Dir outranks obor's policy: a top-level sandbox_mode drops
 // the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
@@ -71,7 +73,10 @@ func (kind) Start(in agents.Start) []string {
 		config := in.Override(ConfigOverride)
 		given = settingKeys(config)
 		left := func(k string) bool { return argSets(in.Args, k) || sets(top, k) || sets(given, k) }
+		tables, dotted := serversOff(in, config, top)
+		out = append(out, tables...)
 		out = append(out, configArgs(in, config, top)...)
+		out = append(out, dotted...)
 		for _, k := range trimKeys {
 			if !left(k) {
 				out = append(out, "-c", k+"=false")
@@ -159,10 +164,71 @@ func skillsOff(in agents.Start) string {
 	return "[" + strings.Join(entries, ",") + "]"
 }
 
+// mcpServersKey is Codex's table of MCP servers; oborMCP is obor's own server in it, which obor's -c options name and
+// a lane never switches off.
+const (
+	mcpServersKey = "mcp_servers"
+	oborMCP       = "obor"
+)
+
+// serversOff are the -c options that switch off the user's MCP servers on a lane's start (in.StrictMCP: a worker, the
+// owner's drive agent), each by Codex's own key `enabled = false`: every server of the user's config.toml (userDir)
+// the project does not declare and that is not obor's. The project declares a server by name in its ConfigFile, in
+// ConfigOverride, or in the type's args. tables is one inline table at mcpServersKey for the names that need quotes,
+// for the start to pass before every dotted key (-c honors no quoted part of a dotted key); dotted are the rest, for
+// the start to pass after configArgs' options (an inline table replaces what earlier -c options set under its key).
+func serversOff(in agents.Start, config map[string]any, top map[string]bool) (tables, dotted []string) {
+	if !in.StrictMCP {
+		return nil, nil
+	}
+	declared := tableNames(config, mcpServersKey)
+	var quoted []string
+	for _, name := range userServers(in) {
+		key := mcpServersKey + "." + name
+		if name == oborMCP || slices.Contains(declared, name) || sets(top, key) || argSetsUnder(in.Args, key) {
+			continue
+		}
+		if bareKey.MatchString(name) {
+			dotted = append(dotted, "-c", key+".enabled=false")
+			continue
+		}
+		quoted = append(quoted, tomlKeyPart(name)+"={enabled=false}")
+	}
+	if len(quoted) > 0 && !argSetsUnder(in.Args, mcpServersKey) {
+		tables = []string{"-c", mcpServersKey + "={" + strings.Join(quoted, ",") + "}"}
+	}
+	return tables, dotted
+}
+
+// userServers are the names of the MCP servers of the user's config.toml (userDir), sorted; nil: no user dir, no
+// reader, no config file, or one that does not parse.
+func userServers(in agents.Start) []string {
+	dir := userDir(in)
+	if dir == "" || in.Read == nil {
+		return nil
+	}
+	b, err := in.Read(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		return nil
+	}
+	var tree map[string]any
+	if _, err := toml.Decode(string(b), &tree); err != nil {
+		return nil
+	}
+	return tableNames(tree, mcpServersKey)
+}
+
+// tableNames are the keys of tree's table at key, sorted; nil: tree has no table there.
+func tableNames(tree map[string]any, key string) []string {
+	t, _ := tree[key].(map[string]any)
+	return slices.Sorted(maps.Keys(t))
+}
+
 // A table Codex's -c is given inline replaces what earlier -c options set under its key (a dotted key after it
 // stays, and the user's config still merges in key by key), and -c does not honor a quoted part of a dotted key. So
 // an inline table is passed only where a key part needs quotes, never for a key the type's args set a key under
-// (argSetsUnder), and before every dotted key obor passes: configArgs' tables, then its dotted keys, then the trim.
+// (argSetsUnder), and before every dotted key obor passes: serversOff's table, configArgs' tables, then its dotted
+// keys and serversOff's switches, then the trim.
 
 // configArgs are the -c options of ConfigOverride's tree (config): each entry as -c <dotted key>=<value>, sorted, a
 // table entry by entry down to its leaves, the value as TOML (tomlValue); the entries of a table whose key needs
