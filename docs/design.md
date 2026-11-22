@@ -239,13 +239,20 @@ its mode keys `toolPermission` and `agentMode` on a lead's start), then
 obor's entries: `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands with no prompt, and
 its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)` and `command(obor)`, and `trustedWorkspaces` gains the start dir
 when the project's root is in the user's saved list (a lane follows the main checkout's trust). agy has no switch for
-the user's own plugins, skills, hooks and MCP servers: they stay. The trim is best
+the user's own plugins, skills and hooks: they stay (MCP servers: below). The trim is best
 effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user config, plugins,
 `~/.config/opencode/skills` and `~/.agents/skills`, stay unless an override file switches them off. The project's own settings and skills stay for Claude and
-Codex; OpenCode keeps the project's `.agents/skills` and `.opencode/skills`, not its `.claude/skills`. A lane's agent
-(a worker, the owner's drive agent) starts strict: `--strict-mcp-config`, with obor's `--mcp-config` spliced in before it,
-so the user's own MCP servers cost no context on a job; the lead and the role agents keep every one of them
-(unless `claude_override.json` names `mcpServers`, above).
+Codex; OpenCode keeps the project's `.agents/skills` and `.opencode/skills`, not its `.claude/skills`. MCP servers of a lane's agent
+(a worker, the owner's drive agent; owner 2026-11-22): the project's declared servers plus obor's, none of the user's,
+each kind by its CLI's own switch. Claude starts strict: `--strict-mcp-config` with one `--mcp-config` holding the start
+dir's `.mcp.json` servers the project's settings approve (`enableAllProjectMcpServers`, or named in
+`enabledMcpjsonServers`), then obor's. Codex gets `-c mcp_servers.<name>.enabled=false` for each server of the user's
+`config.toml` that the project's `.codex/config.toml` does not define (obor's and a name `config_override.toml` sets are
+left alone). OpenCode's generated config makes `{"disabled": true}` each server of the user's `opencode.json(c)` that the
+project's does not define (obor's and an override's entry are left alone). agy has no switch, so the guard denies a lane
+agent's `call_mcp_tool`, `list_resources` and `read_resource` on a server its project's `.agents/mcp_config.json` does not
+list (a missing file: obor's alone). The lead and the role agents keep every server (unless `claude_override.json` names
+`mcpServers`, above).
 Permission mode and posted lines: a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute
 dialog and drops it while serve records `sent` (phase-5 advice §8); the delivery timers re-wake a worker, a brief is
