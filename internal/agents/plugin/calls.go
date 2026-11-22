@@ -29,7 +29,8 @@ var Timeouts = map[string]time.Duration{
 }
 
 // Log receives the failures of the calls whose agents.Kind method returns no error (not-ready aside: its failure is
-// the reason a start waits): turn's and deliver's, so a broken plugin is seen, not only read as "no turn".
+// the reason a start waits): turn's and deliver's, so a broken plugin is seen, not only read as "no turn"; and a
+// start's warnings, the notes of a start it made without a check it wanted.
 var Log io.Writer = os.Stderr
 
 // replyMax bounds a reply (a turn's tail is the biggest request; a reply is small).
@@ -125,12 +126,14 @@ func snapshot(m *manifest, env func(string) string) map[string]string {
 	return out
 }
 
-// startReply is start's reply: the argv after the binary, the start's own env, and the files obor writes into the
-// state dir first, whose paths replace each {file:<name>} in args and env values.
+// startReply is start's reply: the argv after the binary, the start's own env, the files obor writes into the state
+// dir first, whose paths replace each {file:<name>} in args and env values, and the lines the start has logged (its
+// notes on what it could not check: no failure).
 type startReply struct {
-	Args  []string          `json:"args"`
-	Env   map[string]string `json:"env"`
-	Files []struct {
+	Args     []string          `json:"args"`
+	Env      map[string]string `json:"env"`
+	Warnings []string          `json:"warnings"`
+	Files    []struct {
 		Name  string `json:"name"`
 		Bytes string `json:"bytes"`
 	} `json:"files"`
@@ -149,6 +152,9 @@ func (k *Kind) start(in agents.Start) (startReply, error) {
 	var r startReply
 	if err := k.run("start", req, &r); err != nil {
 		return startReply{}, err
+	}
+	for _, w := range r.Warnings {
+		fmt.Fprintf(Log, "obor: kind %s: start: %s\n", k.name, w)
 	}
 	for v := range r.Env {
 		if !slices.Contains(m.Vars, v) {

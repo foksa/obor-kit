@@ -1,6 +1,7 @@
 // Package kind is the Antigravity CLI (agy) as obor's kind protocol answers it (docs/agents/kind-protocol.md), built as
 // the binary obor-kind-agy (kinds/agy). A start is `agy --settings <file> [args] --model … [--effort …] -i <prompt>`
-// (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first, the settings file
+// (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first (no check on a
+// resume; its answer kept as the last good list for a check that times out or fails), the settings file
 // the user's saved settings with the project's override file and obor's entries laid over them (settings.go); obor's
 // MCP server and hooks through the project's committed .agents/mcp_config.json and .agents/hooks.json (install's where:
 // project; the hooks' transport is hook.go); /exit with one Enter; `agy acp`, -p/--print and --prompt denied; prompts
@@ -21,9 +22,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"obor/internal/agents"
@@ -97,17 +100,19 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 // Handle is call's reply to req, as JSON; an error for a request that does not parse or names another version, or a
-// call this kind does not answer. A start that cannot be built is a reply with error, not an error.
-func Handle(call string, req []byte) ([]byte, error) { return handle(call, req, agyModels) }
+// call this kind does not answer. A start that cannot be built is a reply with error, not an error. A start's check
+// runs `agy models` live and keeps its answer as the cached list.
+func Handle(call string, req []byte) ([]byte, error) { return handle(call, req, agyModels, true) }
 
-// HandleModels is Handle with models as agy's model list in place of `agy models` (the start's check reads it): an
-// in-process kind with a fixed list runs no agy (internal/testkit's).
+// HandleModels is Handle with models as agy's model list in place of `agy models` (the start's check reads it, and
+// the cache it falls back to): an in-process kind with a fixed list runs no agy (internal/testkit's). A supplied list
+// is no live answer, so it is never stored as the cached one.
 func HandleModels(models func() ([]byte, error)) func(call string, req []byte) ([]byte, error) {
-	return func(call string, req []byte) ([]byte, error) { return handle(call, req, models) }
+	return func(call string, req []byte) ([]byte, error) { return handle(call, req, models, false) }
 }
 
-// handle is Handle with models as the start's model list.
-func handle(call string, req []byte, models func() ([]byte, error)) ([]byte, error) {
+// handle is Handle with models as the start's model list, kept as the cached list when store is set.
+func handle(call string, req []byte, models func() ([]byte, error), store bool) ([]byte, error) {
 	var in request
 	if err := json.Unmarshal(req, &in); err != nil {
 		return nil, fmt.Errorf("malformed request: %v", err)
@@ -120,7 +125,7 @@ func handle(call string, req []byte, models func() ([]byte, error)) ([]byte, err
 	case "describe":
 		reply = describe()
 	case "start":
-		reply = start(in, os.ReadFile, models)
+		reply = start(in, os.ReadFile, models, store)
 	case "install":
 		reply = map[string]any{"mcp": map[string]any{"where": "project", "path": MCPFile,
 			"key": []string{"mcpServers", "obor"}, "entry": MCPEntry},
@@ -174,14 +179,16 @@ func describe() map[string]any {
 	}
 }
 
-// start: the model and effort checked against `agy models` (checkModel; not for the effort check, in.Check), then
-// --settings <the start's settings file>, the type's args but their --model and --effort, the model (with the ref's
-// effort: --model <the slug without its effort word> --effort <effort>; without: the slug alone, or the args' own
-// --effort), --add-dir per write dir, then --conversation <id> for a resume, else -i <prompt> for a first prompt.
+// start: the model and effort checked against agy's list (modelList and checkModel: not for the effort check, in.Check,
+// nor a resume, which runs the conversation's model), then --settings <the start's settings file>, the type's args but
+// their --model and --effort, the model (with the ref's effort: --model <the slug without its effort word> --effort
+// <effort>; without: the slug alone, or the args' own --effort), --add-dir per write dir, then --conversation <id> for
+// a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file and the start. An effort with no model
-// is the start's error: agy's --effort selects a variant of a model named by its base.
-func start(in request, read func(string) ([]byte, error), models func() ([]byte, error)) map[string]any {
+// is the start's error: agy's --effort selects a variant of a model named by its base. A check with neither a live nor
+// a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked.
+func start(in request, read func(string) ([]byte, error), models func() ([]byte, error), store bool) map[string]any {
 	rest, model, argEffort := splitModel(in.Args)
 	effort := in.Effort
 	if effort == "" {
@@ -190,13 +197,17 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 	if effort != "" && model == "" {
 		return map[string]any{"error": fmt.Sprintf("effort %s needs a model id (models.<name>.id, a slug of agy models)", effort)}
 	}
-	if model != "" && !in.Check {
-		out, err := models()
+	warn := ""
+	if model != "" && !in.Check && in.Resume == "" {
+		list, w, err := modelList(in.Env["HOME"], models, store)
 		if err != nil {
-			return map[string]any{"error": "agy models: " + err.Error()}
+			return map[string]any{"error": err.Error()}
 		}
-		if why := checkModel(parseModels(out), model, effort); why != "" {
-			return map[string]any{"error": why}
+		warn = w
+		if warn == "" {
+			if why := checkModel(list, model, effort); why != "" {
+				return map[string]any{"error": why}
+			}
 		}
 	}
 	var over map[string]any
@@ -226,8 +237,12 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 	case in.Prompt != "":
 		args = append(args, "-i", in.Prompt)
 	}
-	return map[string]any{"args": args, "env": map[string]string{},
+	reply := map[string]any{"args": args, "env": map[string]string{},
 		"files": []map[string]string{{"name": name, "bytes": string(b) + "\n"}}}
+	if warn != "" {
+		reply["warnings"] = []string{warn}
+	}
+	return reply
 }
 
 // Base is slug without its effort word ("gemini-3.8-flash-low" → "gemini-3.8-flash"); a slug that ends in none is its
@@ -243,23 +258,116 @@ func Base(slug string) string {
 type model struct{ slug, label string }
 
 // modelsLimit bounds `agy models`: about 1.5 s with the network, over 10 s when it cannot reach it, so it is capped
-// under the start call's own 5 s (docs/agents/kind-protocol.md) and a slow list is the start's error, not a start with
-// no reply.
+// under the start call's own 5 s (docs/agents/kind-protocol.md), and a check that gets no answer takes the last good
+// list or, with none, goes on unchecked.
 const modelsLimit = 4 * time.Second
 
-// agyModels is `agy models` on the agent's PATH: its list, or an error naming the failure (a non-zero exit with its
-// stderr's last line, its own timeout, no `agy` on PATH).
+// ErrModelsTimeout is `agy models` with no reply within modelsLimit: a start takes its cached list instead or, with
+// none cached, goes on unchecked with a warning. Any other failure of the check is a start's error.
+var ErrModelsTimeout = errors.New("no reply within " + modelsLimit.String())
+
+// groupGrace is how long `agy models`, and the children it leaves, have to exit after SIGTERM before SIGKILL.
+const groupGrace = 200 * time.Millisecond
+
+// ModelsFile is a start's cached `agy models` output, relative to HOME: agy's own model list, one file for every
+// project and lane (~/.obor/agy/models).
+const ModelsFile = ".obor/agy/models"
+
+// modelList is the list a start's check reads: `agy models`'s live answer (kept as the cached list when store is set),
+// else the last good list. warn names the one case with no list at all, a live check that timed out; err is the live
+// check's failure with no cached list.
+func modelList(home string, models func() ([]byte, error), store bool) (list []model, warn string, err error) {
+	out, liveErr := models()
+	if liveErr == nil {
+		list = parseModels(out)
+		if store && len(list) > 0 {
+			keepModels(home, out)
+		}
+		return list, "", nil
+	}
+	if cached, ok := cachedModels(home); ok {
+		return parseModels(cached), "", nil
+	}
+	if errors.Is(liveErr, ErrModelsTimeout) {
+		where := "no cached list: the start names no HOME"
+		if p := modelsCache(home); p != "" {
+			where = "no cached list in " + p
+		}
+		return nil, fmt.Sprintf("WARN agy models: %v and %s: the start's model is unchecked", liveErr, where), nil
+	}
+	return nil, "", fmt.Errorf("agy models: %w", liveErr)
+}
+
+// modelsCache is the file of home's cached model list ("" : no HOME, so no cache).
+func modelsCache(home string) string {
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, filepath.FromSlash(ModelsFile))
+}
+
+// cachedModels is the cached model list under home and whether there is one (no HOME, no file, or a file that names
+// no model: none).
+func cachedModels(home string) ([]byte, bool) {
+	p := modelsCache(home)
+	if p == "" {
+		return nil, false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil || len(parseModels(b)) == 0 {
+		return nil, false
+	}
+	return b, true
+}
+
+// keepModels writes out as home's cached model list: best effort (a cache obor cannot write is no start's failure),
+// through a temp file and a rename, so a start reading it at the same time reads a whole list or none.
+func keepModels(home string, out []byte) {
+	p := modelsCache(home)
+	if p == "" {
+		return
+	}
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.CreateTemp(dir, "models-*")
+	if err != nil {
+		return
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err := f.Write(out); err != nil {
+		f.Close()
+		return
+	}
+	if err := f.Close(); err != nil {
+		return
+	}
+	if err := os.Chmod(name, 0o644); err != nil {
+		return
+	}
+	os.Rename(name, p)
+}
+
+// agyModels is `agy models` on the agent's PATH, in its own process group: its list, or an error naming the failure (a
+// non-zero exit with its stderr's last line, ErrModelsTimeout, no `agy` on PATH). The group is killed with it: the CLI
+// leaves a child waiting on the network, which would answer no later start either.
 func agyModels() ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), modelsLimit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, Name, "models")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM, groupGrace) }
+	cmd.WaitDelay = groupGrace + 100*time.Millisecond // a group that held the pipes: gone well within the start's 5 s
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	signalGroup(cmd, syscall.SIGKILL, 0) // a timed-out group's children: the group goes whether or not cmd waited
 	var ee *exec.ExitError
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return nil, fmt.Errorf("no reply within %s", modelsLimit)
+		return nil, ErrModelsTimeout
 	case errors.As(err, &ee):
 		why := lastLine(stderr.String())
 		if why == "" {
@@ -270,6 +378,21 @@ func agyModels() ([]byte, error) {
 		return nil, err
 	}
 	return stdout.Bytes(), nil
+}
+
+// signalGroup signals cmd's process group (nothing: cmd did not start) and, after grace, its SIGKILL.
+func signalGroup(cmd *exec.Cmd, sig syscall.Signal, grace time.Duration) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	pgid := cmd.Process.Pid
+	if err := syscall.Kill(-pgid, sig); err != nil {
+		return err
+	}
+	if grace > 0 {
+		time.AfterFunc(grace, func() { syscall.Kill(-pgid, syscall.SIGKILL) })
+	}
+	return nil
 }
 
 // lastLine is text's last non-blank line, trimmed ("" none): agy prints `Fetching available models...` before the line
