@@ -474,8 +474,9 @@ func unescape(v string, quoted bool) string {
 // headless denies an agent CLI run headless (owner 2026-10-27), for every role, by its argv structure (an
 // accident guard: a prompt word is quoted, so it is no word of its own), as its kind names the forms h
 // (agents.Kind.Headless; name is the program typed, one of h.Programs): a subcommand (codex exec, opencode run), one
-// also as any later positional word (Anywhere); a print flag -p, --print or a short cluster holding p (-cp, -pc) before
-// `--` (claude; it has no -p-shaped option values). Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28): the
+// also as any later positional word (Anywhere); a long flag of h.Flags (agy --prompt), or a print flag -p, --print or a
+// short cluster holding p (-cp, -pc), either spelling with =, before `--` (claude; it has no -p-sized option values).
+// Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28): the
 // alias after a prompt word (`codex "hello" e hi`); `env -S` separators the shell parser reads differently (`\_`).
 func headless(h agents.Headless, name string, args []string) {
 	if sub := subcommand(args, h.ValueOpts); oneOf(sub, h.Subcommands...) {
@@ -486,16 +487,17 @@ func headless(h agents.Headless, name string, args []string) {
 			deny(name + " " + w + " runs an agent headless; agents run in terminal panes")
 		}
 	}
-	if !h.PrintFlag {
-		return
-	}
 	for _, a := range args {
 		if a == "--" {
 			return
 		}
 		a, _, _ = strings.Cut(a, "=")
-		if a == "--print" || len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.Contains(a, "p") &&
-			strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" {
+		switch {
+		case oneOf(a, h.Flags...):
+			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
+		case !h.PrintFlag:
+		case a == "--print" || len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.Contains(a, "p") &&
+			strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == "":
 			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
 		}
 	}

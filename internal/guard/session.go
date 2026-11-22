@@ -224,7 +224,7 @@ func loadRuns(n int) string {
 }
 
 // headlessForms are the headless runs the guard denies, one per kind of kinds (agents.Kind.Headless): its first program
-// with its first subcommand, else its print flag.
+// with its first subcommand, else its print flag, else its first long flag.
 func headlessForms(kinds agents.Kinds) []string {
 	var out []string
 	for _, name := range kinds.Names() {
@@ -234,6 +234,8 @@ func headlessForms(kinds agents.Kinds) []string {
 			out = append(out, prog+" "+h.Subcommands[0])
 		case h.PrintFlag:
 			out = append(out, prog+" -p")
+		case len(h.Flags) > 0:
+			out = append(out, prog+" "+h.Flags[0])
 		}
 	}
 	return out

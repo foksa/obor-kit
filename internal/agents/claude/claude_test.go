@@ -476,6 +476,41 @@ func TestKind(t *testing.T) {
 	}
 }
 
+// Context is Claude's read of a transcript tail: the last main-chain assistant line with usage (input + cache read +
+// cache creation), its time and the cache TTL it wrote ("1h", "5m"). A sidechain line, a line without usage, a Codex
+// event and a time that does not parse read none.
+func TestContext(t *testing.T) {
+	k := kind(t)
+	at := time.Date(2026, 10, 13, 10, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name, tail string
+		tokens     int
+		ttl        string
+		ok         bool
+	}{
+		{"the last main-chain line, a sidechain ignored",
+			`{"type":"assistant","timestamp":"2026-10-13T10:00:00Z","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":2,"cache_creation_input_tokens":3,"cache_creation":{"ephemeral_5m_input_tokens":3}}}}` + "\n" +
+				`{"type":"assistant","isSidechain":true,"timestamp":"2026-10-13T10:01:00Z","message":{"usage":{"input_tokens":900}}}` + "\n" +
+				"not json\n",
+			6, "5m", true},
+		{"the cache TTL of an hour",
+			`{"type":"assistant","timestamp":"2026-10-13T10:00:00Z","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_1h_input_tokens":2}}}}` + "\n",
+			7, "1h", true},
+		{"a line without usage", `{"type":"user","timestamp":"2026-10-13T10:00:00Z"}` + "\n", 0, "", false},
+		{"a Codex event", `{"type":"event_msg","timestamp":"2026-10-13T10:02:00.5Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":42}}}}` + "\n", 0, "", false},
+		{"a bad time", `{"type":"assistant","timestamp":"bad","message":{"usage":{"input_tokens":1}}}` + "\n", 0, "", false},
+	} {
+		got, ok := k.Context([]byte(c.tail))
+		want := agents.Context{Tokens: c.tokens, TTL: c.ttl}
+		if c.ok {
+			want.At = at
+		}
+		if ok != c.ok || got.Tokens != c.tokens || got.TTL != c.ttl || !got.At.Equal(want.At) {
+			t.Errorf("%s: Context = %+v, %v; want %+v, %v", c.name, got, ok, want, c.ok)
+		}
+	}
+}
+
 // StopFailure's rate_limit is a limit, its reset what its error_details name (an epoch after '|', a clock
 // time's next one), none when they name no time; billing_error is no limit.
 func TestReset(t *testing.T) {

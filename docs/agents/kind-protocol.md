@@ -57,7 +57,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `overrides`, `session`, `write_dirs`, `dir`, `root` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
-| `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |
+| `turn` | `what: last` + `tail`; `what: session` + `first`; `what: context` + `tail`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; context: `ok`, `context: {tokens, at, ttl}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Context`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, the handoff reminder and a keep lane's handoff rule, a stop on an error |
 | `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
 | `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself) |
 
@@ -66,6 +66,11 @@ An install reply registers nothing user-global: `mcp.where` is
 an error naming the field; a kind registers per launch or through the project's own files.
 
 Times are RFC 3339 strings ("" none).
+
+`turn` `what: context` is the kind's own transcript format: the tail's last main-chain line with a token count, its
+time and the cache TTL the line names (`"1h"`, `"5m"`, `"30m"`; `""` none). obor reads a session's context this way:
+the kinds that keep a transcript (`transcript` set), in name order, are given the file's last 400 lines, and the first
+whose format the tail is answers; a kind with no transcript answers `ok: false`.
 
 ### start: the closures as data
 
@@ -106,13 +111,14 @@ file. What the CLI has no switch for stays visible.
   "name": "mykind",
   "status": "terminal",
   "caps": {"hooks": "none", "inbox": false, "resume": true, "skills": false, "sessions": false,
-           "named_session": false, "project_plugin": false, "model_arg": false, "version_var": ""},
+           "named_session": false, "project_plugin": false, "model_arg": false, "version_var": "", "app": ""},
   "efforts": ["low", "high"],
   "vars": ["MYKIND_CONFIG"],
   "env": ["HOME", "MYKIND_HOME"],
   "stop": {"quit": "/exit", "second_enter": false, "clear_input": ["ctrl+u"], "after_escape": [], "program": "",
            "dialog": {"option": "Quit anyway", "key": "(\\d)\\. Quit anyway"}},
-  "headless": {"programs": [], "subcommands": ["run"], "anywhere": [], "value_opts": ["--model"], "print_flag": false},
+  "headless": {"programs": [], "subcommands": ["run"], "anywhere": [], "value_opts": ["--model"], "print_flag": false,
+               "flags": ["--prompt"]},
   "transcript": "${HOME}/.mykind/sessions/{sid}.jsonl",
   "inbox_record": ["MYKIND_INBOX"],
   "not_ready": {"pattern": "Updating", "why": "is updating itself"},
@@ -127,11 +133,11 @@ file. What the CLI has no switch for stays visible.
 |---|---|
 | `version`, `name` | 1, and the config's `<name>`: anything else is refused |
 | `status` | where the agents' status and turns come from (`Caps.Status`): `terminal` (herdr's agent detection), `hooks` (the kind's hooks report turns), `transcript` (`turn` reads them from the session's transcript) |
-| `caps` | `Caps`; `hooks` is `none`, `native` or `plugin` (`HookTransport`). `Caps.Transcript` is `transcript` being set |
+| `caps` | `Caps`; `hooks` is `none`, `native` or `plugin` (`HookTransport`); `app` is the name its agents report in a terminal's status (hc's OSC 7501 `status.app`; `""`: the kind's name). `Caps.Transcript` is `transcript` being set |
 | `efforts` | the values a model ref's `:<effort>` may take (`Efforts`; none: no effort) |
 | `vars` | every variable `start`'s `env` may set (`Vars`) |
 | `env` | the variables obor snapshots into each request, and the only ones `transcript` may name |
-| `stop`, `headless` | `Stop` (the quit recipe; `dialog.key` a regular expression) and `Headless` (the argv forms the guard denies; `programs` empty: the name) |
+| `stop`, `headless` | `Stop` (the quit recipe; `dialog.key` a regular expression) and `Headless` (the argv forms the guard denies; `programs` empty: the name; `flags` are long flags that run it headless, as `print_flag` is `-p`/`--print`) |
 | `transcript` | the glob of a session's transcript: `{sid}` the session id, `${VAR}` a variable of `env` (one empty: none) |
 | `inbox_record` | the variables whose values, as a JSON object, are a session's inbox record (written by the SessionStart hook, given back to `deliver` as `record`); one empty: no record |
 | `not_ready` | `{pattern, why}`: a regular expression on the start's screen, `why` the reason; `{call: true}`: run `not-ready` per poll; absent: ready once started |
@@ -147,6 +153,26 @@ file. What the CLI has no switch for stays visible.
 (`turnsRead`: a worker's or role agent's stop and its end are read from the transcript). `terminal` and `hooks` change
 nothing yet: herdr's agent detection still gives every pane its status. The compiled kinds: claude `terminal`, codex
 `transcript`; the OpenCode plugin kind `terminal`.
+
+## Hook transport
+
+A kind's hooks reach obor as `obor hook <name>`: `hooks: native` is the CLI's own hooks file running it (Claude
+Code's plugin `hooks/hooks.json`), `hooks: plugin` is obor's plugin for the CLI, which maps the CLI's events to the
+same calls (`opencode/obor.js`). A transport reads its CLI's event, runs `bin/obor hook <name>` with the event's JSON
+on stdin and reads the answer; a transport that only rewrites events holds none of obor's rules. The hooks read the
+agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane's `HERDR_PANE_ID`), so a transport
+passes it through.
+
+Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unreadable event allows.
+
+| `obor hook` | The event fields it reads | The answer |
+|---|---|---|
+| `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
+| `session-start` | `cwd`, `session_id`, `transcript_path` | obor's context lines on stdout (role, lane, task, the spec's protected files, the hooks line, the role text; a `WARN` line for unknown config keys, or the one line of a config that does not load), nothing else; with a session id, the session is recorded and reported to serve with its transcript, its inbox record written and a plugin kind's marker |
+| `user-prompt-submit` | `cwd`, `session_id`, `transcript_path`, `prompt`, the origin fields `origin` (a string or `{"kind": …}`), `turn_origin`/`turnOrigin`, `prompt_source`/`promptSource` | one UserPromptSubmit context object on stdout, `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":…}}`: the lead's handoff reminder, or a worker's wrong-tab guard; nothing when neither applies; a worker's or role agent's turn is reported to serve as begun |
+| `stop` | `cwd`, `session_id`, `transcript_path`, `stop_hook_active` (only `true` counts), `background_tasks`, each with its `status` (`running` counts) | `{"decision":"block","reason":…}` on stdout (a background run this session started still running, or a worker before its `task_done`), or nothing; a worker's or role agent's turn is reported to serve as ended |
+| `stop-failure` | `cwd`, `error`, `error_details` (both raw JSON, logged as written) | nothing: the event is logged under the project's state dir and, with an agent's name, its error reported to serve |
+| `noop` | — | nothing |
 
 ## Not covered
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/background"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -146,8 +147,8 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	f.PlainLane("L-01", "task/T-01")
 	f.Config(testkit.Set("agents.handoff_tokens", 300000))
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 900000)
-	if ctx, _, _, ok := project.ContextTokens(tr); !ok || ctx != 900000 {
-		t.Fatalf("precondition: transcript context %d %v, want 900000", ctx, ok)
+	if c, ok := project.ContextOf(agents.Kinds{}, tr); !ok || c.Tokens != 900000 {
+		t.Fatalf("precondition: transcript context %d %v, want 900000", c.Tokens, ok)
 	}
 	f.stop(t, "lead", f.Root, session("s1", tr)).allow("a lead at 900k > 300k")
 	f.stop(t, "lead", f.Root, session("s2", tr), "OBOR_AGENT=pj-lead").allow("another lead session at 900k")

@@ -1,10 +1,16 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/config"
@@ -99,6 +105,67 @@ func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 	if fits {
 		t.Error("startFits after the replay = true, want false: the start recorded another config revision")
 	}
+}
+
+// A keep lane's handoff size is the kind's read of its session's transcript (project.ContextOf over the project's
+// kinds): the probe line no compiled kind reads sizes pj-l-01's session only through the fake kind, and the kind's
+// count, not a fixed yes, is what the threshold sees.
+func TestPastHandoffReadsTheKindsContext(t *testing.T) {
+	t.Parallel()
+	h, _ := seedSched(t, false)
+	probe := `{"type":"ctx-probe","tokens":%d,"at":"2026-10-13T10:00:00Z"}`
+	for _, name := range []string{"claude", "codex"} {
+		k, ok := (agents.Kinds{}).Lookup(name)
+		if !ok {
+			t.Fatalf("precondition: kind %s", name)
+		}
+		if _, ok := k.Context([]byte(fmt.Sprintf(probe+"\n", 900000))); ok {
+			t.Fatalf("precondition: %s reads the probe line", name)
+		}
+	}
+	file := filepath.Join(t.TempDir(), "t.jsonl")
+	write := func(tokens int) {
+		t.Helper()
+		if err := os.WriteFile(file, []byte(fmt.Sprintf(probe+"\n", tokens)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(900000)
+	h.session("pj-l-01", "s1", file, 100)
+	h.a.opt.Kinds = func() agents.Kinds { return agents.WithPlugins([]agents.Kind{ctxKind{}}) }
+	p := reloadProj(t, h)
+	cfg := loadCfg(t, h.root)
+	pane := port.Pane{ID: "w1:p1"}
+	past := func() bool {
+		h.a.mu.Lock()
+		defer h.a.mu.Unlock()
+		return h.a.pastHandoff(p, cfg, pane)
+	}
+	if !past() {
+		t.Error("pastHandoff = false, want true: the kind reads 900000 tokens of pj-l-01's session")
+	}
+	write(10)
+	if past() {
+		t.Error("pastHandoff = true at the kind's 10 tokens, want false")
+	}
+}
+
+// ctxKind is a plugin kind whose context read is the probe line's (its own format, no compiled kind's).
+type ctxKind struct{ agents.Kind }
+
+func (ctxKind) Name() string      { return "ctxprobe" }
+func (ctxKind) Caps() agents.Caps { return agents.Caps{Transcript: true} }
+func (ctxKind) Context(tail []byte) (agents.Context, bool) {
+	var l struct {
+		Type   string `json:"type"`
+		Tokens int    `json:"tokens"`
+		At     string `json:"at"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(tail), &l) != nil || l.Type != "ctx-probe" {
+		return agents.Context{}, false
+	}
+	at, err := time.Parse(time.RFC3339, l.At)
+	return agents.Context{Tokens: l.Tokens, At: at}, err == nil
 }
 
 // A kept Claude agent herdr reports no session for is the start's when the session recorded from its pane is the

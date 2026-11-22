@@ -55,6 +55,10 @@ type Kind interface {
 	// not read); ok false: none in it. The adapter passes the transcript's end, then earlier parts while none is found.
 	// A kind whose hooks report a stop reads none (Caps.Status not StatusTranscript).
 	LastTurn(tail []byte) (t Turn, ok bool)
+	// Context is a session's context size as a part of its transcript records it (the adapter gives the kind the
+	// transcript's tail): the kind's own line format, its last main-chain line with a token count. ok false: none in
+	// the part, or the line's time does not parse.
+	Context(tail []byte) (c Context, ok bool)
 	// Session is the session a transcript's first line names (launch finds a new session's transcript by it);
 	// ok false: this kind's transcripts name none there, or the line is not such a record.
 	Session(first []byte) (s Session, ok bool)
@@ -383,6 +387,7 @@ type Headless struct {
 	Anywhere    []string // also denied as any later positional word before `--`
 	ValueOpts   []string // global options that take the next word as their value (so it is no subcommand)
 	PrintFlag   bool     // -p / --print, also inside a short-flag cluster, before `--`
+	Flags       []string // long flags that run it headless (`--prompt`, a print alias), either spelling, before `--`
 }
 
 // Install is how obor's MCP server reaches a kind.
@@ -422,6 +427,14 @@ type Turn struct {
 	ID, Error, Details string
 	Ended              bool
 	Reset              time.Time
+}
+
+// Context is a session's context size as its transcript's tail records it: the tokens of its last main-chain line
+// with a count, that line's time, and the cache TTL the line names ("1h", "5m", a Codex event's "30m"; "" none says).
+type Context struct {
+	Tokens int
+	At     time.Time
+	TTL    string
 }
 
 // Delivery is how one text reaches a running session.

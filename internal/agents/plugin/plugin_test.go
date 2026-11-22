@@ -16,9 +16,9 @@ import (
 )
 
 // manifest is the stub kind's describe reply.
-const manifest = `{"version":1,"name":"stub","status":"transcript","caps":{"hooks":"none","resume":true,"sessions":true},
-"efforts":["low","high"],"vars":["STUB_CONFIG"],"env":["HOME"],"stop":{"quit":"/quit","clear_input":["ctrl+u"],
-"dialog":{"option":"Quit anyway","key":"(\\d)\\. Quit anyway"}},"headless":{"subcommands":["exec"],"print_flag":true},
+const manifest = `{"version":1,"name":"stub","status":"transcript","caps":{"hooks":"none","resume":true,"sessions":true,
+"app":"stub-code"},"efforts":["low","high"],"vars":["STUB_CONFIG"],"env":["HOME"],"stop":{"quit":"/quit","clear_input":["ctrl+u"],
+"dialog":{"option":"Quit anyway","key":"(\\d)\\. Quit anyway"}},"headless":{"subcommands":["exec"],"print_flag":true,"flags":["--prompt"]},
 "transcript":"${HOME}/.stub/{sid}.jsonl","inbox_record":["STUB_INBOX"],"not_ready":{"call":true},
 "mcp_lane":{"how":"STUB_CONFIG (the start's config)","registered":true}}`
 
@@ -212,6 +212,32 @@ func boolText(registered, static bool) string {
 	return s
 }
 
+// Context is turn {what: context}: the request carries the kind's tail, the reply its tokens, time and TTL; a turn
+// that answers ok false reads none.
+func TestContext(t *testing.T) {
+	k, _ := kind(t, `cat >"$REQ"; `+reply(`{"version":1,"ok":true,"context":{"tokens":7,"at":"2026-11-08T18:00:00Z","ttl":"1h"}}`))
+	c, ok := k.Context([]byte("a\nb\n"))
+	if !ok || c.Tokens != 7 || c.TTL != "1h" || !c.At.Equal(time.Date(2026, 11, 8, 18, 0, 0, 0, time.UTC)) {
+		t.Fatalf("Context = %+v, %v; want 7 at 18:00 with 1h", c, ok)
+	}
+	b, err := os.ReadFile(filepath.Join(stubDir, "req.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req struct {
+		Call string `json:"call"`
+		What string `json:"what"`
+		Tail string `json:"tail"`
+	}
+	if err := json.Unmarshal(b, &req); err != nil || req.Call != "turn" || req.What != "context" || req.Tail != "a\nb\n" {
+		t.Errorf("request %s (%v): want turn {what: context, tail \"a\\nb\\n\"}", b, err)
+	}
+	k, _ = kind(t, reply(`{"version":1,"ok":false}`))
+	if _, ok := k.Context([]byte("{}\n")); ok {
+		t.Error("ok false: a context read")
+	}
+}
+
 // TestStartRequest: start's request carries the version, the call, every field of the complete start (trim_user and
 // the project's override files as the start holds them, name → document; a lead's start: false and none) and the
 // manifest's env snapshot (closure 1 as data: the dir the plugin reads itself), in one call whose argv and env both
@@ -304,7 +330,8 @@ func TestManifestFromCache(t *testing.T) {
 	stub(t, fail, fail)
 	k := plugin.New("stub", stubCmd, state)
 	caps := k.Caps()
-	if caps.Status != agents.StatusTranscript || !caps.Resume || !caps.Sessions || !caps.Transcript || caps.Hooks != agents.HooksNone {
+	if caps.Status != agents.StatusTranscript || !caps.Resume || !caps.Sessions || !caps.Transcript || caps.Hooks != agents.HooksNone ||
+		caps.App != "stub-code" {
 		t.Errorf("Caps = %+v", caps)
 	}
 	if !agents.TurnsRead(k) {
@@ -323,7 +350,8 @@ func TestManifestFromCache(t *testing.T) {
 	if st.Quit != "/quit" || st.Dialog == nil || st.Dialog.Key.FindStringSubmatch("2. Quit anyway")[1] != "2" {
 		t.Errorf("Stop = %+v", st)
 	}
-	if h := k.Headless(); !h.PrintFlag || h.Subcommands[0] != "exec" || agents.Programs(k)[0] != "stub" {
+	if h := k.Headless(); !h.PrintFlag || h.Subcommands[0] != "exec" || !slices.Equal(h.Flags, []string{"--prompt"}) ||
+		agents.Programs(k)[0] != "stub" {
 		t.Errorf("Headless = %+v", h)
 	}
 	kinds := agents.WithPlugins([]agents.Kind{k})

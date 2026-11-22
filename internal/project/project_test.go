@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/config"
 )
 
@@ -422,29 +424,67 @@ func TestSelfDerivesTheName(t *testing.T) {
 	}
 }
 
-func TestContextTokensLastMainChainLine(t *testing.T) {
+func TestContextOfReadsThroughTheKind(t *testing.T) {
 	t.Parallel()
 	file := filepath.Join(t.TempDir(), "t.jsonl")
-	os.WriteFile(file, []byte(`{"type":"assistant","timestamp":"2026-10-13T10:00:00Z","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":2,"cache_creation_input_tokens":3,"cache_creation":{"ephemeral_5m_input_tokens":3}}}}
-{"type":"assistant","isSidechain":true,"timestamp":"2026-10-13T10:01:00Z","message":{"usage":{"input_tokens":900}}}
-not json
-`), 0o644)
-	ctx, at, ttl, ok := ContextTokens(file)
-	if !ok || ctx != 6 || ttl != "5m" || at.Unix() != 1791885600 {
-		t.Errorf("ContextTokens = %d %v %q %v, want 6 at 10:00 5m (the main-chain line, not the sidechain)", ctx, at, ttl, ok)
+	os.WriteFile(file, []byte(`{"type":"ctx-probe","tokens":7,"at":"2026-10-13T10:00:00Z"}`+"\n"), 0o644)
+	k := &probeKind{name: "probe", read: true}
+	got, ok := ContextOf(agents.WithPlugins([]agents.Kind{k}), file)
+	if !ok || got.Tokens != 7 || got.At.Unix() != 1791885600 || k.seen != `{"type":"ctx-probe","tokens":7,"at":"2026-10-13T10:00:00Z"}`+"\n" {
+		t.Errorf("ContextOf = %+v %v, kind saw %q; want the kind's 7 at 10:00 and the file's one line",
+			got, ok, k.seen)
 	}
-	os.WriteFile(file, []byte(`{"type":"event_msg","timestamp":"2026-10-13T10:02:00.5Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":42}}}}`+"\n"), 0o644)
-	if ctx, _, ttl, ok := ContextTokens(file); !ok || ctx != 42 || ttl != "30m" {
-		t.Errorf("ContextTokens = %d %q %v, want 42 30m (the Codex event)", ctx, ttl, ok)
+	// Kinds are asked in name order: one whose format it is not reads nothing and the next reads it.
+	other, k := &probeKind{name: "aaa"}, &probeKind{name: "probe", read: true}
+	if got, ok := ContextOf(agents.WithPlugins([]agents.Kind{k, other}), file); !ok || got.Tokens != 7 ||
+		other.seen != "" || k.seen == "" {
+		t.Errorf("ContextOf with a non-reading kind first = %+v %v (seen %q, %q); want the reading kind's answer",
+			got, ok, other.seen, k.seen)
 	}
-	os.WriteFile(file, []byte(`{"type":"user","timestamp":"2026-10-13T10:00:00Z"}`+"\n"), 0o644)
-	if _, _, _, ok := ContextTokens(file); ok {
-		t.Error("a transcript without a usage line must not count")
+	// A kind that keeps no transcript is not asked.
+	if _, ok := ContextOf(agents.WithPlugins([]agents.Kind{&untranscribed{}}), file); ok {
+		t.Error("ContextOf read by a kind whose caps keep no transcript")
 	}
-	os.WriteFile(file, []byte(`{"type":"assistant","timestamp":"bad","message":{"usage":{"input_tokens":1}}}`+"\n"), 0o644)
-	if _, _, _, ok := ContextTokens(file); ok {
-		t.Error("a bad timestamp must not count")
+	if _, ok := ContextOf(agents.WithPlugins([]agents.Kind{k}), ""); ok {
+		t.Error("ContextOf with no file: ok")
 	}
+}
+
+// probeKind is a plugin kind whose context read is the probe line's: a kind's own format, no compiled kind's.
+type probeKind struct {
+	agents.Kind // embedded for the methods this test does not call
+	name        string
+	read        bool // reads the probe line
+	seen        string
+}
+
+func (k *probeKind) Name() string      { return k.name }
+func (k *probeKind) Caps() agents.Caps { return agents.Caps{Transcript: true} }
+func (k *probeKind) Context(tail []byte) (agents.Context, bool) {
+	if !k.read {
+		return agents.Context{}, false
+	}
+	line, _, _ := strings.Cut(string(tail), "\n")
+	var l struct {
+		Type   string `json:"type"`
+		Tokens int    `json:"tokens"`
+		At     string `json:"at"`
+	}
+	if json.Unmarshal([]byte(line), &l) != nil || l.Type != "ctx-probe" {
+		return agents.Context{}, false
+	}
+	k.seen = string(tail)
+	at, err := time.Parse(time.RFC3339, l.At)
+	return agents.Context{Tokens: l.Tokens, At: at}, err == nil
+}
+
+// untranscribed is a kind that keeps a transcript obor cannot find.
+type untranscribed struct{ agents.Kind }
+
+func (*untranscribed) Name() string      { return "untranscribed" }
+func (*untranscribed) Caps() agents.Caps { return agents.Caps{} }
+func (*untranscribed) Context([]byte) (agents.Context, bool) {
+	panic("a kind with no transcript was asked for its context")
 }
 
 // writeTail writes lines (each + "\n") to a temp file and returns its path.
@@ -475,22 +515,17 @@ func TestTailLinesBoundedAndLinear(t *testing.T) {
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("a 32 MiB last line took %s", d)
 	}
-	if _, _, _, ok := ContextTokens(file); ok {
-		t.Error("ContextTokens: the usage line lies beyond the budget → ok=false")
-	}
 	big := strings.Repeat("y", 3<<20)
 	file = writeTail(t, usage, big+"1", big+"2", big+"3")
 	lines, err = TailLines(file, 400)
 	if err != nil || len(lines) != 2 || lines[0] != big+"2" || lines[1] != big+"3" {
 		t.Errorf("three 3 MiB lines: %d lines (err %v), want the last two whole (the third cut by 8 MiB)", len(lines), err)
 	}
-	if _, _, _, ok := ContextTokens(file); ok {
-		t.Error("ContextTokens: the usage line lies beyond the budget → ok=false")
-	}
 	small := strings.Repeat("z", 1<<20)
 	file = writeTail(t, usage, small, small)
-	if ctx, _, _, ok := ContextTokens(file); !ok || ctx != 7 {
-		t.Errorf("ContextTokens behind two 1 MiB lines = %d %v, want 7 (within the budget)", ctx, ok)
+	lines, err = TailLines(file, 400)
+	if err != nil || len(lines) != 3 || lines[0] != usage {
+		t.Errorf("a 7-token usage line behind two 1 MiB lines: %d lines (err %v), want it in the last 400", len(lines), err)
 	}
 }
 

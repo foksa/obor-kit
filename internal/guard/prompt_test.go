@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/testkit"
 )
 
@@ -306,6 +307,33 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	transcript(f, tr, 900000)
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("handoff_tokens 0 → off, even at 900k: %q", c)
+	}
+}
+
+// A lead's context size is the kind's read of its transcript (agents.Kind.Context), asked in name order: a tail of a
+// format no compiled kind reads (the probe line) still sizes the session through the kind of the project's, and a
+// transcript no kind reads gets no reminder.
+func TestPromptHandoffReminderFromTheKind(t *testing.T) {
+	t.Parallel()
+	f, _ := promptFx(t, true)
+	f.Config(testkit.Set("agents.handoff_tokens", 1000))
+	probe := `{"type":"ctx-probe","tokens":900000,"at":"2026-10-13T10:00:00Z"}`
+	for _, name := range []string{"claude", "codex"} {
+		k, ok := (agents.Kinds{}).Lookup(name)
+		if !ok {
+			t.Fatalf("precondition: kind %s", name)
+		}
+		if _, ok := k.Context([]byte(probe + "\n")); ok {
+			t.Fatalf("precondition: %s reads the probe line", name)
+		}
+	}
+	tr := f.Write(f.Base+"/projects/p/probe.jsonl", probe+"\n")
+	if c := f.prompt(t, f.Root, "hi", session("s1", tr), "OBOR_ROLE=lead"); c != "obor (lead): context is 900k (> 1k). "+leadWhen {
+		t.Errorf("the lead's reminder from the kind's read: %q", c)
+	}
+	tr = f.Write(f.Base+"/projects/p/none.jsonl", `{"type":"user","timestamp":"2026-10-13T10:00:00Z"}`+"\n")
+	if c := f.prompt(t, f.Root, "hi", session("s2", tr), "OBOR_ROLE=lead"); c != "" {
+		t.Errorf("a transcript no kind reads: %q, want no reminder", c)
 	}
 }
 

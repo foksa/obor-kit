@@ -67,8 +67,8 @@ type Options struct {
 	Binary func() bool
 	// Follow is how often the binary watch asks Binary (30 s): its own timer, herdr connected or not.
 	Follow time.Duration
-	// Tokens is a session transcript's context size (the keep lane handoff rule; ok false: none read). Nil:
-	// project.ContextTokens' read of the file.
+	// Tokens is a session transcript's context size (the keep lane handoff rule; ok false: none read). Nil: the
+	// kinds' read (project.ContextOf).
 	Tokens func(transcript string) (int, bool)
 	// Activity is what the agents themselves record of their work, the watchdogs' evidence (activity.go; nil: the
 	// agents' files under Home and the process table, with each pane's process info from Info).

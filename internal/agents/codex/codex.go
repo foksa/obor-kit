@@ -651,8 +651,8 @@ func (kind) Session(first []byte) (agents.Session, bool) {
 	return agents.Session{ID: l.Payload.ID, Cwd: l.Payload.Cwd, Started: at}, true
 }
 
-// rolloutLine is the part of a rollout line LastTurn reads: an event_msg's turn events and its token counts' rate
-// limits, with the line's time.
+// rolloutLine is the part of a rollout line LastTurn and Context read: an event_msg's turn events and its token
+// counts' rate limits and usage, with the line's time.
 type rolloutLine struct {
 	Timestamp string `json:"timestamp"`
 	Type      string `json:"type"`
@@ -666,7 +666,34 @@ type rolloutLine struct {
 		RateLimits *struct {
 			Primary, Secondary *rateWindow
 		} `json:"rate_limits"`
+		Info *struct {
+			LastTokenUsage *struct {
+				Input int `json:"input_tokens"`
+			} `json:"last_token_usage"`
+		} `json:"info"`
 	} `json:"payload"`
+}
+
+// Context is a rollout tail's context size: the last token_count event's input tokens, that line's time and its cache
+// TTL ("30m": a Codex event names none).
+func (kind) Context(tail []byte) (agents.Context, bool) {
+	ts, found := "", false
+	var c agents.Context
+	for _, line := range strings.Split(string(tail), "\n") {
+		var l rolloutLine
+		if json.Unmarshal([]byte(line), &l) != nil || l.Type != "event_msg" || l.Payload.Type != "token_count" ||
+			l.Payload.Info == nil || l.Payload.Info.LastTokenUsage == nil {
+			continue
+		}
+		c = agents.Context{Tokens: l.Payload.Info.LastTokenUsage.Input, TTL: "30m"}
+		ts, found = l.Timestamp, true
+	}
+	at, err := time.Parse(time.RFC3339, ts)
+	if !found || err != nil || c.Tokens < 0 {
+		return agents.Context{}, false
+	}
+	c.At = at
+	return c, true
 }
 
 // rateWindow is one rate-limit window of a token_count event: how much of it is used, when it resets (Unix seconds).
