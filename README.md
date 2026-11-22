@@ -9,8 +9,9 @@ It ships as a Claude Code plugin (`obor`: the lead skill, role texts, guard hook
 Workers can be Claude Code, Codex or OpenCode.
 
 > **Status:** early: built and used daily by one person on two projects. Expect rough edges and breaking changes
-> between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md`. macOS: the Linux binaries are
-> built but untested.
+> between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md` (the current minor's in
+> `docs/`, older ones in the tag of their release: `git show v0.43.0:docs/UPGRADE-v0.43.md`). macOS: the Linux binaries
+> are built but untested.
 
 ## How it works
 
@@ -238,7 +239,7 @@ opencode/          the OpenCode guard plugin
 skills/            Claude Code skills: lead, setup
 hooks/             Claude Code hook wiring (every hook is `obor hook <name>`)
 templates/         role texts, task spec, BACKLOG/decisions templates, config examples
-docs/              design (design.md, state-model.md, module-map.md), plans, decisions, upgrade guides
+docs/              design (design.md, state-model.md, module-map.md), plans, decisions, the current upgrade guide
 ```
 
 obor is developed by its own swarm: `BACKLOG.md`, `docs/decisions.md` and `docs/plan/` are that project's working

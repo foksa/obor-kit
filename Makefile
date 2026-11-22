@@ -61,7 +61,7 @@ build:
 test:
 	$(GO) test ./...
 
-# The conformance suite (deep dive §6): tests/conformance, behind the conformance build tag so
+# The conformance suite (docs/research/agent-driver-deep-dive.md §6): tests/conformance, behind the conformance build tag so
 # go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
 # KIND=herdr|claude|codex|opencode|agy (default: all), TIER=static (default; no session, no model) or live (one throwaway
 # herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call

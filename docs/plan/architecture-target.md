@@ -1,5 +1,9 @@
 # Target architecture: core = agent automation, the rest behind adapters, plugins or config
 
+Cited here but no longer in the tree: `docs/research/architecture-inventory.md`,
+`docs/research/architecture-proposal-2026-11-05.md`, `docs/research/entity-model.md`, `docs/research/herdr-core.md`. Git
+keeps them: `git show v0.44.0:<path>`.
+
 Advisor (ob-fable, Claude Fable), 2026-11-08, at staging `15523f19`. For the owner to decide from; no tasks or specs
 here. Inputs: the owner's 11-08 direction (`docs/decisions.md` top three entries), `docs/research/architecture-inventory.md`
 and `docs/research/entity-model.md` (11-08, measured), `docs/research/architecture-proposal-2026-11-05.md`,

@@ -1,5 +1,7 @@
 # User-level settings: overriding any key of an agent obor starts, keeping the rest
 
+Cited here but no longer in the tree: `docs/research/agent-skills-scope.md`. Git keeps them: `git show v0.44.0:<path>`.
+
 Research for the lead, 2026-11-10. Versions probed: **claude 2.1.322**, **codex-cli 0.167.0**, **opencode v2.2.0**,
 **herdr 0.9.5**. Question (owner 11-10): obor must be able to override any user-level setting of an agent it starts,
 global hooks included, and keep every user setting it does not override. Context: docs/research/agent-skills-scope.md

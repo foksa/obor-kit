@@ -428,7 +428,7 @@ PASS HC-P11 the default session is unchanged after the probes: core 0295b50c7057
 conformance: 26 pass, 0 fail, 3 skip, 4 warn
 ```
 
-## Trial (docs/plan/hc-trial.md, owner + lead, 11-20)
+## Trial (step 6 of docs/plan/herdr-core.md, owner + lead, 11-20)
 
 - Before: outside the obor-kit checkout `obor` runs the pinned release; v0.40.7 had no hc (`FAIL terminal.kind "hc":
   obor knows herdr`). v0.41.0 shipped for the trial.

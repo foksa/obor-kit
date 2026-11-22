@@ -1,5 +1,8 @@
 # What the agent CLIs and herdr offer an orchestrator
 
+Cited here but no longer in the tree: `docs/research/herdr-core.md`, `docs/research/opencode-model-selection.md`. Git
+keeps them: `git show v0.44.0:<path>`.
+
 Research note, 2026-11-04. Versions on this machine: **Claude Code 2.1.318**, **codex-cli 0.166.0**, **opencode v2.2.0**,
 **herdr 0.9.3** (protocol 22). Facts only, each with where it comes from; no judgement of obor's code. Read first and
 not repeated here: `docs/research/herdr-core.md` (herdr-core / `hc`) and `docs/research/opencode-model-selection.md`

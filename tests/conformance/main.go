@@ -1,11 +1,13 @@
 //go:build conformance
 
-// Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
+// Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6:
+// docs/research/agent-driver-deep-dive.md §6, the cases' design). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
 // `make conformance [KIND=herdr|claude|codex|opencode|agy|plugin|hc] [TIER=static|live] [TURN=1] [TERMINAL=hc]` (plugin: the
 // kind protocol against a shell-script kind, static only; hc: the hc probes of live_hc.go, live only, run only when
 // named; TERMINAL=hc: the live tier's agent kinds start on hc instead of herdr, live_hcterm.go). Each
-// check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them.
+// check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them
+// (CAP: docs/research/agent-cli-and-herdr-capabilities.md, the tools' facts).
 // The exit status is 1 when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no
 // TURN), SKIPs with why.
 //

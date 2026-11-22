@@ -1,5 +1,8 @@
 # herdr-core (`hc`) as an obor terminal: implementation plan
 
+Cited here but no longer in the tree: `docs/research/herdr-core.md`, `docs/research/improve-architecture.md`. Git keeps
+them: `git show v0.44.0:<path>`.
+
 Advisor plan, 2026-11-20, for the owner's question of the same day. It builds on `docs/research/herdr-core.md`
 (10-30), `docs/research/terminal-port-advice.md` and `docs/plan/terminal-adapters.md` (11-11; steps 1-5 done as
 T-1245..T-1253). obor line numbers are at commit `d1fb30ef`.
