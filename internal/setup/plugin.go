@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -168,7 +169,7 @@ func (s *Setup) hooksLine(root string) string {
 // a failure is a FAIL. A kind installs nothing user-global; one that registers through a project file (agy's
 // .agents/mcp_config.json, and its hooks' .agents/hooks.json) has it written there when the config has a model of that
 // kind (projectInstall).
-func (s *Setup) agentsCmd(args []string) error {
+func (s *Setup) agentsCmd(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage
 	}
@@ -207,7 +208,7 @@ func (s *Setup) agentsCmd(args []string) error {
 			wrote = wrote || w
 		}
 		if wrote { // the files name obor by PATH: the one that is there is the one its agents run
-			s.pathWarning(name)
+			s.pathWarning(ctx, name)
 		}
 	}
 	return nil

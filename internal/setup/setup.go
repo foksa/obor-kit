@@ -139,7 +139,7 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 	case "githooks":
 		err = s.githooks(args)
 	case "agents":
-		err = s.agentsCmd(args)
+		err = s.agentsCmd(ctx, args)
 	case "mcp":
 		err = s.mcpCmd(ctx, args)
 	case "rename":
