@@ -122,15 +122,24 @@ func (a *App) pastHandoff(p *proj, cfg *config.Config, pane port.Pane) bool {
 	return ok && int64(n) > limit
 }
 
+// sessionPane is pane overlaid with its agent's recorded current session and the kind that reads it (under mu): when
+// the pane's agent has a recorded session with a kind, its recorded transcript (when any) takes pane.Transcript and
+// the session's kind is returned; else pane and pane.Agent.
+func (p *proj) sessionPane(pane port.Pane) (port.Pane, string) {
+	if agent, ok := p.reg.WhoIs(pane); ok {
+		if s, ok := p.session(agent); ok && s.Kind != "" {
+			pane.Transcript = cmp.Or(s.Transcript, pane.Transcript)
+			return pane, s.Kind
+		}
+	}
+	return pane, pane.Agent
+}
+
 // sessionFile is the transcript of pane's agent and the kind that reads it (under mu): its recorded current session's
 // (its transcript, else the one herdr names, read as the session's kind), else herdr's for the pane's agent kind.
 func (a *App) sessionFile(p *proj, pane port.Pane) (path, kind string) {
-	if agent, ok := p.reg.WhoIs(pane); ok {
-		if s, ok := p.session(agent); ok && s.Kind != "" {
-			return cmp.Or(s.Transcript, a.activity.Transcript(p.kind(s.Kind), pane)), s.Kind
-		}
-	}
-	return a.activity.Transcript(p.kind(pane.Agent), pane), pane.Agent
+	pane, kind = p.sessionPane(pane)
+	return a.activity.Transcript(p.kind(kind), pane), kind
 }
 
 // transcriptTokens is a transcript's context size as kind reads it (project.ContextOf; ok false: none read).

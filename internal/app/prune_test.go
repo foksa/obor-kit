@@ -860,3 +860,43 @@ func TestPruneIdleKeyHeldThroughNeedsYou(t *testing.T) {
 		})
 	}
 }
+
+// A fix task dispatched before an open review started, linked to it and merged after it started (fixCandidates links
+// it), stays whole across the nightly prune; a task that ended before the review started is still pruned.
+func TestPruneKeepsPreDispatchedFixLinkedByVerify(t *testing.T) {
+	t.Parallel()
+	root := pruneRoot(t)
+	h := newHistory(t, root)
+	h.merged("T-before", "L-01", daysAgo(38), true)
+	h.dispatched("T-pre", 1, "L-01", daysAgo(37))
+	h.add(daysAgo(36), event.ReviewTask, 0, event.StepReviewStarted, event.KindFact, ReviewData{ID: "RV-1", Head: "h0"})
+	if _, _, err := store.SetSpec(h.l.DB(), "T-pre", "# T-pre — fix\n\nDifficulty: simple\nFixes: RV-1\n\n## Do\nfix it\n",
+		"", "pj-lead", daysAgo(35)); err != nil {
+		t.Fatal(err)
+	}
+	h.submitted("T-pre", 1, "L-01", daysAgo(35))
+	h.merge("T-pre", 1, daysAgo(32), true)
+	h.supersedeIdleKey(daysAgo(2))
+	h.dispatched("T-later", 1, "L-01", daysAgo(1))
+	h.done()
+	r := pruneOracle(t, root, pruneBatch)
+	rv := r.before.folded.rv.Last()
+	mt := r.before.folded.loop["T-pre"]
+	if rv.Open() != "RV-1" || mt == nil || mt.dispSeq >= rv.Seq || mt.mergedSeq <= rv.Seq {
+		t.Fatalf("precondition: review %+v, T-pre %+v; want T-pre dispatched before RV-1 and merged after", rv, mt)
+	}
+	cands := fixCandidates(r.before.folded.loop, rv.Seq)
+	links, err := linkFixes(cands, rv.ID, func(task string) (store.SpecRow, bool, error) { return specOf(r.before, task) })
+	if err != nil || len(links) != 1 || links[0].Task != "T-pre" {
+		t.Fatalf("precondition: verify links %+v, %v; want T-pre linked to RV-1", links, err)
+	}
+	if r.tasks["T-pre"] || rowsOf(r.kept, "T-pre") != rowsOf(r.recs, "T-pre") {
+		t.Errorf("T-pre pruned (%d of %d rows kept), want kept whole", rowsOf(r.kept, "T-pre"), rowsOf(r.recs, "T-pre"))
+	}
+	if !r.tasks["T-before"] || !onlyTerminal(r.kept, "T-before", event.StepMerged) {
+		t.Errorf("T-before keeps %d rows (pruned %v), want pruned to its merged fact", rowsOf(r.kept, "T-before"), r.tasks["T-before"])
+	}
+	if after := fixCandidates(r.then.folded.loop, rv.Seq); !reflect.DeepEqual(after, cands) {
+		t.Errorf("fixCandidates after prune %+v, want %+v", after, cands)
+	}
+}

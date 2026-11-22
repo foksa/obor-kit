@@ -3,12 +3,16 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
+	"obor/internal/store"
 )
 
 // doneRig is pj with a lead (pj-lead), an integrator (pj-int) and an advisor (pj-advisor), all idle in their panes
@@ -324,5 +328,50 @@ func TestRoleDoneDisconnected(t *testing.T) {
 	deliverOnce(t, h)
 	if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
 		t.Errorf("lines an hour after the reconnect %q, want one per role agent", got)
+	}
+}
+
+// An OpenCode role agent whose terminal pane reports no transcript or session id gets its done time, stop hint and
+// reminder from its recorded session's transcript file.
+func TestRoleDoneOpenCodeRecordedTranscript(t *testing.T) {
+	t.Parallel()
+	h, _ := newIdentHarness(t)
+	h.withLead()
+	h.a.activity = &agentFiles{home: t.TempDir()}
+	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{}), nil }
+	h.snap.Panes = append(h.snap.Panes,
+		port.Pane{ID: "w1:p3", Group: "pj", Cwd: h.root, Agent: "opencode", Label: "pj-advisor", Status: "idle"},
+		port.Pane{ID: "w1:p4", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"})
+	t0 := h.now.Truncate(time.Second)
+	file := filepath.Join(t.TempDir(), "ses_oc1.jsonl")
+	if err := os.WriteFile(file, []byte(`{"type":"context","tokens":100}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(file, t0, t0); err != nil {
+		t.Fatal(err)
+	}
+	h.connect()
+	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
+	h.now = t0.Add(roleDoneAfter + time.Minute)
+	cfg := loadCfg(t, h.root)
+	if got := h.a.doneRoles(cfg, h.now); len(got) != 0 {
+		t.Fatalf("precondition: doneRoles before recording the session = %v, want empty", got)
+	}
+	if _, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{
+		Agent: "pj-advisor", Kind: "opencode", ID: "ses_oc1", Transcript: file,
+		Pane: "w1:p3", Started: t0.Unix(), Source: "SessionStart hook",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	got := h.a.doneRoles(cfg, h.now)
+	if at, ok := got["pj-advisor"]; !ok || !at.Equal(t0) {
+		t.Fatalf("doneRoles = %v, want pj-advisor at %v", got, t0)
+	}
+	if hints := hintsOf(t, h); hints["pj-advisor"] != "obor restart pj-advisor --stop" {
+		t.Errorf("pj-advisor hint %q, want the stop command", hints["pj-advisor"])
+	}
+	deliverOnce(t, h)
+	if lines := doneLines(t, h); !slices.Equal(lines, []string{"pj-advisor"}) {
+		t.Errorf("done lines %q, want [pj-advisor]", lines)
 	}
 }
