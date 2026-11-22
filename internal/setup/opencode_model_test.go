@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"obor/internal/testkit"
+	"obor/kinds/opencode/kind"
 )
 
 // the env obor setup hands herdr for a new OpenCode pane carries the start's model and effort for obor's plugin
@@ -47,8 +48,8 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			hasNot(t, calls, "OPENCODE_CONFIG_CONTENT", "no config content")
 			// the start's generated config, by path, with the launching kit's server and plugin.
 			name := "opencode-trimmed.json"
-			if c.role == "" { // a lane's worker
-				name = "opencode-lane.json"
+			if c.role == "" { // a lane's worker: one file per start dir
+				name = kind.LaneConfigFile(x.LaneDir("L-01"))
 			}
 			file := filepath.Join(x.Root, ".obor", "state", name)
 			has(t, calls, "OPENCODE_CONFIG="+file, "the generated config named")

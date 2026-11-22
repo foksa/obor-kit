@@ -9,6 +9,8 @@
 package kind
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,9 +61,14 @@ const ConfigFile = "opencode.json"
 const TrimmedConfigFile = "opencode-trimmed.json"
 
 // LaneConfigFile is the generated config's name in the project's state dir, for a lane's agent (a worker, the drive
-// agent): its config also disables the user's own MCP servers, so a lane and a role agent (both trimmed) write two
-// files, never one path with different bytes.
-const LaneConfigFile = "opencode-lane.json"
+// agent) starting in dir: its config disables the user's own MCP servers and keeps the project's own, which are the
+// files of dir, so the name carries a hash of dir (agy names its settings file the same way) and two overlapping
+// starts in two lanes never write one path with different bytes. OpenCode reads the file at start and `opencode
+// reload` re-reads the config, so it must outlive the session: it stays in the state dir.
+func LaneConfigFile(dir string) string {
+	sum := sha256.Sum256([]byte(dir))
+	return "opencode-lane-" + hex.EncodeToString(sum[:4]) + ".json"
+}
 
 // TranscriptGlob is the manifest's transcript glob: obor's own state dir for a session's token file, which the plugin
 // (opencode/obor.js, tokensPath) appends one line to per root session's step and reports as transcript_path.
@@ -264,7 +271,7 @@ func startConfig(in request) (name string, conf []byte, err error) {
 	switch {
 	case in.StrictMCP:
 		c.lane, c.dir = true, in.Dir
-		return LaneConfigFile, c.bytes(), nil
+		return LaneConfigFile(in.Dir), c.bytes(), nil
 	case in.TrimUser:
 		return TrimmedConfigFile, c.bytes(), nil
 	}

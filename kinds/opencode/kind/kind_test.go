@@ -352,9 +352,9 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 }
 
 // A lead's start (untrimmed), a role agent's (trimmed) and a lane's (trimmed and strict) name three generated configs,
-// and two starts of one kind the same one: the project's override file changes the trimmed config and a lane's trim its
-// own, so the starts of one project never write one path with different bytes. Each start's env names the file it
-// wrote.
+// and two starts of one kind in one dir the same one: the project's override file changes the trimmed config and a
+// lane's trim its own, so the starts of one project never write one path with different bytes. Each start's env names
+// the file it wrote.
 func TestStartNamesOneFilePerContent(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	xdg := t.TempDir()
@@ -388,11 +388,11 @@ func TestStartNamesOneFilePerContent(t *testing.T) {
 		}
 		return got
 	}
-	lane := agents.Start{TrimUser: true, StrictMCP: true}
+	lane := agents.Start{TrimUser: true, StrictMCP: true, Dir: "/lane/L-01"}
 	lead, role, worker, again := startOf(agents.Start{}), startOf(agents.Start{TrimUser: true}), startOf(lane), startOf(lane)
-	if lead.name != kind.ConfigFile || role.name != kind.TrimmedConfigFile || worker.name != kind.LaneConfigFile {
+	if lead.name != kind.ConfigFile || role.name != kind.TrimmedConfigFile || worker.name != kind.LaneConfigFile("/lane/L-01") {
 		t.Errorf("lead wrote %q, role agent %q, worker %q; want %q, %q and %q", lead.name, role.name, worker.name,
-			kind.ConfigFile, kind.TrimmedConfigFile, kind.LaneConfigFile)
+			kind.ConfigFile, kind.TrimmedConfigFile, kind.LaneConfigFile("/lane/L-01"))
 	}
 	if bytes.Equal(lead.bytes, role.bytes) {
 		t.Fatal("precondition: the override file changes a trimmed start's config")
@@ -405,6 +405,67 @@ func TestStartNamesOneFilePerContent(t *testing.T) {
 	}
 	if again.name != worker.name || again.path != worker.path {
 		t.Errorf("two lane starts name %q and %q: want one file", worker.path, again.path)
+	}
+}
+
+// Two start dirs whose project configs define different MCP servers write two generated configs, one per dir: each
+// start's env names its own, and each file keeps the user's server its own dir does not define (disabled), as the
+// dir's project file covers it. One shared name would hand a start the other dir's config.
+func TestLaneConfigPerStartDir(t *testing.T) {
+	state := t.TempDir()
+	k := opencode(t, state)
+	xdg := t.TempDir()
+	userFile := filepath.Join(xdg, "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(userFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userFile, []byte(`{"mcp": {"servers": {"a": {"type": "local", "command": ["a"]},`+
+		` "b": {"type": "local", "command": ["b"]}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := func(v string) string { return map[string]string{"XDG_CONFIG_HOME": xdg}[v] }
+	// dirA's project defines a, dirB's b: the server each covers stays out of that dir's file, the other is disabled
+	// there.
+	dirA, dirB := t.TempDir(), t.TempDir()
+	for dir, server := range map[string]string{dirA: "a", dirB: "b"} {
+		conf := `{"mcp": {"servers": {"` + server + `": {"type": "local", "command": ["` + server + `"]}}}}`
+		if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte(conf), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	servers := func(dir string) map[string]map[string]any {
+		t.Helper()
+		l, err := agents.StartOf(k, agents.Start{Kit: "/kit", Dir: dir, Env: env, TrimUser: true, StrictMCP: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(state, kind.LaneConfigFile(dir))
+		if l.Env[kind.ConfigVar] != path {
+			t.Errorf("the start in %s names %q, want %q", dir, l.Env[kind.ConfigVar], path)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			MCP struct {
+				Servers map[string]map[string]any `json:"servers"`
+			} `json:"mcp"`
+		}
+		if err := json.Unmarshal(b, &got); err != nil {
+			t.Fatalf("%v: %s", err, b)
+		}
+		return got.MCP.Servers
+	}
+	if kind.LaneConfigFile(dirA) == kind.LaneConfigFile(dirB) {
+		t.Fatalf("two start dirs name one config %q", kind.LaneConfigFile(dirA))
+	}
+	a, b := servers(dirA), servers(dirB)
+	if a["b"] == nil || a["b"]["disabled"] != true || a["a"] != nil {
+		t.Errorf("%s's config mcp.servers = %v, want the user's b disabled and a left to the project's file", dirA, a)
+	}
+	if b["a"] == nil || b["a"]["disabled"] != true || b["b"] != nil {
+		t.Errorf("%s's config mcp.servers = %v, want the user's a disabled and b left to the project's file", dirB, b)
 	}
 }
 
