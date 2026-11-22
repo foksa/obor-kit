@@ -206,11 +206,12 @@ key the project's settings set (only the lead keeps Remote Control and auto memo
 and permissions apply, the user's plugins are off unless the project or the override enables one, and what is not in
 `settings.json` does not load: the user's `CLAUDE.md`, rules, skills and the skills Claude syncs from claude.ai.
 `claude_override.json`: only `mcpServers` has an effect (validate warns on another key). When it names `mcpServers`,
-the start is `--mcp-config <file> --strict-mcp-config`, the file `.obor/state/mcp/<agent>.json`: the user's servers
-(the top-level `mcpServers` of the user's `.claude.json`, then those under its `projects` entry of the project's
+the start is `--mcp-config <file> --strict-mcp-config`, the file `.obor/state/mcp/<agent>.json`: for the lead and a
+role agent, the user's servers (the top-level `mcpServers` of the user's `.claude.json`, then those under its `projects` entry of the project's
 root) with the override's `mcpServers` merged over them, then the servers of the start dir's `.mcp.json` the
-project's settings approve (`enableAllProjectMcpServers`, or named in `enabledMcpjsonServers`), then obor's own. The
-start is strict whatever its role, so the file's servers are all it loads (other plugins' MCP servers and claude.ai
+project's settings approve (`enableAllProjectMcpServers`, or named in `enabledMcpjsonServers`), then obor's own; for a
+lane agent, those approved project servers with the override's `mcpServers` merged over them, then obor's own (no user
+server). The start is strict whatever its role, so the file's servers are all it loads (other plugins' MCP servers and claude.ai
 connectors are hidden). Codex: `-c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false` and
 `-c skills.config=[{name="<skill>",enabled=false},…]` for each skill of the user's skills dir (`$CODEX_HOME` or
 `~/.codex`, `skills/`: a dir holding a `SKILL.md`). `config_override.toml`, before those switches: `-c <key>=<value>`
@@ -252,8 +253,7 @@ left alone). OpenCode's generated config makes `{"disabled": true}` each server 
 project's does not define (obor's and an override's entry are left alone). agy has no switch, so the guard denies a lane
 agent's `call_mcp_tool`, `list_resources` and `read_resource` on a server its project's `.agents/mcp_config.json` does not
 list (a missing file: obor's alone). With `claude_override.json` naming `mcpServers`, a Claude lane's merge starts from the approved project servers
-instead of the user's (T-1512). The lead and the role agents keep every server (with that override: the user-based merge
-above).
+instead of the user's (above). The lead and the role agents keep every server.
 Permission mode and posted lines: a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute
 dialog and drops it while serve records `sent` (phase-5 advice §8); the delivery timers re-wake a worker, a brief is
