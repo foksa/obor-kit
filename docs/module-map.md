@@ -134,6 +134,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `lanepick.go` | the lane a dispatch takes and the replies that say why none was free | `App.held` |
 | `lanerows.go` | the `lanes` table projection | `proj.foldLanes` |
 | `lanescan.go` | the lane table as a cached observation: scanned on the tick and by a refresher, never per pane event | `App.scan` |
+| `leadlines.go` | a lead whose kind has no inbox takes its lines through its hooks (`lead_lines` call), recorded as a post's delivery | `App.leadLinesCall` |
 | `log.go` | serve's side of the backup | `App.backup` |
 | `logs.go` | a task's step logs go when it ends, and at load for every task the replayed log folds as ended | `App.endTaskLogs` |
 | `loop.go` | the merge loop: wake, advance, record, do, drive, the picks | `App.wake` |

@@ -471,7 +471,7 @@ func TestKind(t *testing.T) {
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
 	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, NamedSession: true, ProjectPlugin: true, Inbox: true,
-		Resume: true, Skills: true, Transcript: true, Status: agents.StatusTerminal, App: "claude-code"}) {
+		HookAnswers: true, Resume: true, Skills: true, Transcript: true, Status: agents.StatusTerminal, App: "claude-code"}) {
 		t.Errorf("Caps = %+v", c)
 	}
 }

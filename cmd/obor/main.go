@@ -275,13 +275,13 @@ func hook(args []string) int {
 		input, _ := io.ReadAll(os.Stdin)
 		switch args[0] {
 		case "stop":
-			guard.Stop(input, project.OSEnv, out, os.Stderr)
+			guard.Stop(input, project.OSEnv, out, os.Stderr, leadLines)
 		case "session-start":
 			if b, ok := guard.SessionStart(input, project.OSEnv, out); ok {
 				sessionBegan(b, os.Stderr)
 			}
 		default:
-			guard.UserPromptSubmit(input, project.OSEnv, out)
+			guard.UserPromptSubmit(input, project.OSEnv, out, leadLines)
 		}
 		if args[0] != "session-start" {
 			turn(input, project.OSEnv, args[0] == "stop")
@@ -323,6 +323,18 @@ func turn(input []byte, env project.Env, ended bool) {
 	c := &wire.TurnReq{Envelope: wire.Envelope{Root: s.Root, Agent: s.Agent, Role: s.Role, CallID: wire.NewCallID()},
 		Lane: s.Lane, Ended: ended}
 	_, _ = wire.Verdict(context.Background(), wire.SocketPath(s.Root), c)
+}
+
+// leadLines is the lead's UserPromptSubmit or Stop hook asking the serve of the project at root for the lines queued
+// for agent (wire.MethodLeadLines; guard.LeadLines): their text, which serve records as delivered ("": none), under
+// the call's deadline (wire.Verdict's table: 3 s). No socket: none, at once (serve is down: the lines wait).
+func leadLines(root, agent string) (string, error) {
+	path := wire.SocketPath(root)
+	if _, err := os.Stat(path); err != nil {
+		return "", nil
+	}
+	c := &wire.LeadLinesReq{Envelope: wire.Envelope{Root: root, Agent: agent, Role: "lead", CallID: wire.NewCallID()}}
+	return wire.Verdict(context.Background(), path, c)
 }
 
 // sessionBegan is the SessionStart hook telling the project's serve the agent's session began (wire.MethodSession):

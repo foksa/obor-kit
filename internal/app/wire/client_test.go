@@ -25,6 +25,7 @@ func TestCallDeadline(t *testing.T) {
 		{"", MethodTurn, turnDeadline},
 		{"", MethodSession, turnDeadline},
 		{"", MethodStopped, stopFailureDeadline},
+		{"", MethodLeadLines, leadLinesDeadline}, // under OpenCode's 5 s hook timeout
 		{"", MethodDispatch, verdictDeadline},
 		{"", MethodDrop, verdictDeadline},
 		{"", MethodDrive, driveDeadline}, // serve holds its reply for the new drive's lane

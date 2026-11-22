@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/testkit"
 )
 
 // xKind is a fourth kind whose executable is not its name (as cursor's is cursor-agent): Claude's bridge but for its
@@ -53,6 +54,7 @@ func init() {
 		panic("guard tests: no " + agents.Default + " kind registered")
 	}
 	agents.Register(xKind{k})
+	agents.Register(testkit.HookKind{}) // a lead of it takes its lines through its hooks (leadlines_test.go)
 }
 
 // The guard matches the command word against the kinds' programs, not their

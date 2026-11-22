@@ -286,6 +286,15 @@ type TurnReq struct {
 
 func (TurnReq) Method() string { return MethodTurn }
 
+// LeadLinesReq is the lead's UserPromptSubmit or Stop hook's when its kind has no inbox (leadlines.go): the lines
+// queued for the envelope's agent, the lead, handed over and recorded as delivered. Reply: their text, one line per
+// row ("": none).
+type LeadLinesReq struct {
+	Envelope
+}
+
+func (LeadLinesReq) Method() string { return MethodLeadLines }
+
 // RestartJobReq is obor restart's: the job an agent's restart carries as its wake — the job job_next would
 // hand the envelope's agent (with its role; Lane a worker's lane), with the same predicate and order. Reply: that job
 // id, or "" when the agent has none.

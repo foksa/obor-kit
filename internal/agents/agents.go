@@ -455,11 +455,14 @@ const (
 
 // Caps are a kind's capabilities.
 type Caps struct {
-	Hooks      HookTransport
-	Inbox      bool // Deliver posts over the session's inbox socket
-	Resume     bool // Start honours Resume
-	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead)
-	Transcript bool // Transcript finds the session file
+	Hooks HookTransport
+	Inbox bool // Deliver posts over the session's inbox socket
+	// HookAnswers: its hook transport acts on the hooks' answers (user-prompt-submit's context, stop's block), so a
+	// lead with no inbox takes its lines through them
+	HookAnswers bool
+	Resume      bool // Start honours Resume
+	Skills      bool // a first prompt may be a plugin's slash command (/obor:lead)
+	Transcript  bool // Transcript finds the session file
 	// Status is where the agent's status and turns come from: StatusTranscript, LastTurn reads the session's
 	// turns from its transcript (Codex); StatusTerminal, herdr's agent detection; StatusHooks, its hooks.
 	Status   Status
