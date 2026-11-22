@@ -1,6 +1,7 @@
 package roles
 
 import (
+	"obor/internal/agents"
 	"reflect"
 	"testing"
 )
@@ -52,6 +53,53 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 			r.Dispatchable != check.dispatchable || r.Optional != check.optional {
 			t.Errorf("%s = %+v", check.name, r)
 		}
+	}
+}
+
+// stubKind is a kind's name and caps only (the methods a role's prompt reads).
+type stubKind struct {
+	agents.Kind
+	name   string
+	skills bool
+}
+
+func (k stubKind) Name() string      { return k.name }
+func (k stubKind) Caps() agents.Caps { return agents.Caps{Skills: k.skills} }
+
+// A role names its skill: a kind with caps skills gets it as the plugin's slash command, with ` handoff` on a handoff
+// start; any other kind (no kind too) a plain prompt naming the skill file in the kit, handoff the same way. A role
+// with no skill, and a kind without skills with no kit to name, start bare.
+func TestStartPrompt(t *testing.T) {
+	slash := stubKind{name: "claude", skills: true}
+	plain := stubKind{name: "codex"}
+	lead, _ := Lookup("lead")
+	worker, _ := Lookup("worker")
+	for _, c := range []struct {
+		name, kit string
+		role      Role
+		kind      agents.Kind // nil: no kind
+		handoff   bool
+		want      string
+	}{
+		{name: "a skills kind: the slash form", role: lead, kind: slash, kit: "/kit", want: "/obor:lead"},
+		{name: "a skills kind, handoff", role: lead, kind: slash, kit: "/kit", handoff: true, want: "/obor:lead handoff"},
+		{name: "a kind without skills: the skill file", role: lead, kind: plain, kit: "/kit",
+			want: "read /kit/skills/lead/SKILL.md and follow it"},
+		{name: "a kind without skills, handoff", role: lead, kind: plain, kit: "/kit", handoff: true,
+			want: "read /kit/skills/lead/SKILL.md and follow it handoff"},
+		{name: "no kind: the skill file", role: lead, kit: "/kit", want: "read /kit/skills/lead/SKILL.md and follow it"},
+		{name: "a role with no skill", role: worker, kind: slash, kit: "/kit", want: ""},
+		{name: "a kind without skills and no kit", role: lead, kind: plain, want: ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.role.StartPrompt(c.kind, c.kit)
+			if c.handoff {
+				got = c.role.HandoffPrompt(c.kind, c.kit)
+			}
+			if got != c.want {
+				t.Errorf("prompt = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
@@ -122,7 +170,7 @@ func TestCustomRoles(t *testing.T) {
 	if dd, _ := Lookup("deep_dive"); dd.DocFile() != "deep-dive.md" {
 		t.Errorf("table doc file = %q, want deep-dive.md", dd.DocFile())
 	}
-	if LaneBound("ux_buddy") || r.Dispatchable || r.Stoppable || r.Prompt != "" {
+	if LaneBound("ux_buddy") || r.Dispatchable || r.Stoppable || r.Skill != "" {
 		t.Errorf("a custom role is lane-bound, dispatchable, stoppable or has a first prompt: %+v", r)
 	}
 	if _, ok := Lookup("ux_buddy"); ok {

@@ -798,14 +798,16 @@ func (l *Launcher) firstPrompt(ctx context.Context, t *target, req Request, sid 
 	case o.job != "":
 		o.prompt = o.wake
 	case o.prompt == "":
-		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead: a session the owner
-		// starts presents the state and options. Only a handoff restart, which asks for it (Request.Handoff), continues
-		// from a Handoff (`/obor:lead handoff`).
+		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead (or, on a kind with no
+		// plugin slash command, a prompt naming the skill file): a session the owner starts presents the state and
+		// options. Only a handoff restart, which asks for it (Request.Handoff), continues from a Handoff
+		// (`/obor:lead handoff`).
 		if rc, ok := l.Cfg.Role(t.info.Role); ok {
 			k, _ := l.Cfg.Kind(t.kind)
-			o.prompt = rc.Role.StartPrompt(k)
+			kit := l.kitRoot()
+			o.prompt = rc.Role.StartPrompt(k, kit)
 			if req.Handoff {
-				o.prompt = rc.Role.HandoffPrompt(k)
+				o.prompt = rc.Role.HandoffPrompt(k, kit)
 			}
 		}
 	}
@@ -1138,6 +1140,14 @@ type startBuilt struct {
 	Session string
 }
 
+// kitRoot is the obor kit a start names: l.Kit, else project.KitRoot(Env).
+func (l *Launcher) kitRoot() string {
+	if l.Kit != "" {
+		return l.Kit
+	}
+	return project.KitRoot(l.Env)
+}
+
 // buildStart is the agent's one start, built once at the launch boundary: the complete agents.Start
 // (the kit, the model's args with the role's settings and strictness, the project's override files of the kind, the
 // effort, the cwd, the dirs the agent writes,
@@ -1161,10 +1171,7 @@ func (l *Launcher) buildStart(b startSpec) (startBuilt, error) {
 			return startBuilt{}, err
 		}
 	}
-	kit := l.Kit
-	if kit == "" {
-		kit = project.KitRoot(l.Env)
-	}
+	kit := l.kitRoot()
 	// A kind whose sessions obor names: the id is obor's, recorded for the agent before it runs (Start), so the
 	// store and a restart know it before its SessionStart hook reports it (the hook confirms it, with its transcript).
 	session := ""

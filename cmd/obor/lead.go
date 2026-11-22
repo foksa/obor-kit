@@ -142,7 +142,8 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		fmt.Fprintf(r.out, "lead pane: %s\n", line)
 		pane = here
 	}
-	// A fresh start passes no first prompt: launch gives it the role's, the lead's plain /obor:lead.
+	// A fresh start passes no first prompt: launch gives it the role's, the lead's /obor:lead (or, on a kind with no
+	// plugin slash command, a prompt naming the skill file).
 	req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
 	line, err := l.Restart(ctx, req)
 	if err == nil && strings.HasPrefix(line, "SCHEDULED ") {
