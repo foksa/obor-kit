@@ -14,6 +14,29 @@ type Who struct {
 	State     *store.LaneRow // nil: no lane row
 	Rev       int            // the stored spec's rev (0: none)
 	Protected []string       // the paths the spec names under "Protected files this task may edit"
+	Lines     string         // a lead's line delivery (LinesInbox, LinesHooks, LinesStatus); "": not a lead
+}
+
+// How lines reach a lead (skills/lead/SKILL.md "Lines to you"), from its kind's caps: a posted message in its inbox,
+// the answers of its hooks, or only `obor status`.
+const (
+	LinesInbox  = "inbox"
+	LinesHooks  = "hooks"
+	LinesStatus = "status"
+)
+
+// leadLines is the delivery of the lines of a lead running as agent in cwd, its kind read as the session start reads
+// it (sessionKind; a plugin kind's cached manifest, none cached: not a kind it knows): an inbox kind's lines are
+// posted there; else a kind whose hooks act on the answers hands them at a prompt or a stop; else they wait.
+func leadLines(cfg *config.Config, agent, cwd string) string {
+	k, ok := cfg.Kind(sessionKind(cfg, agent, cwd))
+	switch {
+	case ok && k.Caps().Inbox:
+		return LinesInbox
+	case ok && k.Caps().HookAnswers:
+		return LinesHooks
+	}
+	return LinesStatus
 }
 
 // Whoami reads the role of repo's directory, its lane row and its task's spec (read-only); a lanes or specs table that
@@ -21,6 +44,9 @@ type Who struct {
 func Whoami(repo *project.Repo, cfg *config.Config, env project.Env) (*Who, error) {
 	w := &Who{Role: project.DetectRole(repo, cfg, env)}
 	w.Agent = project.SelfAgent(cfg, w.Role)
+	if w.Role.Role == "lead" {
+		w.Lines = leadLines(cfg, w.Agent, repo.Top)
+	}
 	if w.Role.Lane == "" {
 		return w, nil
 	}

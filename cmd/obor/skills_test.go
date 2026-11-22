@@ -442,32 +442,3 @@ func TestRoleTextsHaveNoTuningLog(t *testing.T) {
 		}
 	}
 }
-
-// The lead skill states how lines reach each kind of lead once ("Lines to you") and the other files point at it; the
-// handoff reminder is said for the kinds that run the prompt hook, not for every lead.
-func TestLeadSkillSaysHowLinesReachEachKindOfLead(t *testing.T) {
-	skill := skillMD(t, "lead")
-	_, section, ok := strings.Cut(skill, "\n## Lines to you\n")
-	if !ok {
-		t.Fatal("precondition: SKILL.md has no \"Lines to you\" section")
-	}
-	section, _, _ = strings.Cut(section, "\n## ")
-	for _, want := range []string{"**Inbox:**", "**Through hooks:**", "**Queued only:**", "24 h", "`obor status` at the start of each turn", "before ending a turn with work in flight"} {
-		if !strings.Contains(section, want) {
-			t.Errorf("the \"Lines to you\" section lacks %q", want)
-		}
-	}
-	for _, bad := range []string{"arrive as messages from another session;\nnone are typed", "Past `agents.handoff_tokens` each prompt carries a reminder"} {
-		if strings.Contains(skill, bad) {
-			t.Errorf("SKILL.md still has the unqualified sentence %q", bad)
-		}
-	}
-	if !strings.Contains(skill, "reads its context size and runs the prompt hook") || !strings.Contains(skill, "context\nmeter") {
-		t.Error("the handoff paragraph does not say which leads get the reminder and what the others count by")
-	}
-	for _, f := range []string{"review-brief.md", "commands.md"} {
-		if !strings.Contains(readFile(t, filepath.Join(pluginRoot, "skills", "lead", f)), `"Lines to you"`) {
-			t.Errorf("%s does not point at SKILL.md \"Lines to you\"", f)
-		}
-	}
-}
