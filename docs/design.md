@@ -251,8 +251,9 @@ dir's `.mcp.json` servers the project's settings approve (`enableAllProjectMcpSe
 left alone). OpenCode's generated config makes `{"disabled": true}` each server of the user's `opencode.json(c)` that the
 project's does not define (obor's and an override's entry are left alone). agy has no switch, so the guard denies a lane
 agent's `call_mcp_tool`, `list_resources` and `read_resource` on a server its project's `.agents/mcp_config.json` does not
-list (a missing file: obor's alone). The lead and the role agents keep every server (unless `claude_override.json` names
-`mcpServers`, above).
+list (a missing file: obor's alone). With `claude_override.json` naming `mcpServers`, a Claude lane's merge starts from the approved project servers
+instead of the user's (T-1512). The lead and the role agents keep every server (with that override: the user-based merge
+above).
 Permission mode and posted lines: a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute
 dialog and drops it while serve records `sent` (phase-5 advice §8); the delivery timers re-wake a worker, a brief is
