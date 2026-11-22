@@ -19,7 +19,8 @@ import (
 // is never handed out or posted again.
 
 // hookLead: p's lead takes its lines through its hooks (under mu): its kind (its identified pane's, else its
-// configured one) is known and has no inbox.
+// configured one) is known, has no inbox and its hook transport acts on the hooks' answers (agents.Caps.HookAnswers).
+// A kind with neither keeps its lead's lines waiting (obor status, the 24 h needs-you).
 func (a *App) hookLead(p *proj) bool {
 	if p.kinds == nil || p.out.Lead() == "" {
 		return false
@@ -29,7 +30,7 @@ func (a *App) hookLead(p *proj) bool {
 		kind = w.Pane.Agent
 	}
 	k := p.kind(kind)
-	return k != nil && !k.Caps().Inbox
+	return k != nil && !k.Caps().Inbox && k.Caps().HookAnswers
 }
 
 // hookHeld is routeOf's hold of a line to lead, which takes its lines through its hooks.
@@ -40,8 +41,8 @@ func hookHeld(lead string) string {
 // leadLinesCall answers the socket's lead_lines request (the lead's UserPromptSubmit or Stop hook): the lines queued
 // for the lead, one per row, recorded as delivered before the reply goes ("": none). One post's worth: an open post's
 // members (a crash cut its result: handed again, as a post is posted again), else every line queued for the lead. Only
-// while the lead takes its lines through its hooks (hookLead): a lead whose kind has an inbox is refused, its lines
-// are posted there. A repeated call id gets the stored reply (a reply lost on the way is handed again; a restart
+// while the lead takes its lines through its hooks (hookLead): any other lead is refused (its kind has an inbox, its
+// lines posted there; or its hooks do not act on the answers, its lines waiting). A repeated call id gets the stored reply (a reply lost on the way is handed again; a restart
 // forgets it). No ack: sent means handed to the hook, as a post's means handed to the socket.
 func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 	if c.CallID == "" {
@@ -65,7 +66,8 @@ func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 			Dash(c.Agent), Dash(c.Role))
 	case !a.hookLead(p):
 		a.mu.Unlock()
-		return "", fmt.Errorf("%s: %s's kind has an inbox: its lines are posted there", wire.MethodLeadLines, lead)
+		return "", fmt.Errorf("%s: %s takes no lines through its hooks (its kind has an inbox, or its hooks do not act on "+
+			"the answers)", wire.MethodLeadLines, lead)
 	}
 	// The claim: no other call hands these lines meanwhile (the delivery pass holds them: hookHeld).
 	var qs []outbox.Line

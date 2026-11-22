@@ -110,7 +110,7 @@ file. What the CLI has no switch for stays visible.
   "version": 1,
   "name": "mykind",
   "status": "terminal",
-  "caps": {"hooks": "none", "inbox": false, "resume": true, "skills": false, "sessions": false,
+  "caps": {"hooks": "none", "inbox": false, "hook_answers": false, "resume": true, "skills": false, "sessions": false,
            "named_session": false, "project_plugin": false, "model_arg": false, "version_var": "", "app": ""},
   "efforts": ["low", "high"],
   "vars": ["MYKIND_CONFIG"],
@@ -133,7 +133,7 @@ file. What the CLI has no switch for stays visible.
 |---|---|
 | `version`, `name` | 1, and the config's `<name>`: anything else is refused |
 | `status` | where the agents' status and turns come from (`Caps.Status`): `terminal` (herdr's agent detection), `hooks` (the kind's hooks report turns), `transcript` (`turn` reads them from the session's transcript) |
-| `caps` | `Caps`; `hooks` is `none`, `native` or `plugin` (`HookTransport`); `app` is the name its agents report in a terminal's status (hc's OSC 7501 `status.app`; `""`: the kind's name). `Caps.Transcript` is `transcript` being set |
+| `caps` | `Caps`; `hooks` is `none`, `native` or `plugin` (`HookTransport`); `hook_answers` (absent: false) says its hook transport acts on the answers of `user-prompt-submit` (the context) and `stop` (the block), so a lead of it with no inbox takes its lines through them (design "Lines to the lead"); `app` is the name its agents report in a terminal's status (hc's OSC 7501 `status.app`; `""`: the kind's name). `Caps.Transcript` is `transcript` being set |
 | `efforts` | the values a model ref's `:<effort>` may take (`Efforts`; none: no effort) |
 | `vars` | every variable `start`'s `env` may set (`Vars`) |
 | `env` | the variables obor snapshots into each request, and the only ones `transcript` may name |
@@ -169,8 +169,8 @@ Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unrea
 |---|---|---|
 | `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
 | `session-start` | `cwd`, `session_id`, `transcript_path` | obor's context lines on stdout (role, lane, task, the spec's protected files, the hooks line, the role text; a `WARN` line for unknown config keys, or the one line of a config that does not load), nothing else; with a session id, the session is recorded and reported to serve with its transcript, its inbox record written and a plugin kind's marker |
-| `user-prompt-submit` | `cwd`, `session_id`, `transcript_path`, `prompt`, the origin fields `origin` (a string or `{"kind": …}`), `turn_origin`/`turnOrigin`, `prompt_source`/`promptSource` | one UserPromptSubmit context object on stdout, `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":…}}`: the lead's queued lines when its kind has no inbox (asked from serve, which records them as delivered) and its handoff reminder, or a worker's wrong-tab guard; nothing when neither applies; a worker's or role agent's turn is reported to serve as begun |
-| `stop` | `cwd`, `session_id`, `transcript_path`, `stop_hook_active` (only `true` counts), `background_tasks`, each with its `status` (`running` counts) | `{"decision":"block","reason":…}` on stdout (a background run this session started still running, a worker before its `task_done`, or the lead's queued lines when its kind has no inbox, not within an active stop loop: asked from serve, which records them as delivered), or nothing; a worker's or role agent's turn is reported to serve as ended |
+| `user-prompt-submit` | `cwd`, `session_id`, `transcript_path`, `prompt`, the origin fields `origin` (a string or `{"kind": …}`), `turn_origin`/`turnOrigin`, `prompt_source`/`promptSource` | one UserPromptSubmit context object on stdout, `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":…}}`: the lead's queued lines when its kind has no inbox and `hook_answers` (asked from serve, which records them as delivered) and its handoff reminder, or a worker's wrong-tab guard; nothing when neither applies; a worker's or role agent's turn is reported to serve as begun |
+| `stop` | `cwd`, `session_id`, `transcript_path`, `stop_hook_active` (only `true` counts), `background_tasks`, each with its `status` (`running` counts) | `{"decision":"block","reason":…}` on stdout (a background run this session started still running, a worker before its `task_done`, or the lead's queued lines when its kind has no inbox and `hook_answers`, not within an active stop loop: asked from serve, which records them as delivered), or nothing; a worker's or role agent's turn is reported to serve as ended |
 | `stop-failure` | `cwd`, `error`, `error_details` (both raw JSON, logged as written) | nothing: the event is logged under the project's state dir and, with an agent's name, its error reported to serve |
 | `noop` | — | nothing |
 

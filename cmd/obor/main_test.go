@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/plugin"
 	"obor/internal/app/wire"
 	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
@@ -692,12 +693,25 @@ func TestTurnHooks(t *testing.T) {
 	}
 }
 
-// An OpenCode lead's (a kind with no inbox) UserPromptSubmit and Stop hooks each ask serve for its lines (one
-// lead_lines request, the lead's agent and role) and hand what serve answers: as the prompt's context, as the stop's
-// block. Serve down: exit 0, nothing.
+// hookKindManifest is the describe reply of the plugin kind hookk: no inbox, its hooks act on the answers.
+const hookKindManifest = `{"version":1,"name":"hookk","status":"hooks","caps":{"hooks":"plugin","hook_answers":true}}`
+
+// A lead's UserPromptSubmit and Stop hooks, its kind (a project plugin kind, its manifest cached) with no inbox and
+// acting on the hooks' answers, each ask serve for its lines (one lead_lines request, the lead's agent and role) and
+// hand what serve answers: as the prompt's context, as the stop's block. Serve down: exit 0, nothing. An OpenCode
+// lead's (no hook_answers) ask nothing.
 func TestLeadLinesHooks(t *testing.T) {
 	t.Parallel()
-	p := servedProject(t, testkit.Set("agents.roles.lead", "deepseek"))
+	bin := filepath.Join(t.TempDir(), "obor-kind-hookk")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\necho '"+hookKindManifest+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := servedProject(t, testkit.Set("agents.kinds.hookk", map[string]any{"plugin": bin}),
+		testkit.Set("agents.models.hooky", map[string]any{"kind": "hookk", "id": "hooky"}),
+		testkit.Set("agents.roles.lead", "hooky"))
+	if _, err := plugin.Cache("hookk", bin, filepath.Join(p.Root, ".obor", "state")); err != nil {
+		t.Fatalf("precondition: the kind's manifest cached: %v", err)
+	}
 	lead := []string{"OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	event := func(name string) string {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": name, "cwd": p.Root, "prompt": "what next?"})
@@ -725,6 +739,12 @@ func TestLeadLinesHooks(t *testing.T) {
 		if c.Agent != "pj-lead" || c.Role != "lead" || c.Root != p.Root || c.CallID == "" {
 			t.Errorf("request %+v, want the lead's with a call id", c)
 		}
+	}
+	p.Config(testkit.Set("agents.roles.integrator", ""), testkit.Set("agents.roles.lead", "deepseek"))
+	shimRun(t, p.Root, event("UserPromptSubmit"), lead, oborBin, "hook", "user-prompt-submit")
+	shimRun(t, p.Root, event("Stop"), lead, oborBin, "hook", "stop")
+	if m := serve.sentMethods(); len(m) != 2 {
+		t.Errorf("an OpenCode lead's hooks sent %v, want none", m[2:])
 	}
 }
 

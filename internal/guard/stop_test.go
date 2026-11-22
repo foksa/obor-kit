@@ -469,8 +469,8 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 		Command: "tail -f serve.log"})
 	procs(run(500, 900, "tail -f serve.log"))
 	f.stop(t, "lead", f.Root, "").block("the lead's live call").has("reason", "read the logs")
-	// A lead whose kind has no inbox, lines queued: the run blocks first, and its lines are not asked for (they wait).
-	f.Config(testkit.Set("agents.roles.lead", "deepseek"))
+	// A lead taking its lines through its hooks, lines queued: the run blocks first, and its lines are not asked for (they wait).
+	f.Config(testkit.HookModel(), testkit.Set("agents.roles.lead", "hooky"))
 	a := &askLines{text: twoLines}
 	f.stopLines(t, "lead", f.Root, "", a.ask).block("the lead's live call, lines queued").has("reason", "read the logs").
 		hasNot("reason", twoLines)

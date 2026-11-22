@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	agentkinds "obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
@@ -13,19 +14,28 @@ import (
 	"obor/internal/testkit"
 )
 
-// hookHeldWhy is why a line to the rig's OpenCode lead waits (obor status, its needs-you).
+func init() { agentkinds.Register(testkit.HookKind{}) } // a lead of it takes its lines through its hooks
+
+// hookHeldWhy is why a line to the rig's hook lead waits (obor status, its needs-you).
 const hookHeldWhy = "pj-lead's kind has no inbox: its hooks hand it its lines at its next prompt or turn end"
 
-// hookLeadRig is the loop rig (opts added) with the lead pj-lead an OpenCode agent (deepseek: a kind with no inbox),
-// idle in w1:p5, no inbox recorded.
-func hookLeadRig(t *testing.T, opts ...rigOpt) *loopRig {
+// leadKindRig is the loop rig (opts added) with the lead pj-lead an agent of the kind of model typ (its pane's agent
+// kind), idle in w1:p5, no inbox recorded.
+func leadKindRig(t *testing.T, typ, kind string, opts ...rigOpt) *loopRig {
 	t.Helper()
-	r := newLoopRig(t, append([]rigOpt{noCheck(), withConfig(testkit.Set("agents.roles.lead", "deepseek"))}, opts...)...)
+	cfg := withConfig(testkit.HookModel(), testkit.Set("agents.roles.lead", typ))
+	r := newLoopRig(t, append([]rigOpt{noCheck(), cfg}, opts...)...)
 	lead := agentPane("w1:p5", "pj-lead", r.p.Root)
-	lead.Agent = "opencode"
+	lead.Agent = kind
 	r.addPane(lead)
 	r.inbox.unrecord("pj-lead")
 	return r
+}
+
+// hookLeadRig is leadKindRig with the lead a testkit.HookKind agent (no inbox, its hooks act on the answers).
+func hookLeadRig(t *testing.T, opts ...rigOpt) *loopRig {
+	t.Helper()
+	return leadKindRig(t, "hooky", testkit.HookKindName, opts...)
 }
 
 // leadLines is the lead's hook asking for its lines under callID.
@@ -193,7 +203,8 @@ func TestLeadLinesRefusedForAnInboxLead(t *testing.T) {
 		}
 		r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 })
 		got, err := r.leadLines("h1")
-		if err == nil || got != "" || !strings.Contains(err.Error(), "lead_lines: pj-lead's kind has an inbox: its lines are posted there") {
+		if err == nil || got != "" || !strings.Contains(err.Error(), "lead_lines: pj-lead takes no lines through its hooks "+
+			"(its kind has an inbox, or its hooks do not act on the answers)") {
 			t.Errorf("a Claude lead's ask: %q, %v; want refused", got, err)
 		}
 		_, err = r.line("h2", &wire.LeadLinesReq{Envelope: wire.Envelope{Agent: "pj-l-01", Role: "worker"}})
@@ -206,6 +217,33 @@ func TestLeadLinesRefusedForAnInboxLead(t *testing.T) {
 		}
 		if res := r.lineResults(); len(res) != 1 {
 			t.Errorf("delivery results %q, want the post's alone", res)
+		}
+	})
+}
+
+// A lead whose kind has no inbox and whose hooks do not act on the answers (OpenCode: its plugin drops them) keeps
+// its lines waiting as a lead with no inbox record does: not held for the hooks, the send's reply and obor status
+// say so, the hook's ask is refused and hands nothing, nothing is recorded as delivered.
+func TestLeadLinesWaitWithoutHookAnswers(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := leadKindRig(t, "deepseek", "opencode")
+		r.start()
+		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
+		if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead;"; err != nil || !strings.HasPrefix(reply, want) {
+			t.Fatalf("send: %q, %v; want it to start %q", reply, err, want)
+		}
+		r.passes()
+		why := "no inbox recorded for pj-lead: its SessionStart hook records one"
+		if w := r.waiting(); len(w) != 1 || w[0].Held != why {
+			t.Fatalf("waiting %+v; want the line held for its inbox record, not for the hooks", w)
+		}
+		if got, err := r.leadLines("h1"); err == nil || got != "" || !strings.Contains(err.Error(), "takes no lines through its hooks") {
+			t.Errorf("the hook's ask: %q, %v; want refused", got, err)
+		}
+		r.passes()
+		if w, res, in := r.waiting(), r.lineResults(), r.hookIntents(); len(w) != 1 || len(res) != 0 || len(in) != 0 {
+			t.Errorf("waiting %+v, results %q, hook intents %v; want the line still queued, no delivery", w, res, in)
 		}
 	})
 }

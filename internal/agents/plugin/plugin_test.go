@@ -17,7 +17,7 @@ import (
 
 // manifest is the stub kind's describe reply.
 const manifest = `{"version":1,"name":"stub","status":"transcript","caps":{"hooks":"none","resume":true,"sessions":true,
-"app":"stub-code"},"efforts":["low","high"],"vars":["STUB_CONFIG"],"env":["HOME"],"stop":{"quit":"/quit","clear_input":["ctrl+u"],
+"hook_answers":true,"app":"stub-code"},"efforts":["low","high"],"vars":["STUB_CONFIG"],"env":["HOME"],"stop":{"quit":"/quit","clear_input":["ctrl+u"],
 "dialog":{"option":"Quit anyway","key":"(\\d)\\. Quit anyway"}},"headless":{"subcommands":["exec"],"print_flag":true,"flags":["--prompt"]},
 "transcript":"${HOME}/.stub/{sid}.jsonl","inbox_record":["STUB_INBOX"],"not_ready":{"call":true},
 "mcp_lane":{"how":"STUB_CONFIG (the start's config)","registered":true}}`
@@ -331,7 +331,7 @@ func TestManifestFromCache(t *testing.T) {
 	k := plugin.New("stub", stubCmd, state)
 	caps := k.Caps()
 	if caps.Status != agents.StatusTranscript || !caps.Resume || !caps.Sessions || !caps.Transcript || caps.Hooks != agents.HooksNone ||
-		caps.App != "stub-code" {
+		caps.App != "stub-code" || !caps.HookAnswers || caps.Inbox {
 		t.Errorf("Caps = %+v", caps)
 	}
 	if !agents.TurnsRead(k) {

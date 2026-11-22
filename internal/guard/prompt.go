@@ -105,13 +105,14 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer, lines LeadLi
 type LeadLines func(root, agent string) (string, error)
 
 // hookLines is the text of the lines the lead's hook hands over ("": none): asked through lines only when the kind
-// agent runs as (sessionKind) is known and has no inbox (a kind with one gets its lines posted there); a failed ask
-// hands nothing (the lines wait, obor status lists them).
+// agent runs as (sessionKind) is known, has no inbox (a kind with one gets its lines posted there) and its transport
+// acts on the hooks' answers (agents.Caps.HookAnswers: else an answer would be lost, so nothing is asked and the
+// lines wait); a failed ask hands nothing (the lines wait, obor status lists them).
 func hookLines(cfg *config.Config, agent, cwd string, lines LeadLines) string {
 	if lines == nil || agent == "" {
 		return ""
 	}
-	if k, ok := cfg.Kind(sessionKind(cfg, agent, cwd)); !ok || k.Caps().Inbox {
+	if k, ok := cfg.Kind(sessionKind(cfg, agent, cwd)); !ok || k.Caps().Inbox || !k.Caps().HookAnswers {
 		return ""
 	}
 	text, err := lines(cfg.Root, agent)

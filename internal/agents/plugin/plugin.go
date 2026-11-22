@@ -60,6 +60,7 @@ type Manifest struct {
 type Caps struct {
 	Hooks         string `json:"hooks,omitempty"` // none | native | plugin
 	Inbox         bool   `json:"inbox,omitempty"`
+	HookAnswers   bool   `json:"hook_answers,omitempty"`
 	Resume        bool   `json:"resume,omitempty"`
 	Skills        bool   `json:"skills,omitempty"`
 	Sessions      bool   `json:"sessions,omitempty"`
@@ -387,8 +388,8 @@ func (k *Kind) Caps() agents.Caps {
 		return agents.Caps{}
 	}
 	c := m.Caps
-	return agents.Caps{Hooks: hookTransports[c.Hooks], Inbox: c.Inbox, Resume: c.Resume, Skills: c.Skills,
-		Transcript: m.Transcript != "", Status: agents.Status(m.Status), Sessions: c.Sessions,
+	return agents.Caps{Hooks: hookTransports[c.Hooks], Inbox: c.Inbox, HookAnswers: c.HookAnswers, Resume: c.Resume,
+		Skills: c.Skills, Transcript: m.Transcript != "", Status: agents.Status(m.Status), Sessions: c.Sessions,
 		NamedSession: c.NamedSession, ProjectPlugin: c.ProjectPlugin, ModelArg: c.ModelArg, VersionVar: c.VersionVar,
 		App: c.App}
 }
