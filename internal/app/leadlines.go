@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"obor/internal/agents"
 	"obor/internal/app/event"
@@ -19,6 +20,10 @@ import (
 // 24 h needs-you and a needs-you line's repeat read one delivery whichever path made it, and a line handed out once
 // is never handed out or posted again. A line is claimed (Sending) by one path at a time: the pass posts no line a
 // hook call is handing, and a hook call hands no line the pass is posting.
+//
+// The hook's request names the instant its call ends (wire.LeadLinesReq.UntilMS): lines are recorded as handed only
+// while serve answers before then, and a request read after it hands nothing, leaving the lines queued for the next
+// hook or the inbox.
 
 // leadLines is how lines reach p's lead now (under mu; agents.LeadLines): its kind (its identified pane's, else its
 // configured one) and whether its inbox record is live (Options.Inboxed, project.InboxLive); inbox: that kind has an
@@ -59,12 +64,14 @@ func (a *App) hookHeld(p *proj) string {
 const byHooks = "its hooks hand it its lines at its next prompt or turn end"
 
 // leadLinesCall answers the socket's lead_lines request (the lead's UserPromptSubmit or Stop hook): the lines queued
-// for the lead, one per row, recorded as delivered before the reply goes ("": none). One post's worth: an open post's
-// members (a crash cut its result: handed again, as a post is posted again), else every line queued for the lead that
-// no post is sending. Only while the lead takes its lines through its hooks (hookHeld): any other lead is refused (its
-// inbox is live, its lines posted there; or its hooks do not act on the answers, its lines waiting). A repeated call
-// id gets the stored reply (a reply lost on the way is handed again; a restart forgets it). No ack: sent means handed
-// to the hook, as a post's means handed to the socket.
+// for the lead, one per row, recorded as delivered before the reply goes ("": nothing to hand, or the call ended
+// first). One post's worth: an open post's members (a crash cut its result: handed again, as a post is posted again),
+// else every line queued for the lead that no post is sending. Only while the lead takes its lines through its hooks
+// (hookHeld): any other lead is refused (its inbox is live, its lines posted there; or its hooks do not act on the
+// answers, its lines waiting). The request names the instant its call ends (UntilMS): past it nothing is recorded as
+// handed, and the lines stay queued for the next hook or the inbox. A repeated call id gets the stored reply (a reply
+// lost on the way is handed again; a restart forgets it). No ack: sent means handed to the hook, as a post's means
+// handed to the socket.
 func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodLeadLines + ": a call id is required")
@@ -108,7 +115,7 @@ func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 		}
 		a.mu.Unlock()
 	}()
-	text, err := a.handLines(p, qs)
+	text, err := a.handLines(p, qs, c.UntilMS)
 	if err != nil {
 		return "", err
 	}
@@ -119,9 +126,11 @@ func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 }
 
 // handLines records the delivery of the post leadPost makes of qs (the lead's lines, claimed) as the hook's: its
-// intent, its result sent, each other member's own result; its text, one line per row ("": none to hand).
-func (a *App) handLines(p *proj, qs []outbox.Line) (string, error) {
-	if len(qs) == 0 {
+// intent, its result sent, each other member's own result; its text, one line per row ("": none to hand). untilMS is
+// the instant the hook's call ends (epoch milliseconds, 0: no deadline): past it nothing is recorded as handed, and
+// qs stay queued for the next hook or the inbox.
+func (a *App) handLines(p *proj, qs []outbox.Line, untilMS int64) (string, error) {
+	if len(qs) == 0 || a.callEnded(untilMS) {
 		return "", nil
 	}
 	head, lines, _ := a.leadPost(p, qs, lineKey) // a result kept unwritten is written: the lines go again
@@ -143,4 +152,10 @@ func (a *App) handLines(p *proj, qs []outbox.Line) (string, error) {
 	a.membersSent(ctx, p, lines, head)
 	a.wake() // the pass ends the 24 h needs-you of a line delivered here
 	return strings.Join(text, "\n"), nil
+}
+
+// callEnded is the hook's call ended at untilMS (epoch milliseconds; 0: no deadline, an older binary): the hook is
+// gone, so nothing it asked for may be recorded as handed.
+func (a *App) callEnded(untilMS int64) bool {
+	return untilMS > 0 && !a.opt.Now().Before(time.UnixMilli(untilMS))
 }

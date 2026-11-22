@@ -32,6 +32,7 @@ type sentCall struct {
 	Spec    string              `json:"spec"`
 	Changes []wire.ConfigChange `json:"changes"`
 	Until   int64               `json:"until"`
+	UntilMS int64               `json:"until_ms"`
 	Model   string              `json:"model"`
 	Clear   bool                `json:"clear"`
 	From    string              `json:"from"`

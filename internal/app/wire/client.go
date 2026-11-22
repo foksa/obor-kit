@@ -47,7 +47,8 @@ func NewCallID() string {
 // with this binary's version: its reply line, or the app's refusal as the error. r's JSON is the socket line: the
 // union's keys less the ones no serve reads for its method (request_test.go's drops), never a promise of the old
 // bytes. The call has its method's deadline
-// (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it.
+// (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it. A DeadlineReq
+// carries that instant when it is sent, so serve lands nothing a caller that gave up would never see.
 func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	method := r.Method()
 	d := callDeadline(method)
@@ -58,6 +59,9 @@ func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
+	if dr, ok := r.(DeadlineReq); ok {
+		dr.SetDeadline(time.Now().Add(d))
+	}
 	// Every call names the binary that sent it: one place, so a serve that answers another version says so.
 	r.Env().Version = version.Version
 	b, err := json.Marshal(r)

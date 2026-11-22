@@ -93,6 +93,53 @@ func TestVerdictDeadlineLine(t *testing.T) {
 	}
 }
 
+// A lead_lines verdict names the instant its call ends, so serve records what it hands only while the hook that
+// asked still waits: the method's own deadline from now, or ctx's earlier one.
+func TestVerdictStampsLeadLinesDeadline(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wire") // a short dir: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := dir + "/serve.sock"
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte(`{"reply":"[obor other] hi"}` + "\n"))
+			c.Close()
+		}
+	}()
+	t.Setenv("OBOR_CALL_DEADLINE", "")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for _, c := range []struct {
+		name string
+		ctx  context.Context
+		want time.Duration
+	}{
+		{"the method's deadline", context.Background(), leadLinesDeadline},
+		{"ctx's earlier deadline", ctx, time.Second},
+	} {
+		r := &LeadLinesReq{}
+		at := time.Now()
+		got, err := Verdict(c.ctx, sock, r)
+		if err != nil || got != "[obor other] hi" {
+			t.Fatalf("%s: %q, %v", c.name, got, err)
+		}
+		if d := time.UnixMilli(r.UntilMS).Sub(at); d < c.want-250*time.Millisecond || d > c.want+250*time.Millisecond {
+			t.Errorf("%s: the request's deadline is %s from now, want %s", c.name, d, c.want)
+		}
+	}
+}
+
 // Notify makes one request: a request whose effect is serve's memory recovers nothing from a retry, and a caller's
 // start is not held up by a serve that is not there. A connection that ends before its answer is the retry class a
 // verdict is sent again on; Notify answers that error instead.
