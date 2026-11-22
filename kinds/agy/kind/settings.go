@@ -18,6 +18,9 @@ const UserSettingsFile = ".gemini/antigravity-cli/settings.json"
 // MCPRule is the permission rule that lets obor's MCP tools run with no prompt (the workspace server is named obor).
 const MCPRule = "mcp(obor/*)"
 
+// CommandRule is the permission rule that lets obor's own commands run with no reviewer prompt on an unsandboxed re-run.
+const CommandRule = "command(obor)"
+
 // UserSettings are the user's saved settings (UserSettingsFile under env's HOME); none: no HOME, no file, or one that
 // does not parse.
 func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[string]any {
@@ -43,7 +46,7 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 //   - agentMode "auto" for every agent, a lead too (auto mode runs commands in agy's sandbox and has its reviewer
 //     approve, with no prompt, the re-run of one the sandbox refused: a socket, the network, a write outside the
 //     workspace; docs/research/agy-probes.md P11), obor's hooks (hook.go) guarding every call;
-//   - permissions, its allow list gaining MCPRule;
+//   - permissions, its allow list gaining MCPRule and CommandRule;
 //   - trustedWorkspaces gaining dir, only when root is in the user's saved trustedWorkspaces (the owner trusted the
 //     project in its main checkout; its lanes follow): else the key is left to the saved value, and agy asks.
 func Settings(user, over map[string]any, dir, root string) map[string]any {
@@ -60,7 +63,7 @@ func Settings(user, over map[string]any, dir, root string) map[string]any {
 	if perms == nil {
 		perms = map[string]any{}
 	}
-	perms["allow"] = with(perms["allow"], MCPRule)
+	perms["allow"] = with(perms["allow"], MCPRule, CommandRule)
 	out["permissions"] = perms
 	if dir != "" && root != "" && slices.Contains(paths(user["trustedWorkspaces"]), filepath.Clean(root)) {
 		out["trustedWorkspaces"] = with(merged["trustedWorkspaces"], filepath.Clean(dir))
