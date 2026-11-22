@@ -105,15 +105,16 @@ Every variable in `env` must be among the manifest's `vars` (`agents.Kinds.Vars`
 it does not set).
 
 `trim_user` (`agents.Start.TrimUser`) is true for every agent but a lead: the kind switches off its default part of
-the user's own settings (the user's plugins and skills, as far as its CLI has a switch) and applies `overrides`;
-every other user setting applies. A lead's start has `trim_user` false and the user's settings as they are.
+the user's own settings (the user's plugins and skills, as far as its CLI has a switch); every other user setting
+applies. A lead's start has `trim_user` false and keeps the user's own settings untrimmed.
 
 `overrides` (`agents.Start.Overrides`) are the project's override files of the kind: an object, file name → the
 document as written (text), holding each file the manifest's `override_files` names that the project has in
-`.obor/<name>/` at its root (none: `null`). obor reads the files and checks that each parses (`.toml` as TOML, any
-other name as a JSON object); the kind merges each over the user's file of the same kind, which it reads itself
-from the config dir the request's `env` places, as a JSON Merge Patch (RFC 7396: objects merge key by key, `null`
-deletes a key, anything else replaces). `root` is the project's root.
+`.obor/<name>/` at its root (none: `null`), handed to every start (lead included). obor reads the files and checks that
+each parses (`.toml` as TOML, any other name as a JSON object); the kind merges each over the user's file of the same
+kind, which it reads itself from the config dir the request's `env` places, as a JSON Merge Patch (RFC 7396: objects
+merge key by key, `null` deletes a key, anything else replaces), on every start (agy) or on a trimmed start only
+(OpenCode). `root` is the project's root.
 
 OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env` on a trimmed start ("" for a lead) hides the Claude skill
 dirs only; `opencode_override.json` merged over the user's `opencode.json[c]` is the base of its generated config

@@ -9,7 +9,7 @@ import (
 )
 
 // OverrideFile is agy's override file (agents.OverrideDir: .obor/agy/), in agy's own settings format: laid over the
-// user's saved settings for every agent but a lead.
+// user's saved settings for every start, a lead included.
 const OverrideFile = "settings_override.json"
 
 // UserSettingsFile is the user's saved agy settings, relative to HOME.
@@ -38,7 +38,7 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 
 // Settings is a start's --settings document. agy lays it over the user's saved settings by top-level key, a key it
 // names replacing the saved value whole, so each key it names is the user's saved value with over laid over it (a JSON
-// Merge Patch: over nil for a lead) and obor's entries last:
+// Merge Patch) and obor's entries last:
 //   - every key over names (one over deletes, null, is left out: the saved value applies);
 //   - agentMode "auto" for every agent, a lead too (auto mode runs commands in agy's sandbox and has its reviewer
 //     approve, with no prompt, the re-run of one the sandbox refused: a socket, the network, a write outside the

@@ -254,36 +254,40 @@ func TestStartModels(t *testing.T) {
 }
 
 // A lead's start (untrimmed) and another agent's (trimmed) write their settings to different files, per start dir:
-// both are auto mode (a lead's too: no toolPermission, no command rule, P11) with obor's MCP rule, and the project's
-// override file reaches only the trimmed start, as OpenCode's does.
+// both are auto mode with obor's MCP rule, and the project's override file merges into every start, lead included
+// (without one, a lead's settings file holds the user's saved permissions plus obor's entries alone).
 func TestStartSettingsLeadAndWorker(t *testing.T) {
 	k := agy(t, t.TempDir())
 	env := home(t, `{"colorScheme":"dark","permissions":{"allow":["command(git status)"],"deny":["command(rm)"]}}`)
-	over := map[string]string{kind.OverrideFile: `{"permissions":{"allow":["command(go test)"]}}`}
-	start := func(trim bool) map[string]any {
-		_, s, err := started(t, k, agents.Start{TrimUser: trim, Overrides: over, Dir: "/p/wt/L-01", Root: "/p",
+	over := map[string]string{kind.OverrideFile: `{"toolPermission":"always-proceed","permissions":{"allow":["command(go test)"]}}`}
+	start := func(trim bool, overrides map[string]string) map[string]any {
+		_, s, err := started(t, k, agents.Start{TrimUser: trim, Overrides: overrides, Dir: "/p/wt/L-01", Root: "/p",
 			Env: func(v string) string { return env[v] }})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return s
 	}
-	lead := start(false)
+	wantWithOverride := map[string]any{"toolPermission": "always-proceed", "agentMode": "auto",
+		"permissions": map[string]any{"allow": []any{"command(go test)", kind.MCPRule},
+			"deny": []any{"command(rm)"}}}
+	if leadOver := start(false, over); !reflect.DeepEqual(leadOver, wantWithOverride) {
+		t.Errorf("a lead's settings with an override = %v, want %v", leadOver, wantWithOverride)
+	}
+	lead := start(false, nil)
 	if want := (map[string]any{"agentMode": "auto", "permissions": map[string]any{"allow": []any{"command(git status)", kind.MCPRule},
 		"deny": []any{"command(rm)"}}}); !reflect.DeepEqual(lead, want) {
-		t.Errorf("a lead's settings = %v, want %v", lead, want)
+		t.Errorf("a lead's settings without an override = %v, want %v", lead, want)
 	}
-	worker := start(true)
-	if want := (map[string]any{"agentMode": "auto", "permissions": map[string]any{"allow": []any{"command(go test)", kind.MCPRule},
-		"deny": []any{"command(rm)"}}}); !reflect.DeepEqual(worker, want) {
-		t.Errorf("a worker's settings = %v, want %v", worker, want)
+	if worker := start(true, over); !reflect.DeepEqual(worker, wantWithOverride) {
+		t.Errorf("a worker's settings = %v, want %v", worker, wantWithOverride)
 	}
 	if kind.SettingsFile(true, "/p") == kind.SettingsFile(false, "/p") ||
 		kind.SettingsFile(false, "/p/wt/L-01") == kind.SettingsFile(false, "/p/wt/L-02") ||
 		kind.SettingsFile(false, "/p/wt/L-01") != kind.SettingsFile(false, "/p/wt/L-01") {
 		t.Error("SettingsFile: want one name per kind of start and start dir")
 	}
-	if _, _, err := started(t, k, agents.Start{TrimUser: true, Overrides: map[string]string{kind.OverrideFile: `{`}}); err == nil ||
+	if _, _, err := started(t, k, agents.Start{TrimUser: false, Overrides: map[string]string{kind.OverrideFile: `{`}}); err == nil ||
 		!strings.Contains(err.Error(), "settings_override.json: does not parse") {
 		t.Errorf("an override that does not parse: %v, want the start refused naming the file", err)
 	}
