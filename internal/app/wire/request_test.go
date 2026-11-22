@@ -89,6 +89,8 @@ var goldenRequests = []requestLine{
 		`{"method":"stopped","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01","error":"overloaded","details":"d"}}`, []droppedKey{dropTask}},
 	{&TurnReq{Envelope: env, Lane: "L-01", Ended: true},
 		`{"method":"turn","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01","ended":true}}`, []droppedKey{dropTask}},
+	{&LeadLinesReq{Envelope: env},
+		`{"method":"lead_lines","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":""}}`, []droppedKey{dropTask}},
 	{&RestartJobReq{Envelope: env, Lane: "L-01"},
 		`{"method":"restart_job","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01"}}`, []droppedKey{dropTask}},
 	{&ExitReq{Envelope: env, Why: "obor stop: why"},
@@ -254,7 +256,7 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 		MethodConfig,
 		MethodBackup, MethodSend, MethodBrief, MethodStopped, MethodTurn, MethodRestartJob, MethodExit, MethodDrive,
 		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone, MethodMergePreview,
-		MethodWhere, MethodPrune} {
+		MethodWhere, MethodPrune, MethodLeadLines} {
 		if !methods[m] {
 			t.Errorf("no golden row for %s", m)
 		}

@@ -37,6 +37,12 @@ type result struct {
 // object text); env adds VAR=value (OBOR_AGENT=…).
 func (f hfx) stop(t *testing.T, role, cwd, extra string, env ...string) result {
 	t.Helper()
+	return f.stopLines(t, role, cwd, extra, nil, env...)
+}
+
+// stopLines is stop with lines as the hook's ask for the lead's lines.
+func (f hfx) stopLines(t *testing.T, role, cwd, extra string, lines LeadLines, env ...string) result {
+	t.Helper()
 	ev := map[string]any{"session_id": "s1", "hook_event_name": "Stop", "cwd": cwd, "stop_hook_active": false}
 	if extra != "" {
 		var x map[string]any
@@ -52,7 +58,7 @@ func (f hfx) stop(t *testing.T, role, cwd, extra string, env ...string) result {
 	}
 	b, _ := json.Marshal(ev)
 	var out, errw bytes.Buffer
-	Stop(b, f.Env(env...), &out, &errw)
+	Stop(b, f.Env(env...), &out, &errw, lines)
 	return result{t, out.String(), errw.String()}
 }
 
@@ -463,6 +469,14 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 		Command: "tail -f serve.log"})
 	procs(run(500, 900, "tail -f serve.log"))
 	f.stop(t, "lead", f.Root, "").block("the lead's live call").has("reason", "read the logs")
+	// A lead whose kind has no inbox, lines queued: the run blocks first, and its lines are not asked for (they wait).
+	f.Config(testkit.Set("agents.roles.lead", "deepseek"))
+	a := &askLines{text: twoLines}
+	f.stopLines(t, "lead", f.Root, "", a.ask).block("the lead's live call, lines queued").has("reason", "read the logs").
+		hasNot("reason", twoLines)
+	if len(a.asks) != 0 {
+		t.Errorf("lines asked for behind a live run: %q", a.asks)
+	}
 }
 
 // bash stop case_no_config, case_other_roles
@@ -495,7 +509,7 @@ func TestStopInternalErrorAllowsWithStderr(t *testing.T) {
 	}
 	for _, in := range []string{"", "not json", "[]", `{"cwd": 5}`} {
 		var out, errw bytes.Buffer
-		Stop([]byte(in), f.Env(), &out, &errw)
+		Stop([]byte(in), f.Env(), &out, &errw, nil)
 		if out.Len()+errw.Len() != 0 {
 			t.Errorf("input %q: %q %q", in, out.String(), errw.String())
 		}

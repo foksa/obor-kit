@@ -305,11 +305,15 @@ type Worked struct {
 	Brief int64  `json:"brief"`
 }
 
-// LineData is a delivery intent's data: the line's agent (the post's target), and the seqs of the lines its post
-// carries (none: its own line alone, one line with no batch).
+// ViaHook is a delivery intent's Via for lines handed to the lead's hook (app's leadLinesCall), not posted or typed.
+const ViaHook = "hook"
+
+// LineData is a delivery intent's data: the line's agent (the post's target), the seqs of the lines its post
+// carries (none: its own line alone, one line with no batch), and how it went (ViaHook; "": posted or typed).
 type LineData struct {
 	To    string  `json:"to"`
 	Lines []int64 `json:"lines,omitempty"`
+	Via   string  `json:"via,omitempty"`
 }
 
 // members is the lines a delivery intent of seq's key carries.

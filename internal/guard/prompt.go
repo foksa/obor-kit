@@ -16,12 +16,13 @@ import (
 	"obor/internal/store"
 )
 
-// UserPromptSubmit has two jobs, by role. Lead: the handoff reminder (handoffReminder) on every prompt while the
-// session's context is above handoff_tokens. Worker: the wrong-tab guard (design "Wrong-tab guard"): a prompt a
+// UserPromptSubmit has two jobs, by role. Lead: the lines queued for it when its kind has no inbox (hookLines, asked
+// through lines), then the handoff reminder (handoffReminder) on every prompt while the session's context is above
+// handoff_tokens, both in one context. Worker: the wrong-tab guard (design "Wrong-tab guard"): a prompt a
 // person typed (not tagged `[obor `, nor a slash command, nor one of Claude Code's own envelopes or
 // auto-continuations) gets context telling the agent to ask "I am worker <agent> on <task>. Did you mean to type
 // here?" first. Anything else → no output.
-func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
+func UserPromptSubmit(input []byte, env project.Env, out io.Writer, lines LeadLines) {
 	var ev struct {
 		Cwd            string `json:"cwd"`
 		SessionID      string `json:"session_id"`
@@ -46,8 +47,17 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 	role := project.DetectRole(repo, cfg, env)
 	switch role.Role {
 	case "lead":
-		if ctx := handoffReminder(cfg, env, project.SelfAgent(cfg, role), ev.SessionID, ev.TranscriptPath); ctx != "" {
-			promptContext(out, ctx)
+		agent := project.SelfAgent(cfg, role)
+		var parts []string
+		if l := hookLines(cfg, agent, ev.Cwd, lines); l != "" {
+			parts = append(parts, "obor (lead): lines for you that arrived since your last turn (your session has no "+
+				"inbox: they come with your next prompt or at a turn's end), one per row:\n"+l)
+		}
+		if ctx := handoffReminder(cfg, env, agent, ev.SessionID, ev.TranscriptPath); ctx != "" {
+			parts = append(parts, ctx)
+		}
+		if len(parts) > 0 {
+			promptContext(out, strings.Join(parts, "\n\n"))
 		}
 		return
 	case "worker":
@@ -88,6 +98,27 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 		ctx += " (obor could not read this lane's row: " + err.Error() + ")"
 	}
 	promptContext(out, ctx)
+}
+
+// LeadLines asks the serve of the project at root for the lines queued for its lead agent, which serve records as
+// delivered (cmd/obor: the lead_lines request): their text, one line per row ("": none). nil: nothing is asked.
+type LeadLines func(root, agent string) (string, error)
+
+// hookLines is the text of the lines the lead's hook hands over ("": none): asked through lines only when the kind
+// agent runs as (sessionKind) is known and has no inbox (a kind with one gets its lines posted there); a failed ask
+// hands nothing (the lines wait, obor status lists them).
+func hookLines(cfg *config.Config, agent, cwd string, lines LeadLines) string {
+	if lines == nil || agent == "" {
+		return ""
+	}
+	if k, ok := cfg.Kind(sessionKind(cfg, agent, cwd)); !ok || k.Caps().Inbox {
+		return ""
+	}
+	text, err := lines(cfg.Root, agent)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 // promptContext writes ctx as the UserPromptSubmit hook's additionalContext.

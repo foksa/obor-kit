@@ -692,6 +692,42 @@ func TestTurnHooks(t *testing.T) {
 	}
 }
 
+// An OpenCode lead's (a kind with no inbox) UserPromptSubmit and Stop hooks each ask serve for its lines (one
+// lead_lines request, the lead's agent and role) and hand what serve answers: as the prompt's context, as the stop's
+// block. Serve down: exit 0, nothing.
+func TestLeadLinesHooks(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t, testkit.Set("agents.roles.lead", "deepseek"))
+	lead := []string{"OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	event := func(name string) string {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": name, "cwd": p.Root, "prompt": "what next?"})
+		return string(b)
+	}
+	if rc, stdout, _, _ := shimRun(t, p.Root, event("UserPromptSubmit"), append(lead, callDown), oborBin, "hook",
+		"user-prompt-submit"); rc != 0 || stdout != "" {
+		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
+	}
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "[obor other] hello", "")
+	rc, stdout, _, _ := shimRun(t, p.Root, event("UserPromptSubmit"), lead, oborBin, "hook", "user-prompt-submit")
+	if rc != 0 || !strings.Contains(stdout, `"additionalContext":"obor (lead): lines for you`) ||
+		!strings.Contains(stdout, `[obor other] hello`) {
+		t.Errorf("user-prompt-submit: exit %d, stdout %q; want the lines as context", rc, stdout)
+	}
+	rc, stdout, _, _ = shimRun(t, p.Root, event("Stop"), lead, oborBin, "hook", "stop")
+	if rc != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, `[obor other] hello`) {
+		t.Errorf("stop: exit %d, stdout %q; want the block with the lines", rc, stdout)
+	}
+	calls, _ := serve.requests()
+	if m := serve.sentMethods(); len(calls) != 2 || m[0] != wire.MethodLeadLines || m[1] != wire.MethodLeadLines {
+		t.Fatalf("serve got %v, want two lead_lines requests", m)
+	}
+	for _, c := range calls {
+		if c.Agent != "pj-lead" || c.Role != "lead" || c.Root != p.Root || c.CallID == "" {
+			t.Errorf("request %+v, want the lead's with a call id", c)
+		}
+	}
+}
+
 // SessionStart of a triage session records its session (serve gets pj-triage's) and its project inbox (slot
 // triage), so a brief to pj-triage is posted to the session, not typed.
 func TestTriageSessionStartRecordsItsInbox(t *testing.T) {

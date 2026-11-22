@@ -440,6 +440,7 @@ func (a *App) handlers() map[string]handler {
 		wire.MethodReview:       handle(a.reviewCall),
 		wire.MethodStopped:      handle(a.stoppedCall),
 		wire.MethodTurn:         handle(a.turnCall),
+		wire.MethodLeadLines:    handle(a.leadLinesCall),
 		wire.MethodSession:      handle(a.sessionCall),
 		wire.MethodStarted:      handle(a.startedCall),
 		wire.MethodExit:         handle(a.exitCall),
