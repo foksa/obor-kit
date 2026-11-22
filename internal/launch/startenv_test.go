@@ -12,6 +12,7 @@ import (
 
 	"obor/internal/launch"
 	"obor/internal/testkit"
+	"obor/kinds/opencode/kind"
 )
 
 // every start path types its env line through the one builder (agents.Kinds.StartVars): run in a real sh after a
@@ -75,7 +76,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v: %s", err, out)
 			}
-			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode-lane.json", 1) + " " + c.pane + user
+			want := strings.Replace(c.want, "CONFIG", filepath.Join(x.p.Root, ".obor", "state", kind.LaneConfigFile(x.p.LaneDir("L-01"))), 1) + " " + c.pane + user
 			if got := strings.TrimSpace(string(out)); got != want {
 				t.Errorf("after a stale shell, the env line %q leaves %q, want %q", line, got, want)
 			}
@@ -84,15 +85,15 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 }
 
 // an OpenCode start names its generated config in the env line
-// (OPENCODE_CONFIG=<project>/.obor/state/<file>, a path: the line stays short): a lane's worker the lane's file (its
-// trim disables the user's own MCP servers) and a role agent the trimmed one. The file the role agent's line names
-// holds obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another kind's start
-// names none.
+// (OPENCODE_CONFIG=<project>/.obor/state/<file>, a path: the line stays short): a lane's worker the lane's file (one per
+// start dir: its trim disables the user's own MCP servers over the lane's project files) and a role agent the trimmed
+// one. The file the role agent's line names holds obor's MCP server (the launching kit's `bin/obor mcp`) and plugin
+// (the kit's package dir). Another kind's start names none.
 func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.AddModels(`{"oc":{"kind":"opencode","id":"go/ds"}}`),
 		testkit.Set("agents.roles", `{"reviewer":"oc","integrator":"opus"}`))
-	lane := filepath.Join(x.p.Root, ".obor", "state", "opencode-lane.json")
+	lane := filepath.Join(x.p.Root, ".obor", "state", kind.LaneConfigFile(x.p.LaneDir("L-01")))
 	file := filepath.Join(x.p.Root, ".obor", "state", "opencode-trimmed.json")
 	if _, err := os.Stat(file); err == nil {
 		t.Fatal("precondition: no generated config yet")

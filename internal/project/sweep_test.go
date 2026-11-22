@@ -85,17 +85,25 @@ func TestSweep(t *testing.T) {
 			}
 			there(t, freshTmp) // a backup being written now
 		}},
-		{"the instance the old name wrote goes, the new name's stays", func(t *testing.T, cfg *config.Config, now time.Time) {
+		{"the old names' files go, the new names'", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
-			old := filepath.Join(state, "herdr-instance")
-			live := filepath.Join(state, "terminal-instance")
-			sweepFile(t, now, old, time.Hour)
-			sweepFile(t, now, live, time.Hour)
+			old := []string{filepath.Join(state, "herdr-instance"), filepath.Join(state, "opencode-lane.json")}
+			live := []string{filepath.Join(state, "terminal-instance"), filepath.Join(state, "opencode-lane-1a2b3c4d.json")}
+			for _, p := range old {
+				sweepFile(t, now, p, time.Hour)
+			}
+			for _, p := range live {
+				sweepFile(t, now, p, time.Hour)
+			}
 			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
-			gone(t, old)
-			there(t, live)
+			for _, p := range old {
+				gone(t, p)
+			}
+			for _, p := range live {
+				there(t, p)
+			}
 		}},
 		{"files of gone lanes and agents go, the live ones stay", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
@@ -161,7 +169,7 @@ func TestSweep(t *testing.T) {
 				filepath.Join(state, "kinds", "opencode.json"),
 				filepath.Join(state, "opencode.json"),
 				filepath.Join(state, "opencode-trimmed.json"),
-				filepath.Join(state, "opencode-lane.json"),
+				filepath.Join(state, "opencode-lane-1a2b3c4d.json"),
 				filepath.Join(state, "last-full-check"),
 				filepath.Join(state, "background.jsonl"),
 			}

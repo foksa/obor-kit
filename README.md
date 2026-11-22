@@ -193,8 +193,9 @@ hook's list is replaced whole, so to drop one hook of a group write the event's 
 adds does not run (validate warns): add it to the project's own Codex hooks.
 
 OpenCode agents keep your `~/.config/opencode` as it is. The config obor generates for a start (`.obor/state/opencode.json`
-for the lead, `opencode-trimmed.json` for every other agent, `opencode-lane.json` for a lane's worker and drive agent;
-named by `OPENCODE_CONFIG`, which OpenCode ranks above your own config) is obor's MCP server and plugin, and with an
+for the lead, `opencode-trimmed.json` for every other agent, `opencode-lane-<dir hash>.json` for a lane's worker and
+drive agent, one per start dir; named by `OPENCODE_CONFIG`, which OpenCode ranks above your own config) is obor's MCP
+server and plugin, and with an
 override file your `opencode.json[c]` with the file merged over it (`mcp.servers.obor` stays obor's). A lane's config
 also holds each MCP server of yours that the project's own `opencode.json[c]` does not define as its whole definition
 with `"disabled": true`, so a lane's agent reaches obor's server and the project's, not yours. OpenCode still reads your

@@ -34,7 +34,7 @@ const FlakeKeep = 7 * 24 * time.Hour
 
 // retired is the state dir's entries no current writer has, by name: a task that deletes a writer adds its file here
 // (AGENTS.md), and the sweep removes each.
-var retired = []string{"herdr-instance"}
+var retired = []string{"herdr-instance", "opencode-lane.json"}
 
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
 // the newest backupKeep dates (either format: gzip'd days count together with the older uncompressed ones;
@@ -47,7 +47,7 @@ var retired = []string{"herdr-instance"}
 // backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
 // never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them), kinds/, the
-// generated OpenCode configs (opencode.json, opencode-trimmed.json, opencode-lane.json), last-full-check or
+// generated OpenCode configs (opencode.json, opencode-trimmed.json, opencode-lane-<dir hash>.json), last-full-check or
 // background.jsonl. Every removal is best-effort: a failure is one line naming its path and the sweep goes on (a
 // removal it misses is only disk).
 func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
