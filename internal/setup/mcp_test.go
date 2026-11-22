@@ -12,6 +12,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -370,9 +371,90 @@ func TestSetupMCPChecksAgysProjectFile(t *testing.T) {
 	hasNot(t, out, "WARN mcp agy", "the kit's own obor: no warning")
 	has(t, x.ok(t, "mcp", "--model", "neon"), "mcp model neon (agy): registered by the project's file ("+file+")", "a lane's start")
 	os.Remove(filepath.Join(bin, "obor"))
-	if err := os.WriteFile(filepath.Join(bin, "obor"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	other := filepath.Join(x.Base, "other-kit", "bin")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "obor"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(other, "obor"), filepath.Join(bin, "obor")); err != nil {
 		t.Fatal(err)
 	}
 	out, _ = x.run(t, "mcp")
-	has(t, out, "WARN mcp agy: the obor on PATH ("+filepath.Join(bin, "obor")+") is not this kit's ("+filepath.Join(kit, "bin", "obor")+")", "another obor")
+	has(t, out, "WARN mcp agy: the obor on PATH ("+filepath.Join(bin, "obor")+", kit ", "another obor")
+}
+
+// agy's project files name obor by PATH: `obor setup mcp --model <agy model>` and `obor setup agents`, which writes
+// them, WARN once when PATH's obor is none or another kit's, and say nothing when it is this kit's (its symlinks
+// followed to the shim's plugin root). A fake PATH dir per case.
+// Not parallel: the config load registers its plugin kinds in the process registry.
+func TestSetupAgysProjectFilesWarnOnTheOborOnPATH(t *testing.T) {
+	oborPath := func(t *testing.T, target string) string { // a PATH of one dir whose obor is target
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.Symlink(target, filepath.Join(dir, "obor")); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	for _, c := range []struct {
+		name string
+		path func(t *testing.T, x *fx) (dir, root string) // the PATH dir, and the kit its obor belongs to ("" none)
+	}{
+		{"none on PATH", func(t *testing.T, _ *fx) (string, string) { return t.TempDir(), "" }},
+		{"this kit's", func(t *testing.T, _ *fx) (string, string) {
+			return oborPath(t, filepath.Join(kit, "bin", "obor")), project.Physical(kit)
+		}},
+		{"another kit's", func(t *testing.T, x *fx) (string, string) {
+			root := filepath.Join(x.Base, "other-kit")
+			other := filepath.Join(root, "bin", "obor")
+			if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return oborPath(t, other), root
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			const models = `{"neon": {"kind": "agy", "id": "gemini-4-neon-high"}}`
+			// agy's files, written with this kit's obor on PATH: no warning
+			x := newFx(t, testkit.AddModels(models), testkit.Set("agents.roles.reviewer", "neon"))
+			x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg"), "PATH=" + filepath.Join(kit, "bin")}
+			if out := x.ok(t, "agents"); strings.Contains(out, "WARN") {
+				t.Fatalf("precondition: setup agents with this kit's obor warns nothing:\n%s", out)
+			}
+			dir, root := c.path(t, x) // the PATH the warning is about
+			want := ""
+			switch {
+			case root == "":
+				want = "WARN mcp agy: no obor on PATH: its agents' MCP server and hooks do not start"
+			case root != project.Physical(kit):
+				want = "WARN mcp agy: the obor on PATH (" + filepath.Join(dir, "obor") + ", kit " + root + ") is not this kit (" +
+					project.Physical(kit) + "): agy's hooks and MCP server run it"
+			}
+			x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg"), "PATH=" + dir}
+			out := x.ok(t, "mcp", "--model", "neon")
+			has(t, out, "mcp model neon (agy): registered by the project's file", "the registration")
+			if want == "" {
+				hasNot(t, out, "WARN", "this kit's obor: no warning")
+			} else if count(out, want) != 1 {
+				t.Errorf("want one %q in\n%s", want, out)
+			}
+			// obor setup agents, which writes the files: one WARN, whichever file it writes
+			y := newFx(t, testkit.AddModels(models), testkit.Set("agents.roles.reviewer", "neon"))
+			y.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(y.Base, "xdg"), "PATH=" + dir}
+			out = y.ok(t, "agents")
+			if want == "" {
+				hasNot(t, out, "WARN", "this kit's obor: no warning")
+			} else if count(out, want) != 1 {
+				t.Errorf("setup agents: want one %q in\n%s", want, out)
+			}
+			if !y.Exists(".agents/mcp_config.json") || !y.Exists(".agents/hooks.json") {
+				t.Errorf("the files are written either way:\n%s", out)
+			}
+		})
+	}
 }

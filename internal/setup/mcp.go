@@ -80,20 +80,19 @@ func fixFor(m agents.MCPRegistration) string {
 	return fixHint
 }
 
-// pathWarning: kind name's project file names obor by PATH, so its agents run the obor on the project env's PATH: a
-// WARN when that is none, or not this kit's bin/obor (symlinks followed).
+// pathWarning: kind name's project file names obor by PATH, so its agents run the obor the project env's PATH finds for
+// their MCP server and hooks: a WARN when that is none, or another kit's. The kit is resolved as bin/obor resolves its
+// own: the file's symlinks followed, then the parent of its directory.
 func (s *Setup) pathWarning(name string) {
-	own := filepath.Join(s.Kit, "bin", "obor")
 	found, err := project.LookPath(s.Env.Get("PATH"), "obor")
 	if err != nil {
-		s.say("WARN mcp %s: no obor on PATH: its agents' MCP server (obor mcp) does not start", name)
+		s.say("WARN mcp %s: no obor on PATH: its agents' MCP server and hooks do not start", name)
 		return
 	}
-	a, aerr := filepath.EvalSymlinks(found)
-	b, berr := filepath.EvalSymlinks(own)
-	if aerr != nil || berr != nil || a != b {
-		s.say("WARN mcp %s: the obor on PATH (%s) is not this kit's (%s): its agents run that obor's MCP server", name,
-			found, own)
+	root := filepath.Dir(filepath.Dir(project.Physical(found)))
+	if own := project.Physical(s.Kit); root != own {
+		s.say("WARN mcp %s: the obor on PATH (%s, kit %s) is not this kit (%s): %s's hooks and MCP server run it",
+			name, found, root, own, name)
 	}
 }
 
@@ -271,6 +270,7 @@ func (s *Setup) mcpLane(name string) error {
 		by := "the plugin manifest"
 		if m.Where == agents.Project {
 			by = "the project's file"
+			s.pathWarning(lt.Kind)
 		}
 		switch state, path, err := registration(m); {
 		case err != nil:
