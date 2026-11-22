@@ -954,7 +954,7 @@ stops loading). It holds no obor rules: each hook maps opencode's event to the C
 `obor hook <name>`, so the guard and the session context stay in the Go binary. `tool execute.before` →
 `pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
 → `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
-with `--session <id>`; a resumed start runs it at plugin start, the id read from that `--session`, so the session's
+with `--session <id>`; a resumed start runs it at plugin start, the id read from `OBOR_OPENCODE_RESUME` (the kind's start sets it on a resume and unsets it on a fresh start; the plugin's server process inherits the TUI's env, not its argv), so the session's
 inbox exists before its first turn). Only the agent's own session runs it: the plugin asks `ctx.session.get` once
 per session, and a session with a `parentID` (a subagent's) is a child, never started, recorded or bound. Every event
 carries `agent_kind: "opencode"`. The plugin acts on the hooks' answers (`caps.hook_answers`): `user-prompt-submit` runs in the

@@ -36,6 +36,11 @@ const ModelVar = "OBOR_OPENCODE_MODEL"
 // the session's inbox, and deliver posts there.
 const InboxVar = "OBOR_OPENCODE_INBOX"
 
+// ResumeVar is the variable the start puts the resumed session's id in (unset on a fresh start): OpenCode runs the
+// plugin's hooks in a server process it spawns, whose argv has no --session but whose env is the TUI's, so obor's plugin
+// (opencode/obor.js) reads the id from here and binds that session's inbox at plugin start.
+const ResumeVar = "OBOR_OPENCODE_RESUME"
+
 // ConfigVar is the variable that names a start's generated config: a path, so the typed env line stays short
 // (herdr refuses over-long lines).
 const ConfigVar = "OPENCODE_CONFIG"
@@ -153,7 +158,7 @@ func describe() map[string]any {
 		"caps": map[string]any{"hooks": "plugin", "inbox": true, "hook_answers": true, "resume": true, "model_arg": true,
 			"version_var": "OPENCODE_VERSION"},
 		"efforts": efforts,
-		"vars":    []string{ModelVar, ConfigVar, SkillsVar},
+		"vars":    []string{ModelVar, ConfigVar, SkillsVar, ResumeVar},
 		"env":     []string{"HOME", "XDG_CONFIG_HOME"},
 		"stop":    map[string]any{"quit": "/exit", "second_enter": true, "clear_input": []string{"esc", "ctrl+u"}},
 		"headless": map[string]any{"subcommands": []string{"run"}, "anywhere": []string{"run"},
@@ -186,7 +191,7 @@ var FixedArgs = []string{"--auto", "--standalone"}
 // start: FixedArgs, then the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to
 // obor's plugin) and but a FixedArgs flag they repeat, then --session <id> for a resume and --prompt <prompt> when the
 // start has one (a resume opens the session with its history and runs the prompt as a new turn on top of it). Env:
-// ConfigVar, the path of the start's generated config (ConfigFile, or TrimmedConfigFile on a start that
+// ResumeVar the resumed session's id, else "" (unset, the same way), ConfigVar, the path of the start's generated config (ConfigFile, or TrimmedConfigFile on a start that
 // trims the user's settings; the content Config of the kit, or Overridden with the override file; no kit: none), and
 // ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
@@ -218,7 +223,7 @@ func start(in request) map[string]any {
 	if in.Prompt != "" {
 		args = append(args, "--prompt", in.Prompt)
 	}
-	env := map[string]string{ModelVar: model, SkillsVar: ""}
+	env := map[string]string{ModelVar: model, SkillsVar: "", ResumeVar: in.Resume}
 	if in.TrimUser {
 		env[SkillsVar] = "1"
 	}

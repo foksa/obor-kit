@@ -84,8 +84,8 @@
 //
 // A session is the agent's only when the store names no parent for it (ctx.session.get, asked once per session before
 // the plugin runs session-start, binds an inbox or records it): a subagent's session, whose context hook can run before
-// its session.created event, is never the agent's. A resumed session (the kind's start passes --session <id>, which
-// the plugin reads from process.argv) gets its inbox and session-start at plugin start, before any turn: no event
+// its session.created event, is never the agent's. A resumed session (the kind's start sets OBOR_OPENCODE_RESUME to its
+// id) gets its inbox and session-start at plugin start, before any turn: no event
 // names a session made before setup until its first turn. Every event carries agent_kind "opencode" (the kind's own
 // word, as agy's transport sends it).
 // Loaded per start from the generated config's plugins (opencode loads a package dir from an env config, not a
@@ -177,15 +177,10 @@ export function tokensPath(sid, env = process.env) {
   return path.join(env.HOME, ".obor", "opencode", sid + ".jsonl");
 }
 
-// resumedSession is the session id a start resumes: the value of --session (or --session=<id>) in argv, which the kind's
-// start passes for a resume; "" for a fresh start.
-export function resumedSession(argv = process.argv) {
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--session") return argv[i + 1] ?? "";
-    if (argv[i].startsWith("--session=")) return argv[i].slice("--session=".length);
-  }
-  return "";
-}
+// RESUME_VAR names the session a start resumes (kinds/opencode/kind.ResumeVar): the kind's start sets it on a resume
+// and unsets it on a fresh start. The plugin's hooks run in a server process opencode spawns, whose argv carries no
+// --session but whose env is the TUI's.
+const RESUME_VAR = "OBOR_OPENCODE_RESUME";
 
 // INBOX_VAR names the session's inbox socket in the session-start hook's env (kinds/opencode/kind.InboxVar, the
 // manifest's inbox_record).
@@ -497,7 +492,7 @@ function runHook(kit, name, event, cwd, more) {
 // answer and the start's model (session hook prompt) and the session events (event.subscribe).
 async function setup(ctx) {
   const model = process.env[MODEL_VAR];
-  const resumed = resumedSession(process.argv);
+  const resumed = process.env[RESUME_VAR] ?? "";
   const env = { ...process.env };
   const cwd = ctx.location?.directory || process.cwd();
   if (!inProject(cwd)) return;
@@ -601,7 +596,7 @@ async function setup(ctx) {
     }
   };
 
-  // A resumed session (the start's --session) is bound and started now: no event names it until its first turn, and
+  // A resumed session (the start's OBOR_OPENCODE_RESUME) is bound and started now: no event names it until its first turn, and
   // its lines must reach it before that. It goes through the same check as any session. A failure leaves the first
   // turn's hooks to start it.
   if (resumed) adopt(resumed).then((root) => root && started(resumed)).catch(() => {});

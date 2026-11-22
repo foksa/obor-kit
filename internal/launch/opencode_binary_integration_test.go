@@ -91,10 +91,10 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 		t.Errorf("argv %q, want %q", built.Args, want)
 	}
 	conf := filepath.Join(cfg.StateDir(), kind.TrimmedConfigFile)
-	if len(built.Vars) != 3 || built.Vars[kind.ModelVar] != "go/ds#high" || built.Vars[kind.ConfigVar] != conf ||
-		built.Vars[kind.SkillsVar] != "1" {
-		t.Errorf("env %v, want %s=go/ds#high, %s=%s and a worker's %s=1", built.Vars, kind.ModelVar, kind.ConfigVar, conf,
-			kind.SkillsVar)
+	if r, set := built.Vars[kind.ResumeVar]; len(built.Vars) != 4 || built.Vars[kind.ModelVar] != "go/ds#high" ||
+		built.Vars[kind.ConfigVar] != conf || built.Vars[kind.SkillsVar] != "1" || !set || r != "" {
+		t.Errorf("env %v, want %s=go/ds#high, %s=%s, a worker's %s=1 and %s unset (a fresh start)", built.Vars, kind.ModelVar,
+			kind.ConfigVar, conf, kind.SkillsVar, kind.ResumeVar)
 	}
 	if got, err := os.ReadFile(conf); err != nil || !bytes.Equal(got, kind.Config("/kit")) {
 		t.Errorf("the generated config %q (%v), want the kit's:\n%s", got, err, kind.Config("/kit"))
