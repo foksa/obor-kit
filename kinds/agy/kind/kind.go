@@ -191,8 +191,9 @@ func describe() map[string]any {
 // from the request's HOME), the project's override file and the start. An effort with no model
 // is the start's error: agy's --effort selects a variant of a model named by its base. A check with neither a live nor
 // a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked. In an obor project (root) whose
-// HooksFile does not hold this kit's entry (hooksStale; not for the effort check), an agent's start is refused and a
-// lead's goes on with a reply's warning: obor logs it as `obor: kind agy: start: WARN …`.
+// start dir's HooksFile, the one agy runs (in.Dir's, root's when in.Dir is empty or the root), does not hold this kit's
+// entry (hooksStale; not for the effort check), an agent's start is refused and a lead's goes on with a reply's
+// warning: obor logs it as `obor: kind agy: start: WARN …`.
 func start(in request, read func(string) ([]byte, error), models func() ([]byte, error), store bool) map[string]any {
 	rest, model, argEffort := splitModel(in.Args)
 	effort := in.Effort
@@ -204,7 +205,7 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 	}
 	var warns []string
 	if !in.Check {
-		if why := hooksStale(in.Root, read); why != "" {
+		if why := hooksStale(in, read); why != "" {
 			if !lead(in) {
 				return map[string]any{"error": why}
 			}
@@ -264,44 +265,116 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 // lead: in is a lead's start (trim_user false: docs/agents/kind-protocol.md).
 func lead(in request) bool { return !in.TrimUser }
 
-// hooksStale is why the obor project at root runs agy without this kit's hooks: its HooksFile (the main checkout's: a
-// lane's worktree has the same committed file at its base) has no obor entry, or one that is not HooksEntry (an older
-// obor's: before T-1502 its PreToolUse matched three tools, so run_workflow and unknown tools missed obor). "": the
-// entry is current, or root is no obor project (none named). start refuses an agent's start for it and warns a lead's.
-func hooksStale(root string, read func(string) ([]byte, error)) string {
+// hooksStale is why the agy an obor project (root) starts in in.Dir runs without this kit's hooks: agy runs the hooks
+// file of the workspace it starts in, a linked worktree its own copy (docs/research/agy-probes.md P1), so the file read
+// is in.Dir's HooksFile (root's when in.Dir is empty or the root). It has no obor entry, or one that is not HooksEntry
+// (an older obor's: before T-1502 its PreToolUse matched three tools, so run_workflow and unknown tools missed obor), or
+// it is missing: whether agy falls back to another checkout's file when the workspace has none is not verified (P1
+// probed a worktree with its own copy), so none counts as stale. The fix named is that workspace's: the main
+// checkout's obor setup agents and its commit; a lane's (its branch task/<task>) a rebase onto the integration branch
+// or the task redispatched; a role worktree's (detached) a move to the integration branch's head, then a start again;
+// a worktree's whose root file is stale too, the root's fix first. "": the entry is current, or root is no obor project
+// (none named). start refuses an agent's start for it and warns a lead's.
+func hooksStale(in request, read func(string) ([]byte, error)) string {
+	root := in.Root
 	if root == "" || !InProject(root) {
 		return ""
 	}
-	path := filepath.Join(root, HooksFile)
-	why := ""
-	b, err := read(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		why = "no " + path
-	case err != nil:
-		why = err.Error()
-	default:
-		var doc map[string]json.RawMessage
-		if err := json.Unmarshal(b, &doc); err != nil {
-			why = path + ": does not parse: " + err.Error()
-			break
+	setup := "run obor setup agents in the project, then commit " + HooksFile
+	ws := in.Dir
+	if ws == "" || filepath.Clean(ws) == filepath.Clean(root) {
+		if why := hooksWhy(filepath.Join(root, HooksFile), read); why != "" {
+			return "agy's hooks: " + why + ": " + setup
 		}
-		raw, ok := doc["obor"]
-		if !ok {
-			why = "no obor entry in " + path
-			break
-		}
-		var got, want any
-		w, _ := json.Marshal(HooksEntry())
-		json.Unmarshal(w, &want)
-		if json.Unmarshal(raw, &got) != nil || !reflect.DeepEqual(got, want) {
-			why = path + "'s obor entry is not this kit's (an older obor's hooks: tools they do not match miss obor's guard)"
-		}
+		return ""
 	}
+	path := filepath.Join(ws, HooksFile)
+	why := hooksWhy(path, read)
 	if why == "" {
 		return ""
 	}
-	return "agy's hooks: " + why + ": run obor setup agents in the project, then commit " + HooksFile
+	note := " (agy runs the hooks file of the worktree it starts in, not the main checkout's"
+	if why == "no "+path {
+		note += "; whether it falls back to another checkout's when the worktree has none is not verified " +
+			"(docs/research/agy-probes.md P1), so none counts as stale"
+	}
+	fix := worktreeFix(ws, read)
+	if hooksWhy(filepath.Join(root, HooksFile), read) != "" {
+		fix = setup + ", then " + fix
+	}
+	return "agy's hooks: " + why + note + "): " + fix
+}
+
+// hooksWhy is why the hooks file at path does not hold this kit's obor entry ("": it does).
+func hooksWhy(path string, read func(string) ([]byte, error)) string {
+	b, err := read(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "no " + path
+	case err != nil:
+		return err.Error()
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return path + ": does not parse: " + err.Error()
+	}
+	raw, ok := doc["obor"]
+	if !ok {
+		return "no obor entry in " + path
+	}
+	var got, want any
+	w, _ := json.Marshal(HooksEntry())
+	json.Unmarshal(w, &want)
+	if json.Unmarshal(raw, &got) != nil || !reflect.DeepEqual(got, want) {
+		return path + "'s obor entry is not this kit's (an older obor's hooks: tools they do not match miss obor's guard)"
+	}
+	return ""
+}
+
+// worktreeFix is the fix of the linked worktree ws whose hooks file is stale, by its HEAD (read through its .git
+// file): a lane's branch task/<task> is brought onto the integration branch (merge.target_branch) by a rebase, or the
+// task redispatched (a dispatch prepares the lane at the integration head); a role worktree (detached: the reviewer's,
+// the deep dive's, the integrator's) is moved to its head, which serve does itself only for the deep dive's, at a brief
+// while it is idle or stopped (and the reviewer's at a review's start), never at a restart; any other HEAD, either.
+func worktreeFix(ws string, read func(string) ([]byte, error)) string {
+	const target = "merge.target_branch"
+	lane := "bring the lane's branch onto the integration branch's head: in the lane, git rebase --autostash <" + target +
+		">, or redispatch its task: obor drop <task> \"<why>\" --discard, then obor dispatch <task>"
+	role := "move the role worktree to the integration branch's head: git -C " + ws + " checkout --detach <" + target +
+		"> (serve moves only the deep dive's itself, at a brief while it is idle or stopped: obor brief <agent> --fresh " +
+		"\"<text>\"; obor restart moves none), then start the agent again: obor restart <agent> --fresh"
+	head := worktreeHead(ws, read)
+	switch {
+	case strings.HasPrefix(head, "ref: refs/heads/task/"):
+		task := strings.TrimPrefix(head, "ref: refs/heads/task/")
+		return "bring the lane's branch task/" + task + " onto the integration branch's head: in " + ws +
+			", git rebase --autostash <" + target + ">, or redispatch the task: obor drop " + task +
+			" \"<why>\" --discard, then obor dispatch " + task
+	case head != "" && !strings.HasPrefix(head, "ref:"):
+		return role
+	}
+	return "this worktree is behind the integration branch: a lane's, " + lane + "; a role's, " + role
+}
+
+// worktreeHead is the HEAD of the linked worktree ws, trimmed ("": ws holds no .git file naming a readable one).
+func worktreeHead(ws string, read func(string) ([]byte, error)) string {
+	b, err := read(filepath.Join(ws, ".git"))
+	if err != nil {
+		return ""
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
+	if !ok {
+		return ""
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(ws, gitdir)
+	}
+	head, err := read(filepath.Join(gitdir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(head))
 }
 
 // Base is slug without its effort word ("gemini-3.8-flash-low" → "gemini-3.8-flash"); a slug that ends in none is its
