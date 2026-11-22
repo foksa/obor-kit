@@ -206,8 +206,9 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 			return map[string]any{"error": OverrideFile + ": does not parse: " + err.Error()}
 		}
 	}
-	name := SettingsFile(!in.TrimUser, in.Dir)
-	settings := Settings(UserSettings(in.Env, read), over, in.Dir, in.Root)
+	lead := !in.TrimUser
+	name := SettingsFile(lead, in.Dir)
+	settings := Settings(UserSettings(in.Env, read), over, lead, in.Dir, in.Root)
 	b, _ := json.MarshalIndent(settings, "", "  ")
 	args := append([]string{"--settings", "{file:" + name + "}"}, rest...)
 	switch {
