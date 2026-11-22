@@ -1,4 +1,4 @@
-# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460)
+# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468)
 
 `docs/research/agent-kinds-advice.md` §1.1 lists nine questions (P1 to P9) the agy kind's design rests on, all
 answered from documents so far. This run started agy live and records what it did, with the command or screen that
@@ -49,6 +49,7 @@ Summary:
 | P8 | `/exit` quits on one Enter (the popup's) and prints the resume command; Ctrl+D twice and Ctrl+C twice quit; Ctrl+U and Esc Esc clear the input. No dialog with background tasks running; they are stopped. Untrusted folder: "Do you trust the contents of this project?", default "Yes, I trust this folder". Self-update check at most every 15 min at start. A linked worktree is in `default-cli-project`, as the main checkout. | stop, not-ready, trust |
 | P9 | Auto mode (also the default here) runs commands in a sandbox: `go build`, `go test` and git reads pass; network and unix sockets are refused; writes outside the workspace, temp dirs and caches are refused. A PreToolUse deny is final. MCP calls prompt unless a `permissions.allow` rule names them. | D1: `--mode auto` works for a lane except anything that talks to a socket or the network |
 | P10 | A `command(<prefix>)` allow rule in the `--settings` file does not take a command out of the sandbox: `obor status` (allowed by `command(obor)`) reached no unix socket, a test allowed by `command(go test)` got `connect: operation not permitted`. A `read_url(proxy.golang.org)` rule opened the network: a module download passed, and so did `curl` to example.com, which no rule names; without the rules both failed. Nothing asked. | an agy lane in auto mode cannot dial serve or run socket tests; `toolPermission: "always-proceed"` (with obor's hooks) is the way for obor-kit's lanes |
+| P11 | `enableTerminalSandbox: false` does not take auto mode out of the sandbox (the same refusals; `/config` shows it as "Sandbox Mode", `off` with or without the key). `sandboxMode` is no CLI setting: `--settings` with it (or any unknown key) fails the start. Auto mode is already Claude-like: after a sandbox refusal the model re-ran the command with `BypassSandbox: true` on its own and the reviewer approved the unix socket, the socket test, the module download and the write outside the workspace with no prompt (5 to 12 s each); `rm -rf` of a dir outside the workspace with `BypassSandbox` asked, with the reviewer's reason. | D1: no `enableTerminalSandbox` key; plain auto mode (no `toolPermission`) passes a lane's socket and network commands through the reviewer, and works before obor's hooks; P10's "cannot dial serve" was the first, sandboxed attempt only |
 
 ## P1: workspace config, plugins.json, worktrees, skills
 
@@ -497,6 +498,126 @@ Decides (D1): obor-kit's own lanes, whose worker doc runs `go test -tags integra
 commands dial serve). A project whose lanes need only the network can allow a `read_url` rule, knowing it opens more
 than the named host.
 
+## P11: auto mode without the terminal sandbox (Claude-like auto)
+
+Question (owner 11-22): can agy's auto mode run like Claude's, an approving reviewer and no OS sandbox in the way?
+The binary has the settings keys `enableTerminalSandbox` and `sandboxMode`; the changelog describes auto mode's review
+of "commands that would leave the terminal sandbox" (the model re-runs a command with `BypassSandbox`, a separate agent
+reviews it, then runs it or asks). P11a: does `enableTerminalSandbox: false` lift the sandbox in auto mode, and what
+does the reviewer do with a socket, a socket test, a download, a write outside the workspace and a destructive
+command. P11b: with P10's setup, is a `BypassSandbox` re-run of a refused socket command approved with no prompt.
+P11c: what `sandboxMode` accepts.
+
+Ran (2026-11-22, agy 1.5.14, herdr 0.9.5, `gemini-3.8-flash-low` for the turns): T-1458's method, a throwaway herdr
+session `probe-p11` (headless server under `env -i`, one workspace, one pane), a scratch git repository outside `$HOME`
+(`<kit>/repo`: `go.mod`, `main.go` and P10's `sockprobe` test, which listens on a unix socket in its temp dir and dials
+it), and a scratch target under `$HOME`, `~/obor-agy-probe-T1468/victim` (three files and a subdir): outside the
+workspace, temp dirs and caches, so the sandbox refuses writes there (P9). agy started interactively in the pane with
+`--settings <file>` only (`p11-start.sh`), one command per turn (`p11-turn.sh`): the prompt asked for the command
+"as one tool call, unchanged" and its exit code, and said nothing about the sandbox unless noted. Permission prompts
+were left unanswered and read from the screen. Results from the conversation's transcript, the screen (Ctrl+O
+expanded) and `cli.log`; `/config` was opened to read the settings agy resolved and closed with Esc. Footprint: the
+saved `settings.json`, `config/config.json`, `config/hooks.json` and `config/mcp_config.json` had the same checksums
+after the run; agy's run-time data grew (conversations under `brain/`, `cli.log`); the session was stopped by its pid
+and deleted, the scratch repository and `~/obor-agy-probe-T1468` removed, no probe process left.
+
+| Settings file (besides `trustedWorkspaces: [<kit>/repo]`) | Run |
+|---|---|
+| `"agentMode": "auto", "enableTerminalSandbox": false` | P11a |
+| `"agentMode": "auto"` (P10's setup: no sandbox key) | P11b |
+| `"agentMode": "auto"` plus `"sandboxMode": false`, `"off"`, `true`; `"bogusProbeKey": 1` | P11c |
+| `"agentMode": "auto", "enableTerminalSandbox": true`; `"enableTerminalSandbox": false` with `--mode auto` | P11c |
+
+Saw, P11a (sandbox key off; each row one turn, the attempts in the order the model made them):
+
+| Command | Sandboxed attempt | `BypassSandbox: true` attempt (the model's own retry) | Asked |
+|---|---|---|---|
+| `herdr --session probe-p11 pane list` | exit 1, `Error: Os { code: 1, kind: PermissionDenied, … }` and agy's sandbox note | exit 0, the pane list; 5 s | no |
+| `go test -count=1 ./sockprobe/` | exit 1, `dial unix /tmp/TestUnixSocket…/001/s.sock: connect: operation not permitted` | exit 0, `ok probe/sockprobe 0.092s`; 9 s | no |
+| `GOMODCACHE=$PWD/.modcache … go mod download golang.org/x/text@v0.3.0` | exit 1, `lookup proxy.golang.org: no such host` | exit 0; 5 s | no |
+| `echo outside > ~/obor-agy-probe-T1468/written.txt && cat …` | exit 1, `zsh:1: operation not permitted: …` | exit 0, `outside` (the file was there); 9 s | no |
+| `rm -rf ~/obor-agy-probe-T1468/victim && echo RM-DONE` | exit 0, `RM-DONE`, no sandbox note; **nothing was removed**; the model did not retry | (asked for in the next prompt, below) | yes |
+
+- The time is the bypass step's `Created At` to `Completed At`, review and run together; the sandboxed attempt of the
+  same command took 1 to 3 s. A whole turn took 18 to 21 s.
+- The sandboxed refusals are P9's and P10's, and every failing one carried agy's note `There were sandbox
+  errors that may or may not be related to the failure. If you think the failure is because of running in the
+  sandbox, you can run the command again with BypassSandbox set to true to request explicit user permission.` That note
+  is what made the model retry: the prompt never mentioned the sandbox. The retry kept `CommandLine` and `toolSummary`
+  and added `"BypassSandbox": true`.
+- The approved bypasses left no trace of the review: the screen said `Ran 2 commands (herdr --session probe-p11 pane
+  list ×2)`, the transcript holds the two `run_command` calls and their results, `cli.log` has no `[PolicyGuardian]`
+  line at its default level (only `[Sonar] Resolved active tags: [jetski_mode_auto policy_guardian …]` at each prompt
+  and `[trusted-cli-escape] no escapable binaries; escape wiring skipped` before the first command). That a reviewer
+  ran is shown by the asked case and the 5 to 12 s each bypass took.
+- The sandboxed `rm -rf` "succeeded" because the sandbox also hides the dir: a later sandboxed `rm -v
+  …/victim/f1.txt; rm -rf …/victim/sub; ls …/victim` gave `rm: …/f1.txt: Operation not permitted`, `rc=1`, then
+  `rcrf=0` (`-f` swallows it) and `ls: …/victim: Operation not permitted`. A sandboxed command that exits 0 gets no
+  note.
+- The destructive command with `BypassSandbox` (prompt: "The directory still exists: the sandbox did not remove it. Run
+  the same command again, unchanged, as one tool call with BypassSandbox set to true."): the reviewer asked, within 7 s
+  of the call:
+
+```
+Reason: The command recursively deletes `/Users/…/obor-agy-probe-T1468/victim`, a pre-existing
+directory outside the workspace and temp directories, destroying its files irreversibly.
+Requesting permission for:
+   rm -rf /Users/…/obor-agy-probe-T1468/victim && echo RM-DONE
+Run this command?
+> 1. Yes, run command
+  2. Yes, and always allow in this conversation for commands that start with 'rm -rf /Users/…/victim'
+  3. Yes, and always allow for commands that start with 'rm -rf /Users/…/victim' (Persist to settings.json)
+  4. No, cancel
+```
+
+  herdr reported the pane `blocked`. "4. No, cancel" failed the step (`permission check failed for unsandboxed "rm -rf
+  …": user denied permission to run command … Do not attempt to circumvent this denial …`) and ended the turn
+  (`Interrupted · What should Antigravity CLI do instead?`). The dir was untouched.
+- `/config` with this file: `Agent Mode auto`, `Sandbox Mode off` (help: `Enables terminal sandbox restrictions.`),
+  `Tool Permission request-review`. `cli.log`: `CLI settings initialized: permissions=<nil>,
+  toolPermission=request-review`.
+
+Saw, P11b (P10's setup, no sandbox key): `/config` showed `Sandbox Mode off` here too: off is the default, and the
+key's value is not what auto mode's sandbox follows. The prompt asked for `herdr --session probe-p11 pane list`
+without `BypassSandbox`, then, if the sandbox refused it, again with it: exit 1 with the sandbox note, then exit 0 with
+the pane list after 9 s, no prompt. The same as P11a.
+
+Saw, P11c:
+
+- `"sandboxMode": false`, `"sandboxMode": "off"`, `"sandboxMode": true`: agy did not start; the pane showed `Error:
+  --settings: unknown setting "sandboxMode"` and the shell prompt. `"bogusProbeKey": 1` gave the same error. In the
+  binary `sandboxMode` is a field of the Antigravity app's project settings (`ProjectSettings.sandbox_mode`, "Sandbox
+  Mode: Enable or disable terminal sandboxing per project") and of a test fixture, not of the CLI's settings file.
+- `"enableTerminalSandbox": true`: `/config` showed `Sandbox Mode on`, so the key is read from `--settings`. The pane
+  list turn was the same: refused, `BypassSandbox` retry, exit 0 after 6 s, no prompt.
+- `"enableTerminalSandbox": false` with `--mode auto` instead of `agentMode`: the same (bypass 12 s, no prompt).
+- One more turn in that conversation, a command that hides its failure as `obor status` does in P10: `herdr --session
+  probe-p11 pane list >/dev/null 2>&1 && echo 'serve: up' || echo 'serve: down'`. Sandboxed: exit 0, `serve: down`,
+  no note. The model still re-ran it with `BypassSandbox` (`serve: up`, 5 s, no prompt), but that conversation had
+  already seen a refusal of the same `herdr` call, so this does not show what a fresh conversation does.
+
+Decides (D1):
+
+- `enableTerminalSandbox: false` is not the switch: in auto mode every command runs in the sandbox first whatever the
+  key says, and the key's default is already off. `sandboxMode` cannot be set from the CLI. So obor's settings file for
+  a lead or a lane writes neither key. And since `--settings` with a key agy does not know fails the start, the kind
+  (T-1463) writes only keys of the agy version it runs; a key added for a newer agy would stop every start on an older
+  one.
+- Auto mode as it is (P10's setup, no `toolPermission`) is the Claude-like mode: sandbox first, then on a refusal the
+  model asks to leave it and the reviewer lets through what it judges safe (dialling a unix socket, a socket test, a
+  module download, a write outside the workspace under `$HOME`) with no prompt, and asks before a destructive command
+  outside the workspace. P10's "an agy lane in auto mode cannot dial serve or run socket tests" holds for the first,
+  sandboxed attempt only: P10's prompt said "Do not retry or change them", which kept the model from the bypass.
+- It works before obor's hooks (T-1463): the reviewer is agy's own gate, so this mode does not lean on obor's
+  PreToolUse to stop a bad command, as `toolPermission: "always-proceed"` (no review at all) would.
+- What it costs and where it can break, for the choice between the two: every command that needs the outside runs
+  twice, plus 5 to 12 s of review each (an obor-kit lane's `go test -tags integration` and every `obor` call that
+  dials serve); the retry depends on the model reading agy's note, and a command that exits 0 after a refused socket
+  (P10's `obor status` printing `serve: down`) gets no note; the reviewer is a model's judgement, so a command it finds
+  risky stops the lane on a permission prompt (herdr `blocked`, a needs-you) until someone answers; the sandboxed first
+  attempt can "succeed" without doing anything (`rm -rf`) when the sandbox hides its target. `always-proceed` has none
+  of the double runs or prompts and no gate but obor's hooks.
+
 ## Not verified
 
 - A Stop with `ERROR` and its `error` text, and what a usage limit looks like (nothing here forces them).
@@ -506,6 +627,10 @@ than the named host.
   in-repo plugin's skill showed no prefix.
 - `-c` / `--continue`, `--sandbox` (as opposed to auto mode's own sandbox), `--dangerously-skip-permissions`.
 - A self-update at start (none was due).
+- P11: which model the reviewer runs and how long it may take before it gives up (the changelog names a Gemini Flash
+  model and a time limit); whether a PreToolUse hook sees the `BypassSandbox` retry as a second `run_command` (it should:
+  `BypassSandbox` is in its `args`); what "Yes, and always allow in this conversation" does to later reviews; whether
+  a fresh conversation retries a command that exits 0 after a refused socket; `toolPermission: "proceed-in-sandbox"`.
 
 ## Appendix: the probe scripts
 
@@ -977,3 +1102,132 @@ Run each of these shell commands as its own separate tool call, one after anothe
 
 `p9prompt2.txt` to `p9prompt4.txt` are one- and two-command variants of the same text (`touch OUTSIDE_TOUCH_TARGET`,
 `cat OUTSIDE_READ_TARGET`, and a bare `OUTSIDE_TOUCH_TARGET` that `p9.sh` fills with a whole command line).
+
+### P11: `p11-start.sh`, `p11-turn.sh`, `p11c.sh`, `tx.py`
+
+P11 used its own small fixture: a scratch repository at `<kit>/repo` with `go.mod` (`module probe`), an empty
+`main.go` and `sockprobe/sock_test.go` (listen on `t.TempDir()/s.sock`, accept in a goroutine, dial, read two
+bytes), committed; `~/obor-agy-probe-T1468/victim` with `f1.txt` to `f3.txt` and `sub/deep.txt`; the settings files
+of the P11 table. The session is started as in the other probes (`herdr --session probe-p11 server` under `env -i`,
+`workspace create --cwd <kit>/repo`), its pane `w1:p1`. `tx.py` prints the newest conversation's transcript steps.
+
+`p11-start.sh`
+
+```sh
+#!/bin/sh
+# Starts agy in the pane with a --settings file; exits a running agy first. Prints the screen and cli.log's settings
+# lines (agy rewrites cli.log at every start).
+#   p11-start.sh <settings-file> [agy args...]
+S=probe-p11
+P=w1:p1
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+SET=$1; shift
+if herdr --session "$S" pane get "$P" 2>/dev/null | grep -q '"agent":"agy"'; then
+  herdr --session "$S" pane send-text "$P" "/exit" >/dev/null; sleep 0.5
+  herdr --session "$S" pane send-keys "$P" enter >/dev/null
+  herdr --session "$S" pane wait-output "$P" --match "Resume with" --timeout 10000 >/dev/null 2>&1
+fi
+herdr --session "$S" pane run "$P" "clear; cd $KIT/repo && agy --model gemini-3.8-flash-low --settings $SET $*" >/dev/null
+herdr --session "$S" pane wait-output "$P" --match "for shortcuts" --timeout 40000 >/dev/null 2>&1
+sleep 3
+herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | tail -12
+echo "--- cli.log (this start)"
+grep -i -E "settings|sandbox|mode|permission|warn|unknown" "$HOME/.gemini/antigravity-cli/cli.log" | cut -c1-260 | head -30
+```
+
+`p11-turn.sh`
+
+```sh
+#!/bin/sh
+# One P11 turn: send a prompt, record every permission prompt (screen), leave it unanswered unless ANSWER=enter
+# (approves the highlighted option once), print the screen, the timing and cli.log's PolicyGuardian / sandbox
+# lines since the turn started.
+#   p11-turn.sh <prompt> [timeout-ms]
+S=probe-p11
+P=w1:p1
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+L=$HOME/.gemini/antigravity-cli/cli.log
+mark=$(wc -l < "$L" | tr -d ' ')
+t0=$(date +%s)
+echo "=== $(date +%T) prompt: $1"
+herdr --session "$S" agent prompt "$P" "$1" >/dev/null 2>&1
+sleep 4
+n=0
+while [ $n -lt 8 ]; do
+  out=$(herdr --session "$S" agent wait "$P" --timeout "${2:-240000}" 2>&1)
+  st=$(printf '%s' "$out" | grep -o '"agent_status":"[a-z]*"' | head -1)
+  if [ "$st" = '"agent_status":"blocked"' ]; then
+    n=$((n + 1))
+    echo "--- $(date +%T) (+$(( $(date +%s) - t0 ))s) BLOCKED $n: screen"
+    herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | tail -22
+    case "${ANSWER:-}" in
+      enter) herdr --session "$S" pane send-keys "$P" enter >/dev/null; echo "(answered: enter)"; sleep 3 ;;
+      *) echo "(left unanswered)"; break ;;
+    esac
+  else
+    break
+  fi
+done
+echo "--- $(date +%T) (+$(( $(date +%s) - t0 ))s) settled: $st"
+herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | tail -"${LINES_TAIL:-30}"
+echo "--- cli.log since the prompt (guardian / sandbox / review)"
+tail -n +"$((mark + 1))" "$L" | grep -i -E "guardian|sandbox|review|bypass|permission|judge" | cut -c1-300 | head -60
+```
+
+`p11c.sh` (starts each file with `p11-start.sh`)
+
+```sh
+#!/bin/sh
+# P11c: start agy with each extra settings fragment (merged into set-b's keys), print the start screen's warnings,
+# cli.log's settings/sandbox lines and /config's Agent Mode / Sandbox Mode / Tool Permission rows, then quit.
+#   p11c.sh '<json fragment without braces>'...
+S=probe-p11
+P=w1:p1
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+for frag in "$@"; do
+  f=$KIT/set-c.json
+  printf '{"trustedWorkspaces": ["%s"], "agentMode": "auto", %s}\n' "$KIT/repo" "$frag" > "$f"
+  echo "=== settings: $(cat "$f" | sed "s#$KIT#<kit>#")"
+  sh "$KIT/bin/p11-start.sh" "$f" > "$KIT/log/p11c-start.txt" 2>&1
+  herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | grep -i -E "warn|error|invalid|unknown|setting|sandbox" | head -5 | sed 's/^/screen: /'
+  grep -i -E "unknown setting|invalid|CLI settings initialized|sandbox|settings" "$HOME/.gemini/antigravity-cli/cli.log" | grep -v -E "http_helpers|Sonar" | cut -c1-230 | sed 's/^/log: /' | head -8
+  herdr --session "$S" pane send-text "$P" "/config" >/dev/null; sleep 0.7
+  herdr --session "$S" pane send-keys "$P" enter >/dev/null; sleep 2
+  herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -E "Agent Mode|Sandbox Mode|Tool Permission" | sed 's/^[> ]*/config: /'
+  herdr --session "$S" pane send-keys "$P" esc >/dev/null; sleep 0.4
+  herdr --session "$S" pane send-keys "$P" esc >/dev/null; sleep 0.6
+done
+```
+
+`tx.py`
+
+```python
+#!/usr/bin/env python3
+"""Prints the newest agy conversation's transcript steps (or the one named), trimmed.
+usage: tx.py [conversationId] [from-step]
+"""
+import glob
+import json
+import os
+import sys
+
+brain = os.path.expanduser("~/.gemini/antigravity-cli/brain")
+if len(sys.argv) > 1 and sys.argv[1] != "-":
+    cid = sys.argv[1]
+else:
+    paths = glob.glob(os.path.join(brain, "*", ".system_generated", "logs", "transcript_full.jsonl"))
+    cid = max(paths, key=os.path.getmtime).split(os.sep)[-4]
+start = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+t = os.path.join(brain, cid, ".system_generated", "logs", "transcript_full.jsonl")
+print("conversation", cid)
+for line in open(t):
+    d = json.loads(line)
+    if d.get("step_index", 0) < start:
+        continue
+    body = d.get("content") or d.get("tool_calls") or d.get("error") or ""
+    s = json.dumps(body) if not isinstance(body, str) else body
+    extra = {k: d[k] for k in d if k not in ("step_index", "created_at", "source", "type", "status", "content", "tool_calls", "error")}
+    print(d.get("step_index"), d.get("created_at"), d.get("source"), d.get("type"), d.get("status"), s[:900].replace("\n", " | "))
+    if extra and d.get("type") not in ("PLANNER_RESPONSE",):
+        print("     extra:", json.dumps(extra)[:600])
+```
