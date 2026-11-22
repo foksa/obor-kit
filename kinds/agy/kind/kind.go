@@ -43,8 +43,9 @@ const Name = "agy"
 var efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // MCPFile is the project file that registers obor's MCP server for every agy session started in the project (or a
-// worktree of it), relative to its root: agy's workspace MCP config, loaded with no prompt in a trusted folder.
-const MCPFile = ".agents/mcp_config.json"
+// worktree of it), relative to its root: agy's workspace MCP config, loaded with no prompt in a trusted folder
+// (agents.ProjectMCPFile).
+const MCPFile = agents.ProjectMCPFile
 
 // MCPEntry is obor's entry in MCPFile, under mcpServers.obor: the `obor` on the agent's PATH (the server inherits the
 // agent's environment, its role, lane and pane with it).

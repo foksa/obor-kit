@@ -397,6 +397,11 @@ type Headless struct {
 // hook transport runs obor hook on.
 const ExeVar = "OBOR_EXE"
 
+// ProjectMCPFile is the project file where a kind registers MCP servers beside the project's own (Install's Where
+// Project, git-committed, under the project's root): agy's workspace MCP config, obor's server among its mcpServers.
+// A lane-bound role calls only the servers it declares.
+const ProjectMCPFile = ".agents/mcp_config.json"
+
 // Install is how obor's MCP server, and a plugin kind's hooks, reach a kind.
 type Install struct {
 	MCP MCPRegistration

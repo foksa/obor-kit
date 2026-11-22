@@ -102,6 +102,14 @@ func TestHookMapping(t *testing.T) {
 			"", "", 0,
 			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": "/p/wt/L-01/a.go"}}),
 			map[string]any{"decision": "ask"}},
+		{"an MCP tool call, allowed", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "call_mcp_tool", "args": {"Arguments": {"text": "hi"}, "ServerName": "obor", "ToolName": "job_next"}}}`,
+			"", "", 0,
+			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "mcp", "tool_input": map[string]any{"mcp_server": "obor"}}),
+			map[string]any{"decision": "ask"}},
+		{"a resource listing, denied", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "list_resources", "args": {"ServerName": "probe-b"}}}`,
+			"", "obor: MCP server probe-b — obor lanes use the project's MCP servers only (.agents/mcp_config.json; owner 11-22)\n", 2,
+			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "mcp", "tool_input": map[string]any{"mcp_server": "probe-b"}}),
+			map[string]any{"decision": "deny", "reason": "obor: MCP server probe-b — obor lanes use the project's MCP servers only (.agents/mcp_config.json; owner 11-22)"}},
 		{"an edit, relative path", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "edit_file", "args": {"Path": "docs/design.md", "Target": "a", "Replacement": "b"}}}`,
 			"", "obor: docs/design.md is protected\n", 2,
 			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Edit", "tool_input": map[string]any{"file_path": "/p/wt/L-01/docs/design.md"}}),
@@ -292,9 +300,9 @@ func TestCommittedHooksFile(t *testing.T) {
 }
 
 // Every PreToolUse in a project goes by the transport's table, with obor hook answering deny (exit 2) to whatever it
-// is asked: run_command, write_file and edit_file run it (its deny comes back); the tools that only read, talk or
-// start a hooked child are no opinion (ask), obor not run; run_workflow and swarm are denied as a workflow script, a
-// tool the table does not know (or no name) denied naming it, obor not run either.
+// is asked: run_command, write_file, edit_file and the three MCP tools run it (its deny comes back); the tools that
+// only read, talk or start a hooked child are no opinion (ask), obor not run; run_workflow and swarm are denied as a
+// workflow script, a tool the table does not know (or no name) denied naming it, obor not run either.
 func TestHookToolTable(t *testing.T) {
 	const workflow = "obor cannot guard a workflow script; run commands with run_command"
 	unknown := func(name string) map[string]any {
@@ -309,10 +317,10 @@ func TestHookToolTable(t *testing.T) {
 		want map[string]any
 	}{
 		{"run_command", 1, guarded}, {"write_file", 1, guarded}, {"edit_file", 1, guarded},
-		{"read_file", 0, ask}, {"search_web", 0, ask}, {"list_resources", 0, ask}, {"read_resource", 0, ask},
+		{"call_mcp_tool", 1, guarded}, {"list_resources", 1, guarded}, {"read_resource", 1, guarded},
+		{"read_file", 0, ask}, {"search_web", 0, ask},
 		{"ask_question", 0, ask}, {"manage_task", 0, ask}, {"manage_subagents", 0, ask}, {"define_subagent", 0, ask},
 		{"invoke_subagent", 0, ask}, {"schedule", 0, ask}, {"send_message", 0, ask}, {"finish", 0, ask},
-		{"call_mcp_tool", 0, ask},
 		{"run_workflow", 0, map[string]any{"decision": "deny", "reason": workflow}},
 		{"swarm", 0, map[string]any{"decision": "deny", "reason": workflow}},
 		{"browser_click", 0, unknown("browser_click")},
@@ -321,7 +329,7 @@ func TestHookToolTable(t *testing.T) {
 	} {
 		var runs []ran
 		in := `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": ` + mustJSON(c.tool) +
-			`, "args": {"CommandLine": "ls", "Path": "/p/wt/L-01/a", "Script": "import os"}}}`
+			`, "args": {"CommandLine": "ls", "Path": "/p/wt/L-01/a", "Script": "import os", "ServerName": "probe-a"}}}`
 		got, _ := hook(t, in, fake(&runs, "", "obor: denied by the guard\n", 2, nil))
 		if len(runs) != c.runs || (c.runs == 1 && runs[0].name != "pre-tool-use") {
 			t.Errorf("%q: obor hook ran %+v, want %d run(s) of pre-tool-use", c.tool, runs, c.runs)

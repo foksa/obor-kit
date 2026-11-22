@@ -28,6 +28,8 @@ import (
 //	                                     args.IsDaemon → run_in_background)
 //	PreToolUse write_file / edit_file  → pre-tool-use, Write / Edit (args.Path → file_path)
 //	                                     a deny → {"decision":"deny","reason":…}; an allow → {"decision":"ask"}
+//	PreToolUse call_mcp_tool / list_resources / read_resource
+//	                                   → pre-tool-use, mcp (args.ServerName → mcp_server)
 //	PreToolUse, any other tool         → tools' row: no opinion ({"decision":"ask"}) or a deny with its reason; a tool
 //	                                     with no row is a deny naming it
 //	PreInvocation, invocationNum 0     → user-prompt-submit (lastUserInput → prompt); its context → injectSteps
@@ -80,16 +82,18 @@ const (
 )
 
 // tools is the transport's table of agy's tools (agy 1.5.14 offers the 17 of docs/research/agy-probes.md P13, and a
-// workflow agent finish): the three obor's guard checks; those that only read, talk or start a child whose own tool
-// calls fire these hooks again (a subagent, a workflow agent(), a timer's prompt), no opinion; a workflow script
-// (run_workflow, swarm), whose Python runs with no hook at all, denied. A tool not here is denied by name, so an agy
-// update that adds one shows as a named deny, never a silent bypass.
+// workflow agent finish): the ones obor's guard checks (a command, a write, an MCP call) go to the guard; the ones that
+// only read, talk or start a child whose own tool calls fire these hooks again (a subagent, a workflow agent(), a
+// timer's prompt) are no opinion; a workflow script (run_workflow, swarm), whose Python runs with no hook at all, is
+// denied. A tool not here is denied by name, so an agy update that adds one shows as a named deny, never a silent
+// bypass.
 var tools = map[string]toolRule{
 	"run_command": guardTool, "write_file": guardTool, "edit_file": guardTool,
-	"read_file": passTool, "search_web": passTool, "list_resources": passTool, "read_resource": passTool,
+	"call_mcp_tool": guardTool, "list_resources": guardTool, "read_resource": guardTool,
+	"read_file": passTool, "search_web": passTool,
 	"ask_question": passTool, "manage_task": passTool, "manage_subagents": passTool, "define_subagent": passTool,
 	"invoke_subagent": passTool, "schedule": passTool, "send_message": passTool, "finish": passTool,
-	"call_mcp_tool": passTool, "run_workflow": denyTool, "swarm": denyTool,
+	"run_workflow": denyTool, "swarm": denyTool,
 }
 
 // workflowDenied is the reason a denyTool row gives.
@@ -132,6 +136,7 @@ type agyEvent struct {
 			Cwd         string `json:"Cwd"`
 			IsDaemon    bool   `json:"IsDaemon"`
 			Path        string `json:"Path"`
+			ServerName  string `json:"ServerName"`
 		} `json:"args"`
 	} `json:"toolCall"`
 	ExecutionNum      int    `json:"executionNum"`
@@ -218,6 +223,9 @@ func toClaude(ev agyEvent) (name string, claude map[string]any) {
 			}
 			claude["tool_name"] = map[string]string{"write_file": "Write", "edit_file": "Edit"}[tool]
 			claude["tool_input"] = map[string]any{"file_path": file}
+		case "call_mcp_tool", "list_resources", "read_resource":
+			claude["tool_name"] = "mcp"
+			claude["tool_input"] = map[string]any{"mcp_server": args.ServerName}
 		default:
 			return "", nil
 		}
