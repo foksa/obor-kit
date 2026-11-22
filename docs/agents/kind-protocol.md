@@ -192,7 +192,12 @@ Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unrea
   guard the call); every other hook nothing (no context, no block). Outside an obor project a transport runs no hook
   and answers nothing (a tool call: the fall-through).
 - **`session-start` runs once per conversation the CLI starts**, again after a clear (a new conversation), and not
-  for a resume: the session record comes from it, and a resumed conversation already has its context.
+  for a resume: the session record comes from it, and a resumed conversation already has its context. A transport
+  whose inbox lives in its own process runs it at a resumed session's start too (OpenCode's plugin, which reads the
+  session id from the `--session` the kind's start passes): the session's inbox exists from that start, not from its
+  first turn. It runs it only for the agent's own session: a transport that can see child sessions (a subagent's)
+  asks its CLI for the session's parent first, and a child never runs `session-start`, is never recorded and never
+  gets an inbox. Its events name the kind in `agent_kind`.
 
 | `obor hook` | The event fields it reads | The answer |
 |---|---|---|

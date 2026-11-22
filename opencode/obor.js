@@ -78,7 +78,16 @@
 // hooks; no rule picks another one.
 //
 // Outside an obor project (no .obor/config.json above the directory) every hook is a no-op. bin/obor missing, failing
-// or slower than 5 s: allow, except the guard, which then denies (bin/obor's own no-binary rule already fails closed).
+// or slower than 5 s: the hook gives no answer (no context, no block), except the guard, which allows a call only on
+// exit 0 and denies on every other outcome (exit 2 with obor's reason; any other exit, a kill by a signal, a timeout
+// or a missing binary with a repair hint), as the Hook transport contract says (docs/agents/kind-protocol.md).
+//
+// A session is the agent's only when the store names no parent for it (ctx.session.get, asked once per session before
+// the plugin runs session-start, binds an inbox or records it): a subagent's session, whose context hook can run before
+// its session.created event, is never the agent's. A resumed session (the kind's start passes --session <id>, which
+// the plugin reads from process.argv) gets its inbox and session-start at plugin start, before any turn: no event
+// names a session made before setup until its first turn. Every event carries agent_kind "opencode" (the kind's own
+// word, as agy's transport sends it).
 // Loaded per start from the generated config's plugins (opencode loads a package dir from an env config, not a
 // plain .js file, so package.json beside this file names it); plain JS, node built-ins only.
 
@@ -89,6 +98,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TIMEOUT_MS = 5000;
+// AGENT_KIND is this kind's name in every event's agent_kind (kinds/opencode/kind.Name).
+const AGENT_KIND = "opencode";
 // The tools hooks/hooks.json's PreToolUse matcher sends to the guard (Read, Glob, … map but are not run).
 const GUARDED = new Set(["Bash", "Edit", "Write"]);
 
@@ -129,7 +140,7 @@ export function patchPaths(text) {
 // no Claude twin. opencode 1.x names the shell tool bash and takes filePath; 2.x names it shell and takes path.
 export function toClaudeEvents(tool, args, cwd, sessionID) {
   args = args ?? {};
-  const ev = (name, input) => ({ hook_event_name: "PreToolUse", session_id: sessionID ?? "", cwd, tool_name: name, tool_input: input });
+  const ev = (name, input) => ({ hook_event_name: "PreToolUse", session_id: sessionID ?? "", cwd, agent_kind: AGENT_KIND, tool_name: name, tool_input: input });
   const file = (p) => (p ? path.resolve(cwd, p) : "");
   switch (tool) {
     case "bash":
@@ -164,6 +175,16 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
 export function tokensPath(sid, env = process.env) {
   if (!env.HOME) return "";
   return path.join(env.HOME, ".obor", "opencode", sid + ".jsonl");
+}
+
+// resumedSession is the session id a start resumes: the value of --session (or --session=<id>) in argv, which the kind's
+// start passes for a resume; "" for a fresh start.
+export function resumedSession(argv = process.argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--session") return argv[i + 1] ?? "";
+    if (argv[i].startsWith("--session=")) return argv[i].slice("--session=".length);
+  }
+  return "";
 }
 
 // INBOX_VAR names the session's inbox socket in the session-start hook's env (kinds/opencode/kind.InboxVar, the
@@ -332,7 +353,7 @@ export function sessionHooks(cwd, transcriptOf) {
   const mine = new Map(); // session → this location's (true) or another's (false)
   const children = new Set(); // subagent sessions: no hook
   const stopping = new Set(); // sessions whose stop loop a block began: the next stop ends its turn
-  const base = (name, id) => ({ hook_event_name: name, session_id: id, transcript_path: transcriptOf(id), cwd });
+  const base = (name, id) => ({ hook_event_name: name, session_id: id, transcript_path: transcriptOf(id), cwd, agent_kind: AGENT_KIND });
   const own = (id) => {
     if (id && !children.has(id)) mine.set(id, true);
   };
@@ -379,6 +400,10 @@ export function sessionHooks(cwd, transcriptOf) {
   return {
     event,
     own,
+    child: (id) => {
+      children.add(id);
+      mine.delete(id);
+    },
     isMine,
     isChild: (id) => children.has(id),
     start: (id) => ({ name: "session-start", event: { ...base("SessionStart", id), source: "startup" } }),
@@ -402,8 +427,8 @@ export function modelRef(value) {
 // modelSwitch is the session prompt hook that switches each new root session to value (OBOR_OPENCODE_MODEL), once:
 // null when value is empty, and, after one line to warn, when it is malformed or this opencode is not 2.x with
 // ctx.session.switchModel. isChild(id) is what the session events know of a child; a session the store names a parent
-// of (ctx.session.get) is one too. A failed switch warns and leaves the turn to run.
-export function modelSwitch(ctx, value, isChild = () => false, warn = (line) => console.error(line)) {
+// of (ctx.session.get, through lookup) is one too. A failed switch warns and leaves the turn to run.
+export function modelSwitch(ctx, value, isChild = () => false, warn = (line) => console.error(line), lookup = (a) => ctx.session.get(a)) {
   if (!value) return null;
   const model = modelRef(value);
   if (!model) {
@@ -422,7 +447,7 @@ export function modelSwitch(ctx, value, isChild = () => false, warn = (line) => 
     seen.add(id);
     try {
       if (isChild(id)) return;
-      const info = typeof ctx.session.get === "function" ? await ctx.session.get({ sessionID: id }) : null;
+      const info = typeof ctx.session.get === "function" ? await lookup({ sessionID: id }) : null;
       if (info?.parentID) return;
       await ctx.session.switchModel({ sessionID: id, model });
     } catch (e) {
@@ -437,8 +462,8 @@ function hookEnv(more = {}, env = process.env) {
   return { ...env, OBOR_NO_SELF_HOST: "1", ...more };
 }
 
-// runHook runs `bin/obor hook <name>` with the event on stdin (more: variables added to its env): {code, stdout,
-// stderr}, or {failed: why}.
+// runHook runs `bin/obor hook <name>` with the event on stdin (more: variables added to its env): {code, signal, stdout,
+// stderr} (code is null when a signal ended the process), or {failed: why}.
 function runHook(kit, name, event, cwd, more) {
   const bin = path.join(kit, "bin", "obor");
   if (!fs.existsSync(bin)) return Promise.resolve({ failed: `no ${bin}` });
@@ -461,7 +486,7 @@ function runHook(kit, name, event, cwd, more) {
     child.stdout.on("data", (b) => (stdout += b));
     child.stderr.on("data", (b) => (stderr += b));
     child.on("error", (e) => finish({ failed: String(e) }));
-    child.on("close", (code) => finish({ code, stdout, stderr }));
+    child.on("close", (code, signal) => finish({ code, signal, stdout, stderr }));
     child.stdin.on("error", () => {});
     child.stdin.end(JSON.stringify(event));
   });
@@ -472,6 +497,7 @@ function runHook(kit, name, event, cwd, more) {
 // answer and the start's model (session hook prompt) and the session events (event.subscribe).
 async function setup(ctx) {
   const model = process.env[MODEL_VAR];
+  const resumed = resumedSession(process.argv);
   const env = { ...process.env };
   const cwd = ctx.location?.directory || process.cwd();
   if (!inProject(cwd)) return;
@@ -493,32 +519,66 @@ async function setup(ctx) {
     return context.get(id);
   };
 
-  // guard throws obor's line when obor denies one of the call's events.
+  // lookup is ctx.session.get, once per session (a failed call is forgotten: the next one asks again).
+  const infos = new Map();
+  const lookup = ({ sessionID }) => {
+    if (!infos.has(sessionID)) {
+      infos.set(sessionID, Promise.resolve(ctx.session.get({ sessionID })).catch((e) => (infos.delete(sessionID), Promise.reject(e))));
+    }
+    return infos.get(sessionID);
+  };
+  // adopt resolves to whether id is the agent's session: this location's and with no parent in the store. A session
+  // with a parent is a child, never recorded or bound; one the store cannot answer for now is not the agent's yet.
+  const verdicts = new Map();
+  const adopt = (id) => {
+    if (!id || sessions.isChild(id)) return Promise.resolve(false);
+    if (!verdicts.has(id)) {
+      verdicts.set(
+        id,
+        (typeof ctx.session?.get === "function" ? lookup({ sessionID: id }) : Promise.resolve(null)).then(
+          (info) => {
+            if (info?.parentID) sessions.child(id);
+            else sessions.own(id);
+            return !info?.parentID;
+          },
+          (e) => {
+            verdicts.delete(id);
+            console.error(`obor: session ${id} not read (${e?.message ?? e}); not the agent's yet`);
+            return false;
+          },
+        ),
+      );
+    }
+    return verdicts.get(id).then((root) => root && sessions.isMine(id));
+  };
+
+  // guard throws obor's line when obor denies one of the call's events: only exit 0 allows.
   await ctx.tool.hook("execute.before", async (call) => {
     for (const ev of toClaudeEvents(call.tool, call.input, cwd, call.sessionID)) {
       if (!GUARDED.has(ev.tool_name)) continue;
       const r = await runHook(kit, "pre-tool-use", ev, cwd);
       if (r.failed) throw new Error(`obor: guard unavailable (${r.failed}); denied — run: make -C ${kit} build`);
       if (r.code === 2) throw new Error(r.stderr.trim() || "obor: denied");
+      if (r.code !== 0) {
+        const how = r.signal ? `killed by ${r.signal}` : `exit ${r.code}`;
+        throw new Error(`obor: guard failed (${how}${r.stderr.trim() ? ": " + r.stderr.trim().split("\n")[0] : ""}); denied — run: make -C ${kit} build`);
+      }
     }
   });
   // context: the hook runs per location, so its session is this location's.
   await ctx.session.hook("context", async (c) => {
-    if (!c.sessionID) return;
-    sessions.own(c.sessionID);
-    if (!sessions.isMine(c.sessionID)) return;
+    if (!(await adopt(c.sessionID))) return;
     const text = await started(c.sessionID);
     if (text && Array.isArray(c.system)) c.system.push({ type: "text", text });
   });
   // prompt: the user-prompt-submit answer on the prompt's text, and the start's model before a new root session's
   // first turn (OBOR_OPENCODE_MODEL).
-  const switchModel = modelSwitch(ctx, model, sessions.isChild);
+  const switchModel = modelSwitch(ctx, model, sessions.isChild, undefined, lookup);
   await ctx.session.hook("prompt", async (p) => {
     if (switchModel) await switchModel(p);
     const id = p?.sessionID;
     if (!id || p.metadata?.obor === "stop") return; // a stop's reason: no second reminder
-    sessions.own(id);
-    if (!sessions.isMine(id)) return;
+    if (!(await adopt(id))) return;
     await started(id);
     const text = typeof p.prompt?.text === "string" ? p.prompt.text : "";
     const ask = sessions.prompt(id, text);
@@ -541,6 +601,11 @@ async function setup(ctx) {
     }
   };
 
+  // A resumed session (the start's --session) is bound and started now: no event names it until its first turn, and
+  // its lines must reach it before that. It goes through the same check as any session. A failure leaves the first
+  // turn's hooks to start it.
+  if (resumed) adopt(resumed).then((root) => root && started(resumed)).catch(() => {});
+
   // The session events, one at a time in their order; an opencode without event.subscribe keeps its tool, context and
   // prompt hooks.
   if (typeof ctx.event?.subscribe !== "function") return;
@@ -548,6 +613,7 @@ async function setup(ctx) {
     for await (const e of ctx.event.subscribe({ types: EVENT_TYPES })) {
       const calls = sessions.event(e);
       if (calls.length === 0) continue;
+      if (!(await adopt(e.data.sessionID))) continue;
       await started(e.data.sessionID);
       for (const c of calls) {
         const r = await runHook(kit, c.name, c.event, cwd);
