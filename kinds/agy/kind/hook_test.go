@@ -100,6 +100,14 @@ func TestHookMapping(t *testing.T) {
 			"", "", 0,
 			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": "npm run dev", "run_in_background": true}}),
 			map[string]any{"decision": "ask"}},
+		{"a command line missing, in another dir", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "run_command", "args": {"Cwd": "/p/wt/L-01"}}}`,
+			"", "", 0,
+			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": ""}}),
+			map[string]any{"decision": "ask"}},
+		{"a command line empty, in another dir", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "run_command", "args": {"CommandLine": "", "Cwd": "/p/wt/L-01"}}}`,
+			"", "", 0,
+			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": ""}}),
+			map[string]any{"decision": "ask"}},
 		{"a write", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "write_file", "args": {"Path": "/p/wt/L-01/a.go", "Content": "x"}}}`,
 			"", "", 0,
 			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": "/p/wt/L-01/a.go"}}),
@@ -228,7 +236,7 @@ func TestHookOutsideProject(t *testing.T) {
 
 // InProject: a dir under a checkout holding .obor/config.json; a linked worktree whose main checkout holds it (the
 // worktree's .git file, its gitdir's commondir), though the worktree has no config of its own; not a dir of no project,
-// nor of a stopped one.
+// nor of a stopped one, also when the worktree tracks a config of its own: the marker read is the main checkout's.
 func TestInProject(t *testing.T) {
 	base := t.TempDir()
 	main, lane, other := filepath.Join(base, "main"), filepath.Join(base, "wt", "L-01"), filepath.Join(base, "other")
@@ -277,6 +285,36 @@ func TestInProject(t *testing.T) {
 	}
 	if n := tool(); n != 0 {
 		t.Errorf("a stopped project's unguarded call ran obor hook %d times, want none", n)
+	}
+
+	// A worktree that tracks a config of its own (obor-kit's lanes and role worktrees) reads the main checkout's
+	// marker too: obor stop writes it there, not in the worktree.
+	cfg := filepath.Join(lane, ".obor", "config.json")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cfg); err != nil {
+		t.Fatalf("precondition: the worktree has a config of its own: %v", err)
+	}
+	for _, dir := range []string{lane, filepath.Join(lane, "pkg")} {
+		if kind.InProject(dir) {
+			t.Errorf("InProject(%q) in a stopped project, the worktree with a config of its own = true, want false", dir)
+		}
+	}
+	if n := tool(); n != 0 {
+		t.Errorf("a stopped project's worktree with a config of its own ran obor hook %d times, want none", n)
+	}
+	if err := os.Remove(project.StoppedFile(main)); err != nil {
+		t.Fatal(err)
+	}
+	if !kind.InProject(lane) {
+		t.Error("InProject(lane) once the main checkout's marker is gone = false, want true: the worktree is in the project")
+	}
+	if n := tool(); n != 1 {
+		t.Errorf("a restarted project's worktree with a config of its own ran obor hook %d times, want 1", n)
 	}
 }
 

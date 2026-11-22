@@ -25,8 +25,8 @@ import (
 // not pass: the guard, the session record, the context and the stop are obor hook's.
 //
 //	SessionStart                       → session-start; its context lines → injectSteps (a system message)
-//	PreToolUse run_command             → pre-tool-use, Bash (args.CommandLine → command; args.Cwd → a cd before it;
-//	                                     args.IsDaemon → run_in_background)
+//	PreToolUse run_command             → pre-tool-use, Bash (args.CommandLine → command; args.Cwd → a cd before it,
+//	                                     when there is a command; args.IsDaemon → run_in_background)
 //	PreToolUse write_file / edit_file  → pre-tool-use, Write / Edit (args.Path → file_path)
 //	                                     a deny → {"decision":"deny","reason":…}; an allow → {"decision":"ask"}
 //	PreToolUse call_mcp_tool / list_resources / read_resource
@@ -212,7 +212,7 @@ func toClaude(ev agyEvent) (name string, claude map[string]any) {
 		switch tool {
 		case "run_command":
 			command := args.CommandLine
-			if args.Cwd != "" {
+			if command != "" && args.Cwd != "" { // no command line: the guard's empty-command deny, not a bare cd
 				command = "cd " + shellQuote(args.Cwd) + " && " + command
 			}
 			input := map[string]any{"command": command}
@@ -365,11 +365,19 @@ func Exec(exe string, timeout time.Duration) Runner {
 	}
 }
 
-// InProject: dir is in an obor project that is not stopped: projectRoot finds one, and it holds no stop marker
-// (.obor/state/stopped, project.StoppedFile: obor stop's, under which every obor hook stands down).
+// InProject: dir is in an obor project that is not stopped: projectRoot finds one, and the dir that holds its stop
+// marker holds none (.obor/state/stopped, project.StoppedFile: obor stop's, under which every obor hook stands down).
+// A linked worktree reads its main checkout's marker, also when the worktree tracks a config of its own: obor stop
+// writes the marker to the main checkout.
 func InProject(dir string) bool {
 	root := projectRoot(dir)
-	return root != "" && !fileExists(filepath.Join(root, ".obor", "state", "stopped"))
+	if root == "" {
+		return false
+	}
+	if main := mainCheckout(root); main != "" {
+		root = main
+	}
+	return !fileExists(filepath.Join(root, ".obor", "state", "stopped"))
 }
 
 // projectRoot is the obor project dir is in ("": none): the directory at or above it that holds .obor/config.json, or,
