@@ -920,8 +920,8 @@ opencode runs no Claude Code hooks. The kit ships `opencode/obor.js`, an opencod
 stops loading). It holds no obor rules: each hook maps opencode's event to the Claude Code hook event JSON and runs
 `obor hook <name>`, so the guard and the session context stay in the Go binary. `tool execute.before` →
 `pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
-→ `session-start` (with `session_id: ""`: obor never resumes an opencode session, so no session record). There is no
-`task_done` re-prompt on 2.x (it delivered no idle event).
+→ `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
+with `--session <id>`). There is no `task_done` re-prompt on 2.x (it delivered no idle event).
 `obor hook` runs without `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd (the same derivation), because a shared `opencode serve --service` carries whichever pane's env started it. opencode lanes
 run `opencode --auto --standalone` (own server with the pane's env). Installed user-global by `obor setup
 agents` (a link in `~/.config/opencode/plugins/`, beside herdr's own plugin); a no-op outside an obor project.
@@ -940,6 +940,13 @@ untouched. Gated on opencode 2 with `switchModel` (else one line, nothing). The 
 session, prefers the variant it remembers in its `model.json`; it switches the session to its pick just before it
 submits, and the prompt hook runs after that switch, so the start's model wins from the first turn (a
 switch on `session.created` loses). opencode runs on the owner's own state and config, which obor never writes.
+The start's prompt: a fresh start runs it as `--prompt <p>`; a start with a session id runs `--session <id>` and, with
+a prompt, that prompt as a new turn on top of the resumed history.
+The context size of an opencode session: the plugin appends one line per root session's step (`session.step.ended`) to
+`${HOME}/.obor/opencode/<session>.jsonl` — the step's `input + cache.read + cache.write`, and its time — and reports
+that file as the session's `transcript_path`; the kind's manifest names the same glob as its `transcript`, and `turn
+what: context` reads the file's last line, so the handoff reminder and a keep lane's handoff rule have the session's
+number. A child session's steps and another directory's sessions write none.
 
 ## agy lanes
 agy (Antigravity CLI) is a kit kind, `kinds/agy` (`obor-kind-agy`), wired by files the project commits, never by

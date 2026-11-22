@@ -712,8 +712,8 @@ func carries(req Request) bool { return !req.Fresh && req.Prompt != "" }
 
 // sessionOf is the start's session decision, made before anything is stopped: the session to resume (sid; "": a
 // fresh start) and where it came from (src: record or herdr). None to resume, with neither req.Fresh nor a first
-// prompt the request carries (carries), is a Fail. A kind that resumes nothing (agents.Caps.Resume false: OpenCode)
-// always starts fresh: serve records its session, but there is nothing obor resumes. The recorded session wins:
+// prompt the request carries (carries), is a Fail. A kind that resumes nothing (agents.Caps.Resume false) always
+// starts fresh: serve records its session, but there is nothing obor resumes. The recorded session wins:
 // herdr's live one for the pane is a cross-check, said when it differs. A kind whose sessions obor names itself
 // (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the recorded id, and a session with no record
 // is a new one.

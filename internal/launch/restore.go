@@ -18,7 +18,7 @@ package launch
 // terminal's agent and starts obor's. A pane that would be skipped (a free or dirty-free lane's worker: obor dispatch
 // starts it; a role agent that is neither the lead nor a worker while its OpenWork read says serve's state has no
 // work open for it: its next brief or job starts it) has the terminal's agent stopped and its shell left. A pane with
-// no recorded session (serve's store) or a kind that resumes nothing starts --fresh (a role pane started fresh with no
+// no recorded session or a kind that resumes nothing starts --fresh (a role pane started fresh with no
 // prompt wrote no transcript either, so no restart could resume it). A lane's worker and the integrator start with
 // the wake of the job serve holds open for them (Launcher.Job: the restart's own) as their first prompt: typed once a
 // resumed session is up, the first prompt of a fresh one; no open job, no prompt. One rule for both reads (OpenWork,
@@ -250,10 +250,9 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		p.skip(ctx, cfg, pane, resumed, "no open work (its next brief or job starts it)", w)
 		return
 	}
-	// A pane with no session it can resume starts fresh: none in serve's store, or a kind
-	// that resumes nothing (OpenCode). Every dispatch starts a fresh worker anyway; a role pane started fresh
-	// with no prompt has no transcript either (Claude writes none before its first message), so no restart could
-	// resume it.
+	// A pane with no session it can resume starts fresh: none in serve's store, or a kind that resumes nothing. Every
+	// dispatch starts a fresh worker anyway; a role pane started fresh with no prompt has no transcript either (Claude
+	// writes none before its first message), so no restart could resume it.
 	req := Request{Agent: agent, Pane: pane.ID}
 	note := ""
 	if resumed != "" {

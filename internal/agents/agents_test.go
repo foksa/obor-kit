@@ -80,13 +80,12 @@ func TestByProgram(t *testing.T) {
 	}
 }
 
-// Resumes names the kinds that honour a session id: Claude and Codex yes, OpenCode no (its session is
-// recorded but never resumed), an unknown kind no.
+// Resumes names the kinds that honour a session id: Claude, Codex and OpenCode yes, an unknown kind no.
 func TestResumes(t *testing.T) {
 	for _, c := range []struct {
 		kind string
 		want bool
-	}{{"claude", true}, {"codex", true}, {"opencode", false}, {"", false}, {"cursor", false}} {
+	}{{"claude", true}, {"codex", true}, {"opencode", true}, {"", false}, {"cursor", false}} {
 		if got := kinds.Resumes(c.kind); got != c.want {
 			t.Errorf("Resumes(%q) = %v, want %v", c.kind, got, c.want)
 		}

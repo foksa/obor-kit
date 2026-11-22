@@ -1,8 +1,9 @@
 // Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md): the
-// reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, no resume, /exit with its
-// popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook transport) in each
-// start's generated config (OPENCODE_CONFIG), on the user's own config with the project's override file laid over it
-// (override.go), prompts typed. Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
+// reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, a resume with --session,
+// /exit with its popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook
+// transport) in each start's generated config (OPENCODE_CONFIG), on the user's own config with the project's override
+// file laid over it (override.go), prompts typed, the session's context size from the plugin's token file
+// (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
 package kind
 
 import (
@@ -45,6 +46,10 @@ const ConfigFile = "opencode.json"
 // other agents write two files, never one path with different bytes.
 const TrimmedConfigFile = "opencode-trimmed.json"
 
+// TranscriptGlob is the manifest's transcript glob: obor's own state dir for a session's token file, which the plugin
+// (opencode/obor.js, tokensPath) appends one line to per root session's step and reports as transcript_path.
+const TranscriptGlob = "${HOME}/.obor/opencode/{sid}.jsonl"
+
 // efforts are the variant names OpenCode gives a model's reasoning levels. They are per model (opencode 2.2.0:
 // `opencode api GET /api/model` lists deepseek-v4.1-flash's as low, high, max; its own fallback list is none, minimal,
 // low) and its help lists none, so this is the union obor accepts; a variant the model lacks starts its default.
@@ -64,6 +69,7 @@ type request struct {
 	Overrides map[string]string `json:"overrides"`
 	Dir       string            `json:"dir"`
 	What      string            `json:"what"`
+	Tail      string            `json:"tail"`
 	Error     string            `json:"error"`
 	Details   string            `json:"details"`
 	At        string            `json:"at"`
@@ -121,27 +127,28 @@ func Handle(call string, req []byte) ([]byte, error) {
 	return json.Marshal(reply)
 }
 
-// describe is the manifest. Caps: hooks through obor's plugin; a session is recorded but never resumed (no resume: obor
-// starts an OpenCode agent fresh), and no hook event carries the version, so the marker takes OPENCODE_VERSION;
-// status from the terminal's agent detection. Stop: /exit, typed with Enter (live 2026-10-17); its slash-command popup
-// takes that Enter, a second one runs it (once the agent has exited it reaches the shell as an empty line). When it did
-// not exit: Escape (the popup), then Ctrl+U, so the next typed message does not follow the quit. Headless: `opencode
-// run`, as the subcommand or a later word (ValueOpts: opencode --help). No transcript: OpenCode keeps its sessions in a
-// database (its plugin reports the session id: opencode/obor.js); no inbox: prompts are typed. MCP: nothing
-// user-global: obor's server and plugin reach each start through its generated config. Env: the variables that
-// place the user's config dir, which a start with an override file reads. Override files: OverrideFile.
+// describe is the manifest. Caps: hooks through obor's plugin, a resume by the session id the plugin reports; no hook
+// event carries the version, so the marker takes OPENCODE_VERSION; status from the terminal's agent detection. Stop:
+// /exit, typed with Enter (live 2026-10-17); its slash-command popup takes that Enter, a second one runs it (once the
+// agent has exited it reaches the shell as an empty line). When it did not exit: Escape (the popup), then Ctrl+U, so
+// the next typed message does not follow the quit. Headless: `opencode run`, as the subcommand or a later word
+// (ValueOpts: opencode --help). Transcript: the plugin's per-session token file (TranscriptGlob), whose last line is a
+// session's context size. No inbox: prompts are typed. MCP: nothing user-global: obor's server and plugin reach each
+// start through its generated config. Env: the variables that place the user's config dir, which a start with an
+// override file reads. Override files: OverrideFile.
 func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
 		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "plugin", "model_arg": true, "version_var": "OPENCODE_VERSION"},
+		"caps":    map[string]any{"hooks": "plugin", "resume": true, "model_arg": true, "version_var": "OPENCODE_VERSION"},
 		"efforts": efforts,
 		"vars":    []string{ModelVar, ConfigVar, SkillsVar},
 		"env":     []string{"HOME", "XDG_CONFIG_HOME"},
 		"stop":    map[string]any{"quit": "/exit", "second_enter": true, "clear_input": []string{"esc", "ctrl+u"}},
 		"headless": map[string]any{"subcommands": []string{"run"}, "anywhere": []string{"run"},
 			"value_opts": []string{"--server", "-s", "--session", "--prompt", "--completions", "--log-level"}},
-		"typed": true,
+		"transcript": TranscriptGlob,
+		"typed":      true,
 		"mcp_lane": map[string]any{"registered": true, "how": ConfigVar + " (the start's generated config: " +
 			filepath.Join("{kit}", "bin", "obor") + " mcp, plugin " + filepath.Join("{kit}", Name) + ")"},
 		"project_warnings": true,
@@ -154,8 +161,9 @@ func describe() map[string]any {
 var FixedArgs = []string{"--auto", "--standalone"}
 
 // start: FixedArgs, then the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to
-// obor's plugin) and but a FixedArgs flag they repeat, then --prompt <prompt> (OpenCode has no resume, so a resume adds
-// nothing). Env: ConfigVar, the path of the start's generated config (ConfigFile, or TrimmedConfigFile on a start that
+// obor's plugin) and but a FixedArgs flag they repeat, then --session <id> for a resume and --prompt <prompt> when the
+// start has one (a resume opens the session with its history and runs the prompt as a new turn on top of it). Env:
+// ConfigVar, the path of the start's generated config (ConfigFile, or TrimmedConfigFile on a start that
 // trims the user's settings; the content Config of the kit, or Overridden with the override file; no kit: none), and
 // ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
@@ -181,7 +189,10 @@ func start(in request) map[string]any {
 		model, _, _ = strings.Cut(model, "#")
 		model += "#" + in.Effort
 	}
-	if in.Prompt != "" && in.Resume == "" {
+	if in.Resume != "" {
+		args = append(args, "--session", in.Resume)
+	}
+	if in.Prompt != "" {
 		args = append(args, "--prompt", in.Prompt)
 	}
 	env := map[string]string{ModelVar: model, SkillsVar: ""}
@@ -236,8 +247,8 @@ func Config(kit string) []byte { return Overridden(kit, nil, "", nil) }
 // pluginEntry is the plugins entry of the kit's plugin package dir.
 func pluginEntry(kit string) string { return "file://" + filepath.Join(kit, Name) }
 
-// turn: no turn, no session and no context are read (OpenCode keeps its sessions in a database, not a transcript obor
-// finds). Reset: the plugin maps a provider quota failure with a retry time to rate_limit and writes its reset in
+// turn: a session's context size from its token file's tail (Context); no turn and no session are read (status
+// terminal). Reset: the plugin maps a provider quota failure with a retry time to rate_limit and writes its reset in
 // error_details; billing/auth/server errors are not limits.
 func turn(in request) map[string]any {
 	switch in.What {
@@ -251,10 +262,44 @@ func turn(in request) map[string]any {
 			reset = t.Format(time.RFC3339)
 		}
 		return map[string]any{"limited": true, "reset": reset}
-	case "last", "session", "context":
+	case "context":
+		c, ok := Context([]byte(in.Tail))
+		if !ok {
+			return map[string]any{"ok": false}
+		}
+		return map[string]any{"ok": true, "context": map[string]any{"tokens": c.Tokens,
+			"at": c.At.UTC().Format(time.RFC3339), "ttl": ""}}
+	case "last", "session":
 		return map[string]any{"ok": false}
 	}
 	return map[string]any{"error": fmt.Sprintf("turn: no what %q", in.What)}
+}
+
+// Context is the context size a token file's tail last line names: its tokens (a step's input + cache read + cache
+// write, the sum obor reads from Claude's transcript) and its time. ok false: no line with a count, or the last one's
+// time does not parse.
+func Context(tail []byte) (agents.Context, bool) {
+	var last *struct {
+		Tokens *int   `json:"tokens"`
+		At     string `json:"at"`
+	}
+	for _, line := range strings.Split(string(tail), "\n") {
+		var l struct {
+			Tokens *int   `json:"tokens"`
+			At     string `json:"at"`
+		}
+		if json.Unmarshal([]byte(line), &l) == nil && l.Tokens != nil {
+			last = &l
+		}
+	}
+	if last == nil || *last.Tokens < 0 {
+		return agents.Context{}, false
+	}
+	at, err := time.Parse(time.RFC3339, last.At)
+	if err != nil {
+		return agents.Context{}, false
+	}
+	return agents.Context{Tokens: *last.Tokens, At: at}, true
 }
 
 // ProjectFiles are the project config files OpenCode reads in a start dir (opencode.ai/docs/config), relative to it.
