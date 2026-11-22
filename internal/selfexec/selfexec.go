@@ -16,7 +16,7 @@ import (
 )
 
 // The watch's bounds: a candidate younger than Quiet may still be written (an install, a build); its `version` probe
-// gets Probe to exit 0 (the shim's stale-binary probe, bin/obor has_hook).
+// gets Probe to exit 0 (the shim's stale-binary probe, bin/obor has_cmd).
 const (
 	Quiet = 5 * time.Second
 	Probe = 2 * time.Second

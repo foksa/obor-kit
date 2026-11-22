@@ -18,7 +18,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// bin/obor's has_hook: `obor hook pre-tool-use` through the shim of a kit copy whose dist/obor is a fake, run
+// bin/obor's has_cmd: `obor hook pre-tool-use` through the shim of a kit copy whose dist/obor is a fake, run
 // without a process group of its own: a stale binary is the hint only, a good one runs Go, and the watchdog's sleep is
 // never left behind. The hanging binary: TestShimHasHookHang.
 func TestShimHasHook(t *testing.T) {
@@ -39,7 +39,7 @@ func TestShimHasHookHang(t *testing.T) {
 	})
 }
 
-// hasCase is one fake binary's has_hook run through the shim.
+// hasCase is one fake binary's has_cmd run through the shim.
 type hasCase struct {
 	name, has string // has: the fake's `has hook` body (the fast ones wait for the watchdog's sleep: see started)
 	code      int

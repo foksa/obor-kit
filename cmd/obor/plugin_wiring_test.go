@@ -18,7 +18,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// hookTimeoutEnv sets the shim's hang watchdog (bin/obor has_hook) to 1 s; hookTimeout is that bound. A stub is run
+// hookTimeoutEnv sets the shim's hang watchdog (bin/obor has_cmd) to 1 s; hookTimeout is that bound. A stub is run
 // once before the call (noBinKit.stub), so the deadline covers the shim's answer, not the platform's first-exec scan of
 // a fresh script.
 const hookTimeoutEnv = "OBOR_HOOK_TIMEOUT=1"
@@ -271,7 +271,8 @@ func (k *noBinKit) release(t *testing.T) string {
 // stub writes a Go binary stand-in to path that logs its args to <Base>/stub.log. stale: a binary without `has` (knows
 // only hook noop; anything else → usage, exit 2, as a stale dist/obor does); no: `has` exits 1; deny: `has` → 0, else
 // "obor: go stub" on stderr, exit 2 (the Go guard); good: `has` → 0, else "go stub", exit 0; hang: `has` never returns
-// (its pid in <Base>/stub.pids, then exec sleep: no child).
+// (its pid in <Base>/stub.pids, then exec sleep: no child); crash: `has` → 0, else a failure (exit 1); kill: `has` → 0,
+// else the binary takes its own SIGKILL.
 func (k *noBinKit) stub(t *testing.T, path, kind string) {
 	t.Helper()
 	body := map[string]string{
@@ -281,6 +282,8 @@ func (k *noBinKit) stub(t *testing.T, path, kind string) {
 		"good":  "[ \"$1\" = has ] && exit 0\necho \"go stub\"\n",
 		"hang": fmt.Sprintf("[ \"$1\" = has ] && { echo \"$$\" > '%s'; exec sleep 3; }\necho \"go stub\"\n",
 			filepath.Join(k.p.Base, "stub.pids")),
+		"crash": "[ \"$1\" = has ] && exit 0\necho \"obor: the stub crashed\" >&2\nexit 1\n",
+		"kill":  "[ \"$1\" = has ] && exit 0\nkill -9 $$\n",
 	}[kind]
 	if body == "" {
 		t.Fatalf("stub kind %q", kind)
@@ -345,6 +348,37 @@ func (k *noBinKit) deniesAll(t *testing.T, what string) {
 		if rc, _, stderr, _ := k.hook(t, "pre-tool-use", e); rc != 2 || stderr != k.hint {
 			t.Errorf("%s: %s → exit %d, %q; want 2 with the hint", what, e, rc, stderr)
 		}
+	}
+}
+
+// bash plugin.test.sh case_hook_fails_closed: a binary whose hook ends with another exit or a signal answered nothing
+// (the Hook transport contract): pre-tool-use denies with the hint naming the failure, the other hooks allow with the
+// hint on stderr. The binary's own stderr stays in front of the hint.
+func TestHookFailsClosed(t *testing.T) {
+	t.Parallel()
+	k := newNoBinKit(t)
+	dist := filepath.Join(k.dir, "dist/obor")
+	for _, c := range []struct {
+		stub, ended, own string // ended: the exit bash reports; own: the binary's stderr line
+	}{
+		{"crash", "exit 1", "obor: the stub crashed\n"},
+		{"kill", "exit 137", ""},
+	} {
+		k.stub(t, dist, c.stub)
+		hint := "obor: the binary at " + dist + " ended hook pre-tool-use with " + c.ended +
+			" — run: make -C " + k.dir + " build"
+		if rc, _, stderr, _ := k.hook(t, "pre-tool-use", bashEvent(k.lane, "ls")); rc != 2 || stderr != c.own+hint {
+			t.Errorf("%s: pre-tool-use: exit %d, %q; want 2, %q", c.stub, rc, stderr, c.own+hint)
+		}
+	}
+	// another hook: nothing to answer, exit 0, the failure and the hint on stderr
+	k.stub(t, dist, "crash")
+	hook := otherHooks[0].hook
+	event, _ := json.Marshal(otherHooks[0].event(k.lane))
+	hint := "obor: the binary at " + dist + " ended hook " + hook + " with exit 1 — run: make -C " + k.dir + " build"
+	if rc, out, stderr, _ := k.hook(t, hook, string(event)); rc != 0 || out != "" || stderr != "obor: the stub crashed\n"+hint {
+		t.Errorf("%s with a failing binary: exit %d, %q, %q; want 0, nothing, %q", hook, rc, out, stderr,
+			"obor: the stub crashed\n"+hint)
 	}
 }
 

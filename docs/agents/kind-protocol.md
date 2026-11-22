@@ -183,6 +183,11 @@ on stdin and reads the answer; a transport that only rewrites events holds none 
 agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane's `HERDR_PANE_ID`), so a transport
 passes it through.
 
+`bin/obor` runs both of those on its hook path: it never fetches a binary there, runs the first one that has the
+command (`hook <name>`, or `kind` for `obor kind <name> hook`), and with none answers for the hook — a deny with the
+repair hint for `pre-tool-use`, nothing for the other hooks, and for `obor kind <name> hook` one generic deny JSON
+naming the repair.
+
 Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unreadable event allows.
 
 - **An allow is no opinion**, never an approval: a transport maps it to its CLI's fall-through, which leaves the call

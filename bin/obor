@@ -1,8 +1,8 @@
 #!/bin/bash
 # obor <subcommand> [args…] — the kit's one bash file: finds the obor Go binary (the dev build dist/obor, else the
 # pinned release in ~/.obor/bin, fetched and checksum-verified on first use with the kind binaries beside it) and execs
-# it with the subcommand. Hooks
-# (`obor hook <name>`, hooks/hooks.json) never fetch: without a usable binary the no-binary rule below applies.
+# it with the subcommand. Hooks (`obor hook <name>`, hooks/hooks.json) and a kind's hook transport (`obor kind <name>
+# hook`) never fetch: without a usable binary the no-binary rule below applies.
 set -euo pipefail
 
 # Plugin root = parent of this file's directory (following symlinks to this file).
@@ -174,14 +174,14 @@ prune_old() {
   done
 }
 
-# has_hook <binary> <name>: `<binary> has hook <name>` exits 0 within OBOR_HOOK_TIMEOUT seconds (default 2; tests set
-# 1; a stale or hanging binary must not hang a hook). On expiry the watchdog kills it. No job control (where
-# setpgid is refused, `set -m` writes to stderr and the group kill misses): a simple background command is the
-# binary's own pid.
+# has_cmd <binary> [<args>…]: `<binary> has <args…>` exits 0 within OBOR_HOOK_TIMEOUT seconds (default 2; tests set 1;
+# a stale or hanging binary must not hang a hook). On expiry the watchdog kills it. No job control (where setpgid is
+# refused, `set -m` writes to stderr and the group kill misses): a simple background command is the binary's own pid.
 # The watchdog sleeps in the background and waits, so a TERM ends it at once, its sleep with it.
-has_hook() {
-  local pid watchdog rc=0 timeout=${OBOR_HOOK_TIMEOUT:-2}
-  "$1" has hook "$2" < /dev/null > /dev/null 2>&1 &
+has_cmd() {
+  local binary=$1 pid watchdog rc=0 timeout=${OBOR_HOOK_TIMEOUT:-2}
+  shift
+  "$binary" has "$@" < /dev/null > /dev/null 2>&1 &
   pid=$!
   (
     s=
@@ -198,6 +198,27 @@ has_hook() {
   return "$rc"
 }
 
+# hint <why>: the repair line a hook prints when it has no answer: why, and the command that fixes it.
+hint() { echo "obor: $1 — run: make -C $OBOR_PLUGIN_ROOT build"; }
+
+# run_hook <binary> <source> <hook args…>: `hook <hook args>` on binary as a child, its answer the hook's: exit 0
+# (allow) and 2 (a denial) pass through; any other end (another exit code, a kill) is no answer, and a hook with no
+# answer denies pre-tool-use (exit 2) and allows the others, the hint on stderr.
+run_hook() {
+  local binary=$1 src=$2 err rc=0
+  shift 2
+  err="${TMPDIR:-/tmp}/obor-hook.$$"
+  # The group's stderr is dropped: bash reports a child killed by a signal there ("… Killed: 9 …"), and the answer
+  # already names the exit.
+  { OBOR_VERSION_SOURCE="$src" "$binary" hook "$@" 2> "$err"; } 2> /dev/null || rc=$?
+  if [ -s "$err" ]; then cat "$err" >&2 || :; fi
+  rm -f "$err" || :
+  case "$rc" in 0 | 2) exit "$rc" ;; esac
+  hint "the binary at $binary ended hook $* with exit $rc" >&2
+  [ "${1:-}" != pre-tool-use ] || exit 2
+  exit 0
+}
+
 # in_project <event json>: the event's cwd is in an obor project (.obor/config.json in its main checkout) that is not
 # stopped (obor stop: .obor/state/stopped).
 in_project() {
@@ -207,29 +228,25 @@ in_project() {
   root=$(main_checkout "$cwd") && [ -f "$root/.obor/config.json" ] && [ ! -f "$root/.obor/state/stopped" ]
 }
 
-# hook <name>: run `obor hook <name>` on the first usable binary. None (missing, stale, hanging; fail visibly) in an
-# obor project: pre-tool-use denies Bash / Edit / Write / MultiEdit / NotebookEdit with the repair
-# hint, except the command that repairs it (exactly `make -C <kit> build`, or `make build` with cwd = the kit); the
-# other hooks allow with the hint on stderr. Outside an obor project: allow, silent.
+# hook <name>: run `obor hook <name>` on the first usable binary, its answer the hook's (run_hook). None (missing,
+# stale, hanging) in an obor project: pre-tool-use denies Bash / Edit / Write / MultiEdit / NotebookEdit with the
+# repair hint, except the command that repairs it (exactly `make -C <kit> build`, or `make build` with cwd = the kit);
+# the other hooks allow with the hint on stderr. Outside an obor project: allow, silent.
 hook() {
-  local name=${1:-} binary input tool cmd cwd hint
+  local name=${1:-} binary input tool cmd cwd
   # Kit-owned caller: every obor the binary runs uses this plugin root, not the cwd's checkout.
   export OBOR_NO_SELF_HOST=1
-  if [ -x "$OBOR_PLUGIN_ROOT/dist/obor" ] && has_hook "$OBOR_PLUGIN_ROOT/dist/obor" "$name"; then
-    run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" hook "$@"
+  if [ -x "$OBOR_PLUGIN_ROOT/dist/obor" ] && has_cmd "$OBOR_PLUGIN_ROOT/dist/obor" hook "$name"; then
+    run_hook "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" "$@"
   fi
   if platform; then
     binary="${HOME:-}/.obor/bin/$asset"
-    if [ -x "$binary" ] && has_hook "$binary" "$name"; then run "$binary" "$source" hook "$@"; fi
+    if [ -x "$binary" ] && has_cmd "$binary" hook "$name"; then run_hook "$binary" "$source" "$@"; fi
   fi
   input=$(cat) || exit 0
-  if in_project "$input"; then
-    hint="obor: no usable Go binary in $OBOR_PLUGIN_ROOT — run: make -C $OBOR_PLUGIN_ROOT build"
-  else
-    exit 0
-  fi
+  in_project "$input" || exit 0
   if [ "$name" != pre-tool-use ]; then
-    echo "$hint" >&2
+    hint "no usable Go binary in $OBOR_PLUGIN_ROOT" >&2
     exit 0
   fi
   tool=$(jq -r '.tool_name // ""' <<< "$input" 2> /dev/null) || tool=
@@ -247,8 +264,25 @@ hook() {
     Edit|Write|MultiEdit|NotebookEdit) ;;
     *) exit 0 ;;
   esac
-  echo "$hint" >&2
+  hint "no usable Go binary in $OBOR_PLUGIN_ROOT" >&2
   exit 2
+}
+
+# kind_hook <name> hook [args…]: a kind's hook transport (`obor kind <name> hook`, agy's .agents/hooks.json) follows
+# the hook rules: it never fetches, the binary it runs must have `kind`, and with none it answers one generic deny JSON
+# naming the repair (no repair exception: the owner runs make in a shell).
+kind_hook() {
+  local binary
+  export OBOR_NO_SELF_HOST=1
+  if [ -x "$OBOR_PLUGIN_ROOT/dist/obor" ] && has_cmd "$OBOR_PLUGIN_ROOT/dist/obor" kind; then
+    run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" kind "$@"
+  fi
+  if platform; then
+    binary="${HOME:-}/.obor/bin/$asset"
+    if [ -x "$binary" ] && has_cmd "$binary" kind; then run "$binary" "$source" kind "$@"; fi
+  fi
+  printf '{"decision":"deny","reason":"%s"}\n' "$(hint "no usable Go binary in $OBOR_PLUGIN_ROOT")"
+  exit 0
 }
 
 self_host "$@"
@@ -267,6 +301,8 @@ case "$sub" in
 esac
 shift
 [ "$sub" != hook ] || hook "$@"
+# `obor kind <name> hook`: a kind's hook transport, so the hook rules (never a fetch).
+[ "$sub" != kind ] || [ "${2:-}" != hook ] || kind_hook "$@"
 # A stale dev build (without this command) says so: `make build` refreshes it.
 [ ! -x "$OBOR_PLUGIN_ROOT/dist/obor" ] || run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" "$sub" "$@"
 platform || fail "unsupported platform: $(uname -s) $(uname -m)"
