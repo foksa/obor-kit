@@ -408,7 +408,8 @@ func TestSetupMCPChecksAgysProjectFile(t *testing.T) {
 	if rc == 0 {
 		t.Errorf("missing hooks file (--model): exit 0\n%s", out)
 	}
-	has(t, out, "WARN hooks model neon (agy): not registered: no current obor in "+hfile+" (run obor setup agents in the project, then commit the file)", "missing hooks reported by --model")
+	// A lane's agy start itself refuses a project without its hooks file (kinds/agy/kind's start), naming the fix.
+	has(t, out, "WARN mcp model neon (agy): kind agy: start: agy's hooks: no "+hfile+": run obor setup agents in the project, then commit .agents/hooks.json", "missing hooks reported by --model")
 
 	x.ok(t, "agents")
 	other := filepath.Join(x.Base, "other-kit")

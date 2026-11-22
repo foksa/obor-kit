@@ -10,6 +10,7 @@ import (
 	"obor/internal/launch"
 	"obor/internal/store"
 	"obor/internal/testkit"
+	agykind "obor/kinds/agy/kind"
 	ockind "obor/kinds/opencode/kind"
 )
 
@@ -53,11 +54,14 @@ func init() {
 
 // reviewerOn is the launcher's fixture with the reviewer (pj-rev) on model (neon: agy; mu: mute) and recs recorded,
 // its reports landing in serve's store as serve records them (fx.serve): a restart after it reads what it recorded.
+// The project commits agy's current hooks file (an agent's agy start refuses a project without it).
 func reviewerOn(t *testing.T, model string, recs ...store.Session) *fx {
 	t.Helper()
 	x := setup(t, testkit.AddModels(`{"neon":{"kind":"agy","id":"gemini-4-neon-high"},"mu":{"kind":"mute","id":"m"}}`),
 		testkit.Set("agents.kinds.mute", map[string]any{"plugin": "kinds/obor-kind-mute"}),
 		testkit.Set("agents.roles", `{"integrator":"opus","lead":"opus","reviewer":"`+model+`"}`))
+	hooks, _ := json.Marshal(map[string]any{"obor": agykind.HooksEntry()})
+	x.p.Write(agykind.HooksFile, string(hooks))
 	x.serve = true
 	recordSessions(t, x.p.Root, recs...)
 	return x
