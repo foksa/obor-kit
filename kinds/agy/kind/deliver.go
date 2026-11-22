@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 )
 
 // The inbox (docs/agents/kind-protocol.md "deliver"; docs/research/agy-probes.md P7): agy's language server takes a
-// message to a conversation over `agentapi send-message <conversationId> <text>` (agy's own agentapi, a wrapper for
-// `agy agentapi`): an idle session starts a turn, a busy one reads it at its next model call, the owner's half-typed
+// message to a conversation over `agy agentapi send-message <conversationId> <text>` (agy's agentapi wrapper is `exec agy
+// agentapi "$@"`; the command's ANTIGRAVITY_AGENTAPI_EXE names agy's binary itself, or that wrapper): an idle session starts a turn, a busy one reads it at its next model call, the owner's half-typed
 // draft stays. The address and token it needs are only in the environment of the commands the agent runs (not in its
 // hooks', its MCP servers' or on disk), so a session's record comes from an obor command it runs (obor records the
 // manifest's inbox_record variables from every command's environment), and the kind sends with it. A refused send (a
@@ -24,7 +25,7 @@ import (
 const (
 	VarAddress      = "ANTIGRAVITY_LS_ADDRESS"      // the language server, localhost:<port>
 	VarToken        = "ANTIGRAVITY_CSRF_TOKEN"      // its CSRF token
-	VarAgentAPI     = "ANTIGRAVITY_AGENTAPI_EXE"    // agy's agentapi executable
+	VarAgentAPI     = "ANTIGRAVITY_AGENTAPI_EXE"    // agy's binary (or its agentapi wrapper)
 	VarConversation = "ANTIGRAVITY_CONVERSATION_ID" // the conversation the command runs in
 )
 
@@ -57,13 +58,14 @@ func deliver(in request) map[string]any {
 	return map[string]any{"ok": true, "delivery": map[string]any{"sent": true}}
 }
 
-// sendMessage runs `<agentapi> send-message <conversation> <text>` of rec with rec's address and token laid over the
-// kind's environment, under SendLimit: an error for a non-zero exit (its output's last line), no answer in time, or no
-// executable.
+// sendMessage runs agentapi's send-message <conversation> <text> of rec (sendArgs) with rec's address and token laid
+// over the kind's environment, under SendLimit: an error for a non-zero exit (its output's last line), no answer in
+// time, or no executable.
 func sendMessage(rec map[string]string, text string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), SendLimit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, rec[VarAgentAPI], "send-message", rec[VarConversation], text)
+	exe := rec[VarAgentAPI]
+	cmd := exec.CommandContext(ctx, exe, sendArgs(exe, rec[VarConversation], text)...)
 	cmd.Env = append(os.Environ(), VarAddress+"="+rec[VarAddress], VarToken+"="+rec[VarToken])
 	cmd.WaitDelay = 200 * time.Millisecond
 	var out bytes.Buffer
@@ -81,4 +83,15 @@ func sendMessage(rec map[string]string, text string) error {
 		return fmt.Errorf("exit %d: %s", ee.ExitCode(), why)
 	}
 	return err
+}
+
+// sendArgs are the arguments of exe's send-message of text to conversation: `agentapi send-message …` for agy's binary,
+// `send-message …` for an executable named agentapi (agy's wrapper, which runs `agy agentapi`). The base name tells
+// them apart: a try of one form first could send the text twice.
+func sendArgs(exe, conversation, text string) []string {
+	args := []string{"send-message", conversation, text}
+	if filepath.Base(exe) == "agentapi" {
+		return args
+	}
+	return append([]string{"agentapi"}, args...)
 }

@@ -677,7 +677,7 @@ func TestTurnHooks(t *testing.T) {
 	if err := os.WriteFile(sock, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := project.WriteInbox(p.Root, "lead", project.Inbox{Socket: sock}); err != nil {
+	if err := project.WriteInbox(p.Cfg(), "lead", project.Inbox{Socket: sock}); err != nil {
 		t.Fatal(err)
 	}
 	lead := []string{"OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
@@ -825,7 +825,7 @@ func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the triage session read nothing")
 	}
-	if _, err := project.ReadInbox(p.Root, "triage"); err != nil {
+	if _, err := project.ReadInbox(p.Cfg(), "triage"); err != nil {
 		t.Errorf("inbox slot triage: %v", err)
 	}
 }

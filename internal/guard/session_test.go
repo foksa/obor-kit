@@ -3,8 +3,10 @@ package guard
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -529,7 +531,7 @@ func TestSessionUnreadableDatabase(t *testing.T) {
 	out := f.session(t, o1, "sid-bad", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
 	contains(t, out, "unreadable database", "could not read this lane or its spec", "obor: role worker, lane L-01")
 	lacks(t, out, "unreadable database", "No lane row", "Protected files this task may edit:")
-	if in, err := project.ReadInbox(f.Root, "L-01"); err != nil || in.Session != "sid-bad" {
+	if in, err := project.ReadInbox(f.Cfg(), "L-01"); err != nil || in.Session != "sid-bad" {
 		t.Errorf("inbox = %+v, %v; want session sid-bad (the bookkeeping still runs)", in, err)
 	}
 }
@@ -561,7 +563,7 @@ func TestSessionRecordsTheInbox(t *testing.T) {
 		inbox := project.InboxFile(f.Root, c.slot)
 		f.session(t, c.cwd, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+c.role, "OBOR_STATE_HOME="+state,
 			"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=tok-1")
-		got, err := project.ReadInbox(f.Root, c.slot)
+		got, err := project.ReadInbox(f.Cfg(), c.slot)
 		if err != nil || got != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: "sid-1"}) {
 			t.Fatalf("%s: inbox of slot %s %+v, %v", c.label, c.slot, got, err)
 		}
@@ -589,7 +591,7 @@ func TestSessionRecordsAPluginKindsInbox(t *testing.T) {
 	f, _ := sessionFx(t, true)
 	f.Config(testkit.Set("agents.roles.lead", "deepseek"))
 	f.session(t, f.Root, "ses_1", "OBOR_ROLE=lead", "OBOR_OPENCODE_INBOX=/h/.obor/opencode/ses_1.sock")
-	got, err := project.ReadInbox(f.Root, "lead")
+	got, err := project.ReadInbox(f.Cfg(), "lead")
 	want := project.Inbox{Socket: "/h/.obor/opencode/ses_1.sock", Session: "ses_1",
 		Record: `{"OBOR_OPENCODE_INBOX":"/h/.obor/opencode/ses_1.sock"}`}
 	if err != nil || got != want {
@@ -632,10 +634,10 @@ func TestCommandRecordsTheInbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...))
+	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...), io.Discard)
 	rec := `{"ANTIGRAVITY_AGENTAPI_EXE":"/h/.gemini/antigravity-cli/bin/agentapi","ANTIGRAVITY_CONVERSATION_ID":"conv-1",` +
 		`"ANTIGRAVITY_CSRF_TOKEN":"tok-1","ANTIGRAVITY_LS_ADDRESS":"localhost:5011"}`
-	if got, err := project.ReadInbox(f.Root, "lead"); err != nil || got != (project.Inbox{Sends: true, Record: rec}) {
+	if got, err := project.ReadInbox(f.Cfg(), "lead"); err != nil || got != (project.Inbox{Sends: true, Record: rec}) {
 		t.Fatalf("inbox %+v, %v; want the kind's record, sent by the kind", got, err)
 	}
 	if fi, err := os.Stat(inbox); err != nil {
@@ -647,34 +649,97 @@ func TestCommandRecordsTheInbox(t *testing.T) {
 		t.Error("the recorded inbox is not live")
 	}
 
-	if err := project.RefuseInbox(f.Root, "lead", rec, "agentapi send-message: exit 1: invalid CSRF token"); err != nil {
+	if err := project.RefuseInbox(f.Cfg(), "lead", rec, "agentapi send-message: exit 1: invalid CSRF token"); err != nil {
 		t.Fatal(err)
 	}
 	if _, live := project.InboxLive(cfg, "pj-lead"); live {
 		t.Fatal("precondition: a refused record is live")
 	}
-	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...))
-	if got, _ := project.ReadInbox(f.Root, "lead"); got.Refused != "" {
+	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...), io.Discard)
+	if got, _ := project.ReadInbox(f.Cfg(), "lead"); got.Refused != "" {
 		t.Errorf("a later command kept the refused mark: %+v", got)
 	}
 	if _, live := project.InboxLive(cfg, "pj-lead"); !live {
 		t.Error("the refreshed inbox is not live")
 	}
-	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-2")...)...))
-	if got, _ := project.ReadInbox(f.Root, "lead"); !strings.Contains(got.Record, `"ANTIGRAVITY_CSRF_TOKEN":"tok-2"`) {
+	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-2")...)...), io.Discard)
+	if got, _ := project.ReadInbox(f.Cfg(), "lead"); !strings.Contains(got.Record, `"ANTIGRAVITY_CSRF_TOKEN":"tok-2"`) {
 		t.Errorf("a new token not recorded: %+v", got)
 	}
 
-	CommandRecord(f.Root, f.Env("OBOR_ROLE=lead"))
-	if got, _ := project.ReadInbox(f.Root, "lead"); !strings.Contains(got.Record, "tok-2") {
+	CommandRecord(f.Root, f.Env("OBOR_ROLE=lead"), io.Discard)
+	if got, _ := project.ReadInbox(f.Cfg(), "lead"); !strings.Contains(got.Record, "tok-2") {
 		t.Errorf("a command without the variables changed the record: %+v", got)
 	}
 	f.Config()
 	if err := os.Remove(inbox); err != nil {
 		t.Fatal(err)
 	}
-	CommandRecord(f.Root, f.Env("OBOR_ROLE=lead", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=t"))
+	CommandRecord(f.Root, f.Env("OBOR_ROLE=lead", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=t"), io.Discard)
 	if f.Exists(inbox) {
 		t.Error("a Claude lead's command wrote a record")
+	}
+}
+
+// An agy worker's obor command in a sandbox that refuses writes to the main checkout (agy's auto mode) records its
+// inbox in its lane's gitignored state dir instead, mode 0600, saying nothing: that record is the one read (live). A
+// later command outside the sandbox writes the main checkout's: the newer record is the one read. A record neither file
+// takes is one line on the command's stderr.
+func TestCommandRecordsASandboxedInbox(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, true)
+	f.Config(testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"}))
+	f.runs("gem")
+	refuse := func(root string) { // a file where the inbox dir would be: every write there fails, as the sandbox's
+		t.Helper()
+		if err := os.RemoveAll(filepath.Join(root, ".obor", "state", "inbox")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".obor", "state", "inbox"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	main, lane := project.InboxFile(f.Root, "L-01"), project.InboxFile(o1, "L-01")
+	if got := project.InboxFiles(f.Cfg(), "L-01"); !slices.Equal(got, []string{main, lane}) {
+		t.Fatalf("precondition: L-01's record files %q, want the main checkout's then the lane's", got)
+	}
+	refuse(f.Root)
+	var stderr bytes.Buffer
+	CommandRecord(o1, f.Env(agyVars("tok-1")...), &stderr)
+	if stderr.Len() != 0 {
+		t.Errorf("a record the lane took printed %q", stderr.String())
+	}
+	if fi, err := os.Stat(lane); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("the lane's record: %v, %v; want mode 0600", fi, err)
+	}
+	if in, err := project.ReadInbox(f.Cfg(), "L-01"); err != nil || !in.Sends || !strings.Contains(in.Record, `"tok-1"`) {
+		t.Errorf("the record read: %+v, %v; want the lane's, sent by the kind", in, err)
+	}
+	if _, live := project.InboxLive(f.Cfg(), "pj-l-01"); !live {
+		t.Error("the lane's record is not live")
+	}
+
+	if err := os.Remove(filepath.Join(f.Root, ".obor", "state", "inbox")); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(lane, old, old); err != nil {
+		t.Fatal(err)
+	}
+	CommandRecord(o1, f.Env(agyVars("tok-2")...), &stderr)
+	if !f.Exists(main) {
+		t.Fatal("precondition: a command outside the sandbox wrote no record in the main checkout")
+	}
+	if in, err := project.ReadInbox(f.Cfg(), "L-01"); err != nil || !strings.Contains(in.Record, `"tok-2"`) {
+		t.Errorf("the record read: %+v, %v; want the main checkout's newer one", in, err)
+	}
+
+	refuse(f.Root)
+	refuse(o1)
+	CommandRecord(o1, f.Env(agyVars("tok-3")...), &stderr)
+	want := "obor: inbox of L-01 not recorded (obor's lines to this session are typed until a command records it): " +
+		"mkdir " + filepath.Dir(main) + ": not a directory; mkdir " + filepath.Dir(lane) + ": not a directory\n"
+	if stderr.String() != want {
+		t.Errorf("a record no file took: stderr %q, want %q", stderr.String(), want)
 	}
 }

@@ -307,7 +307,7 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 	if _, ok := inboxed(pj.Root)("pj-lead"); ok {
 		t.Error("inboxed with no record")
 	}
-	if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: sock, Token: "tok-1", Session: "s1"}); err != nil {
+	if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Socket: sock, Token: "tok-1", Session: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if s, ok := inboxed(pj.Root)("pj-lead"); !ok || s != "s1" {
@@ -328,7 +328,7 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 		t.Fatal("the session read nothing")
 	}
 
-	if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: filepath.Join(dir, "gone.sock")}); err != nil {
+	if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Socket: filepath.Join(dir, "gone.sock")}); err != nil {
 		t.Fatal(err)
 	}
 	if began, err := p.Post(ctx, agents.Default, "pj-lead", line); began || err == nil {
@@ -367,7 +367,7 @@ func TestPosterPostsAPluginKindsRecord(t *testing.T) {
 		got <- string(b)
 	}()
 	rec := `{"OBOR_OPENCODE_INBOX":"` + sock + `"}`
-	if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: sock, Session: "ses_1", Record: rec}); err != nil {
+	if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Socket: sock, Session: "ses_1", Record: rec}); err != nil {
 		t.Fatal(err)
 	}
 	if began, err := (poster{pj.Root, testkit.Kinds()}).Post(context.Background(), "opencode", "pj-lead", "[obor other] hi"); !began || err != nil {
@@ -406,7 +406,7 @@ func TestPosterSendsWithAnAgyRecord(t *testing.T) {
 	record := func(exe string) string {
 		b, _ := json.Marshal(map[string]string{"ANTIGRAVITY_LS_ADDRESS": "localhost:5011", "ANTIGRAVITY_CSRF_TOKEN": "tok-1",
 			"ANTIGRAVITY_AGENTAPI_EXE": exe, "ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
-		if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Sends: true, Record: string(b)}); err != nil {
+		if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Sends: true, Record: string(b)}); err != nil {
 			t.Fatal(err)
 		}
 		return string(b)
@@ -433,12 +433,67 @@ func TestPosterSendsWithAnAgyRecord(t *testing.T) {
 	if began || err == nil || err.Error() != want {
 		t.Errorf("a refused send: began %v, %v; want not begun, %q", began, err, want)
 	}
-	in, err := project.ReadInbox(pj.Root, "lead")
+	in, err := project.ReadInbox(pj.Cfg(), "lead")
 	if err != nil || in.Record != rec || !strings.HasPrefix(in.Refused, "kind agy: deliver: agentapi send-message: exit 1") {
 		t.Errorf("the record after the refusal: %+v, %v; want it marked refused", in, err)
 	}
 	if _, live := project.InboxLive(cfg, "pj-lead"); live {
 		t.Error("a refused record is live")
+	}
+}
+
+// A sandboxed agy worker's record is in its lane's state dir (the main checkout refused the write): the poster reads
+// it there and sends with it, and a refused send marks that file's record refused, so the worker is not live (its
+// lines are typed) until a command records it again.
+func TestPosterReadsALaneRecord(t *testing.T) {
+	t.Parallel()
+	pj := testkit.NewPlain(t)
+	lane := pj.PlainLane("L-01", "task/T-1")
+	pj.Config()
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	exe := filepath.Join(dir, "agy")
+	body := "#!/bin/sh\nprintf '%s|' \"$@\" > " + ran + "\n[ -e " + filepath.Join(dir, "stale") + " ] || exit 0\n" +
+		"echo 'rpc error: code = Unauthenticated desc = invalid CSRF token'\nexit 1\n"
+	if err := os.WriteFile(exe, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]string{"ANTIGRAVITY_LS_ADDRESS": "localhost:5011", "ANTIGRAVITY_CSRF_TOKEN": "tok-1",
+		"ANTIGRAVITY_AGENTAPI_EXE": exe, "ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
+	b, _ = json.Marshal(project.Inbox{Sends: true, Record: string(b)})
+	f := project.InboxFile(lane, "L-01")
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := pj.Cfg()
+	if _, err := os.Stat(project.InboxFile(pj.Root, "L-01")); err == nil {
+		t.Fatal("precondition: a record in the main checkout")
+	}
+	if _, live := project.InboxLive(cfg, "pj-l-01"); !live {
+		t.Fatal("precondition: the lane's record is not live")
+	}
+	p := poster{pj.Root, testkit.Kinds()}
+	if began, err := p.Post(context.Background(), "agy", "pj-l-01", "[obor job T-1/1/work] hi"); !began || err != nil {
+		t.Fatalf("post: began %v, %v; want sent", began, err)
+	}
+	if b, err := os.ReadFile(ran); err != nil || string(b) != "agentapi|send-message|conv-1|[obor job T-1/1/work] hi|" {
+		t.Errorf("agy ran with %q, %v", b, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "stale"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if began, err := p.Post(context.Background(), "agy", "pj-l-01", "[obor job T-1/1/work] again"); began || err == nil {
+		t.Fatalf("a refused send: began %v, %v; want refused", began, err)
+	}
+	if in, err := project.ReadInbox(cfg, "L-01"); err != nil || !strings.Contains(in.Refused, "invalid CSRF token") {
+		t.Errorf("the lane's record after the refusal: %+v, %v; want it marked refused", in, err)
+	}
+	if _, live := project.InboxLive(cfg, "pj-l-01"); live {
+		t.Error("a refused lane record is live")
 	}
 }
 
@@ -490,7 +545,7 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 		!strings.Contains(err.Error(), "no session recorded for pj-l-01") || strings.Contains(err.Error(), "Claude") {
 		t.Errorf("no record: began %v, %v; want refused, \"no session recorded\" naming no product", began, err)
 	}
-	if err := project.WriteInbox(pj.Root, "L-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}); err != nil {
+	if err := project.WriteInbox(pj.Cfg(), "L-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{without, "pi"} {
@@ -548,7 +603,7 @@ func TestPosterKeepsProjectsWithOnePrefixApart(t *testing.T) {
 				got <- string(b)
 			}
 		}()
-		if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: sock, Token: name, Session: "s-" + name}); err != nil {
+		if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Socket: sock, Token: name, Session: "s-" + name}); err != nil {
 			t.Fatal(err)
 		}
 		sides = append(sides, side{pj.Root, got})

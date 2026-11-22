@@ -307,7 +307,7 @@ func (l *lab) agyPush(k agents.Kind, pane, sid, name string) {
 		if m := agyAskRE.FindString(l.screen(pane)); m != "" && asked == "" {
 			asked = m
 		}
-		r, err := project.ReadInbox(l.main, "L-01")
+		r, err := project.ReadInbox(l.config(), "L-01")
 		in = r
 		return err == nil && r.Sends
 	})

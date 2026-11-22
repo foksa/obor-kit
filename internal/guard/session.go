@@ -48,7 +48,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	}
 	if err != nil { // say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
-		record(repo.Root, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env, cfg.Kinds())
+		record(cfg, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env)
 		return Began{}, false
 	}
 	if len(unknown) > 0 {
@@ -109,7 +109,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		}
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
-	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env, cfg.Kinds())
+	record(cfg, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env)
 	pane, _ := project.PaneOf(cfg, env) // none: a session outside a pane, recorded without one
 	began := Began{Root: cfg.Root, Session: store.Session{Agent: agent, Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: pane, Lane: w.Role.Lane, Source: "SessionStart hook"}}
@@ -202,25 +202,25 @@ func laneKind(cfg *config.Config, lane string) string {
 	return ""
 }
 
-// record writes this session's inbox under its slot in the project at root (every agent,
-// role-free; none for a session that derives no agent name or holds no slot; obor serve posts the lead's lines
-// there, nothing is typed), as the bridge of the kind (of kinds, the project's) whose environment this is builds it
-// (Kind.InboxRecord); a
-// session with none (messaging off, no inbox kind) removes a stale record. The session itself is recorded by serve
-// alone (the session request), never in a file.
-func record(root, agent, slot, sessionID string, env project.Env, kinds agents.Kinds) {
+// record writes this session's inbox under its slot in cfg's project (every agent, role-free; none for a session that
+// derives no agent name or holds no slot; obor serve posts the lead's lines there, nothing is typed), as the bridge of
+// the kind (of the project's kinds) whose environment this is builds it (Kind.InboxRecord); a session with none
+// (messaging off, no inbox kind) removes a stale record. The session itself is recorded by serve alone (the session
+// request), never in a file.
+func record(cfg *config.Config, agent, slot, sessionID string, env project.Env) {
 	if !recordable(agent) || slot == "" {
 		return
 	}
+	kinds := cfg.Kinds()
 	for _, name := range kinds.Names() {
 		k, _ := kinds.Lookup(name)
 		if in, ok := inboxOf(k, k.InboxRecord(env.Get)); ok {
 			in.Session = sessionID
-			_ = project.WriteInbox(root, slot, in)
+			_ = project.WriteInbox(cfg, slot, in)
 			return
 		}
 	}
-	_ = os.Remove(project.InboxFile(root, slot))
+	project.RemoveInbox(cfg, slot)
 }
 
 // inboxOf is the inbox record of kind k's record b (nil: none): Claude's names its socket (and token) itself; a plugin
@@ -253,9 +253,11 @@ func inboxOf(k agents.Kind, b []byte) (project.Inbox, bool) {
 // as the kind that agent runs as (sessionKind) builds it from env (Kind.InboxRecord): a plugin kind's record (its
 // manifest's inbox_record variables) only; a record that names its socket itself (Claude's) is its SessionStart
 // hook's alone, with the session id serve checks it by. None in env: nothing is written or removed (the SessionStart
-// hook owns removal). A record of the same inbox keeps its session id; an unchanged one is not written again.
-// Silent: the command runs as it would without it.
-func CommandRecord(cwd string, env project.Env) {
+// hook owns removal). A record of the same inbox keeps its session id; an unchanged one is not written again. Written
+// where the session can write (project.WriteInbox: the main checkout, else a sandboxed session's own worktree); a
+// record no file took is one line on stderr (the agent sees it: its lines stay typed until a command records it).
+// Otherwise silent: the command runs as it would without it.
+func CommandRecord(cwd string, env project.Env, stderr io.Writer) {
 	repo, cfg, _, err := loadAt(cwd)
 	if repo == nil || err != nil {
 		return
@@ -273,7 +275,7 @@ func CommandRecord(cwd string, env project.Env) {
 	if !ok || in.Record == "" {
 		return
 	}
-	if old, err := project.ReadInbox(cfg.Root, slot); err == nil {
+	if old, err := project.ReadInbox(cfg, slot); err == nil {
 		if old.Socket == in.Socket && old.Token == in.Token && old.Record == in.Record && old.Sends == in.Sends {
 			in.Session = old.Session
 		}
@@ -281,7 +283,9 @@ func CommandRecord(cwd string, env project.Env) {
 			return
 		}
 	}
-	_ = project.WriteInbox(cfg.Root, slot, in)
+	if err := project.WriteInbox(cfg, slot, in); err != nil {
+		fmt.Fprintf(stderr, "obor: inbox of %s not recorded (obor's lines to this session are typed until a command records it): %v\n", slot, err)
+	}
 }
 
 // recordable: agent is a name records are kept under (not empty, no path).

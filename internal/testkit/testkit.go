@@ -481,6 +481,16 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 	})
 }
 
+// Cfg is the project's config as it is on disk now (config.Load); a config that does not load fails the test.
+func (p *Project) Cfg() *config.Config {
+	p.t.Helper()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return cfg
+}
+
 // fixtureModels is the fixture config's agents.models: each of config.UpgradeModels, name → {kind, id}.
 func fixtureModels() map[string]any {
 	out := map[string]any{}
