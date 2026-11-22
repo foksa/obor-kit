@@ -77,6 +77,9 @@ type fx struct {
 	// sessions: the recorded sessions the launcher reads (nil: serve's store); reported: the sessions it reported.
 	sessions map[string]store.Session
 	reported []store.Session
+	// serve: each report the launcher makes lands in serve's store too, as serve records it (Started now when the
+	// report names none; the store's fold keeps one record per session): a later launcher reads it.
+	serve bool
 	// started: the agents whose confirmed start the launcher reported (Started); startErr: what that report returns.
 	started  []string
 	startErr error
@@ -265,6 +268,12 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 			x.mu.Lock()
 			x.reported = append(x.reported, s)
 			x.mu.Unlock()
+			if x.serve && x.reportErr == nil {
+				if s.Started == 0 {
+					s.Started = time.Now().Unix()
+				}
+				recordSessions(x.t, x.p.Root, s)
+			}
 			if x.reports != nil {
 				x.reports <- s
 			}
@@ -414,13 +423,14 @@ func hasParts(line, query string) bool {
 
 func (x *fx) startCall() string { return strings.Join(x.calls("Start"), "\n") }
 
-// namedSession is the session id the launcher recorded before its start for a kind whose sessions obor names;
+// namedSession is the session id the launcher recorded before its start for a kind whose sessions obor names (its
+// report carries the start's time, chosenSession; a resume's report names none: serve stamps it);
 // "" when none was reported.
 func (x *fx) namedSession() string {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	for i := len(x.reported) - 1; i >= 0; i-- {
-		if x.reported[i].Kind == "claude" && x.reported[i].Transcript == "" {
+		if x.reported[i].Kind == "claude" && x.reported[i].Transcript == "" && x.reported[i].Started != 0 {
 			return x.reported[i].ID
 		}
 	}
@@ -3120,24 +3130,12 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 	})
 }
 
-// The recorded session wins over herdr's live one for the pane, which is only said; herdr's is
-// resumed when none is recorded. The record is never rewritten from herdr.
+// The recorded session is the agent's newest of its own, and a record whose transcript is gone starts fresh whatever
+// herdr's live session; the record is never rewritten from herdr. (The record over herdr's live session, herdr's when
+// none is recorded and --fresh: TestRestartSessionDecision's rows.)
 func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Parallel()
 	record := func(x *fx) string { return x.recorded("pj-l-01") + "\n" }
-	t.Run("record == herdr: resumes it, no warning", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-1")
-		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-1" })
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-1")
-		if !ok || strings.Contains(out, "warning:") {
-			t.Errorf("no warning: %q", out)
-		}
-		contains(t, x.startCall(), "--resume sid-1", "resumed")
-	})
 	t.Run("two of its own records, a newer one of another agent: the newest of its own resumed", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -3155,22 +3153,6 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		}
 		contains(t, x.startCall(), "--resume sid-2", "the newest of its own resumed")
 	})
-	t.Run("record != herdr: resumes the record, warns, record kept", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-rec")
-		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		restarted(t, last(out), "pj-l-01", "w1:p3", "sid-rec")
-		if !ok {
-			t.Fatal(out)
-		}
-		contains(t, out, "warning: the terminal reports session sid-live for pane w1:p3, the recorded session is sid-rec: resuming sid-rec", "warned")
-		contains(t, out, "resuming sid-rec (from record)", "source")
-		contains(t, x.startCall(), "--resume sid-rec", "the record resumed")
-		eq(t, record(x), "sid-rec\n", "record kept")
-	})
 	t.Run("the record's transcript is gone, herdr set: fresh, said, the record kept", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -3183,53 +3165,6 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		}
 		contains(t, out, "recorded session sid-old has no transcript (never prompted): starting fresh", "said")
 		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
-		eq(t, record(x), "sid-old\n", "record kept")
-	})
-	t.Run("no record, herdr set: never herdr's for claude", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-h" })
-		if x.recorded("pj-l-01") != "" {
-			t.Fatal("precondition: no record")
-		}
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		if ok {
-			t.Fatal(out)
-		}
-		eq(t, last(out), "FAIL no session to resume for pj-l-01 (pass --fresh to start a new one)", "no source but obor's")
-		lacks(t, out, "from herdr", "herdr's session not adopted")
-		if x.startCall() != "" || len(x.calls("Write")) > 0 {
-			t.Errorf("nothing typed or started")
-		}
-	})
-	t.Run("no record, herdr set: herdr for codex", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.shell("w1:p7", "pj-rev", "")
-		x.f.Set("w1:p7", func(p *mpane) { p.Session = "sid-h" })
-		if x.recorded("pj-rev") != "" {
-			t.Fatal("precondition: no record")
-		}
-		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
-		restarted(t, last(out), "pj-rev", "w1:p7", "sid-h")
-		if !ok || strings.Contains(out, "warning:") {
-			t.Errorf("no warning: %q", out)
-		}
-		contains(t, out, "resuming sid-h (from herdr)", "source")
-	})
-	t.Run("--fresh: no warning, record kept", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-old")
-		x.shell("w1:p3", "pj-l-01", "")
-		x.f.Set("w1:p3", func(p *mpane) { p.Session = "sid-live" })
-		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-		restarted(t, last(out), "pj-l-01", "w1:p3", "new")
-		if strings.Contains(out, "warning: recorded session") {
-			t.Errorf("no warning: %q", out)
-		}
-		lacks(t, x.startCall(), "--resume", "a new session")
 		eq(t, record(x), "sid-old\n", "record kept")
 	})
 }
@@ -3571,8 +3506,10 @@ func TestStartNamesItsSession(t *testing.T) {
 		}
 		contains(t, x.startCall(), "--resume sid-1", "the record")
 		lacks(t, x.startCall(), "--session-id", "a resume names no session")
-		if len(x.reported) != 0 { // its SessionStart hook reports the resumed session, as it does a fresh one
-			t.Errorf("the start reports a session itself: %+v", x.reported)
+		// The resumed session is recorded as every resume's (sessionOf's record): a repeat of its record, which serve
+		// keeps as it is; nothing named before the start.
+		if len(x.reported) != 1 || x.reported[0].ID != "sid-1" || x.reported[0].Kind != "claude" || x.reported[0].Started != 0 {
+			t.Errorf("reported %+v, want the resumed sid-1 once, after the start", x.reported)
 		}
 	})
 	t.Run("a refused record: said, the start keeps its id", func(t *testing.T) {

@@ -278,10 +278,12 @@ func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane st
 	})
 }
 
-// reportResume reports the session a resumed start runs as its agent's session: a repeat of its record (serve records
-// nothing of it and answers the same), which tells serve that the process running the agent is this start's. serve ends
-// the agent's line naming the release of the process the start replaced. A report that fails says so: serve keeps that
-// line until a session request or its next start.
+// reportResume records the session a resumed start runs (s.Resume) as its agent's session, with the start's kind and
+// pane: a session the start adopted (herdr's live one) becomes the agent's current session, the record a restart, the
+// keep-lane identity and the context readers read next; a repeat of its record records nothing new (serve answers the
+// same). It tells serve that the process running the agent is this start's: serve ends the agent's line naming the
+// release of the process the start replaced. A report that fails says so: serve keeps that line until a session
+// request or its next start, and the session stays unrecorded.
 func (l *Launcher) reportResume(ctx context.Context, s Start) {
 	rec := l.withTask(store.Session{Agent: s.Agent, Kind: s.Kind, ID: s.Resume, Pane: s.Pane, Lane: s.Lane,
 		Source: "launch"})

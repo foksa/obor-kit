@@ -287,10 +287,8 @@ type target struct {
 	known bool // the config knows it (lane, role, lane cwd)
 	info  config.AgentInfo
 	sid   string // recorded session id
-	// sidKind is the recorded session's kind ("": not recorded); dispatched: the type is a dispatch's (the launch's or
-	// the lane row's), not the configured one.
-	sidKind    string
-	dispatched bool
+	// sidKind is the recorded session's kind ("": not recorded).
+	sidKind string
 	// transcript is the recorded session's transcript, as the session reported it (Claude's SessionStart hook);
 	// "" when the record names none (a start obor named, before its hook ran).
 	transcript string
@@ -419,7 +417,7 @@ func (l *Launcher) dispatchType(t *target, typ string) {
 		}
 	}
 	if typ != "" {
-		t.info.Type, t.info.Effort, t.dispatched = typ, effort, true
+		t.info.Type, t.info.Effort = typ, effort
 	}
 }
 
@@ -561,10 +559,11 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			return port.Started{}, err
 		}
 	}
-	sid, src, err := l.sessionOf(t, req)
+	resumed, err := l.sessionOf(t, req)
 	if err != nil {
 		return port.Started{}, err
 	}
+	sid, src := resumed.sid, resumed.src
 	// The caller's own pane: schedule a detached run; that run waited for the agent to go idle (waitScheduled). A
 	// NoStop start stops nothing, so it has nothing to schedule (otherProgram refuses the pane its caller holds).
 	if !placing && !req.NoStop && l.ownPane(t) && !waited {
@@ -613,7 +612,8 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	// pane just placed (its shell may still be coming up): a pane at a shell, or one running a person's program, is
 	// setEnv's to refuse.
 	st := Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Session: t.session, Prompt: first.prompt, Again: req.Again, Fresh: req.Fresh, Lane: t.info.Lane, Shell: l.shellWait(),
+		Resume: sid, Record: resumed.record, Session: t.session, Prompt: first.prompt, Again: req.Again, Fresh: req.Fresh,
+		Lane: t.info.Lane, Shell: l.shellWait(),
 		Await: t.entry.Agent != "" || placing,
 		Env:   func(ctx context.Context) error { return l.setEnv(ctx, t) },
 		Whose: AgentEnv{Agent: t.agent, Role: t.info.Role, Lane: t.info.Lane, Cwd: t.info.Cwd, Vars: t.env}}
@@ -710,69 +710,76 @@ func (l *Launcher) panesOnly(ctx context.Context, req Request) (port.Started, er
 // session gets it typed once up, as a job's wake.
 func carries(req Request) bool { return !req.Fresh && req.Prompt != "" }
 
-// sessionOf is the start's session decision, made before anything is stopped: the session to resume (sid; "": a
-// fresh start) and where it came from (src: record or herdr). None to resume, with neither req.Fresh nor a first
-// prompt the request carries (carries), is a Fail. A kind that resumes nothing (agents.Caps.Resume false) always
-// starts fresh: serve records its session, but there is nothing obor resumes. The recorded session wins:
-// herdr's live one for the pane is a cross-check, said when it differs. A kind whose sessions obor names itself
-// (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the recorded id, and a session with no record
-// is a new one. A recorded session of another kind than the start's never wins: herdr's live one of the start's kind,
-// else a new session.
-func (l *Launcher) sessionOf(t *target, req Request) (sid, src string, err error) {
-	sid, src = t.sid, "record"
-	if !l.Cfg.Kinds().Resumes(t.kind) {
+// resumption is the start's session decision (sessionOf): the session the start resumes (sid; "": a fresh start),
+// where it came from (src: "record" or "herdr"; "" for a fresh start), and record: the start records sid, with the
+// start's kind, as the agent's session once it runs (Start.Record; done).
+type resumption struct {
+	sid, src string
+	record   bool
+}
+
+// sessionOf is the start's session decision, made before anything is stopped: one rule over the agent's recorded
+// session, herdr's live session for its pane and the request, its rows in order:
+//   - a kind that resumes nothing (agents.Caps.Resume false): fresh, said when a session is recorded (serve records
+//     the session, but there is nothing obor resumes);
+//   - req.Fresh: fresh;
+//   - a record of this kind (or of no kind, an older record): it resumes; herdr's live session for the pane is a
+//     cross-check, said when it differs; a record whose transcript is gone (checkTranscript) is fresh, said;
+//   - a record of another kind (the agent ran another kind before, a dispatch of another type): never resumed; herdr's
+//     live session of this kind resumes (adopted), else a new session, said;
+//   - no record: herdr's live session when it is this kind's (herdr names this kind, or none) resumes (adopted), else
+//     none.
+//
+// A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the
+// recorded id, and a session with no record is a new one. Nothing recorded and nothing to adopt, with neither req.Fresh
+// nor a first prompt the request carries (carries), is a Fail; a session the rule puts aside (another kind's record, a
+// transcript gone) starts fresh, said. Every session the start resumes, recorded or adopted, is recorded with the start's kind once the agent runs (record): an adopted session becomes the agent's
+// current one whether or not its kind reports sessions or fires a start hook on resume (agy: neither), so the next
+// restart, the keep-lane identity and the context readers read it, not a stale record.
+func (l *Launcher) sessionOf(t *target, req Request) (resumption, error) {
+	kinds := l.Cfg.Kinds()
+	if !kinds.Resumes(t.kind) {
 		if t.sid != "" {
 			l.say("warning: no resume for kind %s: new session", t.kind)
 		}
-		return "", "", nil
-	}
-	// A recorded session of another kind (the agent ran another kind before) is not this kind's to resume: the
-	// terminal's live session of the pane when it is this kind's (and the kind's sessions are not obor's to name), else
-	// a new one.
-	if sid != "" && t.sidKind != "" && t.sidKind != t.kind {
-		if req.Fresh {
-			return "", src, nil
-		}
-		why := fmt.Sprintf("session %s is %s's, the type %s is %s's", sid, t.sidKind, t.info.Type, t.kind)
-		if live := t.entry.Session; live != "" && t.entry.Agent == t.kind && !l.Cfg.Kinds().NamedSession(t.kind) {
-			l.say("%s: resuming the terminal's %s", why, live)
-			return live, "herdr", nil
-		}
-		l.say("%s: new session", why)
-		return "", src, nil
-	}
-	if live := t.entry.Session; live != "" && !sameSid(live, sid) {
-		switch {
-		case sid != "" && !req.Fresh:
-			l.say("warning: the terminal reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
-				sid, sid)
-		case sid == "" && !l.Cfg.Kinds().NamedSession(t.kind):
-			sid, src = live, "herdr"
-		}
+		return resumption{}, nil
 	}
 	if req.Fresh {
-		sid = ""
+		return resumption{}, nil
 	}
-	fresh := false
-	// A dispatch's type of another kind than the session's (the lane's last task ran another kind): that
-	// session is not this kind's to resume, so a new one.
-	if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Agent}[src]; sid != "" && t.dispatched &&
-		was != "" && was != t.kind {
-		l.say("session %s is %s's, the type %s is %s's: new session", sid, was, t.info.Type, t.kind)
-		sid, fresh = "", true
-	}
-	if sid != "" && src == "record" {
-		if fresh, err = l.checkTranscript(t, sid); err != nil {
-			return "", "", err
+	live, adopts := t.entry.Session, !kinds.NamedSession(t.kind)
+	var r resumption
+	switch {
+	case t.sid != "" && (t.sidKind == "" || t.sidKind == t.kind): // this kind's record
+		if live != "" && !sameSid(live, t.sid) {
+			l.say("warning: the terminal reports session %s for pane %s, the recorded session is %s: resuming %s", live,
+				t.pane, t.sid, t.sid)
+		}
+		fresh, err := l.checkTranscript(t, t.sid)
+		if err != nil {
+			return resumption{}, err
 		}
 		if fresh {
-			sid = ""
+			return resumption{}, nil
 		}
+		r = resumption{sid: t.sid, src: "record"}
+	case t.sid != "": // another kind's record
+		why := fmt.Sprintf("session %s is %s's, the type %s is %s's", t.sid, t.sidKind, t.info.Type, t.kind)
+		if live == "" || t.entry.Agent != t.kind || !adopts {
+			l.say("%s: new session", why)
+			return resumption{}, nil
+		}
+		l.say("%s: resuming the terminal's %s", why, live)
+		r = resumption{sid: live, src: "herdr"}
+	case live != "" && adopts && (t.entry.Agent == t.kind || t.entry.Agent == ""): // no record: herdr's of this kind
+		r = resumption{sid: live, src: "herdr"}
+	case !carries(req):
+		return resumption{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
+	default:
+		return resumption{}, nil
 	}
-	if sid == "" && !req.Fresh && !fresh && !carries(req) {
-		return "", "", project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
-	}
-	return sid, src, nil
+	r.record = true
+	return r, nil
 }
 
 // opening is a start's first prompt decision (firstPrompt): the prompt its argv carries ("": none, a resume's), the

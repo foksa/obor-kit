@@ -95,7 +95,16 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // Handle is call's reply to req, as JSON; an error for a request that does not parse or names another version, or a
 // call this kind does not answer. A start that cannot be built is a reply with error, not an error.
-func Handle(call string, req []byte) ([]byte, error) {
+func Handle(call string, req []byte) ([]byte, error) { return handle(call, req, agyModels) }
+
+// HandleModels is Handle with models as agy's model list in place of `agy models` (the start's check reads it): an
+// in-process kind with a fixed list runs no agy (internal/testkit's).
+func HandleModels(models func() ([]byte, error)) func(call string, req []byte) ([]byte, error) {
+	return func(call string, req []byte) ([]byte, error) { return handle(call, req, models) }
+}
+
+// handle is Handle with models as the start's model list.
+func handle(call string, req []byte, models func() ([]byte, error)) ([]byte, error) {
 	var in request
 	if err := json.Unmarshal(req, &in); err != nil {
 		return nil, fmt.Errorf("malformed request: %v", err)
@@ -108,7 +117,7 @@ func Handle(call string, req []byte) ([]byte, error) {
 	case "describe":
 		reply = describe()
 	case "start":
-		reply = start(in, os.ReadFile, agyModels)
+		reply = start(in, os.ReadFile, models)
 	case "install":
 		reply = map[string]any{"mcp": map[string]any{"where": "project", "path": MCPFile,
 			"key": []string{"mcpServers", "obor"}, "entry": MCPEntry},

@@ -17,15 +17,15 @@ import (
 	"obor/internal/testkit"
 )
 
-// The session step: the session a start resumes and where it came from, or a fresh start, or the refusal of a start
-// with none to resume.
+// The session step's rows the launcher-level case table (TestRestartSessionDecision) does not hold: the session a
+// start resumes and where it came from, or a fresh start, or the refusal of a start with none to resume. A resume is
+// always recorded (record), a fresh start never.
 func TestLaunchSessionStep(t *testing.T) {
 	t.Parallel()
-	if k := testkit.Kinds(); !k.Resumes("opencode") || !k.Resumes("codex") || k.NamedSession("codex") || !k.NamedSession("claude") {
-		t.Fatal("precondition: opencode and codex resume sessions, codex does not name them, claude does")
+	if k := testkit.Kinds(); !k.Resumes("opencode") || !k.Resumes("claude") {
+		t.Fatal("precondition: opencode and claude resume sessions")
 	}
 	x := setup(t)
-	kept := x.transcript("sid-1")
 	gone := filepath.Join(x.claude, "projects", "-work-lane", "sid-gone.jsonl")
 	const noSession = "no session to resume for pj-l-01 (pass --fresh to start a new one)"
 	for _, c := range []struct {
@@ -36,37 +36,18 @@ func TestLaunchSessionStep(t *testing.T) {
 		fail     string // the refusal ("": none)
 		said     string // a line the step says ("": not checked)
 	}{
-		{name: "the recorded session resumes", tg: launch.Target{Kind: "claude", Sid: "sid-1", SidKind: "claude",
-			Transcript: kept}, sid: "sid-1", src: "record"},
-		{name: "fresh: none", tg: launch.Target{Kind: "claude", Sid: "sid-1", SidKind: "claude", Transcript: kept},
-			req: launch.Request{Fresh: true}, src: "record"},
 		{name: "none recorded, not fresh: refused", tg: launch.Target{Kind: "claude"}, fail: noSession},
 		{name: "none recorded, a first prompt carried: fresh", tg: launch.Target{Kind: "claude"},
-			req: launch.Request{Prompt: "go"}, src: "record"},
-		{name: "opencode: the recorded session resumes", tg: launch.Target{Kind: "opencode", Sid: "oc-1"},
-			sid: "oc-1", src: "record"},
-		{name: "codex: the terminal's session when none is recorded", tg: launch.Target{Kind: "codex", Live: "cx-9",
-			LiveKind: "codex"}, sid: "cx-9", src: "herdr"},
-		{name: "claude: never the terminal's", tg: launch.Target{Kind: "claude", Live: "sid-9", LiveKind: "claude"},
-			fail: noSession},
-		{name: "a dispatch of another kind: fresh", tg: launch.Target{Kind: "codex", Type: "luna", Sid: "sid-1",
-			SidKind: "claude", Dispatched: true}, src: "record",
-			said: "session sid-1 is claude's, the type luna is codex's: new session"},
-		{name: "another kind's record, the terminal's session of this kind: the terminal's", tg: launch.Target{Kind: "agy",
-			Type: "neon", Sid: "sid-1", SidKind: "claude", Live: "conv-9", LiveKind: "agy"}, sid: "conv-9", src: "herdr",
-			said: "session sid-1 is claude's, the type neon is agy's: resuming the terminal's conv-9"},
-		{name: "another kind's record, the terminal's of that kind: a new session", tg: launch.Target{Kind: "agy",
-			Type: "neon", Sid: "sid-1", SidKind: "claude", Live: "sid-1", LiveKind: "claude"}, src: "record",
-			said: "session sid-1 is claude's, the type neon is agy's: new session"},
-		{name: "an agy record, no terminal session (exited, pane gone): the record", tg: launch.Target{Kind: "agy",
-			Type: "neon", Sid: "conv-1", SidKind: "agy"}, sid: "conv-1", src: "record"},
+			req: launch.Request{Prompt: "go"}},
+		{name: "a record of no kind (an older record): this kind's, it resumes", tg: launch.Target{Kind: "opencode",
+			Sid: "oc-1"}, sid: "oc-1", src: "record"},
 		{name: "a claude session never prompted: fresh", tg: launch.Target{Kind: "claude", Sid: "sid-gone",
-			SidKind: "claude", Transcript: gone}, src: "record", said: "recorded session sid-gone has no transcript"},
+			SidKind: "claude", Transcript: gone}, said: "recorded session sid-gone has no transcript"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			c.tg.Agent, c.tg.Pane = "pj-l-01", "w1:p3"
 			var out bytes.Buffer
-			sid, src, err := x.launcher(&out).SessionOf(c.tg, c.req)
+			sid, src, record, err := x.launcher(&out).SessionOf(c.tg, c.req)
 			switch {
 			case c.fail != "":
 				if err == nil || err.Error() != c.fail {
@@ -78,6 +59,9 @@ func TestLaunchSessionStep(t *testing.T) {
 			}
 			if sid != c.sid || src != c.src {
 				t.Errorf("session %q from %q, want %q from %q", sid, src, c.sid, c.src)
+			}
+			if record != (c.sid != "") {
+				t.Errorf("record %v for session %q, want a resume recorded, a fresh start not", record, sid)
 			}
 			if c.said != "" && !strings.Contains(out.String(), c.said) {
 				t.Errorf("said %q, want %q in it", out.String(), c.said)
