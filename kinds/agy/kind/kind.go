@@ -268,16 +268,16 @@ func lead(in request) bool { return !in.TrimUser }
 // hooksStale is why the agy an obor project (root) starts in in.Dir runs without this kit's hooks: agy runs the hooks
 // file of the workspace it starts in, a linked worktree its own copy (docs/research/agy-probes.md P1), so the file read
 // is in.Dir's HooksFile (root's when in.Dir is empty or the root). It has no obor entry, or one that is not HooksEntry
-// (an older obor's: before T-1502 its PreToolUse matched three tools, so run_workflow and unknown tools missed obor), or
-// it is missing: whether agy falls back to another checkout's file when the workspace has none is not verified (P1
-// probed a worktree with its own copy), so none counts as stale. The fix named is that workspace's: the main
+// (another obor's: a PreToolUse matching only some tools lets the others miss obor), or it is missing: whether agy
+// falls back to another checkout's file when the workspace has none is not verified (P1 probed a worktree with its own
+// copy), so none counts as stale. The fix named is that workspace's: the main
 // checkout's obor setup agents and its commit; a lane's (its branch task/<task>) a rebase onto the integration branch
 // or the task redispatched; a role worktree's (detached) a move to the integration branch's head, then a start again;
 // a worktree's whose root file is stale too, the root's fix first. "": the entry is current, or root is no obor project
 // (none named). start refuses an agent's start for it and warns a lead's.
 func hooksStale(in request, read func(string) ([]byte, error)) string {
 	root := in.Root
-	if root == "" || !InProject(root) {
+	if root == "" || projectRoot(root) == "" {
 		return ""
 	}
 	setup := "run obor setup agents in the project, then commit " + HooksFile

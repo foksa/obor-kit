@@ -18,7 +18,11 @@
 // tool_input.mcp_server; a kind's transport maps its CLI's MCP tool to it) is denied for a lane-bound role (a worker,
 // the owner's drive agent) when it names a server the project's committed MCP config (agents.ProjectMCPFile) does not
 // declare; obor's own is always allowed. An agent CLI run headless (codex exec,
-// claude -p, opencode run) is denied for every role: agents run in herdr panes.
+// claude -p, opencode run) is denied for every role: agents run in herdr panes. A call a kind's transport says obor
+// cannot guard (tool_name "unguarded": tool_input.tool its CLI's tool, tool_input.why the transport's reason) is denied
+// with that reason for every session but a role-less one in the main checkout (the owner's own), which has no opinion.
+// A write naming no file and a Bash call with no command are denied for every session: a renamed CLI argument
+// arrives as an empty one, and a check of nothing would allow it.
 //
 // It is an accident guard: it does not try to stop a crafted bypass (an interpreter, a script file, an alias, a
 // variable set by an earlier call). The git pre-push hook is the backstop for pushes. Writes by an interpreter or a
@@ -98,6 +102,8 @@ func Run(input []byte, env project.Env, errw io.Writer) (code int, reason string
 		g.recordBackground()
 	} else if g.tool == "mcp" {
 		g.mcp()
+	} else if g.tool == "unguarded" {
+		g.unguarded()
 	} else {
 		g.edit()
 	}
@@ -128,6 +134,8 @@ type event struct {
 		RunInBackground bool   `json:"run_in_background"`
 		Description     string `json:"description"`
 		MCPServer       string `json:"mcp_server"`
+		Tool            string `json:"tool"` // an unguarded call's: the CLI's tool
+		Why             string `json:"why"`  // an unguarded call's: why obor cannot guard it (the transport's words)
 	} `json:"tool_input"`
 }
 
@@ -135,6 +143,7 @@ type guard struct {
 	env                    project.Env
 	tool, cwd, cmd, target string
 	mcpServer              string // an mcp call's server name (tool_input.mcp_server)
+	cliTool, why           string // an unguarded call's CLI tool and the transport's reason (tool_input.tool, .why)
 	background             bool   // a Bash call run in the background (run_in_background)
 	description, session   string // the Bash call's description, the hook's session id
 	repo                   *project.Repo
@@ -206,13 +215,13 @@ func load(input []byte, env project.Env) *guard {
 		return nil
 	}
 	switch ev.ToolName {
-	case "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "mcp":
+	case "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "mcp", "unguarded":
 	default:
 		return nil
 	}
 	g := &guard{env: env, tool: ev.ToolName, cwd: ev.Cwd, cmd: ev.ToolInput.Command, target: ev.ToolInput.FilePath,
 		mcpServer: ev.ToolInput.MCPServer, background: ev.ToolInput.RunInBackground, description: ev.ToolInput.Description,
-		session: ev.SessionID}
+		session: ev.SessionID, cliTool: ev.ToolInput.Tool, why: ev.ToolInput.Why}
 	if g.target == "" {
 		g.target = ev.ToolInput.NotebookPath
 	}
@@ -573,12 +582,33 @@ func (g *guard) projectServers() map[string]bool {
 	return servers
 }
 
-// edit guards Edit / Write / MultiEdit / NotebookEdit.
-func (g *guard) edit() {
-	if !g.restricted && !profiled(g.writeProfile()) {
+// unguarded decides a call the kind's transport cannot hand the guard (tool_name "unguarded"): a deny with the
+// transport's reason for every session but a role-less one in the main checkout (the owner's own agent), which has no
+// opinion. A reason the transport left empty is denied naming the tool.
+func (g *guard) unguarded() {
+	if g.role == "none" && g.top == g.root {
 		return
 	}
+	if strings.TrimSpace(g.why) == "" {
+		deny("tool " + g.cliTool + " is one obor cannot guard, and its transport gives no reason (tool_input.why is empty)")
+	}
+	deny(g.why)
+}
+
+// edit guards Edit / Write / MultiEdit / NotebookEdit: a call naming no file is denied for every session.
+func (g *guard) edit() {
 	if g.target == "" {
+		arg := "file_path"
+		if g.tool == "NotebookEdit" {
+			arg = "notebook_path"
+		}
+		a := "a "
+		if strings.HasPrefix(g.tool, "Edit") {
+			a = "an "
+		}
+		deny(a + g.tool + " call naming no file (tool_input." + arg + " is empty): obor cannot check a write to nothing")
+	}
+	if !g.restricted && !profiled(g.writeProfile()) {
 		return
 	}
 	p, ok := g.phys(g.target, g.cwd)
@@ -614,8 +644,13 @@ func otherProject(p string) string {
 	}
 }
 
-// bash guards a Bash command (shell.go).
-func (g *guard) bash() { g.script(g.cmd, g.cwd, 0) }
+// bash guards a Bash command (shell.go): a call with no command is denied for every session.
+func (g *guard) bash() {
+	if strings.TrimSpace(g.cmd) == "" {
+		deny("a Bash call with no command (tool_input.command is empty): obor cannot check a command it cannot read")
+	}
+	g.script(g.cmd, g.cwd, 0)
+}
 
 // recordBackground records an allowed Bash call run in the background: its description and command with the
 // agent, pane and session, so obor status and web show the live process under its description

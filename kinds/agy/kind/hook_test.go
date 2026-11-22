@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"obor/internal/project"
 	"obor/kinds/agy/kind"
 )
 
@@ -225,7 +227,8 @@ func TestHookOutsideProject(t *testing.T) {
 }
 
 // InProject: a dir under a checkout holding .obor/config.json; a linked worktree whose main checkout holds it (the
-// worktree's .git file, its gitdir's commondir), though the worktree has no config of its own; not a dir of no project.
+// worktree's .git file, its gitdir's commondir), though the worktree has no config of its own; not a dir of no project,
+// nor of a stopped one.
 func TestInProject(t *testing.T) {
 	base := t.TempDir()
 	main, lane, other := filepath.Join(base, "main"), filepath.Join(base, "wt", "L-01"), filepath.Join(base, "other")
@@ -252,6 +255,28 @@ func TestInProject(t *testing.T) {
 		if got := kind.InProject(dir); got != want {
 			t.Errorf("InProject(%q) = %v, want %v", dir, got, want)
 		}
+	}
+
+	// A stopped project (obor stop's marker, project.StoppedFile) is no project: no event reaches obor hook.
+	tool := func() int {
+		var runs []ran
+		ev := `{"hookEventName": "PreToolUse", "cwd": ` + mustJSON(lane) + `, "toolCall": {"name": "run_workflow"}}`
+		kind.Hook([]byte(ev), lane, fake(&runs, "", "", 2, nil), kind.InProject, &bytes.Buffer{})
+		return len(runs)
+	}
+	if n := tool(); n != 1 {
+		t.Fatalf("precondition: a running project's unguarded call ran obor hook %d times, want 1", n)
+	}
+	if err := project.WriteStopMarker(main, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{main, lane, filepath.Join(lane, "pkg")} {
+		if kind.InProject(dir) {
+			t.Errorf("InProject(%q) in a stopped project = true, want false", dir)
+		}
+	}
+	if n := tool(); n != 0 {
+		t.Errorf("a stopped project's unguarded call ran obor hook %d times, want none", n)
 	}
 }
 
@@ -300,51 +325,63 @@ func TestCommittedHooksFile(t *testing.T) {
 }
 
 // Every PreToolUse in a project goes by the transport's table, with obor hook answering deny (exit 2) to whatever it
-// is asked: run_command, write_file, edit_file and the three MCP tools run it (its deny comes back); the tools that
-// only read, talk, define or list subagents are no opinion (ask), obor not run; run_workflow and swarm are denied as a
-// workflow script, invoke_subagent as a subagent (its session cannot be told from the agent's), a tool the table does
-// not know (or no name) denied naming it, obor not run either.
+// is asked: run_command, write_file, edit_file and the three MCP tools run it as the guard's tools (its deny comes
+// back); the tools that only read, talk, define or list subagents are no opinion (ask), obor not run; run_workflow and
+// swarm (a workflow script), invoke_subagent (a subagent: its session cannot be told from the agent's) and a tool the
+// table does not know (or no name, or no toolCall at all) run it as unguarded, the tool's name and the transport's
+// reason in tool_input, and the guard's answer comes back.
 func TestHookToolTable(t *testing.T) {
 	const workflow = "obor cannot guard a workflow script; run commands with run_command"
 	const subagent = "obor agents run no agy subagents: their sessions cannot be told from the agent's"
-	unknown := func(name string) map[string]any {
-		return map[string]any{"decision": "deny", "reason": "obor's agy transport does not know " + name +
-			"; a new agy tool needs a row in kinds/agy/kind/hook.go"}
-	}
 	guarded := map[string]any{"decision": "deny", "reason": "obor: denied by the guard"}
 	ask := map[string]any{"decision": "ask"}
+	unknown := func(name string) string { return "obor has no rule for agy tool " + name + ": update obor" }
 	for _, c := range []struct {
-		tool string
-		runs int
-		want map[string]any
+		tool, why string // why: an unguarded tool's reason ("": a tool the guard checks or one that only reads)
+		runs      int
+		want      map[string]any
 	}{
-		{"run_command", 1, guarded}, {"write_file", 1, guarded}, {"edit_file", 1, guarded},
-		{"call_mcp_tool", 1, guarded}, {"list_resources", 1, guarded}, {"read_resource", 1, guarded},
-		{"read_file", 0, ask}, {"search_web", 0, ask},
-		{"ask_question", 0, ask}, {"manage_task", 0, ask}, {"manage_subagents", 0, ask}, {"define_subagent", 0, ask},
-		{"schedule", 0, ask}, {"send_message", 0, ask}, {"finish", 0, ask},
-		{"invoke_subagent", 0, map[string]any{"decision": "deny", "reason": subagent}},
-		{"run_workflow", 0, map[string]any{"decision": "deny", "reason": workflow}},
-		{"swarm", 0, map[string]any{"decision": "deny", "reason": workflow}},
-		{"browser_click", 0, unknown("browser_click")},
-		{"Run_Command", 0, unknown("Run_Command")},
-		{"", 0, unknown("a tool call with no name")},
+		{"run_command", "", 1, guarded}, {"write_file", "", 1, guarded}, {"edit_file", "", 1, guarded},
+		{"call_mcp_tool", "", 1, guarded}, {"list_resources", "", 1, guarded}, {"read_resource", "", 1, guarded},
+		{"read_file", "", 0, ask}, {"search_web", "", 0, ask},
+		{"ask_question", "", 0, ask}, {"manage_task", "", 0, ask}, {"manage_subagents", "", 0, ask},
+		{"define_subagent", "", 0, ask}, {"schedule", "", 0, ask}, {"send_message", "", 0, ask}, {"finish", "", 0, ask},
+		{"invoke_subagent", subagent, 1, guarded},
+		{"run_workflow", workflow, 1, guarded},
+		{"swarm", workflow, 1, guarded},
+		{"browser_click", unknown("browser_click"), 1, guarded},
+		{"Run_Command", unknown("Run_Command"), 1, guarded},
+		{"", "obor has no rule for an agy tool call naming no tool: update obor", 1, guarded},
 	} {
 		var runs []ran
 		in := `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": ` + mustJSON(c.tool) +
 			`, "args": {"CommandLine": "ls", "Path": "/p/wt/L-01/a", "Script": "import os", "ServerName": "probe-a"}}}`
 		got, _ := hook(t, in, fake(&runs, "", "obor: denied by the guard\n", 2, nil))
 		if len(runs) != c.runs || (c.runs == 1 && runs[0].name != "pre-tool-use") {
-			t.Errorf("%q: obor hook ran %+v, want %d run(s) of pre-tool-use", c.tool, runs, c.runs)
+			t.Fatalf("%q: obor hook ran %+v, want %d run(s) of pre-tool-use", c.tool, runs, c.runs)
+		}
+		if c.why != "" {
+			if ev := runs[0].event; ev["tool_name"] != "unguarded" ||
+				!reflect.DeepEqual(ev["tool_input"], map[string]any{"tool": c.tool, "why": c.why}) {
+				t.Errorf("%q: the guard got %v, want tool_name unguarded with tool %q and why %q", c.tool, ev, c.tool, c.why)
+			}
+		} else if c.runs == 1 && runs[0].event["tool_name"] == "unguarded" {
+			t.Errorf("%q: sent as unguarded, want the guard's own tool", c.tool)
 		}
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%q: the answer = %v, want %v", c.tool, got, c.want)
 		}
 	}
-	// No tool event at all (agy sends PreToolUse with no toolCall): a deny, never the guard's allow.
+	// The guard's no opinion on an unguarded call (the owner's own session) comes back as ask, never allow.
 	var runs []ran
-	if got, _ := hook(t, `{"hookEventName": "PreToolUse", `+common+`}`, fake(&runs, "", "", 0, nil)); len(runs) != 0 ||
-		!reflect.DeepEqual(got, unknown("a tool call with no name")) {
-		t.Errorf("a PreToolUse with no toolCall: ran %d, answered %v; want a deny", len(runs), got)
+	in := `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "run_workflow"}}`
+	if got, _ := hook(t, in, fake(&runs, "", "", 0, nil)); len(runs) != 1 || !reflect.DeepEqual(got, ask) {
+		t.Errorf("run_workflow, the guard allowing: ran %d, answered %v; want one run and ask", len(runs), got)
+	}
+	// No tool event at all (agy sends PreToolUse with no toolCall): unguarded, naming no tool.
+	runs = nil
+	if got, _ := hook(t, `{"hookEventName": "PreToolUse", `+common+`}`, fake(&runs, "", "obor: denied\n", 2, nil)); len(runs) != 1 ||
+		runs[0].event["tool_name"] != "unguarded" || !reflect.DeepEqual(got, map[string]any{"decision": "deny", "reason": "obor: denied"}) {
+		t.Errorf("a PreToolUse with no toolCall: ran %+v, answered %v; want one unguarded run and its deny", runs, got)
 	}
 }

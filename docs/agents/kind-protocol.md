@@ -211,7 +211,7 @@ Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unrea
 
 | `obor hook` | The event fields it reads | The answer |
 |---|---|---|
-| `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `mcp`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description`, `tool_input.mcp_server` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
+| `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `mcp`, `unguarded`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description`, `tool_input.mcp_server`, `tool_input.tool`, `tool_input.why` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
 | `session-start` | `cwd`, `session_id`, `transcript_path`, `agent_kind` (a kind's transport names its kind: the session's kind when the config knows it, else the kind the agent runs as) | obor's context lines on stdout (role, lane, task, the spec's protected files, the hooks line, the role text; a `WARN` line for unknown config keys, or the one line of a config that does not load), nothing else; with a session id, the session is recorded and reported to serve with its transcript, its inbox record written and a plugin kind's marker |
 | `user-prompt-submit` | `cwd`, `session_id`, `transcript_path`, `prompt`, the origin fields `origin` (a string or `{"kind": …}`), `turn_origin`/`turnOrigin`, `prompt_source`/`promptSource` | one UserPromptSubmit context object on stdout, `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":…}}`: the lead's queued lines when no live inbox takes them and `hook_answers` (asked from serve, which records them as delivered) and its handoff reminder, or a worker's wrong-tab guard; nothing when neither applies; a worker's or role agent's turn is reported to serve as begun |
 | `stop` | `cwd`, `session_id`, `transcript_path`, `stop_hook_active` (only `true` counts), `background_tasks`, each with its `status` (`running` counts) | `{"decision":"block","reason":…}` on stdout (a background run this session started still running, a worker before its `task_done`, or the lead's queued lines when no live inbox takes them and `hook_answers`, not within an active stop loop: asked from serve, which records them as delivered), or nothing; a worker's or role agent's turn is reported to serve as ended |
@@ -224,6 +224,18 @@ worker, `obor drive` — any server the project does not declare, and a call tha
 the project's committed `.agents/mcp_config.json` (read from the main checkout; `obor`'s always among them), so obor
 lanes use the project's MCP servers only (`.agents/mcp_config.json`; owner 11-22); a missing or unreadable file allows
 only `obor`. A lead's and a role agent's call: no opinion.
+
+A CLI's tool call that obor cannot guard is `tool_name` `unguarded`, with the CLI's tool in `tool_input.tool` and why
+obor cannot guard it in `tool_input.why`: a transport sends it for a tool whose effects no hook sees (agy's
+`run_workflow` and `swarm`, a Python script run with no hook) or whose session cannot be told from the agent's (agy's
+`invoke_subagent`), and for a tool it has no row for ("obor has no rule for agy tool <X>: update obor"). Which tools
+those are and why are the CLI's facts, so they stay in the transport; the decision is the guard's: a deny with
+`tool_input.why` for every session but a role-less one in the main checkout (the owner's own agent), which has no
+opinion. In a stopped project (`obor stop`) no hook loads: a transport runs none (agy's reads `.obor/state/stopped`).
+
+A write naming no file (an empty `tool_input.file_path`, or `notebook_path` for `NotebookEdit`) and a `Bash` call with
+an empty `tool_input.command` are denied for every session, naming the missing argument: a renamed CLI argument
+arrives as an empty one.
 
 ## Not covered
 

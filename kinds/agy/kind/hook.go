@@ -20,8 +20,9 @@ import (
 // The hook transport (docs/agents/kind-protocol.md "Hook transport"): the project's committed HooksFile runs
 // `obor kind agy hook` for each of agy's events, which execs this binary's `hook` call with the event on stdin. It
 // rewrites agy's event as Claude Code's, runs `obor hook <name>` and rewrites the answer as agy's
-// (docs/research/agent-kinds-advice.md §1.6). No obor rule lives here: the guard, the session record, the context and
-// the stop are obor hook's.
+// (docs/research/agent-kinds-advice.md §1.6). No obor rule lives here: the table below holds agy's facts (which tool
+// the guard can check, which only reads, which obor cannot guard and why), and obor hook decides every call it does
+// not pass: the guard, the session record, the context and the stop are obor hook's.
 //
 //	SessionStart                       → session-start; its context lines → injectSteps (a system message)
 //	PreToolUse run_command             → pre-tool-use, Bash (args.CommandLine → command; args.Cwd → a cd before it;
@@ -30,8 +31,10 @@ import (
 //	                                     a deny → {"decision":"deny","reason":…}; an allow → {"decision":"ask"}
 //	PreToolUse call_mcp_tool / list_resources / read_resource
 //	                                   → pre-tool-use, mcp (args.ServerName → mcp_server)
-//	PreToolUse, any other tool         → tools' row: no opinion ({"decision":"ask"}) or a deny with its reason; a tool
-//	                                     with no row is a deny naming it
+//	PreToolUse, a tool that only reads → no opinion ({"decision":"ask"}), obor not run
+//	PreToolUse, a tool obor cannot guard, or one with no row
+//	                                   → pre-tool-use, unguarded (the tool's name → tool; the row's reason, or
+//	                                     "obor has no rule for agy tool <X>: update obor" → why)
 //	PreInvocation, invocationNum 0     → user-prompt-submit (lastUserInput → prompt); its context → injectSteps
 //	Stop                               → stop (executionNum > 0 → stop_hook_active; fullyIdle false → a running
 //	                                     background task); a block → {"decision":"continue","reason":…}
@@ -40,7 +43,8 @@ import (
 // agy denies a tool call whose hook answers nothing, exits non-zero or takes its 30 s (docs/research/agy-probes.md
 // P3), so the transport always answers, exit 0: obor hook pre-tool-use failing (obor not found, a non-zero exit but
 // its denial, no answer within HookTimeout) is a deny with the reason; any other hook failing is no opinion ({}).
-// Outside an obor project every event is no opinion (a tool call: ask) and obor is not run.
+// Outside an obor project, or in a stopped one (obor stop), every event is no opinion (a tool call: ask) and obor is
+// not run.
 
 // HooksFile is the project file that runs obor's hooks for every agy session started in the project (or a worktree of
 // it), relative to its root: agy's workspace hooks, loaded with no prompt in a trusted folder.
@@ -75,10 +79,10 @@ func HooksEntry() map[string]any {
 type toolRule int
 
 const (
-	unknownTool toolRule = iota // no row: a deny naming the tool
+	unknownTool toolRule = iota // no row: obor hook pre-tool-use decides it as unguarded, naming the tool
 	guardTool                   // obor hook pre-tool-use decides (toClaude maps it)
 	passTool                    // no opinion: agy's own check decides
-	denyTool                    // a deny: obor cannot guard what it runs
+	denyTool                    // obor cannot guard what it runs: obor hook pre-tool-use decides it as unguarded
 )
 
 // tools is the transport's table of agy's tools (agy 1.5.14 offers the 17 of docs/research/agy-probes.md P13, and a
@@ -86,8 +90,9 @@ const (
 // only read, talk, define or list subagents, or set a timer's prompt are no opinion; a workflow script (run_workflow,
 // swarm), whose Python runs with no hook at all, and a subagent (invoke_subagent), whose conversation fires these hooks
 // with the agent's workspace and environment and nothing naming its parent (P13), so obor would record it as the agent's
-// session (docs/agents/kind-protocol.md "Hook transport": a child is never recorded), are denied. A tool not here is
-// denied by name, so an agy update that adds one shows as a named deny, never a silent bypass.
+// session (docs/agents/kind-protocol.md "Hook transport": a child is never recorded), go to the guard as unguarded with
+// their reason. A tool not here goes as unguarded naming it, so an agy update that adds one shows as a named deny for
+// obor's agents, never a silent bypass.
 var tools = map[string]toolRule{
 	"run_command": guardTool, "write_file": guardTool, "edit_file": guardTool,
 	"call_mcp_tool": guardTool, "list_resources": guardTool, "read_resource": guardTool,
@@ -97,7 +102,7 @@ var tools = map[string]toolRule{
 	"run_workflow": denyTool, "swarm": denyTool, "invoke_subagent": denyTool,
 }
 
-// denied is the reason each denyTool row gives.
+// denied is the reason each denyTool row gives the guard (tool_input.why).
 var denied = map[string]string{"run_workflow": workflowDenied, "swarm": workflowDenied, "invoke_subagent": subagentDenied}
 
 // workflowDenied is the reason a workflow script's deny gives.
@@ -106,22 +111,16 @@ const workflowDenied = "obor cannot guard a workflow script; run commands with r
 // subagentDenied is the reason invoke_subagent's deny gives.
 const subagentDenied = "obor agents run no agy subagents: their sessions cannot be told from the agent's"
 
-// tableAnswer is agy's PreToolUse answer to a call of tool by its row in tools; guarded: the tool is the guard's
-// (toClaude maps it and obor hook pre-tool-use answers), no answer here.
-func tableAnswer(tool string) (answer map[string]any, guarded bool) {
-	switch tools[tool] {
-	case guardTool:
-		return nil, true
-	case passTool:
-		return ask, false
-	case denyTool:
-		return deny(denied[tool]), false
+// unguardedWhy is why obor cannot guard a call of tool, a denyTool row or a tool with no row: the row's reason, else
+// one naming the tool.
+func unguardedWhy(tool string) string {
+	if why, ok := denied[tool]; ok {
+		return why
 	}
-	name := tool
-	if name == "" {
-		name = "a tool call with no name"
+	if tool == "" {
+		return "obor has no rule for an agy tool call naming no tool: update obor"
 	}
-	return deny("obor's agy transport does not know " + name + "; a new agy tool needs a row in kinds/agy/kind/hook.go"), false
+	return "obor has no rule for agy tool " + tool + ": update obor"
 }
 
 // Runner runs `obor hook <name>` with event on stdin: its stdout, its stderr and its exit code; err when it did not
@@ -176,10 +175,8 @@ func Hook(in []byte, dir string, run Runner, inProject func(string) bool, stderr
 	if perr != nil {
 		return answer(deny("obor: cannot read agy's hook event: " + perr.Error()))
 	}
-	if ev.Event == "PreToolUse" {
-		if a, guarded := tableAnswer(ev.ToolCall.Name); !guarded {
-			return answer(a)
-		}
+	if ev.Event == "PreToolUse" && tools[ev.ToolCall.Name] == passTool {
+		return answer(ask)
 	}
 	name, claude := toClaude(ev)
 	if name == "" {
@@ -233,8 +230,9 @@ func toClaude(ev agyEvent) (name string, claude map[string]any) {
 		case "call_mcp_tool", "list_resources", "read_resource":
 			claude["tool_name"] = "mcp"
 			claude["tool_input"] = map[string]any{"mcp_server": args.ServerName}
-		default:
-			return "", nil
+		default: // a tool obor cannot guard, or one with no row: the guard decides
+			claude["tool_name"] = "unguarded"
+			claude["tool_input"] = map[string]any{"tool": tool, "why": unguardedWhy(tool)}
 		}
 		return "pre-tool-use", claude
 	case "PreInvocation":
@@ -367,21 +365,31 @@ func Exec(exe string, timeout time.Duration) Runner {
 	}
 }
 
-// InProject: dir is in an obor project: a directory at or above it holds .obor/config.json, or it is in a linked
-// worktree whose main checkout does (its .git file's gitdir, that dir's commondir).
+// InProject: dir is in an obor project that is not stopped: projectRoot finds one, and it holds no stop marker
+// (.obor/state/stopped, project.StoppedFile: obor stop's, under which every obor hook stands down).
 func InProject(dir string) bool {
+	root := projectRoot(dir)
+	return root != "" && !fileExists(filepath.Join(root, ".obor", "state", "stopped"))
+}
+
+// projectRoot is the obor project dir is in ("": none): the directory at or above it that holds .obor/config.json, or,
+// in a linked worktree, its main checkout when that does (its .git file's gitdir, that dir's commondir).
+func projectRoot(dir string) string {
 	if dir == "" {
-		return false
+		return ""
 	}
 	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
 		if fileExists(filepath.Join(d, ".obor", "config.json")) {
-			return true
+			return d
 		}
 		if main := mainCheckout(d); main != "" {
-			return fileExists(filepath.Join(main, ".obor", "config.json"))
+			if fileExists(filepath.Join(main, ".obor", "config.json")) {
+				return main
+			}
+			return ""
 		}
 		if filepath.Dir(d) == d {
-			return false
+			return ""
 		}
 	}
 }

@@ -53,6 +53,9 @@ func bash(who, cwd, cmd, want string) tc     { return tc{who, cwd, "Bash", cmd, 
 func edit(who, cwd, tool, p, want string) tc { return tc{who, cwd, tool, p, want} }
 func mcp(who, cwd, server, want string) tc   { return tc{who, cwd, "mcp", server, want} }
 
+// unguardedCall is a call of agy's run_workflow its transport cannot hand the guard, why the transport's reason.
+func unguardedCall(who, cwd, why, want string) tc { return tc{who, cwd, "unguarded", why, want} }
+
 func (c tc) input(extra map[string]any) []byte {
 	in := map[string]any{"hook_event_name": "PreToolUse", "tool_name": c.tool, "cwd": c.cwd}
 	switch c.tool {
@@ -62,6 +65,8 @@ func (c tc) input(extra map[string]any) []byte {
 		in["tool_input"] = map[string]any{"notebook_path": c.arg}
 	case "mcp":
 		in["tool_input"] = map[string]any{"mcp_server": c.arg}
+	case "unguarded":
+		in["tool_input"] = map[string]any{"tool": "run_workflow", "why": c.arg}
 	default:
 		in["tool_input"] = map[string]any{"file_path": c.arg}
 	}
@@ -1204,7 +1209,7 @@ func TestOtherToolsAndBadInputAllow(t *testing.T) {
 		bash("-", noCfg, "git push", ""),
 		bash("-", f.Base, "git push", ""), // not a repo
 	})
-	for _, in := range []string{"", "{ not json", "[]", `{"tool_name":"Bash","cwd":"` + f.P + `","tool_input":{}}`} {
+	for _, in := range []string{"", "{ not json", "[]"} {
 		if code, reason := runAs(f.Project, "-", []byte(in)); code != 0 || reason != "" {
 			t.Errorf("input %q: %d %q", in, code, reason)
 		}
