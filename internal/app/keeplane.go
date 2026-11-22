@@ -11,6 +11,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"time"
@@ -103,24 +104,29 @@ func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref s
 }
 
 // pastHandoff: the session of the agent in pane is larger than the project's handoff_tokens (under mu; 0: off). Its
-// transcript is the recorded session's, else the one herdr names; none readable is not past.
+// transcript is the recorded session's, else the one herdr names; none readable is not past. A transcript's size is
+// the kind's read (project.ContextOf).
 func (a *App) pastHandoff(p *proj, cfg *config.Config, pane port.Pane) bool {
 	limit := cfg.HandoffTokens()
 	if limit <= 0 {
 		return false
 	}
-	tokens := a.opt.Tokens
-	if tokens == nil {
-		tokens = transcriptTokens
+	path := cmp.Or(a.transcript(p, pane), a.activity.Transcript(p.kind(pane.Agent), pane))
+	var n int
+	var ok bool
+	if tokens := a.opt.Tokens; tokens != nil {
+		n, ok = tokens(path)
+	} else {
+		n, ok = transcriptTokens(a.p.kinds(), path)
 	}
-	n, ok := tokens(cmp.Or(a.transcript(p, pane), a.activity.Transcript(p.kind(pane.Agent), pane)))
 	return ok && int64(n) > limit
 }
 
-// transcriptTokens is a transcript's context size (project.ContextTokens; ok false: none read).
-func transcriptTokens(path string) (int, bool) {
-	n, _, _, ok := project.ContextTokens(path)
-	return n, ok
+// transcriptTokens is a transcript's context size as the project's kinds read it (project.ContextOf; ok false:
+// none read).
+func transcriptTokens(kinds agents.Kinds, path string) (int, bool) {
+	c, ok := project.ContextOf(kinds, path)
+	return c.Tokens, ok
 }
 
 // keepBetween is keep lane lane's state between tasks (under mu): the key of its last ended keep task (the merged or

@@ -67,6 +67,7 @@ type Caps struct {
 	ProjectPlugin bool   `json:"project_plugin,omitempty"`
 	ModelArg      bool   `json:"model_arg,omitempty"`
 	VersionVar    string `json:"version_var,omitempty"`
+	App           string `json:"app,omitempty"` // the name its agents report in a terminal's status ("" the kind's)
 }
 
 // Stop is agents.Stop; Dialog.Key a regular expression.
@@ -89,6 +90,7 @@ type Headless struct {
 	Anywhere    []string `json:"anywhere,omitempty"`
 	ValueOpts   []string `json:"value_opts,omitempty"`
 	PrintFlag   bool     `json:"print_flag,omitempty"`
+	Flags       []string `json:"flags,omitempty"`
 }
 
 // NotReady is how a start's screen says the agent cannot take a prompt yet: Pattern (a regular expression; Why the
@@ -387,7 +389,8 @@ func (k *Kind) Caps() agents.Caps {
 	c := m.Caps
 	return agents.Caps{Hooks: hookTransports[c.Hooks], Inbox: c.Inbox, Resume: c.Resume, Skills: c.Skills,
 		Transcript: m.Transcript != "", Status: agents.Status(m.Status), Sessions: c.Sessions,
-		NamedSession: c.NamedSession, ProjectPlugin: c.ProjectPlugin, ModelArg: c.ModelArg, VersionVar: c.VersionVar}
+		NamedSession: c.NamedSession, ProjectPlugin: c.ProjectPlugin, ModelArg: c.ModelArg, VersionVar: c.VersionVar,
+		App: c.App}
 }
 
 func (k *Kind) Efforts() []string {
@@ -433,7 +436,7 @@ func (k *Kind) Headless() agents.Headless {
 	}
 	h := m.Headless
 	return agents.Headless{Programs: h.Programs, Subcommands: h.Subcommands, Anywhere: h.Anywhere,
-		ValueOpts: h.ValueOpts, PrintFlag: h.PrintFlag}
+		ValueOpts: h.ValueOpts, PrintFlag: h.PrintFlag, Flags: h.Flags}
 }
 
 // Transcript is the manifest's glob with sid and the env's values in; "" when it names none or a variable it names is

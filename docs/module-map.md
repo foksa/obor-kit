@@ -79,10 +79,12 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `NotReady(screen)`, `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
 Install` (MCP registration), `Transcript(env, sid)` (a glob: the file of that session id, no cwd — a
 kind's directory for it is the kind's own), `Session(first line)` (the session a
-transcript begins with: Codex's `session_meta`), `Deliver(text, record) (Delivery, bool)` (typed
+transcript begins with: Codex's `session_meta`), `Context(tail)` (a session's context size from its own transcript
+format; `project.ContextOf` reads a file's tail and asks the kinds that keep one), `Deliver(text, record) (Delivery,
+bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
 transcript, a named session: `NamedSession`, obor chooses the id of a fresh start; `Status`, where the status and
-turns come from: `terminal`, `hooks`, `transcript`). A kind starts as `agents.Split` (a compiled kind:
+turns come from: `terminal`, `hooks`, `transcript`; `App`, the name its agents report in a terminal's status). A kind starts as `agents.Split` (a compiled kind:
 `Start(Start) []string`, the fresh/resume argv, MCP registration and first prompt, `Start.Read` the adapter's file read;
 `StartEnv`, a start's own env) or `agents.Whole` (a plugin kind's one start call: its argv, env and files together;
 a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds alone, each registered from its init; a
@@ -99,8 +101,8 @@ Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `k
 binary `obor-kind-opencode` (`main.go`: stdin → `kind.Handle` → stdout) beside obor's. Package `kinds/opencode/kind` is
 the kind: the manifest, `start` (the args without `--model`, `--prompt`; `OBOR_OPENCODE_MODEL` model#effort and
 `OPENCODE_CONFIG`, the generated config with obor's MCP server and plugin `<kit>/opencode`), `turn` (a `rate_limit`'s
-reset), `project-warnings`. It imports `agents` only (`Pin`, `ResetIn`); testkit registers its handler in
-process (`plugin.Local`).
+reset; no turn, session or context read), `project-warnings`. It imports `agents` only (`Pin`, `ResetIn`); testkit
+registers its handler in process (`plugin.Local`).
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

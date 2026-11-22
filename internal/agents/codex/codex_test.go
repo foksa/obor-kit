@@ -192,6 +192,36 @@ func TestLastTurnReset(t *testing.T) {
 	}
 }
 
+// Context is Codex's read of a rollout tail: its last token_count event's input tokens, that line's time and the
+// cache TTL a Codex event names ("30m"). A line without token_count, a Claude assistant line and a time that does not
+// parse read none.
+func TestContext(t *testing.T) {
+	k, _ := split()
+	at := time.Date(2026, 10, 13, 10, 2, 0, 500_000_000, time.UTC)
+	for _, c := range []struct {
+		name, tail string
+		tokens     int
+		ok         bool
+	}{
+		{"the last token_count event",
+			`{"type":"event_msg","timestamp":"2026-10-13T10:01:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12}}}}` + "\n" +
+				`{"type":"event_msg","timestamp":"2026-10-13T10:02:00.5Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":42}}}}` + "\n",
+			42, true},
+		{"a token_count without a usage", `{"type":"event_msg","timestamp":"2026-10-13T10:02:00.5Z","payload":{"type":"token_count","info":null}}` + "\n", 0, false},
+		{"a Claude assistant line", `{"type":"assistant","timestamp":"2026-10-13T10:00:00Z","message":{"usage":{"input_tokens":6}}}` + "\n", 0, false},
+		{"a bad time", `{"type":"event_msg","timestamp":"bad","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1}}}}` + "\n", 0, false},
+	} {
+		got, ok := k.Context([]byte(c.tail))
+		want := agents.Context{Tokens: c.tokens}
+		if c.ok {
+			want = agents.Context{Tokens: c.tokens, At: at, TTL: "30m"}
+		}
+		if ok != c.ok || got.Tokens != want.Tokens || got.TTL != want.TTL || !got.At.Equal(want.At) {
+			t.Errorf("%s: Context = %+v, %v; want %+v, %v", c.name, got, ok, want, c.ok)
+		}
+	}
+}
+
 // usage_limit_exceeded is a limit, its message's clock time its reset; another error is no limit.
 func TestReset(t *testing.T) {
 	k, _ := split()

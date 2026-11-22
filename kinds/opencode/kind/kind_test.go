@@ -93,6 +93,9 @@ func TestKind(t *testing.T) {
 	if got, ok := k.Session([]byte(`{"type":"session_meta","payload":{"id":"x"}}` + "\n")); ok {
 		t.Errorf("Session = %+v, true; want none read", got)
 	}
+	if got, ok := k.Context([]byte(`{"type":"ctx-probe","tokens":7}` + "\n")); ok { // no transcript: no context
+		t.Errorf("Context = %+v, true; want none read", got)
+	}
 	// parse the plugin's StopFailure details; the app tests exercise worker and role routing.
 	at := time.Unix(1793361600, 0)
 	for _, c := range []struct {

@@ -2,7 +2,6 @@ package project
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -12,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"obor/internal/agents"
 	"obor/internal/store"
@@ -51,73 +49,28 @@ func TranscriptOf(root, sid string, env Env, kinds agents.Kinds) string {
 
 var sidRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
-// ContextTokens is a session's context size from the last 400 lines of its transcript: the last main-chain Claude
-// assistant line with usage (ctx = input + cache read + cache creation tokens) or Codex token_count event (ctx = last
-// input tokens), and that line's time. ttl is the cache TTL of the last line that wrote the cache ("1h", "5m"; a Codex
-// event: "30m"), "" when none says. ok false when there is no such line or its time is no ISO 8601 time.
-func ContextTokens(file string) (ctx int, at time.Time, ttl string, ok bool) {
+// ContextOf is a transcript file's context size as the kind that records it reads it: the file's last 400 lines
+// (TailLines) given to the kinds that keep a transcript, in name order, the first that reads one in its own format
+// (agents.Kind.Context). ok false: no file, no such tail, or no kind reads its form.
+func ContextOf(kinds agents.Kinds, file string) (agents.Context, bool) {
 	if file == "" {
-		return 0, time.Time{}, "", false
+		return agents.Context{}, false
 	}
 	lines, err := TailLines(file, 400)
-	if err != nil {
-		return 0, time.Time{}, "", false
+	if err != nil || len(lines) == 0 {
+		return agents.Context{}, false
 	}
-	ts, found := "", false
-	for _, line := range lines {
-		var l transcriptLine
-		if json.Unmarshal([]byte(line), &l) != nil {
+	tail := []byte(strings.Join(lines, "\n") + "\n")
+	for _, name := range kinds.Names() {
+		k, ok := kinds.Lookup(name)
+		if !ok || !k.Caps().Transcript {
 			continue
 		}
-		switch u := l.Message.Usage; {
-		case l.Type == "assistant" && u != nil && !l.IsSidechain:
-			ctx = u.Input + u.CacheRead + u.CacheCreation
-			switch {
-			case u.Creation.OneHour > 0:
-				ttl = "1h"
-			case u.Creation.FiveMin > 0:
-				ttl = "5m"
-			}
-		case l.Type == "event_msg" && l.Payload.Type == "token_count" && l.Payload.Info != nil &&
-			l.Payload.Info.LastTokenUsage != nil:
-			ctx, ttl = l.Payload.Info.LastTokenUsage.Input, "30m"
-		default:
-			continue
+		if c, ok := k.Context(tail); ok {
+			return c, true
 		}
-		ts, found = l.Timestamp, true
 	}
-	at, err = time.Parse(time.RFC3339, ts)
-	if !found || err != nil || ctx < 0 {
-		return 0, time.Time{}, "", false
-	}
-	return ctx, at, ttl, true
-}
-
-// transcriptLine is what ContextTokens reads of a transcript line: a Claude assistant message's usage, or a Codex
-// token_count event.
-type transcriptLine struct {
-	Type        string `json:"type"`
-	IsSidechain bool   `json:"isSidechain"`
-	Timestamp   string `json:"timestamp"`
-	Message     struct {
-		Usage *struct {
-			Input         int `json:"input_tokens"`
-			CacheRead     int `json:"cache_read_input_tokens"`
-			CacheCreation int `json:"cache_creation_input_tokens"`
-			Creation      struct {
-				OneHour int `json:"ephemeral_1h_input_tokens"`
-				FiveMin int `json:"ephemeral_5m_input_tokens"`
-			} `json:"cache_creation"`
-		} `json:"usage"`
-	} `json:"message"`
-	Payload struct {
-		Type string `json:"type"`
-		Info *struct {
-			LastTokenUsage *struct {
-				Input int `json:"input_tokens"`
-			} `json:"last_token_usage"`
-		} `json:"info"`
-	} `json:"payload"`
+	return agents.Context{}, false
 }
 
 // tailBudget bounds how far back TailLines reads: a hook reading a transcript must stay fast whatever its size.

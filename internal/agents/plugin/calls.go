@@ -319,7 +319,7 @@ func (k *Kind) Install(kit string, env func(string) string) agents.Install {
 	return in
 }
 
-// turn runs turn with what (last, session or reset) and its fields; a failure goes to Log.
+// turn runs turn with what (last, session, reset or context) and its fields; a failure goes to Log.
 func (k *Kind) turn(what string, req map[string]any, reply any) bool {
 	if _, err := k.manifest(); err != nil {
 		fmt.Fprintf(Log, "obor: %v\n", err)
@@ -372,6 +372,23 @@ func (k *Kind) Session(first []byte) (agents.Session, bool) {
 		return agents.Session{}, false
 	}
 	return agents.Session{ID: r.Session.ID, Cwd: r.Session.Cwd, Started: parseTime(r.Session.Started)}, true
+}
+
+// Context runs turn {what: context, tail}.
+func (k *Kind) Context(tail []byte) (agents.Context, bool) {
+	var r struct {
+		OK      bool `json:"ok"`
+		Context struct {
+			Tokens int    `json:"tokens"`
+			At     string `json:"at"`
+			TTL    string `json:"ttl"`
+		} `json:"context"`
+	}
+	if !k.turn("context", map[string]any{"tail": string(tail)}, &r) || !r.OK {
+		return agents.Context{}, false
+	}
+	c := r.Context
+	return agents.Context{Tokens: c.Tokens, At: parseTime(c.At), TTL: c.TTL}, true
 }
 
 // Reset runs turn {what: reset, error, details, at}.

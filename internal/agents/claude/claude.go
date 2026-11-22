@@ -585,6 +585,56 @@ func (kind) Transcript(env func(string) string, sid string) string {
 // LastTurn: none read; the StopFailure hook reports a stop.
 func (kind) LastTurn([]byte) (agents.Turn, bool) { return agents.Turn{}, false }
 
+// Context is a transcript tail's context size: the last main-chain assistant line with usage (its input, cache read and
+// cache creation tokens), that line's time and the cache TTL the line wrote ("1h", "5m"; "" when none does). A
+// sidechain line is no main chain.
+func (kind) Context(tail []byte) (agents.Context, bool) {
+	ts, found := "", false
+	var c agents.Context
+	for _, line := range strings.Split(string(tail), "\n") {
+		var l transcriptLine
+		if json.Unmarshal([]byte(line), &l) != nil {
+			continue
+		}
+		u := l.Message.Usage
+		if l.Type != "assistant" || u == nil || l.IsSidechain {
+			continue
+		}
+		c.Tokens = u.Input + u.CacheRead + u.CacheCreation
+		switch {
+		case u.Creation.OneHour > 0:
+			c.TTL = "1h"
+		case u.Creation.FiveMin > 0:
+			c.TTL = "5m"
+		}
+		ts, found = l.Timestamp, true
+	}
+	at, err := time.Parse(time.RFC3339, ts)
+	if !found || err != nil || c.Tokens < 0 {
+		return agents.Context{}, false
+	}
+	c.At = at
+	return c, true
+}
+
+// transcriptLine is what Context reads of a transcript line: an assistant message's usage.
+type transcriptLine struct {
+	Type        string `json:"type"`
+	IsSidechain bool   `json:"isSidechain"`
+	Timestamp   string `json:"timestamp"`
+	Message     struct {
+		Usage *struct {
+			Input         int `json:"input_tokens"`
+			CacheRead     int `json:"cache_read_input_tokens"`
+			CacheCreation int `json:"cache_creation_input_tokens"`
+			Creation      struct {
+				OneHour int `json:"ephemeral_1h_input_tokens"`
+				FiveMin int `json:"ephemeral_5m_input_tokens"`
+			} `json:"cache_creation"`
+		} `json:"usage"`
+	} `json:"message"`
+}
+
 // Session: none read; the SessionStart hook reports the session id and its transcript_path.
 func (kind) Session([]byte) (agents.Session, bool) { return agents.Session{}, false }
 

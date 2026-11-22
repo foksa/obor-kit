@@ -113,8 +113,8 @@ func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path strin
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
 		path = project.TranscriptOf(cfg.Root, sid, env, cfg.Kinds())
 	}
-	ctx, _, _, ok := project.ContextTokens(path)
-	if !ok || int64(ctx) <= limit {
+	c, ok := project.ContextOf(cfg.Kinds(), path)
+	if !ok || int64(c.Tokens) <= limit {
 		return ""
 	}
 	restart := "`obor restart " + cmp.Or(agent, "<you>") + " --handoff` (scheduled: it waits until you are idle)"
@@ -122,7 +122,7 @@ func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path strin
 		"person open), write the Handoff section at the top of BACKLOG.md (state, in-flight tasks, open decisions, next " +
 		"steps), commit it, then run " + restart
 	return fmt.Sprintf("obor (lead): context is %dk (> %dk). Hand off at the next logical break, not in the middle of work: %s. "+
-		"If the person is talking with you, ask them first.", (ctx+500)/1000, limit/1000, when)
+		"If the person is talking with you, ask them first.", (c.Tokens+500)/1000, limit/1000, when)
 }
 
 var (

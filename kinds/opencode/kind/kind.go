@@ -236,8 +236,8 @@ func Config(kit string) []byte { return Overridden(kit, nil, "", nil) }
 // pluginEntry is the plugins entry of the kit's plugin package dir.
 func pluginEntry(kit string) string { return "file://" + filepath.Join(kit, Name) }
 
-// turn: no turn and no session are read (OpenCode keeps its sessions in a database, not a transcript obor finds).
-// Reset: the plugin maps a provider quota failure with a retry time to rate_limit and writes its reset in
+// turn: no turn, no session and no context are read (OpenCode keeps its sessions in a database, not a transcript obor
+// finds). Reset: the plugin maps a provider quota failure with a retry time to rate_limit and writes its reset in
 // error_details; billing/auth/server errors are not limits.
 func turn(in request) map[string]any {
 	switch in.What {
@@ -251,7 +251,7 @@ func turn(in request) map[string]any {
 			reset = t.Format(time.RFC3339)
 		}
 		return map[string]any{"limited": true, "reset": reset}
-	case "last", "session":
+	case "last", "session", "context":
 		return map[string]any{"ok": false}
 	}
 	return map[string]any{"error": fmt.Sprintf("turn: no what %q", in.What)}
