@@ -185,7 +185,8 @@ func StateSettings(agent string) string { return "settings/" + agent + ".json" }
 func StateMCP(agent string) string      { return "mcp/" + agent + ".json" }
 
 // SettingsOverride and MCPOverride are Claude's override files (agents.OverrideDir): the first is merged over the
-// user's settings.json, the second's mcpServers over the MCP servers of the user's ~/.claude.json.
+// user's settings.json, the second's mcpServers over the MCP servers of the user's ~/.claude.json (a role agent's
+// start) or the project's approved .mcp.json servers (a lane's).
 const (
 	SettingsOverride = "settings_override.json"
 	MCPOverride      = "claude_override.json"
@@ -270,12 +271,21 @@ func merged(in agents.Start) map[string]any {
 	return agents.MergePatch(agents.MergePatch(user, in.Override(SettingsOverride)), own)
 }
 
-// servers are the MCP servers of a start whose MCPOverride names mcpServers (patch), by name: the user's own (the
-// top-level mcpServers of the user's .claude.json, then those it holds for the project's root, in.Root) with patch
-// laid over them (agents.MergePatch: a null removes a server), then the servers of in.Dir's .mcp.json the project's
-// settings approve (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names), then obor's own (with
-// a kit). The start is strict, so these are all it loads.
+// servers are the MCP servers of a start whose MCPOverride names mcpServers (patch), by name. A lane's start
+// (in.StrictMCP) builds them from the servers of in.Dir's .mcp.json the project's settings approve
+// (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names), with patch laid over them
+// (agents.MergePatch: a null removes a server). A role agent's start builds them from the user's own (the top-level
+// mcpServers of the user's .claude.json, then those it holds for the project's root, in.Root) with patch laid over
+// them, then the approved project servers. Either way obor's own comes last (with a kit), so an entry named obor of
+// the user's or the override's does not replace it. The start is strict, so these are all it loads.
 func servers(in agents.Start, patch map[string]any) map[string]any {
+	if in.StrictMCP {
+		out := agents.MergePatch(approvedServers(in), patch)
+		if in.Kit != "" {
+			out["obor"] = oborServer(in.Kit)
+		}
+		return out
+	}
 	user := map[string]any{}
 	if file := userFile(in); file != "" {
 		doc := objectFile(in.Read, file)
