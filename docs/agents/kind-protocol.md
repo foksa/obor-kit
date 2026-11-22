@@ -104,6 +104,10 @@ A kind's `start` owns its own fixed flags: it puts them in the `args` it returns
 Every variable in `env` must be among the manifest's `vars` (`agents.Kinds.Vars`: a start unsets every registry var
 it does not set).
 
+`strict_mcp` (`agents.Start.StrictMCP`) is true for a lane's agent (a worker, the owner's drive agent): the kind hides
+the user's own MCP servers where its CLI has a way (Claude's `--strict-mcp-config`, OpenCode's generated config); a
+lead's start and a role agent's keep them.
+
 `trim_user` (`agents.Start.TrimUser`) is true for every agent but a lead: the kind switches off its default part of
 the user's own settings (the user's plugins and skills, as far as its CLI has a switch); every other user setting
 applies. A lead's start has `trim_user` false and keeps the user's own settings untrimmed.
@@ -118,7 +122,8 @@ merge key by key, `null` deletes a key, anything else replaces), on every start 
 
 OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env` on a trimmed start ("" for a lead) hides the Claude skill
 dirs only; `opencode_override.json` merged over the user's `opencode.json[c]` is the base of its generated config
-file. What the CLI has no switch for stays visible.
+file, and a lane's start disables the user's own MCP servers the project's `opencode.json[c]` does not define. What the
+CLI has no switch for stays visible.
 
 ## The manifest
 

@@ -2,7 +2,8 @@
 // reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, a resume with --session,
 // /exit with its popup's second Enter, `opencode run`/`acp`/`serve` denied, obor's MCP server and plugin (<kit>/opencode, its hook
 // transport, which acts on the hooks' answers, and its session inbox: InboxVar) in each start's generated config
-// (OPENCODE_CONFIG), on the user's own config with the project's override file laid over it (override.go), lines
+// (OPENCODE_CONFIG: obor's entries on the user's own config with the project's override file laid over it, a lane's
+// start disabling the user's own MCP servers too; override.go), lines
 // posted to the session's inbox (deliver), the session's context size from the plugin's token file (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in
 // process (testkit).
 package kind
@@ -57,6 +58,11 @@ const ConfigFile = "opencode.json"
 // other agents write two files, never one path with different bytes.
 const TrimmedConfigFile = "opencode-trimmed.json"
 
+// LaneConfigFile is the generated config's name in the project's state dir, for a lane's agent (a worker, the drive
+// agent): its config also disables the user's own MCP servers, so a lane and a role agent (both trimmed) write two
+// files, never one path with different bytes.
+const LaneConfigFile = "opencode-lane.json"
+
 // TranscriptGlob is the manifest's transcript glob: obor's own state dir for a session's token file, which the plugin
 // (opencode/obor.js, tokensPath) appends one line to per root session's step and reports as transcript_path.
 const TranscriptGlob = "${HOME}/.obor/opencode/{sid}.jsonl"
@@ -76,6 +82,9 @@ type request struct {
 	Prompt   string            `json:"prompt"`
 	Effort   string            `json:"effort"`
 	TrimUser bool              `json:"trim_user"`
+	// StrictMCP is a lane's agent (agents.Start.StrictMCP: a worker, the owner's drive agent): its generated config
+	// disables the user's own MCP servers.
+	StrictMCP bool `json:"strict_mcp"`
 	// Overrides are the project's override files, name → document (OverrideFile).
 	Overrides map[string]string `json:"overrides"`
 	Dir       string            `json:"dir"`
@@ -191,9 +200,8 @@ var FixedArgs = []string{"--auto", "--standalone"}
 // start: FixedArgs, then the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to
 // obor's plugin) and but a FixedArgs flag they repeat, then --session <id> for a resume and --prompt <prompt> when the
 // start has one (a resume opens the session with its history and runs the prompt as a new turn on top of it). Env:
-// ResumeVar the resumed session's id, else "" (unset, the same way), ConfigVar, the path of the start's generated config (ConfigFile, or TrimmedConfigFile on a start that
-// trims the user's settings; the content Config of the kit, or Overridden with the override file; no kit: none), and
-// ModelVar <provider>/<model>[#<effort>] when the args name a
+// ResumeVar the resumed session's id, else "" (unset, the same way), ConfigVar, the path of the start's generated config
+// (startConfig), and ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
 // earlier start's), and SkillsVar "1" on a start that trims the user's settings (trim_user: every agent but a lead),
 // else "" (unset, the same way). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
@@ -229,22 +237,38 @@ func start(in request) map[string]any {
 	}
 	files := []map[string]string{}
 	if in.Kit != "" {
-		name := ConfigFile
-		if in.TrimUser {
-			name = TrimmedConfigFile
+		name, conf, err := startConfig(in)
+		if err != nil {
+			return map[string]any{"error": err.Error()}
 		}
 		env[ConfigVar] = "{file:" + name + "}"
-		conf := Config(in.Kit)
-		if doc, ok := in.Overrides[OverrideFile]; ok && in.TrimUser {
-			over, err := agents.ParseOverride(OverrideFile, doc)
-			if err != nil {
-				return map[string]any{"error": OverrideFile + ": does not parse: " + err.Error()}
-			}
-			conf = Overridden(in.Kit, over, UserDir(in.Env), os.ReadFile)
-		}
 		files = append(files, map[string]string{"name": name, "bytes": string(conf)})
 	}
 	return map[string]any{"args": args, "env": env, "files": files}
+}
+
+// startConfig is a start's generated config: its name in the state dir and its bytes. A lead's start (untrimmed) is
+// obor's own; a trimmed one (every other agent) is the user's own config with the project's override file laid over it;
+// a lane's (StrictMCP: a worker, the drive agent) also disables the user's own MCP servers. A trim whose override file
+// does not parse is the start's error, naming it.
+func startConfig(in request) (name string, conf []byte, err error) {
+	var over map[string]any
+	if in.TrimUser {
+		if doc, ok := in.Overrides[OverrideFile]; ok {
+			if over, err = agents.ParseOverride(OverrideFile, doc); err != nil {
+				return "", nil, fmt.Errorf("%s: does not parse: %v", OverrideFile, err)
+			}
+		}
+	}
+	c := config{kit: in.Kit, over: over, userDir: UserDir(in.Env), read: os.ReadFile}
+	switch {
+	case in.StrictMCP:
+		c.lane, c.dir = true, in.Dir
+		return LaneConfigFile, c.bytes(), nil
+	case in.TrimUser:
+		return TrimmedConfigFile, c.bytes(), nil
+	}
+	return ConfigFile, Config(in.Kit), nil
 }
 
 // splitModel is args without their --model/-m (with its word, or either spelling with =), and the model they named.
@@ -266,11 +290,6 @@ func splitModel(args []string) (rest []string, model string) {
 	}
 	return rest, model
 }
-
-// Config is the generated config of a start from kit: mcp.servers.obor runs the kit's `bin/obor mcp`, pinned to the
-// kit (agents.Pin), and plugins names the kit's plugin package dir (<kit>/opencode: opencode loads a package
-// dir from an env config, not a plain .js file).
-func Config(kit string) []byte { return Overridden(kit, nil, "", nil) }
 
 // pluginEntry is the plugins entry of the kit's plugin package dir.
 func pluginEntry(kit string) string { return "file://" + filepath.Join(kit, Name) }
