@@ -707,6 +707,28 @@ test("bindInbox: a prompt that fails warns and the next line still goes", async 
   assert.deepEqual(warned, ["obor: a line for session s1 was not prompted: busy"]);
 });
 
+test("bindInbox: a UTF-8 character split across socket reads stays whole; an ASCII line is unchanged", async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-ib-"));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const got = [];
+  const file = await bindInbox(path.join(base, "s1.sock"), "s1", async (a) => void got.push(a.text));
+  assert.ok(file, "precondition: socket bound");
+  const payload = Buffer.from(line("café") + "\n" + line("plain") + "\n", "utf8");
+  const split = payload.indexOf(0xc3) + 1; // inside é (0xc3 0xa9)
+  assert.equal(payload[split - 1], 0xc3, "precondition: first chunk ends inside é");
+  assert.equal(payload[split], 0xa9, "precondition: second chunk starts inside é");
+  await new Promise((resolve, reject) => {
+    const c = net.connect(file, () => {
+      c.write(payload.subarray(0, split));
+      setImmediate(() => setImmediate(() => setTimeout(() => c.end(payload.subarray(split)), 20)));
+    });
+    c.on("error", reject);
+    c.on("data", () => {});
+    c.on("close", resolve);
+  });
+  assert.deepEqual(got, ["café", "plain"]);
+});
+
 test("prompt: an inbox line (metadata.obor line) runs user-prompt-submit as a typed prompt does", async (t) => {
   const { hooked, names, calls, event } = await stubPlugin(t);
   const text = "[obor other] hi";

@@ -226,6 +226,7 @@ export function bindInbox(file, id, prompt, warn = (line) => console.error(line)
       } catch {}
     };
     const server = net.createServer((conn) => {
+      conn.setEncoding("utf8");
       let data = "";
       conn.on("data", (b) => (data += b));
       conn.on("error", () => {});
