@@ -15,12 +15,18 @@ import (
 	"obor/internal/testkit"
 )
 
-// hangBound is headroom for a loaded merge machine; only the injected watchdog bound is timed below.
-const hangBound = 15 * time.Second
+// hangBound is headroom for a loaded merge machine; only the injected watchdog bound is timed below. The stub sleeps
+// 30 s, so a hook without its watchdog exceeds it.
+const hangBound = 5 * time.Second
+
+// watchdog is the hanging cases' OBOR_PRE_COMMIT_WHOAMI_TIMEOUT: what a hook waits for the stub before it kills it,
+// where a stub that answers takes ~10 ms and a missing watchdog leaves the stub's 30 s sleep to time the bound.
+// macOS's BSD sleep and GNU sleep take a fraction of a second.
+const watchdog = "0.2"
 
 // The git hooks (githooks/*: bash, run by git through core.hooksPath; design "Git hooks layer") driven by real git
-// commit / push / merge. The kit is a throwaway copy of this checkout's bin/, VERSION and githooks/ with a fresh build
-// as dist/obor, so the hooks' `bin/obor whoami` runs this code.
+// commit / push / merge. The kit is a throwaway kit of this checkout's bin/, VERSION and githooks/ with a stub as
+// dist/obor, so the hooks' `bin/obor whoami` runs this code.
 
 // pushRefusal: the pre-push hook's refusal names its way out (rules.may_push).
 func pushRefusal(errOut string) bool {
@@ -64,7 +70,9 @@ func newHx(t *testing.T) *hx {
 }
 
 // newKit is a kit in a temp dir: bin/*, VERSION and the two githooks sets of this checkout, bin as dist/obor ("":
-// none).
+// none). The files are hard links to the checkout's: macOS scans a fresh executable before its first exec (60-170 ms
+// for a small script, see testkit.Script), so a kit's own copy would pay that in every case that runs a hook. No case
+// writes them; only dist/obor is the case's own.
 func newKit(t *testing.T, bin string) string {
 	t.Helper()
 	k := testkit.Dir(t)
@@ -78,7 +86,7 @@ func newKit(t *testing.T, bin string) string {
 				continue
 			}
 			rel, _ := filepath.Rel(kit, f)
-			copyFile(t, f, filepath.Join(k, rel))
+			linkOrCopy(t, f, filepath.Join(k, rel))
 		}
 	}
 	os.MkdirAll(filepath.Join(k, "dist"), 0o755)
@@ -88,6 +96,16 @@ func newKit(t *testing.T, bin string) string {
 		}
 	}
 	return k
+}
+
+// linkOrCopy hardlinks from to to, or copies it where a link is not possible (another filesystem).
+func linkOrCopy(t *testing.T, from, to string) {
+	t.Helper()
+	os.MkdirAll(filepath.Dir(to), 0o755)
+	if err := os.Link(from, to); err == nil {
+		return
+	}
+	copyFile(t, from, to)
 }
 
 func copyFile(t *testing.T, from, to string) {
@@ -215,12 +233,10 @@ func (x *hx) cold(t *testing.T) (env []string, curlLog string) {
 		"OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=30"), curlLog
 }
 
-// binary makes script the kit's dist/obor.
+// binary makes script the kit's dist/obor: testkit.Script's one copy of that body (a fresh executable is scanned
+// before its first exec on macOS, and a body comes back in several cases).
 func (x *hx) binary(script string) {
-	path := filepath.Join(x.kit, "dist", "obor")
-	os.Remove(path)
-	x.Write(path, script)
-	os.Chmod(path, 0o755)
+	testkit.Script(x.t, filepath.Join(x.kit, "dist"), "obor", script)
 }
 
 // `obor setup githooks` on a project with nothing to chain writes the small set, and git runs it: a lane commit is
@@ -317,7 +333,7 @@ func TestGithooks(t *testing.T) {
 			refused(env, "stale binary (no --can-push)")
 			x.binary("#!/bin/bash\nexec sleep 30\n")
 			start := time.Now()
-			refused(envWith(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1"), "hanging binary")
+			refused(envWith(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT="+watchdog), "hanging binary")
 			if d := time.Since(start); d > hangBound {
 				t.Errorf("hanging binary: push returned after %v, want within the watchdog bound", d)
 			}
@@ -352,8 +368,16 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("push in a stopped project: exit %d\n%s", rc, errOut)
 			}
 		}},
-		// bash case_pre_commit_refuses_in_lane_allows_with_obor_merge_and_in_main
-		{"pre-commit refuses in a lane, allows with OBOR_MERGE=1 and in main", func(t *testing.T, x *hx) {
+		// bash case_pre_commit_refuses_in_lane_allows_with_obor_merge_and_in_main and
+		// case_no_chain_no_dotgit_hooks_only_obors_rule: with nothing to chain (no obor.hooksChain, no
+		// .git/hooks/pre-commit), obor's rule alone decides the lane commit, OBOR_MERGE=1 and the main commit.
+		{"pre-commit refuses in a lane, allows with OBOR_MERGE=1 and in main, nothing to chain", func(t *testing.T, x *hx) {
+			if got, _ := gitIn(x.Root, "config", "--get", "obor.hooksChain"); got != "" {
+				t.Fatalf("precondition: no chain: %q", got)
+			}
+			if _, err := os.Stat(filepath.Join(x.Root, ".git/hooks/pre-commit")); err == nil {
+				t.Fatal("precondition: no .git/hooks/pre-commit")
+			}
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")
 			x.commits(t, x.lane, x.gitEnv("OBOR_MERGE=1"), 0, "", "lane commit with OBOR_MERGE=1")
 			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
@@ -397,7 +421,7 @@ func TestGithooks(t *testing.T) {
 			x.binary("#!/bin/bash\nexec sleep 30\n")
 			before := x.head(x.lane)
 			start := time.Now()
-			rc, errOut := x.commit(x.lane, envWith(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1")...)
+			rc, errOut := x.commit(x.lane, envWith(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT="+watchdog)...)
 			if rc != 1 || !strings.Contains(errOut, unknown) {
 				t.Errorf("hanging binary (refused by watchdog): exit %d\n%s", rc, errOut)
 			}
@@ -545,17 +569,6 @@ func TestGithooks(t *testing.T) {
 			if got := x.Git(remote, "branch", "--list", "main"); got != "" {
 				t.Errorf("nothing pushed: %q", got)
 			}
-		}},
-		// bash case_no_chain_no_dotgit_hooks_only_obors_rule
-		{"no chain and no .git/hooks: only obor's rule", func(t *testing.T, x *hx) {
-			if got, _ := gitIn(x.Root, "config", "--get", "obor.hooksChain"); got != "" {
-				t.Fatalf("precondition: no chain: %q", got)
-			}
-			if _, err := os.Stat(filepath.Join(x.Root, ".git/hooks/pre-commit")); err == nil {
-				t.Fatal("precondition: no .git/hooks/pre-commit")
-			}
-			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")
-			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
 		}},
 		// the small set ships pre-commit and pre-push; every other hook git runs lives in chain/, which git
 		// runs only when core.hooksPath points there. Each chain file sources ../_hook (one runner, one level up).
