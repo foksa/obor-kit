@@ -89,7 +89,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	default:
 		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern, headless agent runs ("+forms+") and the hc/herdr-app commands that drive terminals are denied; protected files are denied for non-lead roles; "+runs+".")
 	}
-	if line := roleText(cfg, w.Role.Role, project.KitRoot(env), repo.Top); line != "" {
+	if line := roleText(cfg, w.Role.Role, kind, project.KitRoot(env), repo.Top); line != "" {
 		fmt.Fprintln(out, line)
 	}
 
@@ -133,9 +133,10 @@ func sessionKind(cfg *config.Config, agent, cwd string) string {
 
 // roleText is the line naming this role's text: the kit's templates/agents/<doc file>, read in place, plus the
 // project's <paths.agents>/<doc file> when the worktree has one; a custom role without a kit text has the
-// project's doc alone. The lead's text is the obor:lead skill. "" when there is no text for the role (none …, a role
-// cfg does not know). The integrator's line says its jobs carry the texts; the others say to read them.
-func roleText(cfg *config.Config, role, kit, top string) string {
+// project's doc alone. The lead's text is its skill (skills/lead/SKILL.md): the slash command a kind with caps skills
+// runs, else the file to read. "" when there is no text for the role (none …, a role cfg does not know). The
+// integrator's line says its jobs carry the texts; the others say to read them.
+func roleText(cfg *config.Config, role, kind, kit, top string) string {
 	rc, known := cfg.Role(role)
 	if !known {
 		return ""
@@ -146,7 +147,16 @@ func roleText(cfg *config.Config, role, kit, top string) string {
 		project = doc
 	}
 	if role == "lead" {
-		return "obor: role text: run /obor:lead" + projectPart(project) + " — read it before acting"
+		if cfg.Kinds().Skills(kind) {
+			return "obor: role text: run /obor:lead" + projectPart(project) + " — read it before acting"
+		}
+		if file := rc.Role.SkillFile(kit); file != "" && regular(file) {
+			return "obor: role text: " + file + projectPart(project) + " — read it before acting"
+		}
+		if project != "" {
+			return "obor: role text: " + project + " — read it before acting"
+		}
+		return ""
 	}
 	text := filepath.Join(kit, "templates", "agents", rc.Role.DocFile())
 	tail := " — read it before acting"

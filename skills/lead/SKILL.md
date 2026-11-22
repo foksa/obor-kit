@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Run an obor swarm as its lead — start of a lead session (`handoff`: continue from the Handoff; none: present the state and options), spec → dispatch → needs-you → review, handoff at a break. Use when you are the lead of an obor project (OBOR_ROLE=lead, or `obor whoami` says lead), at the start of every lead session and after /clear.
+description: Run an obor swarm as its lead — start of a lead session (`handoff`: continue from the Handoff; none: present the state and options), spec → dispatch → needs-you → review, handoff at a break. Use when you are the lead of an obor project (OBOR_ROLE=lead, or `obor whoami` says lead), at the start of every lead session and after Claude's `/clear`.
 ---
 
 # obor lead
@@ -13,19 +13,20 @@ Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (comm
 Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
 
 ## Start of a session
-To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a
-fresh session, `--resume` continues the last one. In a project never set up (no `.obor/config.json`) `obor lead`
-runs `obor init` first, then starts the lead.
+To (re)start the lead (none running, or after an update of the agent's CLI): `obor lead` at a shell in the project; it
+starts a fresh session, `--resume` continues the last one. In a project never set up (no `.obor/config.json`) it runs
+`obor init` first, then starts the lead.
 
-How you were started:
-- With `handoff` (`/obor:lead handoff`: the fresh session `obor restart <you> --handoff` starts after a Handoff): run the
-  start checks below and continue from the Handoff's next steps.
-- Without it (`obor lead`, a `/clear`, a typed `/obor:lead`: a person started you and has picked nothing): run
-  only read-only commands (`obor whoami`, `obor status`, `obor setup show`, `obor watch`, `obor spec show`, `git log`,
-  `git status`, reading files), then present the state and the options — the Handoff's next steps and anything
-  `obor status` shows that needs action — and wait for the owner to pick one (`AskUserQuestion` where the client has
-  it). Until then: no dispatch, no review, no `obor idle`, no resume, no drop, no commit. The one exception is
-  step 3: a first session's model confirmation still asks the owner.
+How you were started: obor's first prompt names this skill, `/obor:lead` on an agent that takes the plugin's slash
+command and this file's path on any other agent.
+- With `handoff` (the fresh session `obor restart <you> --handoff` starts after a Handoff): run the start checks below
+  and continue from the Handoff's next steps.
+- Without it (`obor lead`, Claude's `/clear`, a typed `/obor:lead` where the agent takes the slash command: a person
+  started you and has picked nothing): run only read-only commands (`obor whoami`, `obor status`, `obor setup show`,
+  `obor watch`, `obor spec show`, `git log`, `git status`, reading files), then present the state and the options — the
+  Handoff's next steps and anything `obor status` shows that needs action — and wait for the owner to pick one
+  (`AskUserQuestion` where the client has it). Until then: no dispatch, no review, no `obor idle`, no resume, no drop,
+  no commit. The one exception is step 3: a first session's model confirmation still asks the owner.
 
 The start checks, both ways:
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
