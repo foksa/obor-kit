@@ -611,7 +611,8 @@ func agyLead() func(map[string]any) {
 	}
 }
 
-// agyVars are the agentapi variables of a command an agy session runs (its inbox record), with token tok.
+// agyVars are the agentapi variables of a command an agy session runs, with token tok: its inbox record's, and agy's
+// executable, which the record leaves out.
 func agyVars(tok string) []string {
 	return []string{"ANTIGRAVITY_LS_ADDRESS=localhost:5011", "ANTIGRAVITY_CSRF_TOKEN=" + tok,
 		"ANTIGRAVITY_AGENTAPI_EXE=/h/.gemini/antigravity-cli/bin/agentapi", "ANTIGRAVITY_CONVERSATION_ID=conv-1"}
@@ -635,8 +636,7 @@ func TestCommandRecordsTheInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...), io.Discard)
-	rec := `{"ANTIGRAVITY_AGENTAPI_EXE":"/h/.gemini/antigravity-cli/bin/agentapi","ANTIGRAVITY_CONVERSATION_ID":"conv-1",` +
-		`"ANTIGRAVITY_CSRF_TOKEN":"tok-1","ANTIGRAVITY_LS_ADDRESS":"localhost:5011"}`
+	rec := `{"ANTIGRAVITY_CONVERSATION_ID":"conv-1","ANTIGRAVITY_CSRF_TOKEN":"tok-1","ANTIGRAVITY_LS_ADDRESS":"localhost:5011"}`
 	if got, err := project.ReadInbox(f.Cfg(), "lead"); err != nil || got != (project.Inbox{Sends: true, Record: rec}) {
 		t.Fatalf("inbox %+v, %v; want the kind's record, sent by the kind", got, err)
 	}

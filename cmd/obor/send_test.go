@@ -383,48 +383,51 @@ func TestPosterPostsAPluginKindsRecord(t *testing.T) {
 	}
 }
 
-// An agy session's record (its agentapi variables, from an obor command it ran) is one the kind sends with: the poster
-// hands it to the kind's deliver, which runs the record's agentapi (began, no socket). A refused send (agentapi's
-// non-zero exit: a stale token) delivers nothing and marks the record refused, so it is not live (its lines go through
-// the lead's hooks) until a command records it again.
+// An agy session's record (its inbox variables, from an obor command it ran) is one the kind sends with: the poster
+// hands it to the kind's deliver, which runs `agy agentapi send-message`, agy from obor's PATH, never an executable an
+// old record names (began, no socket). A refused send (agentapi's non-zero exit: a stale token) delivers nothing and
+// marks the record refused, so it is not live (its lines go through the lead's hooks) until a command records it again.
+// Not parallel: agy is looked up on the process's PATH, which the test sets.
 func TestPosterSendsWithAnAgyRecord(t *testing.T) {
-	t.Parallel()
 	pj := testkit.NewPlain(t)
 	pj.Config(testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"}),
 		testkit.Set("agents.roles.lead", "gem"))
 	dir := t.TempDir()
-	ran := filepath.Join(dir, "ran")
-	write := func(name string, code int) string {
-		exe := filepath.Join(dir, name)
-		body := "#!/bin/sh\nprintf '%s|' \"$@\" \"$ANTIGRAVITY_CSRF_TOKEN\" > " + ran + "\n" +
-			"echo 'rpc error: code = Unauthenticated desc = invalid CSRF token'\nexit " + strconv.Itoa(code) + "\n"
-		if err := os.WriteFile(exe, []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		return exe
+	ran, stale := filepath.Join(dir, "ran"), filepath.Join(dir, "stale")
+	body := "#!/bin/sh\nprintf '%s|' \"$@\" \"$ANTIGRAVITY_CSRF_TOKEN\" > " + ran + "\n[ -e " + stale + " ] || exit 0\n" +
+		"echo 'rpc error: code = Unauthenticated desc = invalid CSRF token'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	record := func(exe string) string {
-		b, _ := json.Marshal(map[string]string{"ANTIGRAVITY_LS_ADDRESS": "localhost:5011", "ANTIGRAVITY_CSRF_TOKEN": "tok-1",
-			"ANTIGRAVITY_AGENTAPI_EXE": exe, "ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
-		if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Sends: true, Record: string(b)}); err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	other := filepath.Join(t.TempDir(), "agentapi")
+	if err := os.WriteFile(other, []byte("#!/bin/sh\ntouch "+other+".ran\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]string{"ANTIGRAVITY_LS_ADDRESS": "localhost:5011", "ANTIGRAVITY_CSRF_TOKEN": "tok-1",
+		"ANTIGRAVITY_AGENTAPI_EXE": other, "ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
+	rec := string(b)
+	if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Sends: true, Record: rec}); err != nil {
+		t.Fatal(err)
 	}
 	cfg, err := config.Load(pj.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := poster{pj.Root, testkit.Kinds()}
-	record(write("agentapi", 0))
 	if began, err := p.Post(context.Background(), "agy", "pj-lead", "[obor other] hi"); !began || err != nil {
 		t.Fatalf("post: began %v, %v; want sent", began, err)
 	}
-	if b, err := os.ReadFile(ran); err != nil || string(b) != "send-message|conv-1|[obor other] hi|tok-1|" {
-		t.Errorf("agentapi ran with %q, %v", b, err)
+	if b, err := os.ReadFile(ran); err != nil || string(b) != "agentapi|send-message|conv-1|[obor other] hi|tok-1|" {
+		t.Errorf("agy ran with %q, %v", b, err)
+	}
+	if _, err := os.Stat(other + ".ran"); err == nil {
+		t.Error("the record's executable ran")
 	}
 
-	rec := record(write("stale", 1))
+	if err := os.WriteFile(stale, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, live := project.InboxLive(cfg, "pj-lead"); !live {
 		t.Fatal("precondition: the record is not live before the send")
 	}
@@ -444,9 +447,9 @@ func TestPosterSendsWithAnAgyRecord(t *testing.T) {
 
 // A sandboxed agy worker's record is in its lane's state dir (the main checkout refused the write): the poster reads
 // it there and sends with it, and a refused send marks that file's record refused, so the worker is not live (its
-// lines are typed) until a command records it again.
+// lines are typed) until a command records it again. Not parallel: agy is looked up on the process's PATH, which the
+// test sets.
 func TestPosterReadsALaneRecord(t *testing.T) {
-	t.Parallel()
 	pj := testkit.NewPlain(t)
 	lane := pj.PlainLane("L-01", "task/T-1")
 	pj.Config()
@@ -458,8 +461,9 @@ func TestPosterReadsALaneRecord(t *testing.T) {
 	if err := os.WriteFile(exe, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	b, _ := json.Marshal(map[string]string{"ANTIGRAVITY_LS_ADDRESS": "localhost:5011", "ANTIGRAVITY_CSRF_TOKEN": "tok-1",
-		"ANTIGRAVITY_AGENTAPI_EXE": exe, "ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
+		"ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
 	b, _ = json.Marshal(project.Inbox{Sends: true, Record: string(b)})
 	f := project.InboxFile(lane, "L-01")
 	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
