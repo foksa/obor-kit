@@ -317,9 +317,10 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 }
 
-// A lane's agent (a worker, the owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone. Every
-// agent but a lead starts trimmed of the user's settings, each kind with its own switches (claude its
-// settings file in place of the user's source; codex its three -c keys); a lead start carries none of them.
+// A lane's agent (a worker, the owner's drive agent) starts with --strict-mcp-config, obor's MCP server and the
+// project's approved .mcp.json servers, none of the user's. Every agent but a lead starts trimmed of the user's
+// settings, each kind with its own switches (claude its settings file in place of the user's source; codex its three
+// -c keys); a lead start carries none of them.
 func TestLaunchArgs(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{`+models+`}}`, "")
 	opus, _ := c.Model("opus")

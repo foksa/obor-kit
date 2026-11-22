@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -293,13 +294,17 @@ func TestStartMCPOverride(t *testing.T) {
 		t.Errorf("the MCP file\n %s\nwant (blender gone, x and the project root's local server kept, the approved .mcp.json server, obor's)\n %s", got, want)
 	}
 
-	// no mcpServers in the file: the lane's start is as without it (not strict here: the project approves its servers)
+	// no mcpServers in the file: no MCP file, the lane's start strict on the inline config of the project's approved
+	// .mcp.json server and obor's
 	in = m.in(map[string]string{claude.MCPOverride: `{"numStartups": 3}`}, nil)
 	in.Kit, in.StrictMCP = "/kit", true
 	if l, err = agents.StartOf(k, in); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"--model", "opus", "--setting-sources", "project,local", "--settings", stateFile}; !slices.Equal(l.Args, want) {
+	inline, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
+		"obor": ours["mcpServers"]["obor"], "proj": map[string]any{"command": "p"}}})
+	if want := []string{"--model", "opus", "--mcp-config", string(inline), "--strict-mcp-config", "--setting-sources",
+		"project,local", "--settings", stateFile}; !slices.Equal(l.Args, want) {
 		t.Errorf("an override without mcpServers: argv %q, want %q", l.Args, want)
 	}
 	if _, wrote := m.state[claude.StateMCP("pj-l-01")]; wrote {
@@ -572,10 +577,9 @@ func projectFS(rel string, content []byte) agents.ReadFile {
 	}
 }
 
-// the start dir's committed .claude/settings.json outranks obor's policy flags: an MCP opt-in (either key)
-// drops the strict flag (and obor's --mcp-config with it: the plugin's server serves, as for a role), a settings key
-// the file sets leaves --settings (no --settings when it sets both); a file that does not parse, or one setting none
-// of the keys, starts as without it.
+// the start dir's committed .claude/settings.json outranks obor's policy flags for --settings: a settings key the
+// file sets leaves --settings (no --settings when it sets both); a file that does not parse, or one setting none of
+// the keys, starts as without it.
 func TestStartProjectSettings(t *testing.T) {
 	k := kind(t)
 	ours := claude.MCPConfig("/kit")
@@ -589,12 +593,6 @@ func TestStartProjectSettings(t *testing.T) {
 		{"absent: strict, both settings", "", strict},
 		{"sets no key of obor's", `{"model":"opus","permissions":{"allow":["Bash(ls)"]}}`, strict},
 		{"does not parse: as absent", `{"enabledMcpjsonServers":["x"],`, strict},
-		{"enabledMcpjsonServers: not strict, no --mcp-config", `{"enabledMcpjsonServers":["mine"]}`,
-			[]string{"--settings", bothJSON, "go"}},
-		{"enableAllProjectMcpServers: not strict", `{"enableAllProjectMcpServers":true}`,
-			[]string{"--settings", bothJSON, "go"}},
-		{"enableAllProjectMcpServers false: strict", `{"enableAllProjectMcpServers":false}`, strict},
-		{"empty enabledMcpjsonServers: strict", `{"enabledMcpjsonServers":[]}`, strict},
 		{"sets autoMemoryEnabled: only the other key", `{"autoMemoryEnabled":true}`,
 			[]string{"--mcp-config", ours, "--strict-mcp-config", "--settings", `{"remoteControlAtStartup":false}`, "--", "go"}},
 		{"sets remoteControlAtStartup: only the other key", `{"remoteControlAtStartup":true}`,
@@ -619,6 +617,90 @@ func TestStartProjectSettings(t *testing.T) {
 		Read: projectFS(claude.SettingsFile, []byte(`{"enableAllProjectMcpServers":true}`))})
 	if !slices.Equal(got, strict) {
 		t.Errorf("no dir: %q", got)
+	}
+}
+
+// A lane's strict start names the start dir's .mcp.json servers the project's settings approve, beside obor's: the
+// ones enabledMcpjsonServers lists, all of them with enableAllProjectMcpServers true; an unapproved server stays
+// out, and the user's own servers are never read. Without an approval or a .mcp.json the start is strict with obor's
+// server alone, and a lead's start reads none of it.
+func TestStartLaneProjectMCP(t *testing.T) {
+	k := kind(t)
+	const proj = `{"mcpServers":{"blender":{"command":"/opt/blender"},"other":{"command":"/bin/other"}}}`
+	const wantDef = `"blender":{"command":"/opt/blender"}`
+	settingsFile, mcpFile := "/lane/"+claude.SettingsFile, "/lane/.mcp.json"
+	read := func(files map[string]string) agents.ReadFile {
+		return func(path string) ([]byte, error) {
+			if b, ok := files[path]; ok {
+				return []byte(b), nil
+			}
+			return nil, fs.ErrNotExist
+		}
+	}
+	// servers is argv's --mcp-config value as its server names, sorted.
+	servers := func(t *testing.T, argv []string) []string {
+		t.Helper()
+		for i, a := range argv {
+			if a != "--mcp-config" || i+1 >= len(argv) {
+				continue
+			}
+			var doc struct {
+				Servers map[string]json.RawMessage `json:"mcpServers"`
+			}
+			if err := json.Unmarshal([]byte(argv[i+1]), &doc); err != nil {
+				t.Fatalf("the --mcp-config value %q does not parse: %v", argv[i+1], err)
+			}
+			return slices.Sorted(maps.Keys(doc.Servers))
+		}
+		t.Fatalf("no --mcp-config in %q", argv)
+		return nil
+	}
+	for _, c := range []struct {
+		name  string
+		files map[string]string
+		want  []string
+	}{
+		{"approved by name", map[string]string{settingsFile: `{"enabledMcpjsonServers":["blender"]}`, mcpFile: proj},
+			[]string{"blender", "obor"}},
+		{"enableAllProjectMcpServers: every server of the file",
+			map[string]string{settingsFile: `{"enableAllProjectMcpServers":true}`, mcpFile: proj},
+			[]string{"blender", "obor", "other"}},
+		{"an unapproved server stays out", map[string]string{settingsFile: `{"enabledMcpjsonServers":["other"]}`, mcpFile: proj},
+			[]string{"obor", "other"}},
+		{"an empty enabledMcpjsonServers approves none",
+			map[string]string{settingsFile: `{"enabledMcpjsonServers":[]}`, mcpFile: proj}, []string{"obor"}},
+		{"no approval key", map[string]string{settingsFile: `{"model":"opus"}`, mcpFile: proj}, []string{"obor"}},
+		{"no settings file", map[string]string{mcpFile: proj}, []string{"obor"}},
+		{"a settings file that does not parse: as no approval",
+			map[string]string{settingsFile: `{"enabledMcpjsonServers":["blender"],`, mcpFile: proj}, []string{"obor"}},
+		{"no .mcp.json", map[string]string{settingsFile: `{"enableAllProjectMcpServers":true}`}, []string{"obor"}},
+		{"the user's servers are not read",
+			map[string]string{settingsFile: `{"enabledMcpjsonServers":["blender"]}`, mcpFile: proj,
+				"/home/u/.claude.json": `{"mcpServers":{"mine":{"command":"/bin/mine"}}}`},
+			[]string{"blender", "obor"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			argv := k.Start(agents.Start{Kit: "/kit", Args: []string{"--model", "opus"}, StrictMCP: true, Prompt: "go",
+				Dir: "/lane", Read: read(c.files)})
+			if !slices.Contains(argv, claude.StrictFlag) {
+				t.Errorf("argv %q: a lane's start is strict", argv)
+			}
+			if got := servers(t, argv); !slices.Equal(got, c.want) {
+				t.Errorf("servers %q, want %q (argv %q)", got, c.want, argv)
+			}
+		})
+	}
+	// the approved server's definition is the project's own, word for word.
+	argv := k.Start(agents.Start{Kit: "/kit", StrictMCP: true, Dir: "/lane",
+		Read: read(map[string]string{settingsFile: `{"enabledMcpjsonServers":["blender"]}`, mcpFile: proj})})
+	if !strings.Contains(strings.Join(argv, " "), wantDef) {
+		t.Errorf("the approved server's definition is not passed through: %q", argv)
+	}
+	// a lead's start reads none of the project's MCP files.
+	lead := k.Start(agents.Start{Kit: "/kit", Args: []string{"--model", "opus"}, Prompt: "go", Dir: "/lane",
+		Read: read(map[string]string{settingsFile: `{"enableAllProjectMcpServers":true}`, mcpFile: proj})})
+	if want := []string{"--model", "opus", "go"}; !slices.Equal(lead, want) {
+		t.Errorf("a lead's start = %q, want %q", lead, want)
 	}
 }
 
