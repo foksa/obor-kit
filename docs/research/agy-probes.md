@@ -1,4 +1,4 @@
-# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468; P12: T-1481)
+# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468; P12: T-1481; P13: T-1497)
 
 `docs/research/agent-kinds-advice.md` §1.1 lists nine questions (P1 to P9) the agy kind's design rests on, all
 answered from documents so far. This run started agy live and records what it did, with the command or screen that
@@ -51,6 +51,7 @@ Summary:
 | P10 | A `command(<prefix>)` allow rule in the `--settings` file does not take a command out of the sandbox: `obor status` (allowed by `command(obor)`) reached no unix socket, a test allowed by `command(go test)` got `connect: operation not permitted`. A `read_url(proxy.golang.org)` rule opened the network: a module download passed, and so did `curl` to example.com, which no rule names; without the rules both failed. Nothing asked. | an agy lane in auto mode cannot dial serve or run socket tests; `toolPermission: "always-proceed"` (with obor's hooks) is the way for obor-kit's lanes |
 | P11 | `enableTerminalSandbox: false` does not take auto mode out of the sandbox (the same refusals; `/config` shows it as "Sandbox Mode", `off` with or without the key). `sandboxMode` is no CLI setting: `--settings` with it (or any unknown key) fails the start. Auto mode is already Claude-like: after a sandbox refusal the model re-ran the command with `BypassSandbox: true` on its own and the reviewer approved the unix socket, the socket test, the module download and the write outside the workspace with no prompt (5 to 12 s each); `rm -rf` of a dir outside the workspace with `BypassSandbox` asked, with the reviewer's reason. | D1: no `enableTerminalSandbox` key; plain auto mode (no `toolPermission`) passes a lane's socket and network commands through the reviewer, and works before obor's hooks; P10's "cannot dial serve" was the first, sandboxed attempt only |
 | P12 | Yes for the prompts: on a `BypassSandbox` re-run agy checks `unsandboxed(<command>)` against `command(…)` rules, and a `permissions.allow` rule covering every part of the command turns the reviewer's ask into a run (`obor send` asked 3 of 3 without `command(obor)`, ran 3 of 3 with it; `rm -rf` of a dir outside the workspace likewise). The rule does not skip or shorten the review (the same 2 to 36 s), does not take the first attempt out of the sandbox, and covers no uncovered part (`… && echo` still asked). Dialog option 3 saves `command(<prefix>)` (`command(obor)` for `obor send`). `command(obor status)` does not cover `obor send`. A deny rule is final on both paths. In a linked worktree every git command fails sandboxed (exit 128), and the model retried none of those failures, nor the socket test's or the download's (10 of 10). | the lead: `command(obor)` in obor's agy settings instead of `always-proceed`; obor-kit's workers keep `always-proceed` + hooks (the sandboxed first attempt, not the prompt, breaks a lane) |
+| P13 | A session is offered 17 tools (the model's list), obor's matchers name 3. Every tool fires PreToolUse, and `*` (or `.*`, `""`, no matcher) catches all; the matcher is a regex on `toolCall.name`; a deny stops any tool. A subagent's and a workflow `agent()`'s tool calls fire the workspace hooks, obor's included, under a new conversationId with no parent field. A `run_workflow` script's own Python and shell fire nothing, and under `always-proceed` run unsandboxed (a write outside the workspace passed). `permissions.deny` refuses `mcp(<server>/*)` and `mcp(*)` even under `always-proceed` and over an allow; entries naming a tool (`run_workflow`, `tool(…)`, `…(*)`) load and do nothing. `call_mcp_tool` carries `ServerName`, `ToolName`, `Arguments`. | W10: a `*` PreToolUse group, deny unmapped tools by name; `run_workflow` is the escape; subagents need telling apart, not denying; other servers through the guard on `ServerName` |
 
 ## P1: workspace config, plugins.json, worktrees, skills
 
@@ -749,6 +750,220 @@ Decides:
 - Cost of plain auto mode with rules, for the lead: every obor command runs twice, and the reviewer's check takes 11 to
   36 s per call (17 to 18 s for `whoami` and `status`). The rule removes the prompt, not the wait.
 
+## P13: which agy tools escape obor's hooks
+
+Question (`docs/research/v0.44-deep-dives-advice.md` §3(b) P1 and §4 "agy's unguarded tools"): obor's
+`.agents/hooks.json` has PreToolUse groups for three tools only, `run_command`, `write_file` and `edit_file`
+(`kinds/agy/kind/hook.go` `GuardedTools`). A tool none of them matches goes to agy's own check, and
+`toolPermission: "always-proceed"` approves it there. `run_workflow`, `invoke_subagent` and `manage_task` are strings
+in the binary. The questions:
+
+- Which tools is a session offered?
+- Can one matcher catch every tool, and which event fields name the tool and its server?
+- Do a subagent's or a workflow's tool calls fire the parent's hooks?
+- Can `permissions.deny` name a tool, or another MCP server's tools?
+- What does `call_mcp_tool` carry?
+
+Ran (2026-11-22, agy 1.5.14, herdr 0.9.5, macOS, `gemini-3.8-flash-low`). No self-update ran: every start logged `Last
+check was less than 15 minutes ago, skipping update`, and `agy --version` printed 1.5.14 after the run. The method is
+P12's. A throwaway herdr session `probe-p13` (headless server under `env -i`, pane `w1:p1`), and a scratch dir `<kit>` =
+`/Users/Shared/obor-agy-probe-T1497`, outside `$HOME` and the system temp dir. The fixture (`setup.sh`, appendix):
+
+- `<kit>/repo` is a scratch git repository and agy's workspace. It is not an obor project (no `.obor/config.json`),
+  so obor's transport answers `{"decision": "ask"}` to a tool call and `{}` to the other events without running `obor
+  hook` (`Hook`, outside a project). That is enough here: the probe asks which calls reach obor, not what its guard
+  decides.
+- `.agents/hooks.json` holds three named hooks:
+  - obor's entry `obor`, copied unchanged from obor-kit's own `.agents/hooks.json`: SessionStart, PreInvocation, Stop,
+    and PreToolUse with matchers `run_command`, `write_file` and `edit_file`, each running `obor kind agy hook`;
+  - `probe-log`: P3's `hook.py` on all six events, with PreToolUse and PostToolUse matcher `*`;
+  - `probe-match`: one PreToolUse group per matcher form, tagged in its log: `.*`, `""`, no `matcher` key, `run_.*`,
+    `invoke_subagent|run_workflow|manage_task`, `call_mcp_tool`.
+
+  The probe hooks answered PreToolUse with `{"decision": "ask"}`.
+- The `obor` first on agy's `PATH` was a wrapper (`obor`, appendix). It logged each call (argv, stdin, the answer) and
+  passed it on to the real obor (`~/.local/bin/obor`, the kit's). Its log shows which events obor's entry delivered.
+- `.agents/mcp_config.json` has two stdio servers, `probe-a` and `probe-b` (P2's `mcp.py`, tool `echo`).
+- The settings files:
+  - `set-ap.json` is an obor-kit worker's settings: `trustedWorkspaces: [<kit>/repo]`, `agentMode: "auto"`,
+    `toolPermission: "always-proceed"`, `permissions.allow: ["mcp(probe-a/*)", "mcp(probe-b/*)"]`;
+  - `set-deny.json` is the same plus one `permissions.deny` list;
+  - `set-auto.json` is the same without `toolPermission` (plain auto mode).
+- agy also loaded the user's own config, as it does for every obor agent today. `~/.gemini/config/hooks.json` holds
+  herdr's PreInvocation hook (`loaded 4 named hooks from 2 hooks.json file(s)`), and `~/.gemini/config/mcp_config.json`
+  holds a server `lit-site-manager`.
+
+agy started interactively with `--settings <file>` only (`start.sh`), and the turns went in by `herdr agent prompt`
+(`turn.sh`). Results come from the hook and wrapper logs (`hk.py`), the screen, the transcript and `cli.log`.
+
+Footprint:
+
+- `settings.json` and `~/.gemini/config/{config,hooks,mcp_config}.json` had the same checksums after the run.
+- One `ask_question` dialog was answered "yes" and one permission prompt "No, cancel". No option that saves to the
+  settings was chosen.
+- agy's run-time data grew (conversations under `brain/`, `cli.log`).
+- The session was stopped and deleted, `<kit>` removed, and no probe process left.
+
+Saw, the tools. The first prompt in a fresh conversation (`set-ap.json`) was "Do not call any tool. List every tool
+(function) you can call in this session, by its exact function name as declared to you, one per line, no descriptions,
+in the order they are declared. Then list the MCP servers and their tools you were told about." The model's answer
+(transcript step 1), in its order:
+
+```
+read_file  run_command  manage_task  send_message  schedule  invoke_subagent  define_subagent  manage_subagents
+write_file  edit_file  search_web  run_workflow  swarm  ask_question  call_mcp_tool  list_resources  read_resource
+```
+
+- That is seventeen tools, and obor's matchers name three. The model listed one MCP server, `lit-site-manager` (the
+  user's), with its 17 tools.
+- It left out `probe-a` and `probe-b`, although agy had started both (`tools/list` in their rpc logs). The model called
+  them by name in the next turn.
+- A workflow's `agent()` also had a `finish` tool (seen in its PreToolUse).
+- The list is the model's own report: agy prints no tool list.
+
+Every tool that was called fired PreToolUse (and PostToolUse once it ran) under the `*` matcher:
+
+| `toolCall.name` | `toolCall.args` seen | obor's entry ran |
+|---|---|---|
+| `run_command` | `{"CommandLine": "echo P13A > a.txt", "WaitMsBeforeAsync": 5000, "toolSummary": "…"}` | yes |
+| `write_file` | `{"Content": "P13B", "Path": "<kit>/repo/b.txt"}` | yes |
+| `read_file` | `{"Path": "<kit>/repo/README.md"}` | no |
+| `call_mcp_tool` | `{"Arguments": {"text": "hi"}, "ServerName": "probe-a", "ToolName": "echo"}` | no |
+| `invoke_subagent` | `{"Model": "inherit", "Prompt": "Run the shell command echo P13SUB > sub.txt …", "Role": "Subagent Executor", "TypeName": "self", "Workspace": "inherit"}` | no |
+| `run_workflow` | `{"Description": "…", "Script": "<the Python script>"}` | no |
+| `manage_task` | `{"Action": "list"}` | no |
+| `manage_subagents` | `{"Action": "list"}` | no |
+| `define_subagent` | `{"Name": "P13Echo", "Description": "…", "SystemPrompt": "…", "EnableWriteTools": false, "EnableMCPTools": false, "EnableSubagentTools": false}` | no |
+| `schedule` | `{"DurationSeconds": 30, "Prompt": "Check on subagent progress if not woken up"}` (the model set the timer itself after `invoke_subagent`) | no |
+| `send_message` | `{"Recipient": "<the parent's conversationId>", "Message": "DONE"}` (a subagent's report) | no |
+| `list_resources` | `{"ServerName": "lit-site-manager"}` | no |
+| `search_web` | `{"query": "antigravity cli hooks"}` | no |
+| `ask_question` | `{"questions": [{"question": "Do you want to continue?", "options": ["(Recommended) yes", "no"], "is_multi_select": false}]}` (the hook ran before the dialog) | no |
+| `finish` | `{"result": "DONE"}` (a workflow agent's last call) | no |
+
+- `edit_file` was not called here (P3 had it). `swarm` was not called: its description says to call it only after
+  `/swarm`. `read_resource` was not called either.
+- The wrapper got PreToolUse for `run_command` and `write_file` only, plus SessionStart, PreInvocation and Stop. No
+  other tool call reached any obor process.
+
+Saw, the matchers and the fields:
+
+- `*`, `.*`, `""` and a group with no `matcher` key each fired for every call in the table, the same calls step for
+  step.
+- `run_.*` fired for `run_command` and `run_workflow` and nothing else, so the matcher is a regular expression on
+  `toolCall.name` (and `*` is taken as match-all). `invoke_subagent|run_workflow|manage_task` fired for those three
+  only, and `call_mcp_tool` for MCP calls only.
+- The tool is `toolCall.name`. No field outside `args` names a server: `call_mcp_tool` and `list_resources` carry it in
+  `toolCall.args.ServerName`. Every PreToolUse event had the same keys: `artifactDirectoryPath`, `conversationId`,
+  `cwd`, `hookEventName`, `lastUserInput`, `modelName`, `stepIdx`, `toolCall`, `transcriptPath`, `workspacePaths`.
+- A PreToolUse deny stops these tools. `probe-match`'s `invoke_subagent|run_workflow|manage_task` group answered
+  `{"decision": "deny", "reason": "P13: denied by matcher m-alt"}`. All three calls failed with `Encountered error in
+  tool execution: tool call denied by pre-tool hook: P13: denied by matcher m-alt`, and nothing ran: the workflow's file
+  and the subagent's file were not written. The other groups of the same named hook (`*`-like and `run_.*`) ran for
+  those calls; `probe-log`'s `*` group, another named hook, did not (P3: the first deny ends the chain).
+
+Saw, subagents:
+
+- `invoke_subagent` started a new conversation (`5c8cc71c…`) in the same CLI process: the hooks' parent pid was the
+  agy pid.
+- The workspace hooks fired for the subagent as they do for the parent: SessionStart (`lastUserInput: ""`),
+  PreInvocation (invocationNum 0, 1, …), PreToolUse and PostToolUse, and Stop.
+- obor's entry fired for the subagent's `run_command` and `write_file`. The wrapper logged both under the subagent's
+  conversationId, answer `ask`. Its `call_mcp_tool` (`ServerName: probe-b`) fired the probe hooks.
+- Nothing in the subagent's events names the parent. They have the same keys, `cwd` is the workspace, and the hook's
+  environment equals the parent hooks' except `ANTIGRAVITY_CONVERSATION_ID`. The only link seen is the subagent's
+  `send_message` to the parent's conversationId.
+- The parent's turn ended while the subagent ran (Stop `fullyIdle: false`), and the subagent's report started another
+  parent turn.
+
+Saw, workflows (`set-ap.json` unless noted):
+
+- `run_workflow` ran its script in agy's bundled Python, and nothing the script itself did fired a hook. First script:
+
+  ```
+  import os, subprocess
+  open("wf-py.txt", "w").write("P13WFPY")
+  subprocess.run("echo P13WFSH > wf-sh.txt", shell=True)
+  r = await call_tool("run_command", CommandLine="echo P13WFCT > wf-ct.txt", WaitMsBeforeAsync=5000)
+  ```
+
+  It wrote `wf-py.txt` and `wf-sh.txt`, then failed with `NameError: name 'call_tool' is not defined`. The hooks saw
+  PreToolUse and PostToolUse of `run_workflow` only; the PostToolUse `error` was the NameError.
+- The second script ran `subprocess.run("echo P13WFOUT > <kit>/outside-wf.txt; echo rc=$?; id -un", shell=True, …)`.
+  It logged `rc=0` and the user's login name, and the file was there, outside the workspace. Then it ran `await
+  agent("Run the shell command  echo P13WFAG > wf-ag.txt  with run_command, then finish with the word DONE.", {"type":
+  "string"}, role="Probe")`.
+- That `agent()` was a new conversation (`20bb8643…`), and it was guarded like a subagent: its `run_command` fired
+  every hook, obor's included. Its `finish` fired `probe-log`, and its Stop had `terminationReason:
+  TERMINAL_STEP_TYPE`.
+- Under `set-ap.json` `run_command` is not sandboxed either: `echo P13RC > <kit>/outside-rc.txt` wrote the file outside
+  the workspace. A workflow script reaches what a command reaches; the difference is that obor's guard sees the command
+  but not the script.
+- Under `set-auto.json` (plain auto mode, `toolPermission=request-review`) a script of the same kind asked before it
+  ran:
+
+  ```
+  Requesting permission for:
+     import subprocess
+     p = subprocess.run("echo P13AUTO > /Users/Shared/obor-agy-probe-T1497/outside-auto-wf.txt; echo rc=$?", …)
+     log("wf:", p.stdout, p.stderr)
+  Run this command?
+  > 1. Yes, run command
+    2. Yes, and always allow in this conversation for commands that start with 'import subprocess …'
+  ```
+
+  "No, cancel" ended the turn (`User declined the tool call`, `Interrupted`). agy's own review treats the script as a
+  command line; under `always-proceed` nothing asks.
+- `call_tool` was not offered. The binary documents it as a workflow primitive that runs a tool and raises `ToolError`
+  with `.denied` "when a pre-tool hook or the permission check rejected the call". The script's scope gets it only
+  when the run's init message enables it (`if init.get("call_tool")` in the embedded runner), and the tool's
+  description then lists the tools it may call. Whether its calls fire the hooks was not seen.
+
+Saw, `permissions.deny`. Each list went into `set-deny.json`, and agy started with every one of them: no error on the
+screen and no warning in `cli.log`, which prints the list as parsed (`CLI settings initialized:
+permissions=&{Allow:[mcp(probe-a/*) mcp(probe-b/*)] Deny:[mcp(probe-b/*) run_workflow tool(invoke_subagent)
+manage_task(*)] Ask:[]}, toolPermission=always-proceed`).
+
+| Deny entry | Call | Result |
+|---|---|---|
+| `mcp(probe-b/*)` (with `mcp(probe-b/*)` in allow too) | `probe-b` `echo`, then `probe-a` `echo` | probe-b **refused**: `permission check failed for mcp "probe-b/echo": Permission denied for mcp(probe-b/echo). Matches user-configured deny rule.` probe-a ran |
+| `mcp(*)` | `probe-a` `echo` | **refused**, the same message for `probe-a/echo`, although `mcp(probe-a/*)` is in allow |
+| `run_workflow` | `run_workflow` writing `wf-deny9.txt` | ran, the file written |
+| `tool(invoke_subagent)` | `invoke_subagent` | ran, and its subagent ran its command |
+| `manage_task(*)` | `manage_task` list | ran |
+
+- A deny rule holds under `always-proceed`. For the refused MCP call PreToolUse fired (the hooks run before agy's
+  permission check) and PostToolUse did not.
+- The rule kinds the binary documents are `command(…)`, `read_file(<path>)`, `write_file(<path>)`,
+  `mcp(<server>/<tool>)`, `read_url(<domain>)` and `execute_url(<domain>)`, and none of them names an agy tool. An entry
+  of another shape is kept and matches nothing.
+- Deny beats allow, so "every server but obor's" cannot be written as `mcp(*)` deny plus `mcp(obor/*)` allow. Denying
+  other servers takes one `mcp(<server>/*)` per server (a plugin's server is `<plugin>_<server>`, P4), and the names
+  are known only from the user's config.
+
+Saw, `call_mcp_tool`: `{"name": "call_mcp_tool", "args": {"Arguments": {"text": "hi"}, "ServerName": "probe-a",
+"ToolName": "echo"}}`. `ServerName` is the server's name in `mcp_config.json`, the name `mcp(<server>/…)` rules use; a
+subagent's call carried the same (`ServerName: probe-b`).
+
+Decides (W10):
+
+- **One matcher catches every tool:** `*`, or a group with no matcher. The transport can take every PreToolUse and deny
+  by name a `toolCall.name` it does not map, in an obor project. The deny reaches the model and stops the tool (shown
+  for `run_workflow`, `invoke_subagent` and `manage_task`).
+- **`run_workflow` is the escape.** Its script runs any Python and shell with no hook, and under `always-proceed`
+  outside any sandbox. A lane under `always-proceed` needs it denied, or mapped to the guard as a command.
+- **Subagents are guarded already.** The tool calls of a subagent and of a workflow's `agent()` fire the workspace
+  hooks, obor's matchers included, so `invoke_subagent` needs no deny for the guard's sake. But their events arrive
+  under a new conversationId with no field naming the parent. obor's SessionStart, PreInvocation and Stop handling
+  takes each subagent for another session (a worker's stop check would run at each subagent's Stop). Telling them
+  apart is W10's question; `send_message`'s `Recipient` is the only link seen.
+- **The other tools** (`read_file`, `search_web`, `ask_question`, `schedule`, `manage_task`, `manage_subagents`,
+  `define_subagent`, `send_message`, `list_resources`, `read_resource`, `finish`, `swarm`) are W10's allow list to
+  write. A name not on it, such as a tool a newer agy adds, is then a named deny.
+- **Other servers' MCP tools:** the hook sees `call_mcp_tool` and its `ServerName`, so the guard can refuse any server
+  but obor's for a lane role. `permissions.deny` can do it only one server at a time (`mcp(*)` also refuses obor's), and
+  rules naming a tool do nothing.
+
 ## Not verified
 
 - A Stop with `ERROR` and its `error` text, and what a usage limit looks like (nothing here forces them).
@@ -770,6 +985,13 @@ Decides:
   counts as covered in a compound bypass. Plugin "trusted CLIs" (`plugin_trusted_clis.go` in the binary: a plugin's CLI
   run in its own sandbox box with grants), as another route for obor's own commands. Why the lead's conversation grant
   did not hold (not reproduced).
+- P13: whether a workflow's `call_tool` (not offered here) fires the hooks, and what enables it. `edit_file`, `swarm`
+  and `read_resource` were not called (`edit_file` matched in P3). Whether a subagent is offered a different tool set
+  (`define_subagent`'s `EnableWriteTools` and the like), and whether a defined subagent type with write tools off can
+  still run commands. Whether a `command(…)` deny rule matches a `run_workflow` script (plain auto mode's review offered
+  the script's first line as a command prefix). A plugin's MCP server in `call_mcp_tool`: the model listed no plugin
+  server here, and `cli.log` had `Not reloading plugin MCP servers: cannot get the signed-in user: … You are not logged
+  into Antigravity.`
 
 ## Appendix: the probe scripts
 
@@ -1620,4 +1842,158 @@ for d in steps:
     elif pending and d.get("type") not in ("PLANNER_RESPONSE",) and d.get("source") != "SYSTEM":
         print("step", d.get("step_index"), d.get("type"), d.get("status"), str(d.get("content") or d.get("error") or "")[:400].replace("\n", " | "))
         pending = None
+```
+
+### P13: `setup.sh`, `obor`, `hk.py`, `denystart.sh`
+
+The session is started as in P12 (`herdr --session probe-p13 server` under `env -i` with `<kit>/bin` first on `PATH`;
+`workspace create --cwd <kit>/repo`, pane `w1:p1`). `setup.sh` takes the obor hooks file to copy (obor-kit's own
+`.agents/hooks.json`) and copies the kit's scripts (P3's `hook.py` and P2's `mcp.py` unchanged) to `<kit>/bin`.
+`start.sh` and `turn.sh` are P12's with `S=probe-p13`, the start in `<kit>/repo` with `PATH=$KIT/bin:$PATH` in front of
+`agy` (the pane's login shell puts the user's `PATH` first, so without it the hooks ran the kit's obor and not the
+wrapper), and `turn.sh` answers `ANSWER=enter` / `ANSWER=no` as P12's; `clear.sh` types `/clear` and Enter. `tx.py`
+is P11's, reading the conversation of the newest `probe-log` event (other agy sessions on the machine write to the same
+`brain/`).
+
+`setup.sh`
+
+```sh
+#!/bin/sh
+# P13 fixture. KIT outside the system temp dir and outside $HOME (no trusted folder covers it):
+#   $KIT/bin        hook.py, mcp.py, the logging obor wrapper, the helpers
+#   $KIT/repo       a scratch git repository (no obor project: obor's transport answers ask, P13 text), agy's workspace:
+#                   .agents/hooks.json = obor's entry (this repo's own .agents/hooks.json, unchanged) + probe-log (every
+#                   event, PreToolUse/PostToolUse matcher "*") + probe-match (one PreToolUse group per matcher form);
+#                   .agents/mcp_config.json = two stdio servers probe-a, probe-b (mcp.py, one tool `echo` each)
+#   $KIT/set-*.json the --settings files
+#   usage: setup.sh <obor-hooks.json>
+set -eu
+KIT=${KIT:-/Users/Shared/obor-agy-probe-T1497}
+SRC=$(cd "$(dirname "$0")" && pwd)
+OH=${1:?obor hooks.json}
+[ -e "$KIT" ] && { echo "exists: $KIT"; exit 1; }
+mkdir -p "$KIT/bin" "$KIT/log" "$KIT/ctrl" "$KIT/repo/.agents"
+cp "$SRC"/* "$KIT/bin/"
+chmod +x "$KIT/bin/obor"
+printf '{"decision": "ask"}\n' > "$KIT/ctrl/all-PreToolUse.reply"
+python3 -I - "$KIT" "$OH" <<'EOF'
+import json, sys
+kit, oh = sys.argv[1], sys.argv[2]
+h = json.load(open(oh))
+cmd = lambda tag: {"type": "command", "command": "python3 %s/bin/hook.py %s" % (kit, tag)}
+h["probe-log"] = {ev: [cmd("log")] for ev in ("SessionStart", "PreInvocation", "PostInvocation", "Stop")}
+for ev in ("PreToolUse", "PostToolUse"):
+    h["probe-log"][ev] = [{"matcher": "*", "hooks": [cmd("log")]}]
+forms = [("m-dotstar", ".*"), ("m-empty", ""), ("m-none", None), ("m-prefix", "run_.*"),
+         ("m-alt", "invoke_subagent|run_workflow|manage_task"), ("m-mcp", "call_mcp_tool")]
+groups = []
+for tag, m in forms:
+    g = {"hooks": [cmd(tag)]}
+    if m is not None:
+        g["matcher"] = m
+    groups.append(g)
+h["probe-match"] = {"PreToolUse": groups}
+json.dump(h, open(kit + "/repo/.agents/hooks.json", "w"), indent=2)
+srv = lambda tag: {"command": "python3", "args": [kit + "/bin/mcp.py", tag]}
+json.dump({"mcpServers": {"probe-a": srv("a"), "probe-b": srv("b")}}, open(kit + "/repo/.agents/mcp_config.json", "w"), indent=2)
+base = {"trustedWorkspaces": [kit + "/repo"], "agentMode": "auto", "toolPermission": "always-proceed",
+        "permissions": {"allow": ["mcp(probe-a/*)", "mcp(probe-b/*)"]}}
+json.dump(base, open(kit + "/set-ap.json", "w"))
+EOF
+cd "$KIT/repo"
+printf 'hello\n' > README.md
+git init -q -b main
+git add -A
+git -c user.name=probe -c user.email=probe@obor.invalid -c commit.gpgsign=false commit -q -m fixture
+echo "fixture at $KIT"
+```
+
+`obor`
+
+```sh
+#!/bin/sh
+# P13: the `obor` first on the probe pane's PATH. Logs each call (argv, stdin, the real obor's answer and exit) to
+# $KIT/log/obor-<ns>.txt, then answers what the real obor (OBOR_REAL) answered.
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+REAL=${OBOR_REAL:-$HOME/.local/bin/obor}
+ns=$(python3 -c 'import time; print(time.time_ns())')
+f=$KIT/log/obor-$ns.txt
+in=$(cat)
+out=$(printf '%s' "$in" | "$REAL" "$@")
+rc=$?
+{
+  printf '%s\n' "argv: $*"
+  printf '%s\n' "cwd: $(pwd)"
+  printf '%s\n' "stdin: $in"
+  printf '%s\n' "stdout: $out"
+  printf '%s\n' "exit: $rc"
+} > "$f"
+printf '%s\n' "$out"
+exit $rc
+```
+
+`hk.py`
+
+```python
+#!/usr/bin/env python3
+"""Prints the hook and obor-wrapper log entries newer than <since-ns> (default 0), oldest first: tag, event,
+conversation (8 chars), tool name, the tool's args (trimmed); obor calls: argv, event, tool, answer.
+usage: hk.py [since-ns] [args-width]
+"""
+import glob, json, os, sys
+KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+since = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+w = int(sys.argv[2]) if len(sys.argv) > 2 else 220
+rows = []
+for p in glob.glob(os.path.join(KIT, "log", "hook-*.json")):
+    n = os.path.basename(p)[:-5].split("-", 2)
+    ns = int(n[1])
+    b = [None, n[1]] + n[2].rsplit("-", 1)
+    if ns <= since:
+        continue
+    try:
+        d = json.load(open(p))
+    except Exception:
+        rows.append((ns, "%s %s unparsed" % (b[2], b[3]))); continue
+    tc = d.get("toolCall") or {}
+    extra = ""
+    if d["hookEventName"] in ("PreInvocation", "PostInvocation"):
+        extra = "inv=%s" % d.get("invocationNum")
+    if d["hookEventName"] == "Stop":
+        extra = "%s exec=%s idle=%s" % (d.get("terminationReason"), d.get("executionNum"), d.get("fullyIdle"))
+    if d["hookEventName"] == "PostToolUse":
+        extra = "error=%r" % (d.get("error") or "")[:80]
+    rows.append((ns, "%-10s %-14s %s step=%s %s %s %s" % (b[2], d["hookEventName"], (d.get("conversationId") or "")[:8],
+        d.get("stepIdx"), tc.get("name") or "", json.dumps(tc.get("args"))[:w] if tc else "", extra)))
+for p in glob.glob(os.path.join(KIT, "log", "obor-*.txt")):
+    ns = int(os.path.basename(p)[5:-4])
+    if ns <= since:
+        continue
+    t = dict(l.split(": ", 1) for l in open(p).read().splitlines() if ": " in l)
+    try:
+        d = json.loads(t.get("stdin", "{}"))
+    except Exception:
+        d = {}
+    rows.append((ns, "OBOR       %-14s %s %s -> %s exit=%s" % (d.get("hookEventName"), (d.get("conversationId") or "")[:8],
+        (d.get("toolCall") or {}).get("name") or "", t.get("stdout", "")[:120], t.get("exit"))))
+for ns, r in sorted(rows):
+    print(r)
+```
+
+`denystart.sh`
+
+```sh
+#!/bin/sh
+# Starts agy with set-ap.json plus one permissions.deny list per argument; prints the start's screen errors and
+# cli.log's parsed permissions line.
+#   denystart.sh '<json array>'...
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+for d in "$@"; do
+  f=$KIT/set-deny.json
+  python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); s["permissions"]["deny"]=json.loads(sys.argv[2]); json.dump(s,open(sys.argv[3],"w"))' "$KIT/set-ap.json" "$d" "$f"
+  echo "=== deny: $d"
+  sh "$KIT/bin/start.sh" "$f" > "$KIT/log/denystart.txt" 2>&1
+  herdr --session probe-p13 pane read w1:p1 --source visible 2>&1 | grep -v '^[[:space:]]*$' | grep -i -E "error|invalid|unknown|rule|warn" | head -4 | sed 's/^/screen: /'
+  grep -E "CLI settings initialized|invalid|unknown rule|permission rule" "$HOME/.gemini/antigravity-cli/cli.log" | cut -c1-260 | sed 's/^/log: /' | head -4
+done
 ```
