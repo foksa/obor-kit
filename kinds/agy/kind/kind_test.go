@@ -199,8 +199,9 @@ func TestStartArgs(t *testing.T) {
 
 // The start checks its model and effort against `agy models` (a stub on PATH; the list is agy's own, never a table in
 // the kind): a listed slug, a listed model's effort, a base alias and a label start with the model args they name; an
-// unknown model, an effort the model lacks and a model that takes no effort are the start's error, naming agy's list; a
-// failing `agy models` is too, with its own failure. The effort check (obor config validate, a dispatch) runs no `agy`.
+// unknown model, an effort the model lacks, a model that takes no effort and a variant the list has not (a slug naming
+// an effort beside no --effort) are the start's error, naming agy's list; a failing `agy models` is too, with its own
+// failure. The effort check (obor config validate, a dispatch) runs no `agy`.
 func TestStartModels(t *testing.T) {
 	k := agy(t, t.TempDir())
 	env := home(t, "")
@@ -221,6 +222,8 @@ func TestStartModels(t *testing.T) {
 			[]string{"--settings", "{settings}", "--model", "Gemini 3.8 Flash (Low)"}, ""},
 		{"a base with variants: agy's alias", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}},
 			[]string{"--settings", "{settings}", "--model", "gemini-3.8-flash"}, ""},
+		{"a slug naming an effort the model lacks, with no --effort", agents.Start{Args: []string{"--model", "gemini-3.8-flash-xhigh"}},
+			nil, "model gemini-3.8-flash-xhigh is not in agy models (models.<name>.id names a slug the list shows)"},
 		{"an unknown model", agents.Start{Args: []string{"--model", "gemini-9-bogus"}}, nil,
 			"model gemini-9-bogus is not in agy models (models.<name>.id names a slug the list shows)"},
 		{"an effort the model lacks", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}, Effort: "xhigh"}, nil,

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,7 +66,8 @@ func agyStatic() {
 // binary through obor's plugin package), in the lane, with the project's .agents/mcp_config.json and .agents/hooks.json
 // as obor setup agents writes them and the repository's own obor (and its agy kind, the hook transport) first on PATH
 // (the files name obor by PATH), a stub serve on the project's socket. AG-L1 the start (no trust dialog, no
-// wrong-model notice, idle), AG-L4 the quit. With TURN=1: AG-L2 the first prompt in the argv, AG-L8 the session
+// wrong-model notice, idle), AG-L7 the lab's bogus model refused by the launcher while that agent runs, AG-L4 the
+// quit. With TURN=1: AG-L2 the first prompt in the argv, AG-L8 the session
 // record (the SessionStart hook reports the new conversation to serve), AG-L3 an obor MCP tool call with no prompt
 // (job_next's reply in the transcript), AG-L6 the context read of that transcript, AG-L9 a command obor's guard denies
 // (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L5 the resume by the recorded
@@ -119,11 +121,12 @@ func agyLive(l *lab, turn bool) {
 	}
 	stop := k.Stop()
 	whereStop := at(agyGo, `"stop"`)
-	l.agyWrongModel(k, pane)
 	if !turn {
 		if s, ok := l.agyStart(k, pane, agents.Start{}, "no prompt"); ok {
+			l.agyWrongModel(s, pane)
 			agyQuit(l, pane, stop, whereStop)
-			_ = s
+		} else {
+			report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		}
 		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "P10", "P10-control"} {
 			report("SKIP", id, "needs TURN=1 (a model call)", whereStart)
@@ -133,8 +136,10 @@ func agyLive(l *lab, turn bool) {
 	const first = "AGY-FIRST-OK"
 	s, ok := l.agyStart(k, pane, agents.Start{Prompt: "Reply with exactly " + first}, "first prompt")
 	if !ok {
+		report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		return
 	}
+	l.agyWrongModel(s, pane)
 	sid, text := l.agyConversation(k, s, first)
 	if sid == "" {
 		report("FAIL", "AG-L2", "the first prompt's reply is in no conversation's transcript in 120s; screen: "+tail(l.screen(pane), 4), whereStart)
@@ -220,15 +225,7 @@ func (l *lab) agyRelaunch(sid, pane, where string) bool {
 	}
 	defer os.Remove(over)
 	var out bytes.Buffer
-	env := func(key string) (string, bool) { v := l.envOf(key); return v, v != "" }
-	ln := &launch.Launcher{Cfg: l.config(), Env: env, Kit: l.real, H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second},
-		Out: &out, Poll: 200 * time.Millisecond, Up: 60 * time.Second, Background: func(func()) {},
-		Install:  func() agents.InstallHost { return agents.InstallHost{} },
-		Sessions: func(agent string) (store.Session, bool) { return rec, agent == rec.Agent },
-		Report:   func(context.Context, store.Session) error { return nil }, Started: noStarted,
-		Where: func(context.Context, wire.WhereReq) (wire.WhereReply, error) {
-			return wire.WhereReply{State: wire.WhereNone, Why: "the lab's stub serve"}, nil
-		}}
+	ln := l.launcher(&out, func(agent string) (store.Session, bool) { return rec, agent == rec.Agent })
 	_, err := ln.Launch(l.ctx, launch.Request{Agent: rec.Agent, Pane: pane})
 	said := out.String()
 	switch {
@@ -241,6 +238,20 @@ func (l *lab) agyRelaunch(sid, pane, where string) bool {
 		return false
 	}
 	return true
+}
+
+// launcher is obor's one start path in the lab's project: its config and the repository's kit, the throwaway session's
+// terminal, its stub serve's where answer, and out for its progress lines. sessions is its recorded-session lookup.
+func (l *lab) launcher(out io.Writer, sessions func(string) (store.Session, bool)) *launch.Launcher {
+	env := func(key string) (string, bool) { v := l.envOf(key); return v, v != "" }
+	return &launch.Launcher{Cfg: l.config(), Env: env, Kit: l.real, H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second},
+		Out: out, Poll: 200 * time.Millisecond, Up: 60 * time.Second, Background: func(func()) {},
+		Install:  func() agents.InstallHost { return agents.InstallHost{} },
+		Sessions: sessions,
+		Report:   func(context.Context, store.Session) error { return nil }, Started: noStarted,
+		Where: func(context.Context, wire.WhereReq) (wire.WhereReply, error) {
+			return wire.WhereReply{State: wire.WhereNone, Why: "the lab's stub serve"}, nil
+		}}
 }
 
 // agyDenied is AG-L9: the agent runs a commit in its lane as a run_command; obor's guard denies it through the
@@ -320,22 +331,61 @@ func (l *lab) agyStart(k agents.Kind, pane string, in agents.Start, mode string)
 	return s, true
 }
 
-// agyWrongModel is AG-L7: a start of a model agy does not know is the start's error (the kind checks the model against
-// `agy models` before agy runs), so nothing of agy's comes up in the pane.
-func (l *lab) agyWrongModel(k agents.Kind, pane string) {
+// agyWrongModel is AG-L7: obor's launcher starts the agent running in pane again with the lab's bogus model. The kind
+// checks a start's model against `agy models` before agy runs, so the launcher refuses it before anything is stopped:
+// the agent in the pane keeps running (the same foreground processes) and the start's first prompt is never typed.
+func (l *lab) agyWrongModel(s started, pane string) {
 	where := at(agyGo, "func start(")
-	_, _, launch, screen, err := l.agyUp(k, pane, "agy-bogus", agents.Start{})
+	const first = "AGY-L7-FIRST"
+	shell, before := l.fg(pane)
+	var out bytes.Buffer
+	ln := l.launcher(&out, func(string) (store.Session, bool) { return store.Session{}, false })
+	_, err := ln.Launch(l.ctx, launch.Request{Agent: s.name, Pane: pane, Type: "agy-bogus", Prompt: first})
+	_, after := l.fg(pane)
+	said := l.screen(pane)
+	atShell := shell != 0 && len(before) == 1 && before[0].pid == shell
 	switch {
+	case len(before) == 0 || atShell:
+		report("FAIL", "AG-L7", "precondition: an agent process runs in pane "+pane+" before its restart: foreground "+pidsFact(before)+"; screen: "+tail(said, 4), where)
 	case err == nil:
-		report("FAIL", "AG-L7", "--model gemini-9-bogus: the start was built: "+strings.Join(launch.Args, " ")+"; screen: "+tail(screen, 5), where)
-		if code, err := l.quit(pane, k.Stop()); err != nil || code != 0 {
-			l.stopAgent(pane)
-		}
+		report("FAIL", "AG-L7", "model agy-bogus (gemini-9-bogus): the launcher started it: "+tail(out.String(), 3)+"; screen: "+tail(said, 5), where)
 	case !strings.Contains(err.Error(), "gemini-9-bogus") || !strings.Contains(err.Error(), "agy models"):
-		report("FAIL", "AG-L7", "--model gemini-9-bogus: the start's error names neither the model nor agy models: "+firstLine(err.Error()), where)
+		report("FAIL", "AG-L7", "model agy-bogus: the launcher's error names neither the model nor agy models: "+firstLine(err.Error()), where)
+	case !samePids(before, after):
+		report("FAIL", "AG-L7", "model agy-bogus: the refusal came back but the agent the pane ran was stopped: foreground "+
+			pidsFact(before)+" became "+pidsFact(after), where)
+	case strings.Contains(said, first):
+		report("FAIL", "AG-L7", "model agy-bogus: the start's first prompt reached the pane: "+tail(said, 4), where)
 	default:
-		report("PASS", "AG-L7", "--model gemini-9-bogus: the start refuses it, no agy started: "+firstLine(err.Error()), where)
+		report("PASS", "AG-L7", "model agy-bogus: obor's launcher refuses it before stopping anything ("+firstLine(err.Error())+
+			"), pane "+pane+" still runs "+pidsFact(after)+", first prompt "+first+" never typed", where)
 	}
+}
+
+// pidsFact is procs as "name(pid) …" for a fact line ("none": nothing in the foreground).
+func pidsFact(ps []proc) string {
+	if len(ps) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(ps))
+	for _, p := range ps {
+		parts = append(parts, fmt.Sprintf("%s(%d)", p.name, p.pid))
+	}
+	return strings.Join(parts, " ")
+}
+
+// samePids is whether every process of before still runs in after: a pane's agent stopped and restarted is not it.
+func samePids(before, after []proc) bool {
+	now := map[int]bool{}
+	for _, p := range after {
+		now[p.pid] = true
+	}
+	for _, p := range before {
+		if !now[p.pid] {
+			return false
+		}
+	}
+	return len(before) > 0
 }
 
 // agyUp starts agy in pane as obor's launch builds a worker's start of model (the lab config's), its settings file

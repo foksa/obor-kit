@@ -294,13 +294,16 @@ func variants(list []model, base string) []string {
 }
 
 // checkModel is why a start cannot name model (with effort: model's base and that effort): agy runs another model for
-// an unknown one or one without the effort, so the start refuses it before agy does. "" : the ref is in list. A ref may
-// be a slug, a label (agy resolves labels) or a base with variants (an alias, agy resolves it to one of them).
+// an unknown one or one without the effort, so the start refuses it before agy does. "" : the ref is in list. A ref
+// with no effort of its own is a listed slug or label exactly (agy resolves labels), or the bare base of a model the
+// list shows with variants (agy's default variant); a ref that names a variant the list has not ("…-xhigh" beside
+// low/medium/high) is no model agy runs.
 func checkModel(list []model, ref, effort string) string {
 	base := Base(ref)
 	has := variants(list, base)
 	if effort == "" {
-		if len(has) > 0 || slices.ContainsFunc(list, func(m model) bool { return m.slug == ref || m.label == ref }) {
+		if slices.ContainsFunc(list, func(m model) bool { return m.slug == ref || m.label == ref }) ||
+			base == ref && len(has) > 0 {
 			return ""
 		}
 		return fmt.Sprintf("model %s is not in agy models (models.<name>.id names a slug the list shows)", ref)
