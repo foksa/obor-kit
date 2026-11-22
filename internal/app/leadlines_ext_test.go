@@ -277,3 +277,43 @@ func TestLeadLineByInboxNotHandedByHooks(t *testing.T) {
 		}
 	})
 }
+
+// An agy lead (an inbox its kind sends with, hooks that act on the answers) whose send is refused (a stale token: the
+// poster marks its record refused, so it is not live) gets that line through its hooks, once: the refusal is recorded
+// as a failed delivery, the line held for the hooks and handed at the hook's ask (the refused post's delivery, its
+// result sent); once a command of the lead records its inbox again, later passes post nothing more.
+func TestLeadLineRefusedSendGoesByHooks(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := leadKindRig(t, "gem", "agy",
+			withConfig(testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"})))
+		r.inbox.record("pj-lead")
+		r.inbox.staleOnRefuse()
+		r.start()
+		line := sentLine("other", "hello")
+		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
+		if err != nil || reply != "SENT to pj-lead in proj (posted to its session)" {
+			t.Fatalf("send: %q, %v; want it posted (a live inbox)", reply, err)
+		}
+		r.waitFor("the send refused", func() bool { return r.msgFailed() == 1 })
+		r.passes()
+		why := "no inbox recorded for pj-lead: " + "its hooks hand it its lines at its next prompt or turn end"
+		if w := r.waiting(); len(w) != 1 || w[0].Line != line || w[0].Held != why {
+			t.Fatalf("waiting %+v; want the line held for the lead's hooks", w)
+		}
+		if got, err := r.leadLines("h1"); err != nil || got != line {
+			t.Fatalf("the hook's ask: %q, %v; want %q", got, err, line)
+		}
+		r.inbox.record("pj-lead") // the lead's next obor command records its inbox again
+		r.passes()
+		if res := r.lineResults(); len(res) != 1 || res[0] != "sent" { // the hook's, closing the refused post's intent
+			t.Errorf("delivery results %q; want the hook's delivery alone", res)
+		}
+		if tries, posts := r.inbox.tries("pj-lead", line), r.inbox.count("pj-lead", line); tries != 1 || posts != 0 {
+			t.Errorf("tried %d, posted %d; want the one refused try", tries, posts)
+		}
+		if w := r.waiting(); len(w) != 0 {
+			t.Errorf("waiting %+v after the hook took it", w)
+		}
+	})
+}

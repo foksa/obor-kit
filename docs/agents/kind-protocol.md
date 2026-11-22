@@ -12,7 +12,9 @@ changes (`docs/plan/architecture-target.md` §2a).
 its hook transport. A test binary answers it in process (`plugin.Local`, testkit), with the handler the binary runs.
 The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, built and shipped the same way as
 `obor-kind-agy`: obor's MCP server and hooks through the project's `.agents/mcp_config.json` and `.agents/hooks.json`
-(`install`'s `where: project`); its binary's `hook` call is agy's hook transport (`obor kind agy hook`).
+(`install`'s `where: project`); its binary's `hook` call is agy's hook transport (`obor kind agy hook`); its inbox is the
+agentapi variables of the commands the agent runs (`inbox_record`, recorded by the agent's `obor` commands), which its
+`deliver` sends with (`sent`).
 
 ## Register one
 
@@ -62,7 +64,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `root`, `env` | `mcp: {where, path, key, entry, unpinned}`; optional `hooks: {where, path, key, entry}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: context` + `tail`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; context: `ok`, `context: {tokens, at, ttl}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Context`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, the handoff reminder and a keep lane's handoff rule, a stop on an error |
-| `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
+| `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines, sent}` | `Deliver` | per line delivered, unless the manifest says `typed: true`; `sent`: the kind delivered the text itself (agy's `agentapi send-message`), no socket; a send it tried and was refused answers `error` (the reason: nothing delivered); an empty `text` checks the record and sends nothing |
 | `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself) |
 
 An install reply registers nothing user-global: `mcp.where` is
@@ -154,7 +156,7 @@ file. What the CLI has no switch for stays visible.
 | `env` | the variables obor snapshots into each request, and the only ones `transcript` may name |
 | `stop`, `headless` | `Stop` (the quit recipe; `dialog.key` a regular expression) and `Headless` (the argv forms the guard denies; `programs` empty: the name; `flags` are long flags that run it headless, as `print_flag` is `-p`/`--print`) |
 | `transcript` | the glob of a session's transcript: `{sid}` the session id, `${VAR}` a variable of `env` (one empty: none) |
-| `inbox_record` | the variables whose values, as a JSON object, are a session's inbox record (written by the SessionStart hook, given back to `deliver` as `record`); one empty: no record. The hook asks `deliver` (empty `text`) for the record's socket and keeps it beside the record: `obor serve` posts only while that socket is there (else the lead's hooks take its lines) |
+| `inbox_record` | the variables whose values, as a JSON object, are a session's inbox record (written by the SessionStart hook from its env, and by any `obor` command run with them in its env but `obor hook`, `obor kind` and `obor mcp`; given back to `deliver` as `record`); one empty: no record. The writer asks `deliver` (empty `text`) for the record's socket, or `sent` (the kind sends with it), and keeps that beside the record: `obor serve` posts only while that socket is there, or while no send with a `sent` record was refused (a refusal marks it; the next `obor` command that records it clears the mark); else the lead's hooks take its lines |
 | `not_ready` | `{pattern, why}`: a regular expression on the start's screen, `why` the reason; `{call: true}`: run `not-ready` per poll; absent: ready once started |
 | `typed` | every line is typed into the pane: `deliver` is never called |
 | `mcp_lane` | `obor setup mcp --model`'s answer for a lane's start: how (`{kit}` the kit install names), registered, static (served by an installed file setup checks) |

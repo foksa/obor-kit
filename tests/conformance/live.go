@@ -46,7 +46,7 @@ var liveIDs = map[string][]string{
 	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7", "CC-L8", "CC-L9"},
 	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11", "H-L14"},
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6", "H-L14"},
-	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "P10", "P10-control"},
+	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "AG-L10", "P10", "P10-control"},
 }
 
 func live(kinds []string, turn bool) {

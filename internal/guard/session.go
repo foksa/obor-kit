@@ -224,8 +224,8 @@ func record(root, agent, slot, sessionID string, env project.Env, kinds agents.K
 }
 
 // inboxOf is the inbox record of kind k's record b (nil: none): Claude's names its socket (and token) itself; a plugin
-// kind's (its manifest's inbox_record variables) is kept whole as Record, its socket the one k's deliver of it names.
-// ok false: no record, or no socket either way.
+// kind's (its manifest's inbox_record variables) is kept whole as Record, with the socket k's deliver of it names, or
+// Sends when that deliver says the kind sends the text itself (Delivery.Sent). ok false: no record, or neither.
 func inboxOf(k agents.Kind, b []byte) (project.Inbox, bool) {
 	var in project.Inbox
 	if b == nil || json.Unmarshal(b, &in) != nil {
@@ -234,10 +234,54 @@ func inboxOf(k agents.Kind, b []byte) (project.Inbox, bool) {
 	if in.Socket != "" {
 		return in, true
 	}
-	if d, ok := k.Deliver("", b); ok && !d.Typed && d.Socket != "" {
+	d, ok := k.Deliver("", b)
+	switch {
+	case !ok || d.Typed:
+	case d.Socket != "":
 		return project.Inbox{Socket: d.Socket, Record: string(b)}, true
+	case d.Sent:
+		return project.Inbox{Sends: true, Record: string(b)}, true
 	}
 	return in, false
+}
+
+// CommandRecord records the inbox of the session an obor command runs in (cmd/obor: every command but hook, kind and
+// mcp), from the command's environment: a session whose inbox exists only there (agy's agentapi address and token are
+// in the environment of the commands the agent runs, never its hooks') gets its record from its first obor command (a
+// lead's start checks, obor whoami and obor status) and every later one refreshes it (a new token after a restart; a
+// refused send's mark cleared). Under the slot of the role the command runs as (project.DetectRole: none, nothing),
+// as the kind that agent runs as (sessionKind) builds it from env (Kind.InboxRecord): a plugin kind's record (its
+// manifest's inbox_record variables) only; a record that names its socket itself (Claude's) is its SessionStart
+// hook's alone, with the session id serve checks it by. None in env: nothing is written or removed (the SessionStart
+// hook owns removal). A record of the same inbox keeps its session id; an unchanged one is not written again.
+// Silent: the command runs as it would without it.
+func CommandRecord(cwd string, env project.Env) {
+	repo, cfg, _, err := loadAt(cwd)
+	if repo == nil || err != nil {
+		return
+	}
+	role := project.DetectRole(repo, cfg, env)
+	agent, slot := project.SelfAgent(cfg, role), project.InboxSlot(cfg, role)
+	if role.Role == "" || !recordable(agent) || slot == "" {
+		return
+	}
+	k, ok := cfg.Kind(sessionKind(cfg, agent, cwd))
+	if !ok {
+		return
+	}
+	in, ok := inboxOf(k, k.InboxRecord(env.Get))
+	if !ok || in.Record == "" {
+		return
+	}
+	if old, err := project.ReadInbox(cfg.Root, slot); err == nil {
+		if old.Socket == in.Socket && old.Token == in.Token && old.Record == in.Record && old.Sends == in.Sends {
+			in.Session = old.Session
+		}
+		if old == in {
+			return
+		}
+	}
+	_ = project.WriteInbox(cfg.Root, slot, in)
 }
 
 // recordable: agent is a name records are kept under (not empty, no path).

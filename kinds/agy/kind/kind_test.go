@@ -64,11 +64,11 @@ func stubAGY(t *testing.T, out string, code int) (ran func() bool) {
 
 // The manifest: obor's hooks through its transport, acting on their answers, a resume, no named session and no session read, the model as an id, the terminal's status,
 // the efforts agy takes, /exit with one Enter and Ctrl+U, -p/--print, --prompt and `agy acp` headless, the
-// conversation's transcript.jsonl under HOME, typed delivery, the override file, and the not-ready pattern that fails a
-// start on agy's wrong-model notice (each notice of probes P5) and on no ready screen.
+// conversation's transcript.jsonl under HOME, an inbox (TestDeliver), the override file, and the not-ready pattern
+// that fails a start on agy's wrong-model notice (each notice of probes P5) and on no ready screen.
 func TestManifest(t *testing.T) {
 	k := agy(t, t.TempDir())
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, HookAnswers: true, Resume: true, ModelArg: true,
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Inbox: true, HookAnswers: true, Resume: true, ModelArg: true,
 		Transcript: true, Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
@@ -87,9 +87,6 @@ func TestManifest(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "c1"); got != "/h/.gemini/antigravity-cli/brain/c1/.system_generated/logs/transcript.jsonl" {
 		t.Errorf("Transcript = %q", got)
-	}
-	if d, ok := k.Deliver("hi", nil); !ok || !d.Typed {
-		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
 	}
 	if got := agents.OverrideFiles(k); !slices.Equal(got, []string{"settings_override.json"}) {
 		t.Errorf("OverrideFiles = %q", got)

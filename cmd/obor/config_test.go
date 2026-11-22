@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/agents/plugin"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -123,6 +125,39 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	}
 	if text, _ := whoamiIn(t, dd); !strings.Contains(text, "role: worker\n") || !strings.Contains(text, "lane: deep-dive\n") {
 		t.Errorf("deep-dive worktree is a lane: %q", text)
+	}
+}
+
+// An agy lead's start check (obor whoami, run by the agent with agy's agentapi variables in its environment) records
+// its inbox before it answers: the record (0600) is there and the same whoami says its lines come to its inbox. The
+// lead's own shell (no variables) records nothing: its lines go through its hooks.
+func TestWhoamiRecordsAnAgyLeadsInbox(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config(testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"}),
+		testkit.Set("agents.roles.lead", "gem"))
+	// A command's config reads a plugin kind's manifest from the state dir's cache (obor setup agents writes it).
+	kindBin := filepath.Join(filepath.Dir(oborBin), "obor-kind-agy")
+	if _, err := plugin.Cache("agy", kindBin, filepath.Join(p.Root, ".obor", "state")); err != nil {
+		t.Fatalf("precondition: agy's manifest cached: %v", err)
+	}
+	inbox := project.InboxFile(p.Root, "lead")
+	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=lead"); !strings.HasSuffix(text, "lines: hooks\n") || p.Exists(inbox) {
+		t.Fatalf("precondition: a lead's shell without the variables: %q, record %v; want hooks, none", text, p.Exists(inbox))
+	}
+	text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=lead", "ANTIGRAVITY_LS_ADDRESS=localhost:5011", "ANTIGRAVITY_CSRF_TOKEN=tok-1",
+		"ANTIGRAVITY_AGENTAPI_EXE=/h/.gemini/antigravity-cli/bin/agentapi", "ANTIGRAVITY_CONVERSATION_ID=conv-1")
+	if !strings.HasSuffix(text, "lines: inbox\n") {
+		t.Errorf("an agy lead's whoami: %q; want its lines to its inbox", text)
+	}
+	in, err := project.ReadInbox(p.Root, "lead")
+	if err != nil || !in.Sends || !strings.Contains(in.Record, `"ANTIGRAVITY_CSRF_TOKEN":"tok-1"`) {
+		t.Errorf("the record: %+v, %v; want the kind's record, sent by the kind", in, err)
+	}
+	if fi, err := os.Stat(inbox); err != nil {
+		t.Errorf("no record: %v", err)
+	} else if fi.Mode().Perm() != 0o600 {
+		t.Errorf("record mode %v; want 0600", fi.Mode())
 	}
 }
 

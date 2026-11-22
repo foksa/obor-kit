@@ -65,17 +65,21 @@ func AgentSlot(cfg *config.Config, agent string) string {
 
 // Inbox is a session's inbox record: its socket (Claude's CLAUDE_CODE_MESSAGING_SOCKET; a plugin kind's, as its
 // deliver call names it), token (CLAUDE_CODE_MESSAGING_TOKEN) and session id, and a plugin kind's own record as its
-// JSON text (the object of its manifest's inbox_record variables), which its deliver call is given back.
+// JSON text (the object of its manifest's inbox_record variables), which its deliver call is given back. Sends: the
+// kind's deliver sends the text itself (agentapi for agy), no socket; Refused: a send with this record was refused
+// (why), so it is not live until an obor command of the session records it again.
 type Inbox struct {
 	Socket  string `json:"socket"`
 	Token   string `json:"token,omitempty"`
 	Session string `json:"session,omitempty"`
 	Record  string `json:"record,omitempty"`
+	Sends   bool   `json:"sends,omitempty"`
+	Refused string `json:"refused,omitempty"`
 }
 
-// InboxLive is agent's inbox record in cfg's project when it names a socket that is there (a session that ended
-// removed it; a crashed one's is refused at the dial): the session that wrote it, ok. No slot, no record or no
-// socket: not ok.
+// InboxLive is agent's inbox record in cfg's project when it is live: it names a socket that is there (a session that
+// ended removed it; a crashed one's is refused at the dial), or the kind sends with it and no send with it was refused:
+// the session that wrote it, ok. No slot, no record, no socket, or a refused send: not ok.
 func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
 	slot := AgentSlot(cfg, agent)
 	if slot == "" {
@@ -85,11 +89,15 @@ func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
 	if err != nil {
 		return "", false
 	}
+	if in.Sends {
+		return in.Session, in.Refused == ""
+	}
 	_, err = os.Stat(in.Socket)
 	return in.Session, err == nil
 }
 
-// ReadInbox is the inbox record of slot in root's project; an error when there is none or it names no socket.
+// ReadInbox is the inbox record of slot in root's project; an error when there is none or it names neither a socket
+// nor the kind's own send.
 func ReadInbox(root, slot string) (Inbox, error) {
 	var in Inbox
 	f := InboxFile(root, slot)
@@ -100,10 +108,22 @@ func ReadInbox(root, slot string) (Inbox, error) {
 	if err := json.Unmarshal(b, &in); err != nil {
 		return in, err
 	}
-	if in.Socket == "" {
+	if in.Socket == "" && !in.Sends {
 		return in, errors.New(f + ": no socket")
 	}
 	return in, nil
+}
+
+// RefuseInbox marks slot's inbox record in root's project refused (why) when it is still the record a send was refused
+// with (record, the kind's own; a newer one an obor command wrote since is left as it is): not live (InboxLive) until
+// the session records it again.
+func RefuseInbox(root, slot, record, why string) error {
+	in, err := ReadInbox(root, slot)
+	if err != nil || in.Record != record {
+		return err
+	}
+	in.Refused = why
+	return WriteInbox(root, slot, in)
 }
 
 // WriteInbox records in as slot's inbox in root's project, mode 0600, replacing any record at once (a reader never

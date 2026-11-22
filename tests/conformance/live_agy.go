@@ -20,12 +20,14 @@ import (
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/launch"
+	"obor/internal/project"
 	"obor/internal/store"
 )
 
 const (
-	agyGo     = "kinds/agy/kind/kind.go" // the agy kind's binary (a tool may not import a kind's package)
-	agyHookGo = "kinds/agy/kind/hook.go" // its hook transport
+	agyGo        = "kinds/agy/kind/kind.go"    // the agy kind's binary (a tool may not import a kind's package)
+	agyHookGo    = "kinds/agy/kind/hook.go"    // its hook transport
+	agyDeliverGo = "kinds/agy/kind/deliver.go" // its inbox: deliver through agentapi
 )
 
 // agyModel is the model id the agy rows start (CONF_AGY_MODEL; default the probes' cheap model).
@@ -70,7 +72,8 @@ func agyStatic() {
 // quit. With TURN=1: AG-L2 the first prompt in the argv, AG-L8 the session
 // record (the SessionStart hook reports the new conversation to serve), AG-L3 an obor MCP tool call with no prompt
 // (job_next's reply in the transcript), AG-L6 the context read of that transcript, AG-L9 a command obor's guard denies
-// (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L5 the resume by the recorded
+// (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L10 the inbox (the agent's own obor
+// command records it; the kind's deliver through agentapi starts a turn in the idle session), AG-L5 the resume by the recorded
 // conversation id, and P10 (agy-probes.md): with
 // command(obor), command(go test) and read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a
 // unix socket and a module download run in auto mode with no prompt.
@@ -128,7 +131,7 @@ func agyLive(l *lab, turn bool) {
 		} else {
 			report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		}
-		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "P10", "P10-control"} {
+		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "AG-L10", "P10", "P10-control"} {
 			report("SKIP", id, "needs TURN=1 (a model call)", whereStart)
 		}
 		return
@@ -183,6 +186,8 @@ func agyLive(l *lab, turn bool) {
 	} else {
 		report("FAIL", "AG-L6", fmt.Sprintf("turn what: context read %+v, %v from the transcript: %s", c, cok, tail(text, 2)), whereCtx)
 	}
+	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
+	l.agyPush(k, pane, sid, s.name)
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
 	l.agyDenied(k, pane, sid, whereHooks)
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
@@ -284,6 +289,54 @@ func (l *lab) agyDenied(k agents.Kind, pane, sid, where string) {
 
 // agyDenyRE is agy's error for a call a PreToolUse hook denied, with obor's line (agy-probes.md P3).
 var agyDenyRE = regexp.MustCompile(`tool call denied by pre-tool hook: obor:[^"]*`)
+
+// agyPush is AG-L10 (docs/design.md "agy's inbox", probes P7): the agent runs `obor whoami` (a start check), which
+// records its inbox from the command's environment (agy's agentapi variables) under its slot, L-01; once the agent is
+// idle, the kind's deliver with that record (agentapi send-message) starts a turn: the reply is in the conversation's
+// transcript (the marker twice: the message, as a system message, and the reply).
+func (l *lab) agyPush(k agents.Kind, pane, sid, name string) {
+	where := at(agyDeliverGo, "func deliver(") + ", " + at("internal/guard/session.go", "func CommandRecord(")
+	const ran = "Run exactly this shell command and nothing else: obor whoami  Then reply with exactly: WHOAMI-RAN"
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": ran}, 15*time.Second); err != nil {
+		report("FAIL", "AG-L10", "agent.prompt: "+err.Error(), where)
+		return
+	}
+	var in project.Inbox
+	asked := ""
+	recorded := poll(120*time.Second, func() bool {
+		if m := agyAskRE.FindString(l.screen(pane)); m != "" && asked == "" {
+			asked = m
+		}
+		r, err := project.ReadInbox(l.main, "L-01")
+		in = r
+		return err == nil && r.Sends
+	})
+	if !recorded {
+		report("FAIL", "AG-L10", fmt.Sprintf("obor whoami recorded no inbox for L-01 in 120s (asked: %q); screen: %s", asked,
+			tail(l.screen(pane), 4)), where)
+		return
+	}
+	poll(60*time.Second, func() bool { a, err := l.agent(name); return err == nil && a.Status == "idle" })
+	const push = "AGY-PUSH-OK"
+	d, ok := k.Deliver("Reply with exactly "+push, []byte(in.Record))
+	if !ok || !d.Sent {
+		report("FAIL", "AG-L10", fmt.Sprintf("deliver with the record: %+v, %v", d, ok), where)
+		return
+	}
+	text, ok := waitTranscript(120*time.Second, func() string {
+		if t := l.agyTranscript(k, sid); strings.Count(t, push) >= 2 {
+			return t
+		}
+		return ""
+	}, push)
+	if !ok {
+		report("FAIL", "AG-L10", "agentapi send-message went out, but no "+push+" reply in the transcript in 120s: "+
+			tail(l.agyTranscript(k, sid), 3)+"; screen: "+tail(l.screen(pane), 4), where)
+		return
+	}
+	report("PASS", "AG-L10", fmt.Sprintf("the agent's obor whoami recorded its inbox (asked: %q); deliver's agentapi "+
+		"send-message woke the idle session: %s", asked, tail(text, 1)), where)
+}
 
 // agyAskRE is a prompt of agy's on the screen: a permission request, a trust dialog.
 var agyAskRE = regexp.MustCompile(`Allow calling this tool\?|Requesting permission for[^\n]*|Do you trust the contents of this project\?`)
