@@ -266,24 +266,29 @@ func (k *Kind) NotReady(screen string) string {
 	return r.Why
 }
 
-// installReply is install's reply: the MCP registration as data; setup checks it. A reply that asks for a user-config
-// install (mcp.where "config", a plugin link under ~/) is refused: a kind registers per launch or through the
-// project's files, and installs nothing under ~/. A where "project" reply names a file of the project (path relative
-// to its root, which the request gives as root).
+// installReply is install's reply: the MCP registration as data, and the hooks entry a kind's hooks need in a file of
+// the project; setup checks them. A reply that asks for a user-config install (mcp.where "config", a plugin link under
+// ~/) is refused: a kind registers per launch or through the project's files, and installs nothing under ~/. A where
+// "project" reply names a file of the project (path relative to its root, which the request gives as root).
 type installReply struct {
-	MCP struct {
-		Where    string         `json:"where"`
-		Path     string         `json:"path"`
-		Key      []string       `json:"key"`
-		Entry    map[string]any `json:"entry"`
-		Unpinned map[string]any `json:"unpinned"`
-	} `json:"mcp"`
-	Plugin json.RawMessage `json:"plugin"` // removed: any non-null value is refused
+	MCP    registrationReply `json:"mcp"`
+	Hooks  registrationReply `json:"hooks"`
+	Plugin json.RawMessage   `json:"plugin"` // removed: any non-null value is refused
+}
+
+// registrationReply is one registration of install's reply.
+type registrationReply struct {
+	Where    string         `json:"where"`
+	Path     string         `json:"path"`
+	Key      []string       `json:"key"`
+	Entry    map[string]any `json:"entry"`
+	Unpinned map[string]any `json:"unpinned"`
 }
 
 // InstallErr runs install {kit, root, env}; the registration's Lane is the manifest's mcp_lane (closure 3 as data). A
 // where "project" registration's Path is its file under root (no root: the path as the reply names it, relative to a
 // project's root), refused when the reply's path leaves the project (an absolute path, ..) or names no key or entry.
+// The reply's hooks are where "project" or none.
 func (k *Kind) InstallErr(kit, root string, env func(string) string) (agents.Install, error) {
 	m, err := k.manifest()
 	if err != nil {
@@ -293,7 +298,6 @@ func (k *Kind) InstallErr(kit, root string, env func(string) string) (agents.Ins
 	if err := k.run("install", map[string]any{"kit": kit, "root": root, "env": snapshot(m, env)}, &r); err != nil {
 		return failedInstall(err), err
 	}
-	path := r.MCP.Path
 	var refused error
 	switch {
 	case r.MCP.Where == "config":
@@ -304,24 +308,44 @@ func (k *Kind) InstallErr(kit, root string, env func(string) string) (agents.Ins
 	case !slices.Contains([]string{agents.Manifest, agents.PerStart, agents.Project}, r.MCP.Where):
 		refused = fmt.Errorf("kind %s: install: mcp.where %q is none of %s, %s, %s", k.name, r.MCP.Where,
 			agents.Manifest, agents.PerStart, agents.Project)
-	case r.MCP.Where != agents.Project:
-	case !filepath.IsLocal(path):
-		refused = fmt.Errorf("kind %s: install: mcp.path %q is no file of the project (a path relative to its root)",
-			k.name, path)
-	case len(r.MCP.Key) == 0 || r.MCP.Entry == nil:
-		refused = fmt.Errorf("kind %s: install: mcp.where %q names no key or entry", k.name, r.MCP.Where)
-	case root != "":
-		path = filepath.Join(root, path)
+	case r.Hooks.Where != "" && r.Hooks.Where != agents.Project:
+		refused = fmt.Errorf("kind %s: install: hooks.where %q: a kind's hooks entry is a file of the project (%s)",
+			k.name, r.Hooks.Where, agents.Project)
+	}
+	mcpPath, hooksPath := r.MCP.Path, r.Hooks.Path
+	if refused == nil && r.MCP.Where == agents.Project {
+		mcpPath, refused = k.projectPath("mcp", r.MCP, root)
+	}
+	if refused == nil && r.Hooks.Where == agents.Project {
+		hooksPath, refused = k.projectPath("hooks", r.Hooks, root)
 	}
 	if refused != nil {
 		return failedInstall(refused), refused
 	}
 	lane := m.MCPLane
 	how := strings.ReplaceAll(lane.How, "{kit}", kit)
-	in := agents.Install{MCP: agents.MCPRegistration{Where: r.MCP.Where, Path: path,
+	in := agents.Install{MCP: agents.MCPRegistration{Where: r.MCP.Where, Path: mcpPath,
 		Key: r.MCP.Key, Entry: r.MCP.Entry, Unpinned: r.MCP.Unpinned,
 		Lane: func([]string, agents.ReadFile) (string, bool, bool) { return how, lane.Registered, lane.Static }}}
+	if r.Hooks.Where == agents.Project {
+		in.Hooks = agents.MCPRegistration{Where: agents.Project, Path: hooksPath, Key: r.Hooks.Key, Entry: r.Hooks.Entry}
+	}
 	return in, nil
+}
+
+// projectPath is the file of the project a where "project" registration r (install's field) names: under root, or
+// as named with no root; refused when its path leaves the project or it names no key or entry.
+func (k *Kind) projectPath(field string, r registrationReply, root string) (string, error) {
+	switch {
+	case !filepath.IsLocal(r.Path):
+		return "", fmt.Errorf("kind %s: install: %s.path %q is no file of the project (a path relative to its root)",
+			k.name, field, r.Path)
+	case len(r.Key) == 0 || r.Entry == nil:
+		return "", fmt.Errorf("kind %s: install: %s.where %q names no key or entry", k.name, field, r.Where)
+	case root != "":
+		return filepath.Join(root, r.Path), nil
+	}
+	return r.Path, nil
 }
 
 // failedInstall is an install that failed with err: nothing registered, Lane saying why.

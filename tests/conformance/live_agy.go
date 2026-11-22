@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,10 +15,17 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/herdr"
+	"obor/internal/launch"
+	"obor/internal/store"
 )
 
-const agyGo = "kinds/agy/kind/kind.go" // the agy kind's binary (a tool may not import a kind's package)
+const (
+	agyGo     = "kinds/agy/kind/kind.go" // the agy kind's binary (a tool may not import a kind's package)
+	agyHookGo = "kinds/agy/kind/hook.go" // its hook transport
+)
 
 // agyModel is the model id the agy rows start (CONF_AGY_MODEL; default the probes' cheap model).
 func agyModel() string {
@@ -53,11 +62,14 @@ func agyStatic() {
 }
 
 // agyLive: a worker of the lab's project started as obor's launch builds it (config.Model.Launch: the real kinds/agy
-// binary through obor's plugin package), in the lane, with the project's .agents/mcp_config.json as obor setup agents
-// writes it and the repository's own obor first on PATH (the file names obor by PATH), a stub serve on the project's
-// socket. AG-L1 the start (no trust dialog, no wrong-model notice, idle), AG-L4 the quit. With TURN=1: AG-L2 the first
-// prompt in the argv, AG-L3 an obor MCP tool call with no prompt (job_next's reply in the transcript), AG-L6 the
-// context read of that transcript, AG-L5 the resume by herdr's conversation id, and P10 (agy-probes.md): with
+// binary through obor's plugin package), in the lane, with the project's .agents/mcp_config.json and .agents/hooks.json
+// as obor setup agents writes them and the repository's own obor (and its agy kind, the hook transport) first on PATH
+// (the files name obor by PATH), a stub serve on the project's socket. AG-L1 the start (no trust dialog, no
+// wrong-model notice, idle), AG-L4 the quit. With TURN=1: AG-L2 the first prompt in the argv, AG-L8 the session
+// record (the SessionStart hook reports the new conversation to serve), AG-L3 an obor MCP tool call with no prompt
+// (job_next's reply in the transcript), AG-L6 the context read of that transcript, AG-L9 a command obor's guard denies
+// (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L5 the resume by the recorded
+// conversation id, and P10 (agy-probes.md): with
 // command(obor), command(go test) and read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a
 // unix socket and a module download run in auto mode with no prompt.
 //
@@ -85,6 +97,15 @@ func agyLive(l *lab, turn bool) {
 		report("FAIL", "AG-L3", "the project file: "+err.Error(), whereMCP)
 		return
 	}
+	whereHooks := at(agyHookGo, "func Hook(")
+	if inst.Hooks.Where != agents.Project {
+		report("FAIL", "AG-L9", fmt.Sprintf("install: hooks %+v; want where project", inst.Hooks), whereHooks)
+		return
+	}
+	if err := writeEntry(inst.Hooks); err != nil {
+		report("FAIL", "AG-L9", "the hooks file: "+err.Error(), whereHooks)
+		return
+	}
 	pane, err := l.workspace("conf", l.lane)
 	if err != nil {
 		report("FAIL", "AG-L1", "no workspace in the throwaway session: "+err.Error(), "deep dive §6")
@@ -104,7 +125,7 @@ func agyLive(l *lab, turn bool) {
 			agyQuit(l, pane, stop, whereStop)
 			_ = s
 		}
-		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "P10", "P10-control"} {
+		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "P10", "P10-control"} {
 			report("SKIP", id, "needs TURN=1 (a model call)", whereStart)
 		}
 		return
@@ -121,6 +142,15 @@ func agyLive(l *lab, turn bool) {
 		return
 	}
 	report("PASS", "AG-L2", "-i <prompt>: the reply "+first+" is in conversation "+sid+"'s transcript.jsonl", whereStart)
+	poll(30*time.Second, func() bool { return slices.Contains(l.app.recorded(), sid) })
+	if rec, ok := l.app.session(sid); ok && rec.Kind == "agy" && rec.Agent != "" {
+		report("PASS", "AG-L8", fmt.Sprintf("the SessionStart hook (obor kind agy hook → obor hook session-start) reported conversation %s of %s, kind %s, to serve",
+			sid, rec.Agent, rec.Kind), whereHooks)
+	} else if ok {
+		report("FAIL", "AG-L8", fmt.Sprintf("the session request for %s: %+v; want kind agy and an agent", sid, rec), whereHooks)
+	} else {
+		report("FAIL", "AG-L8", fmt.Sprintf("no session request for %s; serve recorded %q, was asked %q", sid, l.app.recorded(), l.app.asked()), whereHooks)
+	}
 
 	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
 		report("FAIL", "AG-L3", "agent.prompt: "+err.Error(), whereMCP)
@@ -149,14 +179,17 @@ func agyLive(l *lab, turn bool) {
 		report("FAIL", "AG-L6", fmt.Sprintf("turn what: context read %+v, %v from the transcript: %s", c, cok, tail(text, 2)), whereCtx)
 	}
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
+	l.agyDenied(k, pane, sid, whereHooks)
+	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
 	agyQuit(l, pane, stop, whereStop)
 
 	const resumed = "AGY-RESUMED-OK"
-	if _, ok := l.agyStart(k, pane, agents.Start{Resume: sid}, "resume"); ok {
+	if l.agyRelaunch(sid, pane, whereStart) {
 		if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "Reply with exactly " + resumed}, 15*time.Second); err != nil {
 			report("FAIL", "AG-L5", "agent.prompt: "+err.Error(), whereStart)
 		} else if text, ok := waitTranscript(120*time.Second, func() string { return l.agyTranscript(k, sid) }, first, resumed); ok {
-			report("PASS", "AG-L5", "--conversation "+sid+": the resumed session answered "+resumed+" into the same transcript", whereStart)
+			report("PASS", "AG-L5", "obor's launcher (obor restart, no --fresh, the agent exited) resumed "+sid+
+				" from the SessionStart hook's record: it answered "+resumed+" into the same transcript", whereStart)
 		} else {
 			report("FAIL", "AG-L5", "--conversation "+sid+": no "+resumed+" in its transcript in 120s: "+tail(text, 2)+"; screen: "+tail(l.screen(pane), 4), whereStart)
 		}
@@ -168,6 +201,78 @@ func agyLive(l *lab, turn bool) {
 	agyP10(l, k, pane, stop, true)
 	agyP10(l, k, pane, stop, false)
 }
+
+// agyRelaunch restarts the agent of conversation sid in pane as obor restart does after its exit (launch.Launcher.Launch,
+// no --fresh): the session it resumes is obor's own record, the one the SessionStart hook reported to serve (the stub
+// serve's), never an id handed to the kind. The lab's dirs are trusted through the project's override file (the
+// launcher writes the start's settings file itself). False (AG-L5 reported) when the record is missing, the launcher
+// fails, or it started another session than sid.
+func (l *lab) agyRelaunch(sid, pane, where string) bool {
+	rec, ok := l.app.session(sid)
+	if !ok {
+		report("FAIL", "AG-L5", "no SessionStart record of "+sid+" to resume from", where)
+		return false
+	}
+	over := filepath.Join(l.main, ".obor", "agy", "settings_override.json")
+	trust, _ := json.Marshal(map[string]any{"trustedWorkspaces": []string{l.main, l.lane}})
+	if err := os.MkdirAll(filepath.Dir(over), 0o755); err == nil {
+		err = os.WriteFile(over, trust, 0o644)
+	}
+	defer os.Remove(over)
+	var out bytes.Buffer
+	env := func(key string) (string, bool) { v := l.envOf(key); return v, v != "" }
+	ln := &launch.Launcher{Cfg: l.config(), Env: env, Kit: l.real, H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second},
+		Out: &out, Poll: 200 * time.Millisecond, Up: 60 * time.Second, Background: func(func()) {},
+		Install:  func() agents.InstallHost { return agents.InstallHost{} },
+		Sessions: func(agent string) (store.Session, bool) { return rec, agent == rec.Agent },
+		Report:   func(context.Context, store.Session) error { return nil }, Started: noStarted,
+		Where: func(context.Context, wire.WhereReq) (wire.WhereReply, error) {
+			return wire.WhereReply{State: wire.WhereNone, Why: "the lab's stub serve"}, nil
+		}}
+	_, err := ln.Launch(l.ctx, launch.Request{Agent: rec.Agent, Pane: pane})
+	said := out.String()
+	switch {
+	case err != nil:
+		report("FAIL", "AG-L5", "obor's launcher: "+err.Error()+"; said: "+tail(said, 4), where)
+		return false
+	case !strings.Contains(said, "resuming "+sid):
+		report("FAIL", "AG-L5", "obor's launcher did not resume "+sid+": "+tail(said, 4), where)
+		l.stopAgent(pane)
+		return false
+	}
+	return true
+}
+
+// agyDenied is AG-L9: the agent runs a commit in its lane as a run_command; obor's guard denies it through the
+// PreToolUse hook (agy's error names the pre-tool hook and obor's line) and the lane's branch has no such commit.
+func (l *lab) agyDenied(k agents.Kind, pane, sid, where string) {
+	const msg, done = "conf-agy-denied", "AGY-DENY-DONE"
+	cmd := "git commit --allow-empty -m " + msg
+	// tagged as obor's prompts are: the worker's wrong-tab guard (user-prompt-submit, now live) asks back on any other
+	prompt := "[obor conf] Run exactly this shell command as one run_command call, once, and do not retry or change it: " + cmd +
+		". Then reply " + done + "."
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": prompt}, 15*time.Second); err != nil {
+		report("FAIL", "AG-L9", "agent.prompt: "+err.Error(), where)
+		return
+	}
+	// the reply, not the prompt, which names the marker too
+	text, ok := waitTranscript(180*time.Second, func() string { return l.agyTranscript(k, sid) }, `"content":"`+done)
+	denied := agyDenyRE.FindString(text)
+	log, _ := output(10*time.Second, "git", "-C", l.lane, "log", "--format=%s", "-5")
+	switch {
+	case strings.Contains(log, msg):
+		report("FAIL", "AG-L9", cmd+" committed in the lane: the guard did not stop it", where)
+	case denied != "":
+		report("PASS", "AG-L9", cmd+": "+strings.TrimSpace(strings.ReplaceAll(denied, `\n`, " "))+"; no such commit in the lane", where)
+	case !ok:
+		report("FAIL", "AG-L9", "no "+done+" in the transcript in 180s: "+tail(text, 3)+"; screen: "+tail(l.screen(pane), 4), where)
+	default:
+		report("FAIL", "AG-L9", cmd+": no pre-tool hook denial in the transcript: "+tail(text, 3), where)
+	}
+}
+
+// agyDenyRE is agy's error for a call a PreToolUse hook denied, with obor's line (agy-probes.md P3).
+var agyDenyRE = regexp.MustCompile(`tool call denied by pre-tool hook: obor:[^"]*`)
 
 // agyAskRE is a prompt of agy's on the screen: a permission request, a trust dialog.
 var agyAskRE = regexp.MustCompile(`Allow calling this tool\?|Requesting permission for[^\n]*|Do you trust the contents of this project\?`)
@@ -407,7 +512,7 @@ func TestUnixSocket(t *testing.T) {
 		list = append(list, fmt.Sprintf("%d) %s", i+1, c))
 	}
 	const done = "P10-DONE"
-	prompt := "Run these shell commands, each as its own run_command call, exactly as written, one after another, " +
+	prompt := "[obor conf] Run these shell commands, each as its own run_command call, exactly as written, one after another, " +
 		"even when one fails: " + strings.Join(list, " ") + ". Do not retry or change them. Then reply " + done + "."
 	before := len(l.app.asked())
 	s, ok := l.agyStart(k, pane, agents.Start{Prompt: prompt}, id)

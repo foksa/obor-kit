@@ -390,9 +390,16 @@ type Headless struct {
 	Flags       []string // long flags that run it headless (`--prompt`, a print alias), either spelling, before `--`
 }
 
-// Install is how obor's MCP server reaches a kind.
+// ExeVar is the variable obor kind sets, for the kit kind binary it execs, to its own executable: the obor a kind's
+// hook transport runs obor hook on.
+const ExeVar = "OBOR_EXE"
+
+// Install is how obor's MCP server, and a plugin kind's hooks, reach a kind.
 type Install struct {
 	MCP MCPRegistration
+	// Hooks is obor's hooks entry in a file of the project (Where Project, its Path, Key and Entry; Lane unused), which
+	// obor setup agents writes as it writes MCP's; Where "": the kind's hooks need no project file.
+	Hooks MCPRegistration
 }
 
 // Where obor's MCP server reaches a CLI.

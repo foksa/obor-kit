@@ -196,9 +196,10 @@ func TestInstallRefusesAUserConfigPath(t *testing.T) {
 
 // install's request carries the project's root; a where "project" reply names a file of the project, its path then
 // under that root (no root: as named, relative); a path that leaves the project, or a reply with no key or entry, is
-// refused naming the field.
+// refused naming the field. A reply's hooks are such a file too (none: no hooks file), and only such a file.
 func TestInstallProjectFile(t *testing.T) {
-	const good = `{"version":1,"mcp":{"where":"project","path":".stub/mcp.json","key":["servers","obor"],"entry":{"command":"obor"}}}`
+	const good = `{"version":1,"mcp":{"where":"project","path":".stub/mcp.json","key":["servers","obor"],"entry":{"command":"obor"}},` +
+		`"hooks":{"where":"project","path":".stub/hooks.json","key":["obor"],"entry":{"Stop":[]}}}`
 	k, _ := kind(t, "cat >\"$REQ\"; cat <<'EOF'\n"+good+"\nEOF\n")
 	in, err := agents.InstallOf(k, "/kit", "/p", nil)
 	var req struct {
@@ -212,8 +213,16 @@ func TestInstallProjectFile(t *testing.T) {
 		!slices.Equal(m.Key, []string{"servers", "obor"}) || m.Entry["command"] != "obor" {
 		t.Errorf("Install = %+v, %v; want the project's file under its root", m, err)
 	}
+	if h := in.Hooks; h.Where != agents.Project || h.Path != "/p/.stub/hooks.json" || !slices.Equal(h.Key, []string{"obor"}) ||
+		h.Entry["Stop"] == nil {
+		t.Errorf("Install's hooks = %+v; want the project's hooks file under its root", h)
+	}
 	if in, err := agents.InstallOf(k, "/kit", "", nil); err != nil || in.MCP.Path != ".stub/mcp.json" {
 		t.Errorf("no root: %+v, %v; want the path as named", in.MCP, err)
+	}
+	k2, _ := kind(t, reply(`{"version":1,"mcp":{"where":"start"}}`))
+	if in, err := agents.InstallOf(k2, "/kit", "/p", nil); err != nil || in.Hooks.Where != "" {
+		t.Errorf("a reply with no hooks: %+v, %v; want no hooks file", in.Hooks, err)
 	}
 	for name, c := range map[string]struct{ body, want string }{
 		"an absolute path": {`{"version":1,"mcp":{"where":"project","path":"/u/.stub.json","key":["a"],"entry":{}}}`,
@@ -224,6 +233,10 @@ func TestInstallProjectFile(t *testing.T) {
 			`mcp.where "project" names no key or entry`},
 		"an unknown where": {`{"version":1,"mcp":{"where":"elsewhere"}}`,
 			`mcp.where "elsewhere" is none of manifest, start, project`},
+		"hooks in a manifest": {`{"version":1,"mcp":{"where":"start"},"hooks":{"where":"manifest","path":"h.json"}}`,
+			`hooks.where "manifest": a kind's hooks entry is a file of the project (project)`},
+		"hooks out of the project": {`{"version":1,"mcp":{"where":"start"},"hooks":{"where":"project","path":"../h.json","key":["a"],"entry":{}}}`,
+			`hooks.path "../h.json" is no file of the project`},
 	} {
 		k, _ := kind(t, reply(c.body))
 		_, err := agents.InstallOf(k, "/kit", "/p", nil)

@@ -292,17 +292,28 @@ func TestSetupMCPInstallWarning(t *testing.T) {
 }
 
 // obor setup agents writes agy's registration, mcpServers.obor naming obor on PATH, into the project's
-// .agents/mcp_config.json when the config has an agy model: the file's other servers kept, the file's path added to
-// rules.protected_files (both uncommitted); a second run finds both and writes nothing.
+// .agents/mcp_config.json when the config has an agy model, and its hooks, the named hook obor, into
+// .agents/hooks.json: each file's other entries kept, each file's path added to rules.protected_files (all
+// uncommitted); a second run finds them and writes nothing.
 // Not parallel: the config load registers its plugin kinds in the process registry.
 func TestSetupAgentsWritesAgysProjectFile(t *testing.T) {
 	x := newFx(t, testkit.AddModels(`{"neon": {"kind": "agy", "id": "gemini-4-neon-high"}}`),
 		testkit.Set("rules.protected_files", []string{"docs/design.md"}))
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
 	x.Write(".agents/mcp_config.json", `{"mcpServers": {"mine": {"command": "my-server"}}}`)
+	x.Write(".agents/hooks.json", `{"mine": {"Stop": [{"command": "./mine.sh"}]}}`)
 	out := x.ok(t, "agents")
 	has(t, out, "agents agy: mcpServers.obor written in .agents/mcp_config.json (uncommitted: commit it)", "the entry written")
 	has(t, out, "config rules.protected_files = + .agents/mcp_config.json (uncommitted: commit it)", "the file protected")
+	has(t, out, "agents agy: obor written in .agents/hooks.json (uncommitted: commit it)", "the hooks entry written")
+	has(t, out, "config rules.protected_files = + .agents/hooks.json (uncommitted: commit it)", "the hooks file protected")
+	var hooks map[string]map[string]any
+	if err := json.Unmarshal([]byte(x.Read(".agents/hooks.json")), &hooks); err != nil {
+		t.Fatalf("the hooks file: %v\n%s", err, x.Read(".agents/hooks.json"))
+	}
+	if hooks["mine"] == nil || hooks["obor"]["PreToolUse"] == nil || hooks["obor"]["SessionStart"] == nil {
+		t.Errorf("hooks.json = %v, want the project's own hook kept and obor's added", hooks)
+	}
 	var doc struct {
 		MCPServers map[string]map[string]any `json:"mcpServers"`
 	}
@@ -316,13 +327,15 @@ func TestSetupAgentsWritesAgysProjectFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.ProtectedFiles(); !slices.Equal(got, []string{"docs/design.md", ".agents/mcp_config.json"}) {
-		t.Errorf("rules.protected_files = %q, want the file added after the project's own", got)
+	if got := cfg.ProtectedFiles(); !slices.Equal(got, []string{"docs/design.md", ".agents/mcp_config.json", ".agents/hooks.json"}) {
+		t.Errorf("rules.protected_files = %q, want the files added after the project's own", got)
 	}
-	file, conf := x.Read(".agents/mcp_config.json"), x.Read(".obor/config.json")
+	file, hfile, conf := x.Read(".agents/mcp_config.json"), x.Read(".agents/hooks.json"), x.Read(".obor/config.json")
 	out = x.ok(t, "agents")
 	has(t, out, "OK agents agy: mcpServers.obor in .agents/mcp_config.json", "the second run finds the entry")
-	if x.Read(".agents/mcp_config.json") != file || x.Read(".obor/config.json") != conf || strings.Contains(out, "config rules") {
+	has(t, out, "OK agents agy: obor in .agents/hooks.json", "the second run finds the hooks entry")
+	if x.Read(".agents/mcp_config.json") != file || x.Read(".agents/hooks.json") != hfile || x.Read(".obor/config.json") != conf ||
+		strings.Contains(out, "config rules") {
 		t.Errorf("a second run wrote again:\n%s", out)
 	}
 }

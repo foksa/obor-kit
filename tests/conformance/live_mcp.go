@@ -27,6 +27,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/setup"
+	"obor/internal/store"
 )
 
 // The job the stub serve answers job_next with. The prompt names neither, so only the tool result can carry them.
@@ -67,6 +68,10 @@ func (l *lab) makeRealKit() error {
 		}
 	} else if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./cmd/obor"); err != nil {
 		return fmt.Errorf("go build ./cmd/obor: %v: %s", err, o)
+	}
+	// the agy kind beside it, as config.KitKind finds it from obor-real (obor kind agy: agy's hook transport)
+	if o, err := output(3*time.Minute, "go", "build", "-o", filepath.Join(bin, config.KitKinds["agy"]+"-real"), "./kinds/agy"); err != nil {
+		return fmt.Errorf("go build ./kinds/agy: %v: %s", err, o)
 	}
 	wrapper := "#!/bin/bash\nexec \"$(dirname \"$0\")/obor-real\" \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "obor"), []byte(wrapper), 0o755); err != nil {
@@ -168,9 +173,10 @@ func (l *lab) envOf(name string) string {
 // answers job_next with a JobReply naming mcpJob and mcpMarker, every other method with an empty reply (a hook's call
 // is not the case's subject). asked records every method, so a FAIL can say whether a client reached the server.
 type stubServe struct {
-	ln      net.Listener
-	mu      sync.Mutex
-	methods []string
+	ln       net.Listener
+	mu       sync.Mutex
+	methods  []string
+	sessions []store.Session // its session requests' sessions (a SessionStart hook's record), in order
 }
 
 // startStubServe listens on the project's app socket (<main>/.obor/state/serve.sock) until the lab closes.
@@ -216,6 +222,12 @@ func (s *stubServe) answer(c net.Conn) {
 	}
 	s.mu.Lock()
 	s.methods = append(s.methods, req.Method)
+	if req.Method == wire.MethodSession {
+		var r wire.SessionReq
+		if json.Unmarshal(req.Call, &r) == nil && r.Session != nil {
+			s.sessions = append(s.sessions, *r.Session)
+		}
+	}
 	s.mu.Unlock()
 	ans := wire.Answer{}
 	if req.Method == wire.MethodJobNext {
@@ -224,6 +236,35 @@ func (s *stubServe) answer(c net.Conn) {
 	}
 	b, _ := json.Marshal(ans)
 	_, _ = c.Write(append(b, '\n'))
+}
+
+// recorded is every session id a session request reported, in order.
+func (s *stubServe) recorded() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ids []string
+	for _, r := range s.sessions {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// session is the last session request's session of id (ok false: none reported it).
+func (s *stubServe) session(id string) (store.Session, bool) {
+	if s == nil {
+		return store.Session{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.sessions) - 1; i >= 0; i-- {
+		if s.sessions[i].ID == id {
+			return s.sessions[i], true
+		}
+	}
+	return store.Session{}, false
 }
 
 // asked is every method the stub serve was asked, in order.

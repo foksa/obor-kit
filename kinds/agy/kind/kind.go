@@ -2,9 +2,10 @@
 // the binary obor-kind-agy (kinds/agy). A start is `agy --settings <file> [args] --model … [--effort …] -i <prompt>`
 // (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first, the settings file
 // the user's saved settings with the project's override file and obor's entries laid over them (settings.go); obor's
-// MCP server through the project's committed .agents/mcp_config.json (install's where: project); /exit with one
-// Enter; `agy acp`, -p/--print and --prompt denied; prompts typed; the context read from the conversation's
-// transcript.jsonl. Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
+// MCP server and hooks through the project's committed .agents/mcp_config.json and .agents/hooks.json (install's where:
+// project; the hooks' transport is hook.go); /exit with one Enter; `agy acp`, -p/--print and --prompt denied; prompts
+// typed; the context read from the conversation's transcript.jsonl. Handle is one request; the binary runs it on its
+// stdin, a test binary in process (testkit).
 package kind
 
 import (
@@ -68,11 +69,15 @@ type request struct {
 }
 
 // Main is the binary: call args[0] with the request on stdin, its reply on stdout; a request it cannot read, or an
-// unknown call, exits 2 with the reason on stderr.
+// unknown call, exits 2 with the reason on stderr. The call hook is the hook transport (RunHook): agy's event in, agy's
+// answer out.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, "usage: obor-kind-agy <call> < request.json (docs/agents/kind-protocol.md)")
 		return 2
+	}
+	if args[0] == "hook" { // the hook transport: agy's event, not a protocol request (hook.go)
+		return RunHook(stdin, stdout, stderr, os.Getenv)
 	}
 	req, err := io.ReadAll(stdin)
 	if err == nil {
@@ -106,7 +111,8 @@ func Handle(call string, req []byte) ([]byte, error) {
 		reply = start(in, os.ReadFile, agyModels)
 	case "install":
 		reply = map[string]any{"mcp": map[string]any{"where": "project", "path": MCPFile,
-			"key": []string{"mcpServers", "obor"}, "entry": MCPEntry}}
+			"key": []string{"mcpServers", "obor"}, "entry": MCPEntry},
+			"hooks": map[string]any{"where": "project", "path": HooksFile, "key": []string{"obor"}, "entry": HooksEntry()}}
 	case "turn":
 		reply = turn(in)
 	case "deliver":
@@ -125,9 +131,10 @@ func Handle(call string, req []byte) ([]byte, error) {
 const NotReadyPattern = `Using\s+"[^"]*"\s+instead|is\s+not\s+recognized\s+as\s+a\s+known\s+model|has\s+no\s+"[^"]*"\s+effort|` +
 	`conflicts\s+with\s+--effort`
 
-// describe is the manifest. Caps: no hooks yet (auto mode's sandbox stands in for the guard), a resume by the
-// conversation id herdr reports (no caller-chosen id: named_session false), no session read from a transcript
-// (its first line names none), the model as an id. Status from the terminal's agent detection. Stop: /exit, whose
+// describe is the manifest. Caps: obor's hooks through obor's transport (hooks plugin: the project's HooksFile runs
+// hook.go, which acts on the hooks' answers: hook_answers), a resume by the conversation id the SessionStart hook
+// records (no caller-chosen id: named_session false), no session read from a transcript (its first line names none),
+// the model as an id. Status from the terminal's agent detection. Stop: /exit, whose
 // popup's Enter runs it; Ctrl+U clears the input. Headless: -p/--print, its alias --prompt, `agy acp` (ValueOpts: agy
 // --help). The transcript is the conversation's transcript.jsonl (turn what: context reads it). Prompts typed. MCP: the
 // project's committed MCPFile, which obor setup agents writes and obor setup mcp checks.
@@ -135,7 +142,7 @@ func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
 		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "none", "resume": true, "model_arg": true},
+		"caps":    map[string]any{"hooks": "plugin", "hook_answers": true, "resume": true, "model_arg": true},
 		"efforts": efforts,
 		"env":     []string{"HOME"},
 		"stop":    map[string]any{"quit": "/exit", "clear_input": []string{"ctrl+u"}},
@@ -186,7 +193,7 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 		}
 	}
 	name := SettingsFile(!in.TrimUser, in.Dir)
-	settings := Settings(UserSettings(in.Env, read), over, !in.TrimUser, in.Dir, in.Root)
+	settings := Settings(UserSettings(in.Env, read), over, in.Dir, in.Root)
 	b, _ := json.MarshalIndent(settings, "", "  ")
 	args := append([]string{"--settings", "{file:" + name + "}"}, rest...)
 	switch {

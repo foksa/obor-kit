@@ -431,12 +431,14 @@ func TestSessionWritesOpencodePluginMarker(t *testing.T) {
 
 // the session's kind and the plugin marker follow the model a lane's open dispatch runs: an
 // OpenCode dispatch is kind opencode with a marker, a Claude dispatch kind claude without one; with no open dispatch
-// the default kind.
+// the default kind. A kind's transport that names its kind (agent_kind) is the session's kind, whatever the dispatch;
+// a name the config does not know is not.
 func TestSessionKindIsTheDispatchs(t *testing.T) {
 	t.Parallel()
-	start := func(f hfx, cwd string) Began {
+	start := func(f hfx, cwd, agentKind string) Began {
 		t.Helper()
-		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": cwd, "session_id": "sid-1"})
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": cwd, "session_id": "sid-1",
+			"agent_kind": agentKind})
 		var out bytes.Buffer
 		began, ok := SessionStart(b, f.Env("OBOR_STATE_HOME="+f.Base+"/state"), &out)
 		if !ok {
@@ -449,13 +451,17 @@ func TestSessionKindIsTheDispatchs(t *testing.T) {
 		name, rowType string
 		armed         bool
 		kind          string
+		agentKind     string
 	}{
-		{"OpenCode dispatch", "deepseek", true, "opencode"},
-		{"OpenCode dispatch with an effort", "deepseek:high", true, "opencode"},
-		{"a project's OpenCode model", "oc", true, "opencode"},
-		{"Claude dispatch", "opus", true, "claude"},
-		{"legacy dispatch (no model)", "", true, "claude"},
-		{"no open dispatch", "", false, "claude"},
+		{"OpenCode dispatch", "deepseek", true, "opencode", ""},
+		{"OpenCode dispatch with an effort", "deepseek:high", true, "opencode", ""},
+		{"a project's OpenCode model", "oc", true, "opencode", ""},
+		{"Claude dispatch", "opus", true, "claude", ""},
+		{"legacy dispatch (no model)", "", true, "claude", ""},
+		{"no open dispatch", "", false, "claude", ""},
+		{"no open dispatch, agy's transport", "", false, "agy", "agy"},
+		{"Claude dispatch, agy's transport", "opus", true, "agy", "agy"},
+		{"no open dispatch, a kind the config does not know", "", false, "claude", "nokind"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -467,7 +473,7 @@ func TestSessionKindIsTheDispatchs(t *testing.T) {
 			if f.Exists(marker) {
 				t.Fatal("precondition: a marker before the session")
 			}
-			if began := start(f, o1); began.Kind != c.kind || began.Lane != "L-01" {
+			if began := start(f, o1, c.agentKind); began.Kind != c.kind || began.Lane != "L-01" {
 				t.Errorf("began %+v, want kind %s on lane L-01", began, c.kind)
 			}
 			if got, want := f.Exists(marker), c.kind == "opencode"; got != want {

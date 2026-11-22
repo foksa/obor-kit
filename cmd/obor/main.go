@@ -9,13 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"obor/internal/agents"
 	// the compiled agent kinds (agents.Kind): each registers itself
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
@@ -83,6 +86,8 @@ func main() {
 		exit(configCmd(args))
 	case "hook":
 		exit(hook(args))
+	case "kind":
+		exit(kindCmd(args))
 	case "has":
 		exit(has(args))
 	case "restart":
@@ -212,6 +217,7 @@ var commands = map[string][]string{
 	"hook":      {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},
 	"version":   nil,
 	"has":       nil,
+	"kind":      nil,
 	"restart":   nil,
 	"lead":      nil,
 	"send":      nil,
@@ -289,6 +295,30 @@ func hook(args []string) int {
 		return 0
 	}
 	errf("%s", help.Usage("hook"))
+	return 2
+}
+
+// kindCmd is `obor kind <name> [args…]`: exec the kit's binary of plugin kind name (config.KitKinds, beside this obor:
+// config.KitKind) with args, this obor's executable in agents.ExeVar (agy's hook transport runs obor hook on it). agy's
+// .agents/hooks.json runs obor kind agy hook. An unknown name, or a binary that does not run: exit 2.
+func kindCmd(args []string) int {
+	if len(args) == 0 {
+		errf("%s", help.Usage("kind"))
+		return 2
+	}
+	bin, ok := config.KitKinds[args[0]]
+	if !ok {
+		errf("obor kind: %q is no kit kind (%s)", args[0], strings.Join(slices.Sorted(maps.Keys(config.KitKinds)), ", "))
+		return 2
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		errf("obor kind %s: this obor's executable: %v", args[0], err)
+		return 2
+	}
+	path := config.KitKind(bin)
+	err = syscall.Exec(path, append([]string{path}, args[1:]...), append(os.Environ(), agents.ExeVar+"="+exe))
+	errf("obor kind %s: %s: %v", args[0], path, err)
 	return 2
 }
 
