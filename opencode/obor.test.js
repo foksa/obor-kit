@@ -9,10 +9,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import net from "node:net";
-import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
+import { resumedSession, toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
 
 const cwd = "/w/lane";
-const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, tool_name, tool_input });
+const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name, tool_input });
 
 const cases = [
   ["bash", "bash", { command: "git commit -m x" }, [ev("Bash", { command: "git commit -m x" })]],
@@ -101,10 +101,12 @@ function feed() {
 // obor) or "other" (plugin.json named other), entered at its main checkout or, with lane, at its lane worktree; each
 // bin/obor stub also logs its name (kit, main or lane) to <base>/who.
 // model sets OBOR_OPENCODE_MODEL for the setup call (setup reads it first, before any await), version opencode's
-// version, and switched collects the ctx.session.switchModel calls (none: the context has no switchModel). prompted
+// version, argv the process's arguments (setup reads them first, like the model), parents each session's parentID in the
+// store (ctx.session.get; absent: the context has none) and gets the sessions it was asked for, and switched collects
+// the ctx.session.switchModel calls (none: the context has no switchModel). prompted
 // collects the ctx.session.prompt calls (a stop's block, an inbox line). inbox() is each hook call's OBOR_OPENCODE_INBOX
 // ("<hook> <path>", "" unset).
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [] } = {}) {
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], argv, parents, gets = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -125,6 +127,8 @@ case "${mode}:$2" in
   answer:user-prompt-submit) echo '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"obor: the lead has lines"}}' ;;
   block:stop) case "$event" in *'"stop_hook_active":true'*) ;; *) echo '{"decision":"block","reason":"obor (worker L-01): not done yet"}' ;; esac ;;
   fail:user-prompt-submit) echo "obor: the stub failed" >&2; exit 1 ;;
+  exit1:pre-tool-use) echo "obor: the stub crashed" >&2; exit 1 ;;
+  kill:pre-tool-use) kill -9 $$ ;;
   hang:*) sleep 30 ;;
   *:session-start) echo "obor: role worker, lane D-01" ;;
 esac
@@ -157,6 +161,7 @@ esac
     hook: async (name, fn) => (hooked["session:" + name] = fn),
     prompt: async (a) => void prompted.push(a),
   };
+  if (parents) session.get = async ({ sessionID }) => (gets.push(sessionID), { id: sessionID, ...(parents[sessionID] ? { parentID: parents[sessionID] } : {}) });
   if (switched) session.switchModel = async (a) => void switched.push(a);
   const was = process.env.OBOR_OPENCODE_MODEL;
   if (model === undefined) delete process.env.OBOR_OPENCODE_MODEL;
@@ -164,6 +169,8 @@ esac
   // HOME is this stub's: a step writes the plugin's token file under it, never the runner's own ~/.obor.
   const wasHome = process.env.HOME;
   process.env.HOME = base;
+  const wasArgv = process.argv;
+  if (argv) process.argv = [...wasArgv.slice(0, 2), ...argv];
   const done = mod.default.setup({
     location: { directory: dir },
     app: { name: "cli", version, channel: "latest" },
@@ -175,6 +182,7 @@ esac
   else process.env.OBOR_OPENCODE_MODEL = was;
   if (wasHome === undefined) delete process.env.HOME;
   else process.env.HOME = wasHome;
+  process.argv = wasArgv;
   await done;
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
   const event = (line) => JSON.parse(line.replace(/^\S+ \S+ \S+ /, ""));
@@ -183,13 +191,13 @@ esac
   const token = (sid) => tokensPath(sid, { HOME: base });
   const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
   const sock = (sid) => inboxPath(sid, { HOME: base });
-  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted, inbox, sock };
+  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted, inbox, sock, gets };
 }
 
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "resumedSession", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
 });
 
 test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
@@ -212,7 +220,7 @@ test("guard: allow runs pre-tool-use with the Claude event; read is not sent", a
   const c = calls();
   assert.equal(c.length, 1, c.join("\n"));
   assert.match(c[0], /^pre-tool-use OBOR_NO_SELF_HOST=1 /);
-  assert.deepEqual(event(c[0]), { hook_event_name: "PreToolUse", session_id: "s1", cwd: dir, tool_name: "Edit", tool_input: { file_path: dir + "/a.go" } });
+  assert.deepEqual(event(c[0]), { hook_event_name: "PreToolUse", session_id: "s1", cwd: dir, agent_kind: "opencode", tool_name: "Edit", tool_input: { file_path: dir + "/a.go" } });
 });
 
 test("guard and session-start: obor hook sees the plugin process's identity vars (the pane's agent's, T-812)", async (t) => {
@@ -254,7 +262,7 @@ test("session-start: context appended on every context call, obor run once per s
   }
   const c = calls();
   assert.equal(c.length, 1, c.join("\n"));
-  assert.deepEqual(event(c[0]), { hook_event_name: "SessionStart", session_id: "s2", transcript_path: token("s2"), cwd: dir, source: "startup" });
+  assert.deepEqual(event(c[0]), { hook_event_name: "SessionStart", session_id: "s2", transcript_path: token("s2"), cwd: dir, agent_kind: "opencode", source: "startup" });
 });
 
 test("setup outside an obor project registers nothing: no guard, no context, no session events", async (t) => {
@@ -304,9 +312,9 @@ test("session events: session start, turn start and turn end run session-start, 
   await emit(oc("session.created", { sessionID: "s1", slug: "x", version: "2.2.0" }, dir), ...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit", "stop"]);
   const [start, prompt, stop] = calls().map(event);
-  assert.deepEqual(start, { hook_event_name: "SessionStart", session_id: "s1", transcript_path: store, cwd: dir, source: "startup" });
-  assert.deepEqual(prompt, { hook_event_name: "UserPromptSubmit", session_id: "s1", transcript_path: store, cwd: dir, prompt: wake });
-  assert.deepEqual(stop, { hook_event_name: "Stop", session_id: "s1", transcript_path: store, cwd: dir, stop_hook_active: false });
+  assert.deepEqual(start, { hook_event_name: "SessionStart", session_id: "s1", transcript_path: store, cwd: dir, agent_kind: "opencode", source: "startup" });
+  assert.deepEqual(prompt, { hook_event_name: "UserPromptSubmit", session_id: "s1", transcript_path: store, cwd: dir, agent_kind: "opencode", prompt: wake });
+  assert.deepEqual(stop, { hook_event_name: "Stop", session_id: "s1", transcript_path: store, cwd: dir, agent_kind: "opencode", stop_hook_active: false });
   for (const line of calls()) assert.match(line, /^\S+ OBOR_NO_SELF_HOST=1 id=/, line); // the identity: the identity vars test
 });
 
@@ -341,6 +349,7 @@ test("limit error: the turn's failure sends stop-failure (rate_limit, its reset 
     session_id: "s1",
     transcript_path: token("s1"),
     cwd: dir,
+    agent_kind: "opencode",
     error: "rate_limit",
     error_details: "You exceeded your current quota; resets at 6pm (provider.rate-limit)|1793365200",
   });
@@ -533,7 +542,9 @@ test("each mapped event has the fields the Go hook reads", async (t) => {
   const byName = Object.fromEntries(calls().map(event).map((e) => [e.hook_event_name, e]));
   assert.deepEqual(Object.keys(byName).sort(), ["SessionStart", "Stop", "StopFailure", "UserPromptSubmit"]);
   const capture = JSON.parse(fs.readFileSync(new URL("../internal/guard/testdata/prompt-typed.json", import.meta.url), "utf8"));
-  for (const k of Object.keys(byName.UserPromptSubmit)) assert.ok(k in capture, `UserPromptSubmit.${k} is not in Claude's capture`);
+  // agent_kind is the transport's own word (guard.SessionStart reads it): the one field Claude's capture lacks.
+  for (const k of Object.keys(byName.UserPromptSubmit)) assert.ok(k === "agent_kind" || k in capture, `UserPromptSubmit.${k} is not in Claude's capture`);
+  for (const [name, e] of Object.entries(byName)) assert.equal(e.agent_kind, "opencode", `${name}.agent_kind`);
   const reads = {
     UserPromptSubmit: ["cwd", "session_id", "transcript_path", "prompt"],
     SessionStart: ["cwd", "session_id", "transcript_path"],
@@ -735,6 +746,84 @@ test("prompt: an inbox line (metadata.obor line) runs user-prompt-submit as a ty
   await promptOf(hooked, "s1", text, { obor: "line" });
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"]);
   assert.equal(calls().map(event).find((e) => e.hook_event_name === "UserPromptSubmit").prompt, text);
+});
+
+// The guard allows a call only on exit 0: exit 2 denies with obor's line, any other exit and a kill by a signal deny
+// with the repair hint (docs/agents/kind-protocol.md, the Hook transport contract).
+test("guard: exit 0 allows; exit 2 denies with its text; exit 1 and a kill by a signal deny with the repair hint", async (t) => {
+  const call = { tool: "write", sessionID: "s1", input: { path: "x.go", content: "" } };
+  const allowed = await stubPlugin(t);
+  await allowed.hooked["tool:execute.before"](call);
+  assert.equal(allowed.calls().length, 1, "precondition: the guard ran obor");
+  const denied = await stubPlugin(t, { mode: "deny" });
+  await assert.rejects(denied.hooked["tool:execute.before"](call), /^Error: obor: denied by the stub$/);
+  const crashed = await stubPlugin(t, { mode: "exit1" });
+  await assert.rejects(crashed.hooked["tool:execute.before"](call), /^Error: obor: guard failed \(exit 1: obor: the stub crashed\); denied — run: make -C \S+ build$/);
+  const killed = await stubPlugin(t, { mode: "kill" });
+  assert.equal(killed.calls().length, 0);
+  await assert.rejects(killed.hooked["tool:execute.before"](call), /^Error: obor: guard failed \(killed by SIGKILL\); denied — run: make -C \S+ build$/);
+  assert.equal(killed.calls().length, 1, "the killed hook did run");
+});
+
+test("resumedSession: the id after --session or in --session=<id>; none for a fresh start", () => {
+  assert.equal(resumedSession(["node", "opencode", "--standalone", "--session", "ses_1", "--prompt", "x"]), "ses_1");
+  assert.equal(resumedSession(["opencode", "--session=ses_2"]), "ses_2");
+  assert.equal(resumedSession(["opencode", "--standalone", "--prompt", "--session-not"]), "");
+  assert.equal(resumedSession(["opencode", "--session"]), "");
+  assert.equal(resumedSession([]), "");
+});
+
+// polled waits for the resumed start's background session-start (setup does not wait for it).
+const polled = async (what, ok) => {
+  for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(ok(), what);
+};
+
+test("a resumed start binds the session's inbox and runs session-start before any turn; a fresh start runs nothing at setup", async (t) => {
+  const fresh = await stubPlugin(t, { argv: ["--standalone"] });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(fresh.names(), [], "a fresh start waits for its first turn");
+  const { names, calls, event, inbox, sock, dir, token, prompted, hooked } = await stubPlugin(t, { argv: ["--standalone", "--session", "ses_r1"], parents: {} });
+  await polled("session-start ran at setup", () => names().length > 0);
+  assert.deepEqual(names(), ["session-start"]);
+  assert.deepEqual(event(calls()[0]), { hook_event_name: "SessionStart", session_id: "ses_r1", transcript_path: token("ses_r1"), cwd: dir, agent_kind: "opencode", source: "startup" });
+  assert.deepEqual(inbox(), ["session-start " + sock("ses_r1")]);
+  await post(sock("ses_r1"), [line("hello")]);
+  assert.deepEqual(prompted, [{ sessionID: "ses_r1", text: "hello", metadata: { obor: "line" } }]);
+  // the first turn's hooks reuse that start: no second session-start
+  await promptOf(hooked, "ses_r1", wake);
+  assert.deepEqual(names(), ["session-start", "user-prompt-submit"]);
+});
+
+test("a resumed start whose session the store names a parent of binds nothing", async (t) => {
+  const { names, inbox, sock, gets } = await stubPlugin(t, { argv: ["--session", "ses_c"], parents: { ses_c: "ses_p" } });
+  await polled("the store was asked", () => gets.length > 0);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(names(), []);
+  assert.deepEqual(inbox(), []);
+  assert.equal(fs.existsSync(sock("ses_c")), false);
+});
+
+// A child's context hook can run before its session.created event: the store's parentID, asked once, makes it a child.
+test("a child session's early context hook runs no session-start and binds no inbox; a root's runs one, the store asked once", async (t) => {
+  const { hooked, names, inbox, sock, gets, emit, dir } = await stubPlugin(t, { parents: { kid: "root" } });
+  for (let i = 0; i < 2; i++) {
+    const c = { sessionID: "kid", system: [] };
+    await hooked["session:context"](c);
+    assert.deepEqual(c.system, [], "a child gets no context");
+  }
+  await promptOf(hooked, "kid", "sub");
+  await emit(...turn(dir, "kid", "sub"), oc("session.execution.succeeded", { sessionID: "kid" }));
+  assert.deepEqual(names(), []);
+  assert.deepEqual(inbox(), []);
+  assert.equal(fs.existsSync(sock("kid")), false);
+  assert.deepEqual(gets, ["kid"], "the store was asked once for the child");
+  const c = { sessionID: "root", system: [] };
+  await hooked["session:context"](c);
+  await hooked["session:context"](c);
+  assert.deepEqual(names(), ["session-start"], "precondition: a root session starts");
+  assert.deepEqual(gets, ["kid", "root"]);
+  assert.deepEqual(inbox(), ["session-start " + sock("root")]);
 });
 
 // The hanging guard waits out the plugin's 5 s timeout, so it starts when this file loads and runs beside the tests

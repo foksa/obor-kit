@@ -952,21 +952,23 @@ stops loading). It holds no obor rules: each hook maps opencode's event to the C
 `obor hook <name>`, so the guard and the session context stay in the Go binary. `tool execute.before` →
 `pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
 → `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
-with `--session <id>`). The plugin acts on the hooks' answers (`caps.hook_answers`): `user-prompt-submit` runs in the
+with `--session <id>`; a resumed start runs it at plugin start, the id read from that `--session`, so the session's
+inbox exists before its first turn). Only the agent's own session runs it: the plugin asks `ctx.session.get` once
+per session, and a session with a `parentID` (a subagent's) is a child, never started, recorded or bound. Every event
+carries `agent_kind: "opencode"`. The plugin acts on the hooks' answers (`caps.hook_answers`): `user-prompt-submit` runs in the
 session `prompt` hook, before admission, and its `additionalContext` is appended to the prompt's text (the model and
 the owner see it, and the session keeps it); a stop's `{"decision":"block","reason"}` becomes
 `ctx.session.prompt({sessionID, text: reason, metadata: {obor: …}})`, which starts the session's next turn, and the
 stop ending that turn carries `stop_hook_active: true`. A prompt that carries `metadata.obor` `stop` is that reason:
 the prompt hook runs no second `user-prompt-submit` for it (an inbox line, `metadata.obor` `line`, runs it as a typed
 prompt does). The plugin is also the session's inbox ("Lines to the lead": a socket per session, recorded through
-`session-start`'s env). A failing hook leaves the prompt as typed. `obor hook` runs
-without `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd (the same derivation), because a shared
-`opencode serve --service` carries whichever pane's env started it. opencode lanes
-run `opencode --auto --standalone` (own server with the pane's env). Installed user-global by `obor setup
-agents` (a link in `~/.config/opencode/plugins/`, beside herdr's own plugin); a no-op outside an obor project.
-The `obor` it runs is the linked kit's, except inside an obor checkout (`bin/obor`'s self-hosting rule): there the
-main checkout's `bin/obor` (with `OBOR_NO_SELF_HOST=1`, never a lane's own build), so obor-kit's own lanes run its
-guard, not an older global kit's. The guard fails closed on a store it cannot read: a store that exists but cannot be
+`session-start`'s env). A failing hook leaves the prompt as typed, except the guard: it allows a call only on exit 0,
+and denies on exit 2 with obor's line and on every other outcome (another exit, a kill by a signal, a timeout, no
+binary) with a repair hint. opencode lanes run `opencode --auto --standalone` (own server with the pane's env), so
+`obor hook` gets the agent's whole env, `OBOR_ROLE`, `OBOR_LANE` and `HERDR_PANE_ID` included, as Claude's and Codex's
+hooks do. Each start's generated config (`OPENCODE_CONFIG`) names the launching kit's plugin package dir
+(`<kit>/opencode`), so the kit that started the agent runs its hooks, through that kit's `bin/obor` with
+`OBOR_NO_SELF_HOST=1`; the plugin is a no-op outside an obor project. The guard fails closed on a store it cannot read: a store that exists but cannot be
 opened or read (a newer schema, any open error) denies a non-lead role's writes inside the repo, naming the store and
 "run this kit's binary"; no store yet, or no lane row, stays as before.
 The session-start hook writes `.obor/state/lanes/<LANE>.plugin` in the main checkout (never in the lane worktree), a marker holding the time the hook ran. `obor status` shows `no-plugin` for a working opencode lane whose marker is missing or older than the lane row's dispatch, once 2 min (`view.pluginSettle`) have passed since the lane's last `agent.start` (the plugin checks in on the session's first event, so a restart's or a resume's start comes after the dispatch; `internal/view` `pluginMissing`), so a lane whose plugin never loaded for the current dispatch is flagged.
