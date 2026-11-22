@@ -184,9 +184,9 @@ agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane'
 passes it through.
 
 `bin/obor` runs both of those on its hook path: it never fetches a binary there, runs the first one that has the
-command (`hook <name>`, or `kind` for `obor kind <name> hook`), and with none answers for the hook — a deny with the
-repair hint for `pre-tool-use`, nothing for the other hooks, and for `obor kind <name> hook` one generic deny JSON
-naming the repair.
+command (`hook <name>`, or `kind` for `obor kind <name> hook`, with the kind binary `obor kind` execs beside it), and
+with none answers for the hook — a deny with the repair hint for `pre-tool-use`, nothing for the other hooks, and for
+`obor kind <name> hook` one generic deny JSON naming the repair.
 
 Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unreadable event allows.
 

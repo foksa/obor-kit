@@ -12,8 +12,9 @@ import (
 )
 
 // Tests for `obor kind <name> hook`, a kind's hook transport (agy's .agents/hooks.json runs it): bin/obor's hook path.
-// It never fetches, runs the first binary that has `kind`, and with none answers one generic deny JSON naming the
-// repair. Every other kind call keeps the generic path (the fetch when there is no binary).
+// It never fetches, runs the first main binary pair that has `kind` and an executable obor-kind-<name> beside it, and
+// with none answers one generic deny JSON naming the repair. Every other kind call keeps the generic path (the fetch
+// when there is no binary).
 
 // kindFixture is a kit copy (the tree's bin/obor and VERSION, no dev build) with a fake curl first on PATH, recording
 // each call in curl.log and failing, so a fetch is seen and never reaches a release.
@@ -34,9 +35,32 @@ func newKindFixture(t *testing.T) *kindFixture {
 // run runs the kit's bin/obor with args from Base (not a checkout), with env added and the fake curl on PATH.
 func (k *kindFixture) run(t *testing.T, env []string, args ...string) (int, string, string) {
 	t.Helper()
+	return k.runAt(t, k.Root, env, args...)
+}
+
+// runAt is run of the kit at root (the fixture's Root, or another kit copy under Base).
+func (k *kindFixture) runAt(t *testing.T, root string, env []string, args ...string) (int, string, string) {
+	t.Helper()
 	env = append([]string{"PATH=" + filepath.Join(k.Base, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")},
 		append(env, noSelfHost...)...)
-	return k.shim(t, k.Base, env, filepath.Join(k.Root, "bin", "obor"), args...)
+	return k.shim(t, k.Base, env, filepath.Join(root, "bin", "obor"), args...)
+}
+
+// kindExe is the kind binary `obor kind <name>` execs beside a main binary: config.KitKind's layout (dist/obor's
+// dist/obor-kind-<name>, a release obor-<v>-<os>-<arch>'s obor-kind-<name>-<v>-<os>-<arch>).
+func kindExe(main, name string) string {
+	base, suffix := filepath.Base(main), ""
+	if strings.HasPrefix(base, "obor-") {
+		suffix = "-" + strings.TrimPrefix(base, "obor-")
+	}
+	return filepath.Join(filepath.Dir(main), "obor-kind-"+name+suffix)
+}
+
+// putKind makes the kind binary beside main executable: a stub, the shim only asks that it is there (the main binary
+// runs it).
+func putKind(t *testing.T, main, name string) {
+	t.Helper()
+	writeExec(t, kindExe(main, name), "#!/bin/sh\nexit 0\n")
 }
 
 // fetched reports whether a fetch was attempted (the fake curl ran).
@@ -57,11 +81,15 @@ func (k *kindFixture) releases(t *testing.T) int {
 	return len(entries)
 }
 
-// denyJSON is the one generic deny `obor kind <name> hook` answers when no binary has `kind`: agy's PreToolUse deny
-// with the repair hint.
-func (k *kindFixture) denyJSON() string {
-	b, _ := json.Marshal(map[string]any{"decision": "deny",
-		"reason": "obor: no usable Go binary in " + k.Root + " — run: make -C " + k.Root + " build"})
+// denyReason is the repair hint `obor kind <name> hook` answers with when no binary pair has `kind`.
+func denyReason(root string) string {
+	return "obor: no usable Go binary in " + root + " — run: make -C " + root + " build"
+}
+
+// denyJSON is the one generic deny `obor kind <name> hook` answers when no binary pair has `kind`: agy's PreToolUse
+// deny with the repair hint, as a JSON object (json.Marshal's escaping).
+func denyJSON(root string) string {
+	b, _ := json.Marshal(map[string]any{"decision": "deny", "reason": denyReason(root)})
 	return string(b) + "\n"
 }
 
@@ -86,10 +114,18 @@ func (k *kindFixture) stubLog(t *testing.T) string {
 	return strings.TrimSpace(readFile(t, filepath.Join(k.Base, "stub.log")))
 }
 
-// No usable binary for `kind <name> hook` (none, a stale or hanging dev build, a stale release): one generic deny JSON
-// naming the repair, no fetch, no release installed. A stale binary is asked `has kind` and never run.
+// No usable binary pair for `kind <name> hook` (none, a dev build or a release without its kind binary, a stale or
+// hanging dev build, a stale release): one generic deny JSON naming the repair, no fetch, no release installed. A
+// stale binary is asked `has kind` and never run.
 func TestShimKindHookNoBinary(t *testing.T) {
 	t.Parallel()
+	release := func(t *testing.T, k *kindFixture, has string) string {
+		t.Helper()
+		path := filepath.Join(k.home, ".obor", "bin", shimAsset(shimVersion))
+		writeExec(t, path, "#!/bin/bash\n[ \"$1\" = has ] && exit "+has+"\nexit 0\n")
+		warmScript(t, path)
+		return path
+	}
 	for _, c := range []struct {
 		name     string
 		setup    func(t *testing.T, k *kindFixture)
@@ -98,19 +134,25 @@ func TestShimKindHookNoBinary(t *testing.T) {
 		releases int
 	}{
 		{"no binary", func(*testing.T, *kindFixture) {}, nil, "", 0},
-		{"a stale dev build", func(t *testing.T, k *kindFixture) { k.logStub(t, 1) }, nil, "has kind", 0},
-		{"a hanging dev build", func(t *testing.T, k *kindFixture) { k.logStub(t, -1) }, []string{hookTimeoutEnv}, "has kind", 0},
+		{"a good dev build without its kind binary", func(t *testing.T, k *kindFixture) { k.logStub(t, 0) }, nil, "", 0},
+		{"a release without its kind binary", func(t *testing.T, k *kindFixture) { release(t, k, "0") }, nil, "", 1},
+		{"a stale dev build", func(t *testing.T, k *kindFixture) {
+			k.logStub(t, 1)
+			putKind(t, filepath.Join(k.Root, "dist", "obor"), "agy")
+		}, nil, "has kind", 0},
+		{"a hanging dev build", func(t *testing.T, k *kindFixture) {
+			k.logStub(t, -1)
+			putKind(t, filepath.Join(k.Root, "dist", "obor"), "agy")
+		}, []string{hookTimeoutEnv}, "has kind", 0},
 		{"a stale release", func(t *testing.T, k *kindFixture) {
-			path := filepath.Join(k.home, ".obor", "bin", shimAsset(shimVersion))
-			writeExec(t, path, "#!/bin/bash\n[ \"$1\" = has ] && exit 1\nexit 0\n")
-			warmScript(t, path)
-		}, nil, "", 1},
+			putKind(t, release(t, k, "1"), "agy")
+		}, nil, "", 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			k := newKindFixture(t)
 			c.setup(t, k)
-			want := k.denyJSON()
+			want := denyJSON(k.Root)
 			rc, stdout, stderr := k.run(t, c.env, "kind", "agy", "hook")
 			if rc != 0 || stdout != want || stderr != "" {
 				t.Errorf("obor kind agy hook: exit %d, stdout %q, stderr %q; want 0, %q, nothing", rc, stdout, stderr, want)
@@ -128,21 +170,54 @@ func TestShimKindHookNoBinary(t *testing.T) {
 	}
 }
 
-// The binary a kind's hook runs is the first that has `kind`, and it gets the whole call: the dev build first, else
-// the release.
+// The pair a kind's hook runs is the first that has `kind` and its kind binary: the dev build with its companion
+// wins, a dev build without one falls through to the release's pair, and it gets the whole call.
 func TestShimKindHookRunsBinary(t *testing.T) {
 	t.Parallel()
 	f := newKindFixture(t)
-	fakeGo(t, filepath.Join(f.Root, "dist", "obor"))
+	dev := filepath.Join(f.Root, "dist", "obor")
+	rel := filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion))
+	fakeGo(t, dev)
+	fakeGo(t, rel)
+	putKind(t, rel, "agy")
 	rc, stdout, stderr := f.run(t, nil, "kind", "agy", "hook")
-	if want := "argv: <kind> <agy> <hook> source=dev build root=" + f.Root + "\n"; rc != 0 || stdout != want {
-		t.Errorf("the dev build runs the transport: exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
+	if want := "argv: <kind> <agy> <hook> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
+		t.Errorf("a dev build without its kind binary → the release's pair runs: exit %d, %q (stderr %q); want %q",
+			rc, stdout, stderr, want)
 	}
-	os.Remove(filepath.Join(f.Root, "dist", "obor"))
-	fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
+	putKind(t, dev, "agy")
+	rc, stdout, stderr = f.run(t, nil, "kind", "agy", "hook")
+	if want := "argv: <kind> <agy> <hook> source=dev build root=" + f.Root + "\n"; rc != 0 || stdout != want {
+		t.Errorf("the dev build's pair runs the transport: exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
+	}
+	os.Remove(dev)
 	rc, stdout, stderr = f.run(t, nil, "kind", "agy", "hook")
 	if want := "argv: <kind> <agy> <hook> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
 		t.Errorf("the release runs the transport: exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
+	}
+	if f.fetched(t) {
+		t.Errorf("a hook fetched: curl %q", readFile(t, f.curlLog))
+	}
+}
+
+// A kit path with a quote and a backslash: the deny JSON escapes them, so agy reads a valid reason naming the repair
+// (encoding/json is the Go test's jq -e).
+func TestShimKindHookDenyJSONEscapesKitPath(t *testing.T) {
+	t.Parallel()
+	f := newKindFixture(t)
+	root := filepath.Join(f.Base, `ki"t\path`)
+	kit(t, root, "quoted")
+	os.Remove(filepath.Join(root, "dist", "obor"))
+	rc, stdout, stderr := f.runAt(t, root, nil, "kind", "agy", "hook")
+	if rc != 0 || stderr != "" {
+		t.Errorf("obor kind agy hook: exit %d, stderr %q; want 0, nothing", rc, stderr)
+	}
+	var got struct{ Decision, Reason string }
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("the deny is not valid JSON: %v\n%q", err, stdout)
+	}
+	if got.Decision != "deny" || got.Reason != denyReason(root) {
+		t.Errorf("the deny = %+v; want decision %q, reason %q", got, "deny", denyReason(root))
 	}
 	if f.fetched(t) {
 		t.Errorf("a hook fetched: curl %q", readFile(t, f.curlLog))
