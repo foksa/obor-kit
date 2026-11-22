@@ -571,3 +571,77 @@ func TestReset(t *testing.T) {
 		}
 	}
 }
+
+// oldHooksEntry is obor's hooks entry as obor setup agents wrote it before T-1502: PreToolUse matching three tools, so
+// run_workflow and tools obor does not know missed its transport.
+const oldHooksEntry = `{"PreInvocation": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], ` +
+	`"PreToolUse": [{"hooks": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], "matcher": "run_command"}, ` +
+	`{"hooks": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], "matcher": "write_file"}, ` +
+	`{"hooks": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], "matcher": "edit_file"}], ` +
+	`"SessionStart": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], ` +
+	`"Stop": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}]}`
+
+// A start in an obor project reads the main checkout's .agents/hooks.json (root; the start dir, a lane's worktree,
+// has none here): with obor's current entry it starts with no warning; with the pre-T-1502 three-matcher entry, an
+// entry of another key alone or no file, an agent's (trimmed) start is refused naming the fix and a lead's starts with a
+// WARN naming it. A root that is no obor project, and the effort check, read no hooks file.
+func TestStartHooksFile(t *testing.T) {
+	current, _ := json.Marshal(map[string]any{"obor": kind.HooksEntry()})
+	beside, _ := json.Marshal(map[string]any{"mine": map[string]any{"Stop": []any{}}, "obor": kind.HooksEntry()})
+	models := kind.HandleModels(func() ([]byte, error) { return []byte(stubList), nil })
+	const fix = ": run obor setup agents in the project, then commit .agents/hooks.json"
+	for _, c := range []struct {
+		name, file string // file: the hooks file's text ("": none)
+		project    bool   // root holds .obor/config.json
+		why        string // "{path}" is root's hooks file; "": the start reads it as current
+	}{
+		{"the current entry", string(current), true, ""},
+		{"the current entry beside another key", string(beside), true, ""},
+		{"the three-matcher entry", `{"obor": ` + oldHooksEntry + `}`, true,
+			"agy's hooks: {path}'s obor entry is not this kit's (an older obor's hooks: tools they do not match miss obor's guard)"},
+		{"another key alone", `{"mine": {"Stop": []}}`, true, "agy's hooks: no obor entry in {path}"},
+		{"no file", "", true, "agy's hooks: no {path}"},
+		{"no file outside an obor project", "", false, ""},
+	} {
+		root, dir := t.TempDir(), t.TempDir()
+		path := filepath.Join(root, kind.HooksFile)
+		if c.project {
+			writeFile(t, filepath.Join(root, ".obor", "config.json"), "{}")
+		}
+		if c.file != "" {
+			writeFile(t, path, c.file)
+		}
+		why := strings.ReplaceAll(c.why, "{path}", path)
+		for _, trim := range []bool{true, false} {
+			who := map[bool]string{true: "an agent", false: "a lead"}[trim]
+			r := startCall(t, models, home(t, ""), map[string]any{"args": []string{"--model", "gemini-4-neon-high"},
+				"trim_user": trim, "dir": dir, "root": root, "prompt": "go"})
+			switch {
+			case why == "" && (r.Error != "" || len(r.Warnings) != 0 || len(r.Args) == 0):
+				t.Errorf("%s, %s: reply %+v, want a start with no warning", c.name, who, r)
+			case why != "" && trim && (r.Error != why+fix || len(r.Args) != 0):
+				t.Errorf("%s, %s: reply %+v, want the error %q", c.name, who, r, why+fix)
+			case why != "" && !trim && (r.Error != "" || len(r.Args) == 0 || !slices.Equal(r.Warnings, []string{"WARN " + why + fix})):
+				t.Errorf("%s, %s: reply %+v, want a start with the warning %q", c.name, who, r, "WARN "+why+fix)
+			}
+		}
+		if c.why != "" { // the effort check launches nothing: no hooks file read
+			r := startCall(t, models, home(t, ""), map[string]any{"args": []string{"--model", "gemini-4-neon"},
+				"effort": "high", "trim_user": true, "root": root, "check": true})
+			if r.Error != "" || len(r.Warnings) != 0 {
+				t.Errorf("%s, the effort check: reply %+v, want no error and no warning", c.name, r)
+			}
+		}
+	}
+}
+
+// writeFile writes text at path, its directory made first.
+func writeFile(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -301,10 +301,12 @@ func TestCommittedHooksFile(t *testing.T) {
 
 // Every PreToolUse in a project goes by the transport's table, with obor hook answering deny (exit 2) to whatever it
 // is asked: run_command, write_file, edit_file and the three MCP tools run it (its deny comes back); the tools that
-// only read, talk or start a hooked child are no opinion (ask), obor not run; run_workflow and swarm are denied as a
-// workflow script, a tool the table does not know (or no name) denied naming it, obor not run either.
+// only read, talk, define or list subagents are no opinion (ask), obor not run; run_workflow and swarm are denied as a
+// workflow script, invoke_subagent as a subagent (its session cannot be told from the agent's), a tool the table does
+// not know (or no name) denied naming it, obor not run either.
 func TestHookToolTable(t *testing.T) {
 	const workflow = "obor cannot guard a workflow script; run commands with run_command"
+	const subagent = "obor agents run no agy subagents: their sessions cannot be told from the agent's"
 	unknown := func(name string) map[string]any {
 		return map[string]any{"decision": "deny", "reason": "obor's agy transport does not know " + name +
 			"; a new agy tool needs a row in kinds/agy/kind/hook.go"}
@@ -320,7 +322,8 @@ func TestHookToolTable(t *testing.T) {
 		{"call_mcp_tool", 1, guarded}, {"list_resources", 1, guarded}, {"read_resource", 1, guarded},
 		{"read_file", 0, ask}, {"search_web", 0, ask},
 		{"ask_question", 0, ask}, {"manage_task", 0, ask}, {"manage_subagents", 0, ask}, {"define_subagent", 0, ask},
-		{"invoke_subagent", 0, ask}, {"schedule", 0, ask}, {"send_message", 0, ask}, {"finish", 0, ask},
+		{"schedule", 0, ask}, {"send_message", 0, ask}, {"finish", 0, ask},
+		{"invoke_subagent", 0, map[string]any{"decision": "deny", "reason": subagent}},
 		{"run_workflow", 0, map[string]any{"decision": "deny", "reason": workflow}},
 		{"swarm", 0, map[string]any{"decision": "deny", "reason": workflow}},
 		{"browser_click", 0, unknown("browser_click")},

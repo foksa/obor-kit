@@ -20,9 +20,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -188,7 +190,9 @@ func describe() map[string]any {
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file and the start. An effort with no model
 // is the start's error: agy's --effort selects a variant of a model named by its base. A check with neither a live nor
-// a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked.
+// a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked. In an obor project (root) whose
+// HooksFile does not hold this kit's entry (hooksStale; not for the effort check), an agent's start is refused and a
+// lead's goes on with a reply's warning: obor logs it as `obor: kind agy: start: WARN …`.
 func start(in request, read func(string) ([]byte, error), models func() ([]byte, error), store bool) map[string]any {
 	rest, model, argEffort := splitModel(in.Args)
 	effort := in.Effort
@@ -197,6 +201,15 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 	}
 	if effort != "" && model == "" {
 		return map[string]any{"error": fmt.Sprintf("effort %s needs a model id (models.<name>.id, a slug of agy models)", effort)}
+	}
+	var warns []string
+	if !in.Check {
+		if why := hooksStale(in.Root, read); why != "" {
+			if !lead(in) {
+				return map[string]any{"error": why}
+			}
+			warns = append(warns, "WARN "+why)
+		}
 	}
 	warn := ""
 	if model != "" && !in.Check && in.Resume == "" {
@@ -218,9 +231,8 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 			return map[string]any{"error": OverrideFile + ": does not parse: " + err.Error()}
 		}
 	}
-	lead := !in.TrimUser
-	name := SettingsFile(lead, in.Dir)
-	settings := Settings(UserSettings(in.Env, read), over, lead, in.Dir, in.Root)
+	name := SettingsFile(lead(in), in.Dir)
+	settings := Settings(UserSettings(in.Env, read), over, lead(in), in.Dir, in.Root)
 	b, _ := json.MarshalIndent(settings, "", "  ")
 	args := append([]string{"--settings", "{file:" + name + "}"}, rest...)
 	switch {
@@ -241,9 +253,55 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 	reply := map[string]any{"args": args, "env": map[string]string{},
 		"files": []map[string]string{{"name": name, "bytes": string(b) + "\n"}}}
 	if warn != "" {
-		reply["warnings"] = []string{warn}
+		warns = append(warns, warn)
+	}
+	if len(warns) > 0 {
+		reply["warnings"] = warns
 	}
 	return reply
+}
+
+// lead: in is a lead's start (trim_user false: docs/agents/kind-protocol.md).
+func lead(in request) bool { return !in.TrimUser }
+
+// hooksStale is why the obor project at root runs agy without this kit's hooks: its HooksFile (the main checkout's: a
+// lane's worktree has the same committed file at its base) has no obor entry, or one that is not HooksEntry (an older
+// obor's: before T-1502 its PreToolUse matched three tools, so run_workflow and unknown tools missed obor). "": the
+// entry is current, or root is no obor project (none named). start refuses an agent's start for it and warns a lead's.
+func hooksStale(root string, read func(string) ([]byte, error)) string {
+	if root == "" || !InProject(root) {
+		return ""
+	}
+	path := filepath.Join(root, HooksFile)
+	why := ""
+	b, err := read(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		why = "no " + path
+	case err != nil:
+		why = err.Error()
+	default:
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(b, &doc); err != nil {
+			why = path + ": does not parse: " + err.Error()
+			break
+		}
+		raw, ok := doc["obor"]
+		if !ok {
+			why = "no obor entry in " + path
+			break
+		}
+		var got, want any
+		w, _ := json.Marshal(HooksEntry())
+		json.Unmarshal(w, &want)
+		if json.Unmarshal(raw, &got) != nil || !reflect.DeepEqual(got, want) {
+			why = path + "'s obor entry is not this kit's (an older obor's hooks: tools they do not match miss obor's guard)"
+		}
+	}
+	if why == "" {
+		return ""
+	}
+	return "agy's hooks: " + why + ": run obor setup agents in the project, then commit " + HooksFile
 }
 
 // Base is slug without its effort word ("gemini-3.8-flash-low" → "gemini-3.8-flash"); a slug that ends in none is its
