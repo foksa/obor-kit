@@ -68,6 +68,10 @@
       "fable": {
         "kind": "claude",
         "id": "fable"
+      },
+      "gemini": {
+        "kind": "agy",
+        "id": "gemini-4-neon"
       }
     }
   },
@@ -76,7 +80,9 @@
       "lead"
     ],
     "protected_files": [
-      "docs/design.md"
+      "docs/design.md",
+      ".agents/mcp_config.json",
+      ".agents/hooks.json"
     ],
     "deny_commands": [
       {

@@ -1,0 +1,57 @@
+{
+  "obor": {
+    "PreInvocation": [
+      {
+        "command": "obor kind agy hook",
+        "timeout": 30,
+        "type": "command"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "obor kind agy hook",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "run_command"
+      },
+      {
+        "hooks": [
+          {
+            "command": "obor kind agy hook",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "write_file"
+      },
+      {
+        "hooks": [
+          {
+            "command": "obor kind agy hook",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "edit_file"
+      }
+    ],
+    "SessionStart": [
+      {
+        "command": "obor kind agy hook",
+        "timeout": 30,
+        "type": "command"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "obor kind agy hook",
+        "timeout": 30,
+        "type": "command"
+      }
+    ]
+  }
+}

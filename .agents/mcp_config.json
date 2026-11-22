@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "obor": {
+      "args": [
+        "mcp"
+      ],
+      "command": "obor"
+    }
+  }
+}
