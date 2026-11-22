@@ -418,8 +418,7 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 		r.inbox.unrecord("pj-lead")
 		r.start()
 		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
-		if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead: its hooks hand it its lines at its " +
-			"next prompt or turn end;"; err != nil || !strings.HasPrefix(reply, want) {
+		if want := "SENT to pj-lead in proj (queued: " + noLiveWhy + "; " + byHooksWhy + ";"; err != nil || !strings.HasPrefix(reply, want) {
 			t.Fatalf("send: %q, %v; want it to start %q", reply, err, want)
 		}
 		r.passes()
@@ -458,7 +457,7 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 		}
 		r.later(23 * time.Hour)
 		want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") +
-			" (undelivered: no inbox recorded for pj-lead: its hooks hand it its lines at its next prompt or turn end)}" // why it waits
+			" (undelivered: " + noRecordWhy + ")}" // why it waits
 		if n := r.taskStep(event.MsgTask, want); n != 0 {
 			t.Fatalf("a needs-you before 24 h: %q", r.steps())
 		}

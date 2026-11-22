@@ -81,7 +81,7 @@ func TestLeadLineRefusedPostFallsToHooks(t *testing.T) {
 	}
 	r.inbox.unrecord("pj-lead")
 	r.passes()
-	why := "no inbox recorded for pj-lead: its hooks hand it its lines at its next prompt or turn end"
+	why := noRecordWhy
 	if w := r.waiting(); len(w) != 1 || w[0].Held != why {
 		t.Fatalf("waiting %+v; want the line held for the hooks", w)
 	}

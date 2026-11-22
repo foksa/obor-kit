@@ -80,7 +80,7 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 		}
 		r.advance(25 * time.Hour)
 		want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") +
-			" (undelivered: no inbox recorded for pj-lead: its hooks hand it its lines at its next prompt or turn end)}" // why it waits
+			" (undelivered: " + noRecordWhy + ")}" // why it waits
 		r.waitFor("the line's needs-you", func() bool { return r.taskStep(event.MsgTask, want) == 1 })
 		r.advance(0)
 		r.advance(0)

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"obor/internal/agents"
@@ -150,7 +152,9 @@ const postWait = 3 * time.Second
 // lines from it, one dial, the lines written, then close; or, for a record the kind sends with itself (agy's), its
 // deliver sends it (began once it says sent). A send the kind refused marks that record refused
 // (project.RefuseInbox): not live, the lead's lines go through its hooks until an obor command of the session records it
-// again. began: a byte of it went out (a refusal before is safe to retry). No ack comes back.
+// again; so does a dial no socket answers (a session that ended left its socket, or the path names no socket): not live
+// until the session records one again. began: a byte of it went out (a refusal before is safe to retry).
+// No ack comes back.
 func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool, err error) {
 	k, ok := p.kinds.Lookup(kind)
 	if !ok || !k.Caps().Inbox {
@@ -181,7 +185,7 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 		if why == "" {
 			why = "its deliver sends nothing with the record"
 		}
-		_ = project.RefuseInbox(cfg, slot, in.Record, why)
+		_ = project.RefuseInbox(cfg, slot, in, why)
 		return false, fmt.Errorf("%s refused the send: %s", agent, why)
 	case !ok || d.Typed || d.Socket == "":
 		return false, fmt.Errorf("no session recorded for %s: %s names no socket", agent, f)
@@ -191,6 +195,9 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 	var dialer net.Dialer
 	c, err := dialer.DialContext(ctx, "unix", d.Socket)
 	if err != nil {
+		if noSocket(err) { // a dead session's socket, or the path names none: the record is not live either
+			_ = project.RefuseInbox(cfg, slot, in, err.Error())
+		}
 		return false, err
 	}
 	defer c.Close()
@@ -206,6 +213,13 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 		_, _ = io.Copy(io.Discard, c)
 	}
 	return true, nil
+}
+
+// noSocket: err is a dial that no socket answered: nothing listens on the path (ECONNREFUSED), the path is gone
+// (ENOENT), or it names no socket (ENOTSOCK). A dial refused for another reason (a permission, a too long path) says
+// nothing about the record.
+func noSocket(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTSOCK)
 }
 
 // slotOf is the slot agent holds in the project at root, its inbox record's key (project.AgentSlot under the config as

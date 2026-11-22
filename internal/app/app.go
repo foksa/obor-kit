@@ -57,8 +57,8 @@ type Options struct {
 	// only). A project without an integrator role (read at its load) has no merge loop either.
 	Loop func(root string) (*Loop, error)
 	// Inboxed: agent's session inbox is recorded (its SessionStart hook's record of the agent's slot in the project),
-	// and the session that recorded it ("": none named). A lead line waits, untried,
-	// while it is not; nil: always tried.
+	// and the session that recorded it ("": none named). A lead line waits, untried, while its record is not live
+	// (none, a socket that is gone, or a refused send); nil: always tried.
 	Inboxed func(agent string) (session string, ok bool)
 	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop; nil: refused).
 	Exit func()
