@@ -3,229 +3,208 @@
 Advisor answer, 2026-11-22. Question: add an agy (Antigravity CLI 1.5.14) kind like `kinds/opencode`, make the kind
 boundary ready for more kinds, and let a lead run on an agent other than Claude Code.
 
-Sources: `agy --help` and its subcommands' help, `agy models`, `agy changelog`, the docs agy ships
-(`~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/*.md`, `conversations/SKILL.md`), the public docs at
-antigravity.google/docs (read through a fetch agent, paraphrased), the files under `~/.gemini`, strings of the `agy` and
-`agentapi` binaries, and obor's code. **No agy session was started**: every statement about agy's behaviour at run time
-is from documents and is marked where a live probe has to confirm it (probes P1 to P9, section 1.1).
+Sources: the live probes in `docs/research/agy-probes.md` (P1 to P9; cited as "probes P<n>"), `agy --help`,
+`agy models`, the docs agy ships (`~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/*.md`), the public
+docs at antigravity.google/docs (read through a fetch agent, paraphrased), and obor's code. Owner decisions of 11-22
+(`docs/decisions.md:7`): agy is a plugin kind; a lead with no inbox may get its lines through its hooks (the lesser
+mode); the first non-Claude lead is agy if P7 passes, else OpenCode; codex then claude are extracted after agy has run
+in lanes for a few days.
 
 ## Recommendation
 
-Write agy as a plugin kind now, in two tasks (start and wiring first, hooks second), behind one short probe task. Change
-the protocol only where agy shows a gap. Extract codex, then claude, after agy is live, and skip the review's
-standalone `BuildStart` and interface clean-up: the extraction deletes that code. A non-Claude lead needs three
-kind-neutral pieces (hooks through the kind, a start prompt that is not a Claude slash command, lines that reach the
-session); the first two are small, the third needs a decision from the owner.
+Build agy as a plugin kind in two tasks: start and wiring, then hooks. Wire it with two files committed in the
+project, `.agents/mcp_config.json` and `.agents/hooks.json`, that name `obor` by `PATH`: no agy plugin, no
+`--add-dir`, nothing user-level. Start workers in auto mode, set in the start's `--settings` file, and let a project
+widen it in its override file. Make agy the first non-Claude lead on the lesser mode, and add push delivery through
+`agentapi` as a later, separate task.
 
-Order of steps. Each is one task; 1 and 2 run in parallel, 5 can run any time after 2.
+Tasks 1 (the probes, T-1458) and 2 (protocol prep, T-1459: the kind's context read, `headless.flags`, `caps.app`,
+the hook contract) are merged; the numbers below continue theirs.
 
 | # | Task | Size | Difficulty | Files |
 |---|---|---|---|---|
-| 1 | **agy probes.** Run P1 to P9 in a throwaway herdr session and a scratch repository; write the answers to `docs/research/agy-probes.md`. No code. | S | simple | `docs/research/agy-probes.md` |
-| 2 | **Protocol prep.** (a) Context size is the kind's: `agents.Kind` gains a context read of a transcript tail, the Claude and Codex parsers leave `internal/project/files.go:58-121` for their kind packages, the protocol's `turn` gains `what: context`. (b) The manifest's `headless` gains a list of long flags (`agy --prompt` is headless and `print_flag` covers only `-p` and `--print`, `internal/guard/shell.go:489-497`). (c) The manifest's `caps` gains `app` (`agents.Caps.App`, `agents.go:444`, has no manifest field, `plugin.go:60-70`). (d) `docs/agents/kind-protocol.md` gains a "Hook transport" section: the event fields `obor hook <name>` reads and what it answers. | M | medium | `internal/agents/agents.go`, `internal/agents/claude/claude.go`, `internal/agents/codex/codex.go`, `internal/agents/plugin/{plugin,calls}.go`, `internal/project/files.go`, `internal/guard/{prompt,shell}.go`, `internal/app/keeplane.go`, `docs/agents/kind-protocol.md` |
-| 3 | **kind-agy, start and wiring.** `kinds/agy` as a Go binary like `kinds/opencode`: describe, start (model, effort, `--settings` file, resume, first prompt), install, turn (reset, context). obor's MCP server through a native agy plugin the kit ships. No hooks yet: an agy lane is guarded by its role text, as a Codex lane is today (`docs/design.md:23`). Live conformance tier. | L | medium | `kinds/agy/main.go`, `kinds/agy/kind/*.go`, `agy/obor/{plugin.json,mcp_config.json}`, `internal/config/models.go` (`KitKinds`, line 99; the model catalogue, lines 34-41), `internal/setup/` (the project's `.agents/plugins.json`), `Makefile`, `bin/obor` and the release list (one more kind binary), `tests/conformance/live_agy.go`, `docs/design.md`, `docs/agents/kind-protocol.md`, `AGENTS.md` (the conformance line names the kinds) |
-| 4 | **agy hook transport.** `agy/obor/hooks.json` runs the kind binary, which maps agy's six events to `obor hook <name>` and the answers back (section 1.6). Caps `hooks: plugin`, the plugin marker, the session recorded by the SessionStart hook. | M | hard | `kinds/agy/kind/hook.go` and its test, `agy/obor/hooks.json`, `cmd/obor/main.go` (one subcommand that runs a kit kind's binary), `tests/conformance/live_agy.go`, `docs/design.md` |
-| 5 | **A role's start prompt for every kind.** A kind that takes no plugin slash command gets a plain first prompt naming the skill file; the SessionStart line for a lead names the file too; the lead skill's Claude-only wording goes. | S | simple | `internal/roles/roles.go:57,207-223`, `internal/guard/session.go:136-149`, `skills/lead/*.md`, `templates/agents/lead.md` |
-| 6 | **Lead lines for a kind without an inbox.** After the owner's decision D3: the protocol's delivery gains "the kind delivered it" beside typed and socket; the agy kind delivers through its own channel if P7 passes. Then a lead on agy in a scratch project is the acceptance test. | M | hard | `internal/agents/agents.go` (`Delivery`, line 428), `internal/agents/plugin/calls.go:391`, `cmd/obor/send.go:140-170`, `internal/app/messages.go:412-416`, `kinds/agy/kind/*.go`, `docs/design.md:834-849` |
-| 7 | **A kit kind with no cached manifest is described at a start.** Today a start of an uncached plugin kind fails with "run obor setup agents" (`plugin.go:187-200`). Needed before the lead's kind is a plugin. Hooks and the guard still never run the command. | S | medium | `internal/agents/plugin/plugin.go`, `internal/config/models.go`, `docs/agents/kind-protocol.md` |
-| 8 | **Extract codex** to `kinds/codex` (section 3). Deletes `internal/agents/codex`, the install-host plumbing and Codex's base-args row. | L | hard | `kinds/codex/**`, `internal/agents/codex/**` (deleted), `internal/agents/agents.go`, `internal/agents/plugin/*.go`, `internal/launch/launch.go:132,931`, `internal/setup/mcp.go:147`, `internal/project/files.go:220-230`, `internal/config/models.go:74-82`, `internal/testkit/testkit.go`, `tests/conformance/live_codex.go`, release files |
-| 9 | **Extract claude** to `kinds/claude`. Deletes `internal/agents/claude`, then `Split`, `Preparer`, the two-pass `StartOf`, the registry and the closures in `agents.Start`. | L | hard | `kinds/claude/**`, `internal/agents/claude/**` (deleted), `internal/agents/agents.go:556-730`, `internal/launch/launch.go:1145-1180`, `cmd/obor/main.go` (the kind imports), release files, `docs/module-map.md` |
+| 3 | **kind-agy, start and wiring.** `kinds/agy` as a Go binary: describe, start (model, effort, the `--settings` file, resume, first prompt), install, turn (reset, context). obor's MCP server through the project's `.agents/mcp_config.json`, which `obor setup agents` writes: the install reply gains `where: project` and the request `root`. No hooks yet: the sandbox of auto mode is the lane's guard, as Codex's is. The context read goes to the kind of the recorded session and is bounded (`project.ContextOf`, `internal/project/files.go:55`, asks every transcript kind in name order). The live tier also settles P10 (section 1.4). | L | medium | `kinds/agy/main.go`, `kinds/agy/kind/*.go`, `internal/agents/agents.go` (the `Where` values, lines 400-401), `internal/agents/plugin/calls.go` (install), `internal/setup/mcp.go`, `internal/project/files.go`, `internal/config/models.go` (`KitKinds`, line 99; the catalogue, lines 34-41), `Makefile`, `bin/obor` and the release list, `tests/conformance/live_agy.go`, `docs/design.md`, `docs/agents/kind-protocol.md`, `AGENTS.md` |
+| 4 | **agy hook transport.** The project's `.agents/hooks.json` runs `obor`, which runs the kind binary; it maps agy's events to `obor hook <name>` and the answers back (section 1.6). Caps `hooks: plugin`, the plugin marker, the SessionStart record. The protocol's Hook transport section gains three statements (section 2). | M | hard | `kinds/agy/kind/hook.go` and its test, `cmd/obor/main.go` (one subcommand that runs a kit kind's binary), `internal/setup/` (the hooks entry), `tests/conformance/live_agy.go`, `docs/design.md`, `docs/agents/kind-protocol.md` |
+| 5 | **A role's start prompt for every kind.** A kind that takes no plugin slash command gets a plain first prompt naming the skill file; the SessionStart line for a lead names the file too; the lead skill's Claude-only wording goes. agy is such a kind (no plugin, so no `/obor:lead`). | S | simple | `internal/roles/roles.go:57,207-223`, `internal/guard/session.go:136-149`, `skills/lead/*.md`, `templates/agents/lead.md` |
+| 6 | **Lead lines through hooks (the lesser mode).** `obor hook user-prompt-submit` and `obor hook stop` hand a lead with no inbox its queued lines: as context at a prompt, as a block of the stop at a turn's end. Kind-neutral. Then a lead on agy in a scratch project is the acceptance test. | M | hard | `internal/guard/{prompt,stop}.go`, `cmd/obor/main.go:318`, `internal/app/messages.go`, `internal/app/wire/`, `docs/design.md:834-849` |
+| 6b | **agy push delivery.** Any `obor` command an agent runs records the kind's inbox variables; the protocol's delivery gains "the kind delivered it"; the agy kind sends with `agentapi send-message`. A refused send leaves the line to task 6's path. | M | hard | `internal/guard/session.go:193-203`, `cmd/obor/main.go`, `internal/agents/agents.go` (`Delivery`, line 441), `internal/agents/plugin/calls.go:408`, `cmd/obor/send.go:152`, `kinds/agy/kind/*.go` |
+| 7 | **A kit kind with no cached manifest is described at a start** (`plugin.go:189` fails such a start today). Before the lead's kind is a plugin. | S | medium | `internal/agents/plugin/plugin.go`, `internal/config/models.go`, `docs/agents/kind-protocol.md` |
+| 8 | **Extract codex** to `kinds/codex` (section 3). | L | hard | `kinds/codex/**`, `internal/agents/codex/**` (deleted), `internal/agents/agents.go`, `internal/agents/plugin/*.go`, `internal/launch/launch.go:132,931`, `internal/setup/mcp.go:147`, `internal/project/files.go:176`, `internal/config/models.go:74-82`, `internal/testkit/testkit.go`, `tests/conformance/live_codex.go`, release files |
+| 9 | **Extract claude** to `kinds/claude`; then `Split`, `Preparer`, the two-pass `StartOf`, the registry and the closures in `agents.Start` go. | L | hard | `kinds/claude/**`, `internal/agents/claude/**` (deleted), `internal/agents/agents.go:569-743`, `internal/launch/launch.go:1145-1180`, `cmd/obor/main.go`, release files, `docs/module-map.md` |
 
-What I would not do: the review's proposals 1 and 2 (`BuildStart`, slimming the interfaces) as tasks of their own,
-a `check-effort` call, per-start generated agy config before P1 says the committed file does not work, and a codex or
-opencode lead before one non-Claude lead has run.
+Order: 3, 4, 5, 6, then 6b; 7 to 9 after agy has run in lanes for a few days. Not done: the review's `BuildStart`
+and interface slimming (owner 11-22), a `check-effort` call, an agy plugin shipped by the kit.
 
 ## 1. kind-agy
 
-### 1.1 Probes (task 1)
+### 1.1 What the probes settled
 
-AGENTS.md allows a live probe in a throwaway named herdr session in a scratch dir. agy is started interactively there,
-never with `-p`, `--print`, `--prompt` or `agy acp`. The scratch repository gets `.agents/hooks.json` with one named
-hook that, for each of the six events, writes its stdin and its environment to a file and prints `{}`, and
-`.agents/mcp_config.json` with a stdio server that writes its environment and cwd to a file.
-
-| Probe | Question | Decides |
+| Probe | Result | Consequence |
 |---|---|---|
-| P1 | Do a workspace `.agents/hooks.json`, `.agents/mcp_config.json` and a plugin named by `.agents/plugins.json` (a `~/` path and a workspace-relative path) load in a trusted folder, with no approval prompt? Does a linked worktree find them at its own root? Does a plugin's `skills` dir load when it is a symlink? `cli.log` says `loaded N named hooks from M hooks.json file(s)` at each start. | the wiring (1.5) |
-| P2 | **Does a stdio MCP server inherit the CLI's environment** (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, `HERDR_PANE_ID`), and what is its cwd? | whether a static `mcp_config.json` can serve `obor mcp` at all |
-| P3 | The hook payloads: `toolCall.name` and `args` of a shell command and of each file edit tool; whether `SessionStart` fires on `--conversation <id>` and on `/clear`; `PreInvocation`'s `invocationNum` across a turn; `Stop`'s fields at a normal end, an error and a usage limit. What a `PreToolUse` reply of `{}` does (falls through to agy's own permission check, or is refused as missing `decision`). What a hook that exits non-zero or times out does. The hooks' environment (the identity variables, `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`). | the hook transport (1.6) |
-| P4 | `--settings`: is the object laid over the saved settings key by key or does it replace them; do `permissions.allow: ["mcp(<server>/*)"]` and `trustedWorkspaces` in it take effect; the server name a plugin's MCP server gets in a permission rule. | the settings file and the override file |
-| P5 | `--model gemini-4-neon-high --effort low`: which variant runs; an effort the model lacks; `--model` with a label. | effort (1.3) |
-| P6 | `-i "<text>"` in a fresh start and with `--conversation`; `-i "/<skill> handoff"`; how a plugin's skill is named as a slash command. | the first prompt and the lead's |
-| P7 | From a second shell, with the address and token a hook saw: `agentapi send-message <conversationId> "<text>"`. Does an idle TUI session start a turn with it, does a busy one read it, is the owner's half-typed draft kept? | lead lines (section 4) |
-| P8 | The quit: `/exit` with one Enter or a popup's second; the keys that clear the input; a dialog while background tasks run. The start screen in an untrusted folder (the dialog's text and default option), a self-update at start, the project agy assigns a linked worktree. | stop, not-ready, trust |
-| P9 | In `--mode auto` with a PreToolUse deny: is the deny final; which lane commands (go build, go test, git reads) the sandbox stops. | the fixed args (D1) |
+| P1 | Workspace `.agents/hooks.json`, `.agents/mcp_config.json` and skills load with no prompt in a trusted folder; a linked worktree loads its own copy. A `plugins.json` entry loads only a plugin whose real path is inside a workspace root. | wiring by committed workspace files (1.5) |
+| P2 | An MCP server and a hook inherit the agent's whole environment, `PATH` and the `OBOR_*` variables included. | a static file can run `obor mcp` |
+| P3 | Tool names `run_command`, `write_file`, `edit_file`; a PreToolUse answer of `{}`, a non-zero exit or a timeout **denies**; `ask` is the neutral answer; SessionStart does not fire on `--conversation`. | the transport's mapping (1.6) |
+| P4 | `--settings` is laid over the saved settings by top-level key, a key it names replacing the saved value; trust is by exact path. | the start's settings file (1.4) |
+| P5 | `--effort` works only with a model's base name; a wrong model or effort runs Gemini 4 Neon (High) with a notice, the start succeeding. | model and effort (1.3) |
+| P6 | `-i` carries a first prompt, also on a resume; a plugin's skill is `/<plugin>:<skill>`. | first prompt in the argv |
+| P7 | `agentapi send-message` wakes an idle session and reaches a busy one; its token is only in the environment of commands the agent runs. | lead lines (4.2) |
+| P8 | `/exit` and one Enter quits; Ctrl+U clears the input; the trust dialog's default is "Yes, I trust this folder". | the manifest's stop |
+| P9 | Auto mode's sandbox passes build, tests and git reads and refuses the network, unix sockets and writes outside the workspace, temp dirs and caches. A PreToolUse deny is final. | fixed args (1.4) |
 
-### 1.2 Start, resume, first prompt
+### 1.2 Start, resume, first prompt, stop
 
-- Interactive start: `agy [flags]`; `-i`/`--prompt-interactive <text>` runs a first prompt and stays in the session.
-  The print forms are `-p`, `--print` and `--prompt` (an alias of `--print`); `agy acp` is a stdio server.
-- Resume: `--conversation <id>`; `-c`/`--continue` takes the workspace's most recent one
-  (`~/.gemini/antigravity-cli/cache/last_conversations.json` maps a directory to an id). The changelog (1.5.9) says
-  `-i` with `--conversation` sends the prompt into the resumed conversation, so a resumed agy session could carry its
-  wake in the argv. obor types a resumed session's wake once it is up (`launch.go:775-812`); keep that, it is one path
-  for every kind.
-- No caller-chosen session id: caps `named_session: false`. The id is the hooks' `conversationId`. herdr's own hook
-  (`~/.gemini/config/hooks/herdr-agent-state.sh`, a `PreInvocation` handler) reports it to herdr as the pane's
-  `agent_session`, and launch adopts herdr's session for a kind that names none (`launch.go:733`). So task 3 resumes
-  through herdr's report and task 4 adds obor's own record.
-- Headless forms for the guard: `print_flag: true`, the new `flags: ["--prompt"]`, `subcommands: ["acp"]`, and
-  `value_opts` from `--help` (`--add-dir`, `--agent`, `--conversation`, `--effort`, `-i`, `--prompt-interactive`,
-  `--input-format`, `--json-schema`, `--log-file`, `--mode`, `--model`, `--output-format`, `--print-timeout`,
-  `--project`, `--settings`).
-- Stop: `/exit` (alias `/quit`), or Ctrl+D twice (agy's own CLI reference). Whether a popup takes the first Enter is P8.
-- Prompts are typed (`typed: true`). agy queues text submitted during a turn until the turn ends (setting
-  `queuedMessages`, default `queue`), which is what a job wake needs.
-- Status: `terminal`. herdr lists `agy` among its kinds (`docs/research/agent-cli-and-herdr-capabilities.md:584`) and
-  its integration says lifecycle comes from screen detection.
+- Start: `agy [flags]`, the first prompt as `-i <text>`. Resume: `--conversation <id>`; the wake of a resumed session
+  is typed once it is up, as for every kind (`launch.go:775-812`).
+- No caller-chosen session id: caps `named_session: false`. Until task 4 the id is herdr's `agent_session` (herdr's own
+  hook reports the `conversationId`; launch adopts it for a kind that names none, `launch.go:733`).
+- Prompts are typed (`typed: true`); agy queues text submitted during a turn. A typed line that starts with `/` can
+  be changed by the completion popup's Enter (probes P6): obor's typed lines start with `[obor`, and a first prompt is
+  in the argv.
+- Stop: `quit: "/exit"`, no second Enter, `clear_input: ["ctrl+u"]`, no dialog. A quit kills the session's background
+  tasks without asking (probes P8).
+- Headless forms: `print_flag: true`, `flags: ["--prompt"]`, `subcommands: ["acp"]`, `value_opts` from `--help`.
+- Status `terminal` (herdr detects agy). Every start creates a conversation, so obor resumes by id, never `-c`.
 
 ### 1.3 Models and effort
 
-`agy models` on this machine lists slugs with the effort in them: `gemini-4-neon-{low,medium,high,xhigh}`,
-`gemini-4-argon-{low,medium,high}`, `gemini-4-hydrogen-{low,medium,high,xhigh}`, `gemini-3.8-flash-{low,medium,high}`,
-`gemini-pro-orchestrator-neon`, `gemini-pro-orchestrator-g1-pro`, `claude-opus-5-5-{low,medium,high}`,
-`claude-sonnet-5-5-{low,medium,high}`, `gpt-oss-120b-medium`. `--effort` takes `low|medium|high|xhigh|max`; the docs say
-an effort "switches to that model variant".
+`agy models` lists slugs with the effort as their last word (`gemini-4-neon-high`, `gemini-3.8-flash-low`, …).
+`agents.models.<name>.id` is a slug, caps `model_arg: true`. With no effort in the ref the kind passes the slug alone.
+With one it drops the slug's effort word and passes `--model <base> --effort <effort>`; a slug with `--effort` is the
+conflict probes P5 shows.
 
-Recommendation: caps `model_arg: true`; `agents.models.<name>.id` is a slug; a model ref's `:<effort>` goes on as
-`--effort <effort>` after `--model <slug>`. Whether the flag overrides the slug's own effort is P5. If it does not, the
-kind rewrites the slug's last word, which it can do because the manifest's efforts are the list above. The manifest
-already carries `efforts` (`plugin.go:38`) and `obor config validate` checks a ref against it, so no protocol change.
+agy accepts a wrong model or effort and runs another model, so the start must catch it. The kind keeps no table of
+models (agy's list changes with its releases): the manifest's `not_ready` pattern matches the notice on the start
+screen (`Using "…" instead.`, `is not recognized as a known model`), which makes the start fail with that reason. The
+manifest's `efforts` are `low, medium, high, xhigh, max`; `obor config validate` checks a ref against them and no
+further.
 
-### 1.4 Settings, the override file, trust, sandbox
+### 1.4 The start's settings file: mode, permissions, trust (D1)
 
-- agy's saved settings are `~/.gemini/antigravity-cli/settings.json`. `--settings` takes "a JSON object of
-  settings.json keys, inline or as a file path", for the session only. That is the native per-start channel: the kind
-  writes one file to the state dir (two names, trimmed and not, as OpenCode's `kind.go:40-46`) and passes its path.
-- The file holds what obor needs to work: a `permissions.allow` rule for obor's MCP tools (the docs: an MCP call with no
-  rule asks), as Codex's start sets `default_tools_approval_mode` (`codex.go:96`).
-- Override file: `.obor/agy/settings_override.json`, the project's keys of `settings.json`. If `--settings` is laid
-  over the saved file (P4) the kind passes the override's keys with obor's own; if it replaces, the kind merges over
-  the user's file as OpenCode's does (`override.go:27-66`). Nothing invented: the file is agy's settings format.
-- **No trim of the user's plugins, skills, hooks and MCP servers in task 3.** They live in `~/.gemini/config`
-  (`config.json` `plugins.<name>.enabled`, `hooks.json`, `mcp_config.json`), not in `settings.json`, and no flag or
-  per-session key switches them. On this machine every agy agent would load `chrome-devtools-plugin`,
-  `modern-web-guidance-plugin` and the `lit-site-manager` MCP server (a bun process each). The protocol allows it
-  (`trim_user`: "as far as its CLI has a switch"). Two candidates for later, both unverified: a custom agent file
-  (`agents/<name>.md` in the plugin, frontmatter `mcpServers`, `skills`, `plugins`, started with `--agent`), and the
-  undocumented `ANTIGRAVITY_CONFIG_REL_DIR`. Decision D2.
-- Trust: the dialog's texts in the binary are "Trust this folder?" and "Do you trust the contents of this project?";
-  `agents.TrustDialog`'s pattern (`agents.go:342`) matches both. Trusted folders are `trustedWorkspaces` in
-  `settings.json`. This machine's list holds the home directory, so if trust is by prefix no folder here shows the
-  dialog; P8 has to run somewhere outside it. obor answers no trust dialog for any kind; keep that.
-- Sandbox and modes: `--mode accept-edits|auto|plan`, `--sandbox`, `--dangerously-skip-permissions`. Auto mode approves
-  workspace edits and sandboxed commands, reviews commands that leave the sandbox and still prompts for risky ones; the
-  sandbox (macOS `sandbox-exec`) writes the workspace, temp dirs and build caches, has no network by default and does
-  not see other paths. `--dangerously-skip-permissions` approves everything; deny rules and a PreToolUse deny still
-  apply. The fixed args are decision D1; `--mode auto` is the counterpart of Claude's `--permission-mode auto`
-  (`config/models.go:74`).
+`--settings <file>` is the per-start channel and agy's own format. The kind writes one file per kind of start to the
+state dir (trimmed and not, as OpenCode's `kind.go:41-46`). Because a key in it replaces the user's saved value (probes
+P4), each key the kind writes is the user's saved value with obor's addition: the kind reads
+`~/.gemini/antigravity-cli/settings.json` itself. The project's `.obor/agy/settings_override.json` is merged between
+the two (JSON Merge Patch), and obor's own entries are put back last, as OpenCode's `override.go:35-66` does.
 
-### 1.5 obor's MCP server, and where hooks and skills load from
+- **Mode: `agentMode: "auto"` for every agent but a lead, no mode flag.** Auto mode asks nothing and runs commands
+  in the sandbox; the other modes ask before every command (probes P9), which stops an unattended lane.
+- **`permissions.allow` gets `mcp(obor/*)`**, or every obor tool call asks (probes P4, P9). The server is the workspace
+  one, so its name is `obor` with no plugin prefix.
+- **A project widens the sandbox in its override file, in agy's permission rules.** The public docs say a
+  `write_file(<path>)` or `read_file(<path>)` allow rule mounts that path in the sandbox, `read_url(<domain>)` adds it
+  to the sandbox's outbound allowlist, and a `command(<prefix>)` rule lets the command run "without prompting, even
+  when it needs to run outside the sandbox". No key for unix sockets is documented. That last rule is what obor-kit
+  needs: its worker doc has a worker run `go test -tags integration` of its packages before `task_done`
+  (`docs/agents/worker.md:16`), which uses unix sockets, and `obor run` and `obor spec show` dial serve's socket. None
+  of this was probed. **P10**, in task 3's live tier: with `permissions.allow: ["command(obor)", "command(go test)"]`
+  in the `--settings` file, do `obor status` and a test that opens a unix socket run in auto mode with no prompt; does
+  `read_url(proxy.golang.org)` let a module download through.
+- **`--dangerously-skip-permissions` (the setting `toolPermission: "always-proceed"`) is not the default.** It removes
+  the prompts and, as the docs read, the sandbox. Before task 4 nothing would stand between such a worker and the
+  machine; after it, obor's guard does, and its deny is final (probes P9). A project whose lanes cannot work in the
+  sandbox sets it in its override file once task 4 is live. It is the fallback for obor-kit if P10 fails.
+- **Usable before task 4: yes, in auto mode.** The sandbox does the guard's main jobs for a worker: no write outside
+  its lane (a linked worktree's git dir is in the main checkout, so git writes fail too) and no network. It has the
+  standing of a Codex lane (`docs/design.md:23`): no guard on what the role text forbids inside the lane, no context
+  line, no session record but herdr's. In obor-kit such a lane takes tasks whose tests need no socket until P10 is
+  answered.
+- **Trust.** Trust is by exact path and each lane worktree is its own path, so each shows the dialog once (agy saves a
+  "Yes"). Recommendation: the kind adds the start dir to the file's `trustedWorkspaces` when the project's root is in
+  the user's saved list, and only then; the owner trusts a repository once, in its main checkout, and its lanes
+  follow, which is what obor's trust hint already says ("once per repo", `agents.go:359-365`). A start in a project
+  the owner has not trusted shows the dialog and raises the trust needs-you as for every kind. Decision D7.
+- **No trim of the user's plugins, skills, hooks and MCP servers.** They live in `~/.gemini/config`, outside
+  `settings.json`, and no per-session switch is known. On this machine every agy agent loads `chrome-devtools-plugin`,
+  `modern-web-guidance-plugin` and the `lit-site-manager` MCP server. The user's own hooks can also deny a call before
+  obor's run (probes P3: the first deny wins, the order is not fixed).
 
-agy reads customizations from three places: `~/.gemini/config/` (user), the workspace's `.agents/` (cwd up to the
-repository root), and plugins (a dir with `plugin.json`, holding `mcp_config.json`, `hooks.json`, `skills/`, `agents/`).
-A plugin's hooks and MCP servers get `PLUGIN_ROOT`. A plugin is found under a customization root's `plugins/` or
-through a `plugins.json` there (`{"entries": [{"path": …}]}`, each path scanned one level deep; `~/` and
-workspace-relative paths resolve). There is no flag or variable that names a config for one start, as OpenCode's
-`OPENCODE_CONFIG` does.
+### 1.5 Wiring: obor's MCP server and hooks (D2)
 
-Recommendation: **the kit ships one native agy plugin, `agy/obor/`, and the project commits `.agents/plugins.json`
-naming the kit's `agy` dir.**
+| Way | For | Against |
+|---|---|---|
+| **Committed `.agents/mcp_config.json` and `.agents/hooks.json` naming `obor` by `PATH`** (recommended) | agy's native workspace files, loaded with no prompt (probes P1); every lane has them through git, as it has `.claude/settings.json`; the kit stays outside the agent's workspace and the sandbox's writable paths; nothing user-level; the server's name is plain `obor` | the command is the `obor` on the agent's `PATH`, not the kit pinned by path; the owner's own agy sessions in the project load them too |
+| `--add-dir <kit>/agy` and a `plugins.json` entry | a kit-shipped plugin, the skill as `/obor:lead` | the kit dir joins the session's workspace, where auto mode approves edits and the sandbox allows writes (not probed, but that is what a workspace root is): an agent could rewrite its own guard's wiring; the entry's path differs per machine; a plugin's skills must be a real dir inside it (probes P1), which the kit's `skills/` is not |
+| A copy of the plugin written into the worktree | no flag | dirties every lane; collides with a project's own committed `.agents/plugins.json` |
+| `agy plugin install` at user level | loads everywhere | user-global (`agents.go:45-46`); a copy that goes stale at each kit upgrade; `PLUGIN_ROOT` is the copy, so its commands would have to name the kit's path |
 
-- It is the shape Claude already has: the kit is a plugin, the project's committed `.claude/settings.json` enables it,
-  every lane gets the file with its worktree (`internal/app/worktext.go:162-167` warns when a lane lacks it). agy's
-  equivalent of `${CLAUDE_PLUGIN_ROOT}` is `PLUGIN_ROOT`, so the plugin's files never name the kit's path.
-- `agy/obor/mcp_config.json` is agy's own format (`{"mcpServers": {"obor": {command, args, env}}}`), the entry running
-  the kit's `bin/obor mcp` with the pin. The install reply is `where: manifest` with that path and key, which
-  `obor setup mcp` already checks.
-- The path in `.agents/plugins.json` is `~/.obor/kit/agy` for an installed kit (`install.sh` clones the kit to
-  `~/.obor/kit`); obor-kit, which runs its own checkout, names `agy` relative to the repository. `obor setup agents`
-  writes the file when the config has a model of kind agy.
-- Later the same plugin carries `hooks.json` (task 4) and `skills` (a lead on agy).
+How the recommended way works:
 
-This works only if P1 and P2 pass. P2 is the larger risk: Codex starts MCP servers with a stripped environment
-(`codex.go:36-41`), and a static `mcp_config.json` cannot carry an agent's role, lane and pane. If agy strips it too,
-no documented per-start channel is left, and the kind cannot be built as described; say so to the owner before task 3
-starts. If only P1's `plugins.json` fails, the fallback is `agy plugin install <kit>/agy/obor` from
-`obor setup agents`, a user-level copy that has to be refreshed at each kit upgrade and breaks the rule that a kind
-installs nothing user-global (`agents.go:45-46`, the protocol's install paragraph): the owner's call (D2).
+- `.agents/mcp_config.json` holds `{"mcpServers": {"obor": {"command": "obor", "args": ["mcp"]}}}`. The server inherits
+  the agent's `PATH` and identity variables (probes P2). In obor-kit's lanes the unpinned shim runs the main checkout's
+  binary (`bin/obor`'s self-hosting); elsewhere `obor` is the installed kit (`~/.local/bin/obor`). `obor setup mcp`
+  warns when the `obor` on `PATH` is not the kit that runs it.
+- The protocol's install reply gains a third `where`, `project`: a file of the project's root, the entry's key and
+  the entry. `obor setup agents` writes the entry into the file (keeping the project's other entries), the lead
+  commits it, `obor setup mcp` checks it. The request gains `root`. This is the "through the project's own files" the
+  protocol's install paragraph already allows; the reply still names nothing user-global.
+- Task 4 adds `.agents/hooks.json` the same way (one named hook, `obor`).
+- `.agents/` goes into the project's `rules.protected_files`, so no worker edits its own wiring; the integrator's
+  accept sees any diff there in the meantime.
+- If the `obor` on `PATH` is missing or broken, every tool call of every agy session in the project is denied once
+  task 4 is in (a failed PreToolUse hook denies, probes P3). That is the guard's own rule for a missing binary; the
+  setup check names it.
 
 ### 1.6 Hooks (task 4)
 
-agy's hooks are close to Claude Code's: `SessionStart`, `PreToolUse`, `PostToolUse`, `PreInvocation`,
-`PostInvocation`, `Stop`, command handlers only, JSON on stdin (camelCase) and stdout, a 30 s default timeout, run
-synchronously. `obor hook <name>` reads Claude Code's event JSON (`internal/guard/guard.go:114-124`, `session.go:28-30`,
-`prompt.go:26-34`, `stop.go:41-49`) and answers in Claude's forms. The agy kind binary is the transport, as
-`opencode/obor.js` is OpenCode's: `agy/obor/hooks.json` runs it, it rewrites the event, runs `obor hook <name>` and
-rewrites the answer. No rule lives in the kind.
+`obor hook <name>` reads Claude Code's event JSON and answers in Claude's forms. The agy kind binary is the transport,
+as `opencode/obor.js` is OpenCode's. The hook command is `obor` with one subcommand that execs the kit's kind binary
+(`config.KitKind`, `models.go:121`), which rewrites the event, runs `obor hook <name>` and rewrites the answer. That is
+two more process starts per tool call than Claude's hook; the task measures it against the budget
+(`docs/design.md:20`).
 
 | agy event | obor hook | In | Out |
 |---|---|---|---|
-| `SessionStart` | `session-start` | `conversationId` → `session_id`, `transcriptPath` → `transcript_path`, `cwd` | obor's context lines → `injectSteps: [{systemMessage: {systemMessage: …}}]` |
-| `PreToolUse`, matcher the command and file-edit tools | `pre-tool-use` | `toolCall.name` `run_command` with `args.CommandLine` → `Bash` and `command`; the edit tools → `Edit` or `Write` and `file_path` (names and keys: P3) | a deny → `{"decision": "deny", "reason": <obor's line>}`; an allow must not become `"allow"`, which approves the call past agy's own permission check: the neutral answer is P3 |
-| `PreInvocation`, the first of a turn | `user-prompt-submit` | `lastUserInput` → `prompt`; it fires before every model call, so the transport passes only a turn's first (`invocationNum`: P3) | the handoff reminder and wrong-tab text → `injectSteps` |
-| `Stop` | `stop`; with `terminationReason: ERROR`, `stop-failure` | `continuationActive` → `stop_hook_active`; `fullyIdle: false` → one running entry of `background_tasks` (the lead's background-run rule, `stop.go:119`); `error` → `error` | a block → `{"decision": "continue", "reason": …}` |
+| `SessionStart` (a new conversation's first prompt, and after `/clear`) | `session-start` | `conversationId` → `session_id`, `transcriptPath` → `transcript_path`, `cwd` | the context lines → `injectSteps: [{systemMessage: {systemMessage: …}}]`, which stays in the conversation |
+| `PreToolUse`, matcher `run_command\|write_file\|edit_file` | `pre-tool-use` | `run_command` → `Bash`, `args.CommandLine` → `command`; `write_file` → `Write`, `edit_file` → `Edit`, `args.Path` → `file_path` | a deny → `{"decision": "deny", "reason": <obor's line>}`; an allow → `{"decision": "ask"}`, which leaves the call to agy's own check |
+| `PreInvocation` with `invocationNum: 0` | `user-prompt-submit` | `lastUserInput` → `prompt` | the context → `injectSteps` |
+| `Stop` | `stop`; with `terminationReason: ERROR`, `stop-failure` | `executionNum > 0` → `stop_hook_active`; `fullyIdle: false` → one running entry of `background_tasks`; `error` → `error` | a block → `{"decision": "continue", "reason": …}` |
 
-- The hooks run with the agent's environment: herdr's own hook reads `HERDR_PANE_ID` there
-  (`herdr-agent-state.sh:21-23`). P3 confirms it for the `OBOR_*` variables.
-- The hook command has to find the kind binary, whose file name carries the version in a release
-  (`~/.obor/bin/obor-kind-opencode-0.43.0-darwin-arm64`). Sketch: `hooks.json` runs `bin/obor` from `PLUGIN_ROOT` with
-  one new subcommand that execs the kit's kind binary (`config.KitKind`, `models.go:118`). That is two more process
-  starts per tool call than Claude's hook; the task measures it against the hooks' budget (`docs/design.md:20`).
-- There is no StopFailure event. A usage limit reaches obor as a `Stop` with an error; its text is unknown until one
-  is seen (P3 cannot force it). The kind's `turn` `reset` answers "limited, no reset time" until then.
-- Until task 4 an agy session has no guard, no context line and no SessionStart record. That is Codex's state today
-  (`codex.go:787-789`, `docs/design.md:23`), and the reason task 3 alone is enough for a worker lane and not for a lead.
+- **The transport always answers.** An empty answer, a non-zero exit or 30 s without one denies the tool (probes P3).
+  For `pre-tool-use` a failure of `obor hook` is a deny with its reason; outside an obor project the answer is `ask`.
+- **A resume needs no SessionStart.** Launch chose the id it resumes, the context line is already in the conversation
+  (an injected message persists, probes P3), and the plugin marker is the first session's. So the session record
+  comes from `SessionStart` alone.
+- A turn that a message or a finished background task starts also has `invocationNum: 0`, with the previous prompt in
+  `lastUserInput`. The handoff reminder does not read the prompt, and the wrong-tab guard gives the same verdict it
+  gave that prompt the first time.
+- Esc on agy's permission prompt ends a turn with no Stop: nothing in obor may wait for a stop that has to come.
+- The transcript the hooks name is `transcript_full.jsonl`; `transcript.jsonl` beside it has the same token fields and
+  shorter lines. The context read works on either; the manifest's glob names `transcript.jsonl`.
+- There is no StopFailure event, and a Stop with an error or a usage limit has not been seen. `turn` `reset` answers
+  "limited, no reset time" for an error text that names a limit, until one is seen.
 
 ### 1.7 Transcript and context size
 
-- Transcript: `~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl` (on disk here;
-  the hooks' `transcriptPath` names it). The manifest's glob needs no variable but `HOME`.
-- A line is `{step_index, source, type, status, created_at, …}`; a `PLANNER_RESPONSE` line has `input_tokens`,
-  `output_tokens`, `cache_read_tokens`. In the five transcripts here a late line reads like
-  `input_tokens 2365, cache_read_tokens 225979`, so the context is their sum; `created_at` is the time. No cache TTL.
-- The first line names no session id and no cwd, so caps `sessions: false`.
-- `project.ContextTokens` knows two formats by their field names (`files.go:58-121`); agy's is a third. That is task
-  2(a). Without it an agy session never gets the handoff reminder (`guard/prompt.go:101-116`) and a kept agy lane is
-  never stopped past `handoff_tokens` (`app/keeplane.go:122`): it degrades, it does not break.
+`~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl`; a `PLANNER_RESPONSE` line
+has `input_tokens` and `cache_read_tokens`, whose sum is the context, and `created_at`. The first line names no session
+or cwd (caps `sessions: false`). The kind answers `turn` `what: context` with it.
 
 ## 2. Hardening for more kinds
 
-The review's findings in §4.1 are true and the triage's reading holds: a new kind speaks the protocol and
-`plugin.Kind` implements the optional interfaces once. Writing agy down changes the list in three places.
+The review's findings in §4.1 are true, and a new kind is served by `plugin.Kind` without them. The protocol has
+what agy's transcript, print alias and app name need: the kind's context read (`turn` `what: context`),
+`headless.flags`, `caps.app`, and the hook contract ("Hook transport" in `docs/agents/kind-protocol.md`). What agy
+still needs:
 
-**agy needs (tasks 2 and 6):**
-
-| Change | Why agy needs it | Review item |
+| Change | Task | Why |
 |---|---|---|
-| Context size read by the kind (`turn` `what: context`) | a third transcript format; the triage put it "with the first kind whose transcript obor reads", which is agy | §4.1 proposal 4 |
-| `headless.flags` | `--prompt` is a print alias the guard would let through | new |
-| `caps.app` | only if agy's OSC 7501 app name is not `agy` and an hc terminal runs it; one field | new |
-| The hook contract written down | two transports (OpenCode's, agy's) will target `obor hook`; today the contract is the guard's structs and `opencode/obor.js`'s header | new |
-| A delivery the kind performs itself | only for a lead on agy, and only if P7 passes | new |
+| The context read routed by the recorded session's kind, and bounded | 3 | `project.ContextOf` asks every transcript kind in turn; agy is the first plugin kind with a transcript, and a plugin's `turn` may take 5 s (`calls.go:26`) inside a lead's hook |
+| `install`: `where: project`, the request's `root` | 3 | wiring through the project's own files |
+| Three statements in the hook contract | 4 | the probes: an allow is "no opinion", never an approval, and a transport maps it to its CLI's fall-through (agy's `ask`); what a transport answers when `obor hook` fails or is too slow, per hook (`pre-tool-use`: deny; the others: nothing); `session-start` runs once per conversation the CLI starts, again after a clear, and not for a resume |
+| The inbox record written by any `obor` command; a delivery the kind performs | 6b | agy's token is not in a hook's environment |
 
-Not needed, though the triage expected them: an efforts list (the manifest has one) and a fallible install
-(`plugin.Kind.InstallErr`, `calls.go:277`, already is).
+Worth doing for every kind, with the extraction: a kit kind described at a start with no cache (task 7); a transcript
+glob with a fallback; `install` with the lane's args; warnings and a refusal in replies; errors returned from `turn`
+and `deliver` in place of the package's `Log` writer (`calls.go:32`).
 
-**Worth doing for every kind, with the extraction (tasks 7 to 9):** a kit kind described at a start when it has no
-cache; a transcript glob with a fallback (`${CLAUDE_CONFIG_DIR}` or `~/.claude`: the manifest's rule is "one variable
-empty: none"); `install` with the lane's args (Claude's answer depends on them, `claude.go:554-566`); warnings and a
-refusal in replies (Codex's quarantine check, `codex.go:447-500`); errors returned from `turn` and `deliver` in place of
-the package's `Log` writer (`calls.go:32`).
-
-**Not worth doing:**
-
-- **`BuildStart` and slimming the interfaces as their own tasks** (review proposals 1 and 2, Wave 2 item 1). `Split`,
-  `Preparer`, `StartEnv` and the two passes of `Start` (`agents.go:671-722`) exist only for the two compiled kinds.
-  Tasks 8 and 9 delete them. Unifying them first is a refactor of code with a deletion date.
-- **A `check-effort` call.** The manifest's list answers most refs; a kind whose efforts depend on its args answers
-  through `start` (`calls.go:211-217`), one process at validate time. agy needs neither.
-- **Per-start generated agy config** (an `--add-dir` to a generated dir, a relocated config dir). Unverified,
-  undocumented, and the committed file is the native form.
-
-The TOML scanner and the per-agent OpenCode file are the triage's tasks G and E and are not part of this plan.
+Not worth doing: `BuildStart` and interface slimming as their own tasks (tasks 8 and 9 delete `Split`, `Preparer`
+and the two passes, `agents.go:684-735`); a `check-effort` call (the manifest's list, and for agy the start screen);
+an agy plugin or per-start generated agy config.
 
 ## 3. Extracting kind-codex and kind-claude
+
+Owner 11-22: codex, then claude, after agy has run in lanes for a few days; each one task that moves the kind and
+deletes the compiled package.
 
 ### 3.1 Size
 
@@ -244,25 +223,22 @@ The code moves almost unchanged: a kind method becomes a call's handler, and the
 |---|---|---|
 | The start request has no agent name | Claude writes `settings/<agent>.json` and `mcp/<agent>.json` (`claude.go:166-167`) | add `agent`, or name the files by content |
 | `mcp_lane` is static | Claude's answer depends on the lane's args and on a file an arg names (`claude.go:500-533`) | `install` takes `args` |
-| No warnings or refusal from the kind | Codex's quarantine (`InstallChecker`, `StartChecker`, `agents.go:322-340`), both kinds' override warnings (`OverrideChecker`) | `install` replies `warnings`; `start`'s `error` is the refusal; `project-warnings` takes the overrides |
+| No warnings or refusal from the kind | Codex's quarantine (`InstallChecker`, `StartChecker`, `agents.go:326-344`), both kinds' override warnings | `install` replies `warnings`; `start`'s `error` is the refusal; `project-warnings` takes the overrides |
 | The transcript glob has no fallback | `$CLAUDE_CONFIG_DIR` else `~/.claude` (`claude.go:577-583`), `$CODEX_HOME` else `~/.codex` | a list of globs, the first with every variable set |
-| `caps.app` | Claude's `claude-code` (`claude.go:634`) | task 2(c) |
-| The inbox record's shape | Claude's is `{"socket", "token"}` (`claude.go:638-651`); a manifest's is variable name → value | the Claude kind's `deliver` reads both, so a lead running across the upgrade keeps its record |
-| A turn read costs a process | Codex's status is `transcript`: `turn` `what: last` per transcript poll, per Codex pane, under a 5 s timeout (`calls.go:26,343`) | measure first; if it shows, the manifest names the rollout's event types as data |
-| The kind's name in the bridge | `agents.Default = "claude"` (`agents.go:483`), `TrustHint`'s branch on it (`agents.go:355-361`), the base args and hc rows (`config/models.go:74-82`) | the trust hint's wording and the base args move into the kinds; `Default` stays a name |
-
-A model id is not a gap: both take `--model`, which the protocol appends.
+| The inbox record's shape | Claude's is `{"socket", "token"}` (`claude.go:688-701`); a manifest's is variable name → value | the Claude kind's `deliver` reads both, so a lead running across the upgrade keeps its record |
+| A turn read costs a process | Codex's status is `transcript`: `turn` `what: last` per transcript poll, per Codex pane (`calls.go:26,343`) | measure first; if it shows, the manifest names the rollout's event types as data |
+| The kind's name in the bridge | `agents.Default = "claude"` (`agents.go:496`), `TrustHint`'s branch on it (`agents.go:359-365`), the base args and hc rows (`config/models.go:74-82`) | the trust hint's wording and the base args move into the kinds; `Default` stays a name |
 
 ### 3.3 What it deletes
 
 - `internal/agents/claude` and `internal/agents/codex` (they become `kinds/claude/kind`, `kinds/codex/kind`).
 - In `internal/agents/agents.go`: `Split`, `Preparer`, `Whole` as a separate interface, `StartOf`'s two passes
-  (699-722), the registry and the compiled-first lookup (556-617), `Fallible` and `InstallOf` (658-660, 725-730),
-  `InstallHost`, `InstallChecker`, `StartChecker` (314-340), and of `Start` the fields only a compiled kind reads
+  (712-735), the registry and the compiled-first lookup (569-630), `Fallible` and `InstallOf` (671-673, 738-743),
+  `InstallHost`, `InstallChecker`, `StartChecker` (318-344), and of `Start` the fields only a compiled kind reads
   (`Read`, `Dirs`, `WriteState`, `Env`, `SettingsFile`, `MCPFile`, `Agent`): about fifteen fields remain, the request's.
   The optional interfaces fall from fifteen to about five.
 - In `internal/launch`: the install-host plumbing (`launch.go:132,931`), the state-file writer and the closures of the
-  start (`launch.go:1145-1180`); in `internal/setup`, `mcp.go:147`; in `internal/project`, `files.go:220-230`; in
+  start (`launch.go:1145-1180`); in `internal/setup`, `mcp.go:147`; in `internal/project`, `files.go:176`; in
   `internal/config`, the base-args and hc tables (`models.go:74-82`).
 - The helpers the kinds share (`MergePatch`, `ParseOverride`, `UserDir`, `UserSkills`, `SetFlag`, `ResetIn`) stay in
   `internal/agents`: `kinds/opencode` already imports it.
@@ -270,29 +246,15 @@ A model id is not a gap: both take `--model`, which the protocol appends.
 ### 3.4 Risks
 
 - **The lead runs on claude.** After task 9 every lead start, and the SessionStart hook's inbox record, depend on the
-  cached manifest of a plugin kind. A missing or stale cache means no start ("run obor setup agents") and a lead whose
-  lines wait. Task 7 removes the first; the second needs the cache written before the first session of the new
-  version, which serve's start and `obor setup agents` do. The upgrade guide gets one ordered step.
-- **Hooks.** Claude's hooks stay as they are: the kit root is the Claude plugin (`hooks/hooks.json`,
-  `.claude-plugin/plugin.json`, `skills/`), and `obor hook` never runs a kind's command. The guard reads the kinds'
-  headless forms from the cache; with none it denies the kind's program outright, which for claude is safe.
-- **Upgrade of obor-kit and axis-alies** (the only two kept compatible, decisions 11-10). Both configs name claude and
-  codex only through `agents.models.<m>.kind`; with `KitKinds` holding all kit kinds no config line changes. The
-  release ships four binaries per platform, fetched together by `bin/obor`. Running sessions: a Claude lead's inbox
-  record (above); a Codex reviewer's session is read from its rollout as before.
-- **Speed.** One process per start is nothing. One per transcript poll for Codex has to be measured in task 8 before
-  the compiled path is deleted.
-- **Both paths at once.** The rule is to delete the old code the day its replacement is live, so each extraction is
-  one task that moves the kind and deletes the package, gated by the kind's live conformance tier. No flag chooses
-  between a compiled and a plugin claude.
-
-### 3.5 When
-
-**After agy, codex before claude.** agy needs nothing from the extraction. Written first, it is the second plugin kind
-and the first with resume, hooks and a transcript, so it shows the protocol's gaps on a kind no role depends on;
-several of them are the ones Claude needs (hooks, context size, delivery). Codex goes next because only obor-kit's
-reviewer runs it and it has no hooks and no inbox. Claude goes last, with the protocol already carrying a kind of each
-shape. Doing the extraction with agy would put three kinds' live conformance and the lead's own kind into one wave.
+  cached manifest of a plugin kind. Task 7 removes the failed start; the cache has to be written before the first
+  session of the new version, which serve's start and `obor setup agents` do. The upgrade guide gets one ordered step.
+- **Hooks.** Claude's hooks stay as they are: the kit root is the Claude plugin, and `obor hook` never runs a kind's
+  command. The guard reads the kinds' headless forms from the cache; with none it denies the kind's program outright.
+- **Upgrade of obor-kit and axis-alies.** Both configs name claude and codex only through `agents.models.<m>.kind`;
+  with `KitKinds` holding every kit kind no config line changes. The release ships four binaries per platform.
+- **Speed.** One process per transcript poll for Codex has to be measured in task 8 before the compiled path goes.
+- **Both paths at once.** Each extraction moves the kind and deletes the package in one task, gated by the kind's
+  live conformance tier. No flag chooses between a compiled and a plugin claude.
 
 ## 4. Non-Claude leads
 
@@ -300,86 +262,105 @@ shape. Doing the extraction with agy would put three kinds' live conformance and
 
 | Tie | Where | Neutral? |
 |---|---|---|
-| The first prompt is a plugin slash command | the lead role's `Prompt: "/obor:lead"` (`roles.go:57`); only a kind with caps `skills` gets it, any other starts with none (`roles.go:207-223`, `launch.go:800-810`); handoff appends ` handoff` | no: the role holds Claude's spelling |
-| The skill ships as the Claude plugin's | `skills/lead/` under the kit root; the SessionStart line says "run /obor:lead" (`session.go:149`) | the file is a plain `SKILL.md`; the way to it is Claude's |
-| The skill's text | "after a Claude Code update" (`skills/lead/SKILL.md:16`), `/clear`; `AskUserQuestion` is already "where the client has it" (line 26) | nearly |
-| Hooks: guard, context, handoff reminder, the background-run stop | `hooks/hooks.json`; `stop.go:46-48` reads Claude's `background_tasks`, `guard.go:122` its `run_in_background` | the transport is per kind; the rules are neutral |
-| **Lines to the lead are posted to the session's inbox, never typed** | `docs/design.md:834-849`: Claude's messaging socket, recorded by the SessionStart hook; "A lead of another kind (Codex, OpenCode) has no inbox: `obor status` and the 24 h needs-you" | no: only Claude has an inbox (`claude.go:632-635`) |
-| Session id and resume | Claude takes obor's id (`--session-id`); other kinds report theirs | yes: `launch.sessionOf` (`launch.go:720`) is by capability |
-| `obor lead`, `obor restart <lead> --handoff` | `cmd/obor/lead.go`, `restart.go:23-72`; the stop recipe is the kind's | yes |
-| The handoff reminder | `project.ContextTokens` | after task 2(a) |
+| The first prompt is a plugin slash command | the lead role's `Prompt: "/obor:lead"` (`roles.go:57`); only a kind with caps `skills` gets it (`roles.go:207-223`, `launch.go:800-810`) | no: task 5 |
+| The skill ships as the Claude plugin's | `skills/lead/`; the SessionStart line says "run /obor:lead" (`session.go:149`) | the file is a plain `SKILL.md`: task 5 |
+| The skill's text | "after a Claude Code update" (`skills/lead/SKILL.md:16`), `/clear` | nearly: task 5 |
+| Hooks: guard, context, handoff reminder, the background-run stop | `hooks/hooks.json`; `stop.go:46-48` reads Claude's `background_tasks` | the transport is per kind; the rules are neutral |
+| Lines to the lead are posted to the session's inbox, never typed | `docs/design.md:834-849`; only Claude has an inbox (`claude.go:682`) | no: task 6, then 6b |
+| Session id and resume | `launch.sessionOf` (`launch.go:720`) is by capability | yes |
+| `obor lead`, `obor restart <lead> --handoff` | `cmd/obor/lead.go`, `restart.go:23-72` | yes |
+| The handoff reminder | `project.ContextOf` (`internal/guard/prompt.go:116`) | yes: the kind reads its transcript |
 
-`AskUserQuestion` is not a tie: the skill asks through whatever the client has, and agy, Codex and OpenCode each have a
-question tool or form. Nothing of it belongs in the protocol.
+`AskUserQuestion` is not a tie: the skill asks through whatever the client has.
 
-### 4.2 What each kind would need
+### 4.2 Lines to an agy lead (P7)
+
+`agentapi send-message <conversationId> <text>` does what a lead line needs: an idle session starts a turn, a busy
+one reads it at its next model call, the owner's draft stays (probes P7). Its address and token
+(`ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`) are only in the environment of commands the agent runs.
+
+**Recommendation: read P7 as passed and make agy the first non-Claude lead, on the lesser mode first.**
+
+- Task 6, the lesser mode, is the base and is kind-neutral: at a prompt the hook adds the queued lines as context, at
+  a turn's end it blocks the stop with them, so a lead that just finished goes on with its lines. An idle lead has
+  `obor status` and the needs-you notice (owner 11-22). With tasks 3 to 6 an agy lead has the start, the guard, the
+  handoff reminder, resume and its lines.
+- Task 6b adds the push. The sound way to get the token is that obor takes it itself: any `obor` command run by an
+  agent, with a role and the kind's `inbox_record` variables in its environment, writes the session's inbox record
+  (0600 in the state dir, as Claude's messaging token is, `docs/design.md:837`). The lead's start checks are
+  `obor whoami` and `obor status`, so the record exists within the session's first turn with no instruction to the
+  model, and every later `obor` command refreshes it. The kind then sends (`agentapi send-message`), which needs the
+  protocol's delivery to say "the kind delivered it".
+- The token's lifetime was not probed. The language server lives in the `agy` process (`cli.log`: "CLI program
+  exited … Language server shutting down"), so expect a new address and token per start. A stale record gives a
+  refused send, which obor already records and retries; the line then goes by task 6's path, and a line is delivered
+  by whichever path takes it first.
+- The weak point: the docs describe the two variables for commands the agent runs, and agy keeps the token out of
+  hooks and off disk. A send from serve with a saved token is outside what they describe, and a release can end it.
+  That is why the push is an addition to the lesser mode and never the only path.
+- **An agy lead cannot work in auto mode's sandbox as it is**: `obor status`, `obor dispatch` and every command that
+  dials serve use a unix socket (`internal/app/wire/client.go:205`). The lead's settings file needs
+  `permissions.allow: ["command(obor)"]` (if P10 passes) or `toolPermission: "always-proceed"`. A lead is not trimmed,
+  so the kind writes only this and the MCP rule.
+
+If the owner reads the rule strictly (P7 passes only when obor can send unaided), OpenCode goes first. I would still
+start with agy: on the lesser mode alone it is the more complete lead. An OpenCode lead has no resume (`kind.go:133`),
+no transcript and so no handoff reminder, and a stop verdict that is not acted on, so it gets lines only at a prompt.
+
+### 4.3 What each kind would need
 
 | | codex | opencode | agy |
 |---|---|---|---|
-| Start prompt | task 5 (Codex has no key for a skill root outside the project, `agent-skills-scope.md:170`, so the prompt names the file) | task 5 | task 5; a slash form if the plugin's skill has one (P6) |
-| Hooks | none today (`codex.go:787`). Codex has Claude-shaped hooks, but a project's hooks file needs a trusted project and a trust review per hook, and no `-c` option runs one (`codex.go:279-288`): a task of its own | has them through `opencode/obor.js`; its stop verdict is not acted on, so a background run does not hold the turn | task 4, all four, with `fullyIdle` for the background rule |
-| Lines to the lead | `codex queue --thread <id> --message <text>` exists; whether a TUI started with `--no-daemon` reads the queue is not verified (`docs/research/agent-cli-and-herdr-capabilities.md` §3.5) | the plugin runs inside the agent's process and has `ctx.session.prompt` (docs only): it could listen on a socket and be an inbox with today's `Delivery` | `agentapi send-message` or nothing (P7); hooks alone can hand lines to a busy lead (`PreInvocation` `injectSteps`, `Stop` `continue`) and cannot wake an idle one |
-| Resume | yes | no (`kind.go:133`): `obor lead --resume` starts fresh | yes |
-| Context size | has it | no transcript: no reminder | task 2(a) |
+| Start prompt | task 5 | task 5 | task 5 |
+| Hooks | none today (`codex.go:814`); Codex's own hooks need a trusted project and a trust review per hook, and no `-c` option runs one (`codex.go:279-288`): a task of its own | through `opencode/obor.js`; its stop verdict is not acted on | task 4 |
+| Lines to the lead | lesser mode needs its hooks first; `codex queue --thread` against a `--no-daemon` TUI is not verified (`docs/research/agent-cli-and-herdr-capabilities.md` §3.5) | lesser mode at a prompt; a socket in its plugin (`ctx.session.prompt`, docs only) could be an inbox with today's `Delivery` | task 6, then 6b |
+| Resume | yes | no | yes |
+| Context size | has it | none | task 3 (the kind's `turn` `what: context`) |
 
-### 4.3 What belongs in the kind protocol
+### 4.4 What belongs in the kind protocol
 
-- The hook transport's contract (task 2(d)): the events, their fields, the answers, including the background-task
-  field, so a kind's transport is written against a document.
-- How a kind takes a role's start prompt: `caps.skills` today means "takes `/obor:lead`". Task 5 makes the role name
-  the skill and the kind's manifest say how it is invoked, with the plain "read `<kit>/skills/lead/SKILL.md`" prompt
-  for a kind that says nothing.
-- Delivery: typed, a socket and lines, and (task 6) "the kind delivered it", for a channel that is an HTTP call or a
-  command of the CLI's own.
-- Context size (task 2(a)).
-
-Not in the protocol: the lead skill's text, `obor lead`'s flow, question tools.
-
-### 4.4 The order for a first non-Claude lead
-
-agy, if P7 passes: tasks 3, 4 and 5 give it the start, the hooks and the prompt, and task 6 the lines. If P7 fails,
-OpenCode is the better first candidate (the plugin socket, no protocol change), at the cost of no resume and no
-handoff reminder. Codex is last: it needs hooks and the queue probe. Whichever goes first runs in a scratch project
-before obor-kit's own lead changes.
+The hook transport's contract (in the protocol document); how a kind takes a role's start prompt (task 5: the role names the skill,
+a kind with caps `skills` gets its slash form, any other the plain prompt naming the file); delivery as typed, a socket
+and lines, or done by the kind (task 6b); context size (the `turn` call). Not in the protocol: the lead skill's text,
+`obor lead`'s flow, question tools.
 
 ## Owner decisions
 
-- **D1. agy's fixed args.** `--mode auto` (recommended: the counterpart of Claude's `--permission-mode auto`; a risky
-  action prompts and the lane shows blocked) or `--dangerously-skip-permissions`, with or without `--sandbox`. P9
-  informs it.
-- **D2. agy's wiring and trim.** The committed `.agents/plugins.json` naming the kit's plugin (recommended), or a
-  user-level `agy plugin install`. And: accept that agy agents load your user-level agy plugins and MCP server until a
-  switch is found, or switch those off yourself.
-- **D3. Lines to a lead without an inbox.** Keep "posted, never typed, an idle lead is woken" as the rule for every
-  kind (then a kind leads only with a push channel, and agy waits on P7), or allow lines that arrive at the lead's
-  next prompt or turn end through its hooks, with `obor status` and the 24 h needs-you for an idle lead, as a stated
-  lesser mode.
-- **D4. The first non-Claude lead**: agy or OpenCode, and in which project.
-- **D5. The extraction's go-ahead**: codex once agy has run in lanes for some days; claude once codex has. The
-  direction is decided (decisions 11-08); the dates are yours.
+- **D1. agy's mode.** Recommended: auto mode for every agent but a lead, set as `agentMode` in the start's settings
+  file; a project widens the sandbox or sets `toolPermission: "always-proceed"` in `.obor/agy/settings_override.json`,
+  the second only once task 4 is live. No mode in the fixed args.
+- **D2. agy's wiring.** Recommended: `.agents/mcp_config.json` and `.agents/hooks.json` committed in the project,
+  written by `obor setup agents`, naming `obor` by `PATH`; `.agents/` protected. And: agy agents load your user-level
+  agy plugins and MCP server until a switch is found, unless you switch those off yourself.
+- **P7 and the first lead (D4).** Recommended: count P7 as passed, agy first, on the lesser mode (task 6); the push
+  (task 6b) after it.
+- **D7. Trust of lane worktrees.** Recommended: the kind trusts a start dir for the session when the project's root
+  is in your saved `trustedWorkspaces`. The other choice: every lane shows the dialog once and you press Enter.
 - **D6. Codex hooks**: only if you want a Codex lead. Not in this plan.
 
 ## Concerns
 
-- `docs/design.md:23` says hooks cover only Claude Code panes; OpenCode lanes have run obor's hooks through its plugin
-  for some time. The line should say which kinds have a guard, and task 4 changes the answer again.
-- agy updated itself today (the binary's mtime is 2026-11-22 12:15) and its hook payloads and settings keys changed in
-  most of the last seven releases. A kind for it will need the live conformance tier at the nightly, not only at
-  release, or drift shows first in a lane.
+- `docs/design.md:23` says hooks cover only Claude Code panes; OpenCode lanes run obor's hooks through its plugin.
+  The line should say which kinds have a guard, and task 4 changes the answer again.
+- agy fails closed where Claude fails open: a slow or broken hook denies the call. A fault in obor's transport stops
+  every agy agent of the project at once. Task 4's tests should cover each failing path of the transport.
+- agy's hook payloads and settings keys changed in most of its last seven releases, and it updates itself. The kind
+  needs its live conformance tier at the nightly, not only at a release.
 
 ## Not verified
 
-- Anything agy does at run time: P1 to P9. In particular that MCP servers inherit the environment (P2), that a
-  workspace `plugins.json` loads a plugin outside the repository without a prompt (P1), the tool names and argument
-  keys in hook payloads (P3), `--settings` merge behaviour (P4), `--effort` against a slug (P5), slash commands in `-i`
-  (P6), `agentapi send-message` to a TUI session (P7), the quit and trust screens (P8).
-- That herdr's agy hook loads: `cli.log`'s last start (12:15) says `loaded 0 named hooks from 1 hooks.json file(s)`
-  and `hooks.json` was last written at 12:21, so that start predates it.
-- That agy's context is `input_tokens + cache_read_tokens`: inferred from the numbers in five transcripts.
-- The public docs: read by a fetch agent that paraphrased them; I did not read the pages myself. `--settings` and
-  `agentapi` are in `--help` and the shipped skills but not in the pages it read.
-- The cost of a `turn` process per Codex transcript poll, and how often the poll runs.
-- Whether the triage's tasks E and G have merged (`codex.go:504` still has `configKeys`).
-- Codex's `queue` against a `--no-daemon` TUI and OpenCode's `ctx.session.prompt`: both from the 11-04 capability
-  research, marked unverified or docs-only there.
-- `obor`'s hook time with two more process starts (task 4's sketch).
+- **P10**: that a `command(…)` allow rule lets a command leave the sandbox (a unix socket) with no prompt, and that
+  `read_url(…)` opens the network for a sandboxed command. From the public docs as a fetch agent paraphrased them; I
+  did not read the pages.
+- What `toolPermission: "always-proceed"` in a `--settings` file does to the sandbox; `--dangerously-skip-permissions`
+  and `--sandbox` (probes: not run).
+- That the start screen still shows the model notice when the start's not-ready poll reads it, and what launch does
+  with the running agent after such a failed start.
+- Whether a failing SessionStart, PreInvocation or Stop hook blocks the turn (the probes cover PreToolUse).
+- The lifetime of the agentapi token; whether `agentapi` takes a message of several lines.
+- A Stop with `ERROR`, and a usage limit's text.
+- Whether auto mode approves an edit of `.agents/mcp_config.json` in the workspace (agy's changelog calls it a
+  protected configuration file).
+- That agy's context is `input_tokens + cache_read_tokens`: inferred from the numbers in the transcripts here.
+- The time of the hook chain with two more process starts (task 4).
+- The cost of a `turn` process per Codex transcript poll; Codex's `queue` and OpenCode's `ctx.session.prompt`.
