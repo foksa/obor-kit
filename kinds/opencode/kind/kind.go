@@ -1,9 +1,10 @@
 // Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md): the
 // reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, a resume with --session,
 // /exit with its popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook
-// transport) in each start's generated config (OPENCODE_CONFIG), on the user's own config with the project's override
-// file laid over it (override.go), prompts typed, the session's context size from the plugin's token file
-// (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
+// transport, which acts on the hooks' answers) in each start's generated config (OPENCODE_CONFIG), on the user's own
+// config with the project's override file laid over it (override.go), prompts typed, the session's context size from
+// the plugin's token file (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in
+// process (testkit).
 package kind
 
 import (
@@ -127,7 +128,8 @@ func Handle(call string, req []byte) ([]byte, error) {
 	return json.Marshal(reply)
 }
 
-// describe is the manifest. Caps: hooks through obor's plugin, a resume by the session id the plugin reports; no hook
+// describe is the manifest. Caps: hooks through obor's plugin, which acts on the hooks' answers (hook_answers: the
+// prompt's context and a stop's block), a resume by the session id the plugin reports; no hook
 // event carries the version, so the marker takes OPENCODE_VERSION; status from the terminal's agent detection. Stop:
 // /exit, typed with Enter (live 2026-10-17); its slash-command popup takes that Enter, a second one runs it (once the
 // agent has exited it reaches the shell as an empty line). When it did not exit: Escape (the popup), then Ctrl+U, so
@@ -140,7 +142,7 @@ func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
 		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "plugin", "resume": true, "model_arg": true, "version_var": "OPENCODE_VERSION"},
+		"caps":    map[string]any{"hooks": "plugin", "hook_answers": true, "resume": true, "model_arg": true, "version_var": "OPENCODE_VERSION"},
 		"efforts": efforts,
 		"vars":    []string{ModelVar, ConfigVar, SkillsVar},
 		"env":     []string{"HOME", "XDG_CONFIG_HOME"},

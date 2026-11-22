@@ -701,7 +701,7 @@ const hookKindManifest = `{"version":1,"name":"hookk","status":"hooks","caps":{"
 // A lead's UserPromptSubmit and Stop hooks, its kind (a project plugin kind, its manifest cached) with no inbox and
 // acting on the hooks' answers, each ask serve for its lines (one lead_lines request, the lead's agent and role) and
 // hand what serve answers: as the prompt's context, as the stop's block. Serve down: exit 0, nothing. An OpenCode
-// lead's (no hook_answers) ask nothing.
+// lead's (no inbox, hook_answers too) ask the same, with nothing left to hand.
 func TestLeadLinesHooks(t *testing.T) {
 	t.Parallel()
 	bin := filepath.Join(t.TempDir(), "obor-kind-hookk")
@@ -743,10 +743,15 @@ func TestLeadLinesHooks(t *testing.T) {
 		}
 	}
 	p.Config(testkit.Set("agents.roles.integrator", ""), testkit.Set("agents.roles.lead", "deepseek"))
+	// A hook's config reads a plugin kind's manifest from the state dir's cache (obor setup agents writes it).
+	kindBin := filepath.Join(filepath.Dir(oborBin), "obor-kind-opencode")
+	if _, err := plugin.Cache("opencode", kindBin, filepath.Join(p.Root, ".obor", "state")); err != nil {
+		t.Fatalf("precondition: OpenCode's manifest cached: %v", err)
+	}
 	shimRun(t, p.Root, event("UserPromptSubmit"), lead, oborBin, "hook", "user-prompt-submit")
 	shimRun(t, p.Root, event("Stop"), lead, oborBin, "hook", "stop")
-	if m := serve.sentMethods(); len(m) != 2 {
-		t.Errorf("an OpenCode lead's hooks sent %v, want none", m[2:])
+	if m := serve.sentMethods(); len(m) != 4 {
+		t.Errorf("an OpenCode lead's hooks sent %v, want two lead_lines requests", m[2:])
 	}
 }
 
