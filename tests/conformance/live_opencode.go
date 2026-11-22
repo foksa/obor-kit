@@ -358,9 +358,9 @@ func (l *lab) opencodeAuth(xdg map[string]string) {
 }
 
 // ocL6: opencode starts as a worker of the lab's project with its generated config naming the repository's own
-// `obor mcp` (not the stub), and one job_next call's rendered reply reaches the session's transcript — opencode's own
-// store, the database its plugin reports as transcript_path (opencode 2.x keeps a session's messages there,
-// session_message). The start is the shipped launch's (launchOf: its generated config and model env included), so a tool
+// `obor mcp` (not the stub), and one job_next call's rendered reply reaches the session's store — opencode's own
+// database, where it keeps a session's messages (its plugin reports a token file as transcript_path instead). The
+// start is the shipped launch's (launchOf: its generated config and model env included), so a tool
 // the start does not wire is a FAIL, not a pass the case's own flags bought. A client that cannot
 // list the server's tools, or cannot call one, leaves no such result. Runs after ocTurn, so it sets the lane worker's
 // environment again (ocTurn left the main checkout as a researcher).
@@ -440,8 +440,8 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 }
 
 // opencodeParts is every stored message of the session databases under dir (opencode 2.x: session_message, one JSON
-// value per message whose content holds the assistant's tool parts; the plugin reports that database as the session's
-// transcript_path), and why none could be read when the store could not be.
+// value per message whose content holds the assistant's tool parts; opencode keeps a session's messages there, while
+// its plugin reports a token file as transcript_path), and why none could be read when the store could not be.
 func opencodeParts(dir string) (string, error) {
 	files, _ := filepath.Glob(filepath.Join(dir, "*.db"))
 	if len(files) == 0 {

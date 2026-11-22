@@ -772,7 +772,7 @@ func (s Kinds) Skills(name string) bool {
 	return ok && k.Caps().Skills
 }
 
-// Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not; an unknown kind
+// Resumes: the kind named name resumes a session (its Caps.Resume); an unknown kind
 // does not either.
 func (s Kinds) Resumes(name string) bool {
 	k, ok := s.Lookup(name)

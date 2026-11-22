@@ -78,7 +78,7 @@ func TestIdentFreshSession(t *testing.T) {
 }
 
 // 4: herdr restarted, serve's restore: new pane ids and terminals, the same label, the session record kept: identified by
-// session (by label for opencode, which records none); the lane sees no agent exit.
+// session (by label for opencode here, which records no session in this harness); the lane sees no agent exit.
 func TestIdentHerdrRestartRestore(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"claude", "opencode"} {

@@ -20,30 +20,25 @@ import (
 	"obor/internal/testkit"
 )
 
-// a kind that resumes nothing (OpenCode) starts fresh whatever session is recorded — serve's store's or a
-// older record — and its first prompt survives; no resume reaches the start.
-func TestOpencodeStartsFresh(t *testing.T) {
+// an OpenCode start resumes the session its plugin reported: --session <id>, no first prompt in the argv, and a
+// request's prompt typed into the resumed session.
+func TestOpencodeResumes(t *testing.T) {
 	t.Parallel()
 	x := setupRunning(t, "deepseek")
-	x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-o", Started: time.Now().Unix()}}
+	x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", Kind: "opencode", ID: "sid-o", Started: time.Now().Unix()}}
 	x.shell("w1:p3", "pj-l-01", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Prompt: "go"})
 	if !ok {
 		t.Fatal(out)
 	}
-	restarted(t, last(out), "pj-l-01", "w1:p3", "new")
-	contains(t, out, "warning: no resume for kind opencode: new session", "said")
-	if strings.Contains(out, "resuming sid-o") {
-		t.Errorf("a resume said:\n%s", out)
-	}
+	restarted(t, last(out), "pj-l-01", "w1:p3", "sid-o")
+	contains(t, out, "resuming sid-o (from record)", "said")
 	start := x.startCall()
-	contains(t, start, "--prompt go", "the first prompt survives")
-	if strings.Contains(start, "resume") || strings.Contains(start, "sid-o") || strings.Contains(start, "--session") {
-		t.Errorf("a resume reached the start: %s", start)
+	contains(t, start, "--session sid-o", "the recorded session")
+	if strings.Contains(start, "--prompt") {
+		t.Errorf("a resume carries a first prompt: %s", start)
 	}
-	if len(x.reported) != 0 { // its plugin reports the session on its first event
-		t.Errorf("the start reports a session itself: %+v", x.reported)
-	}
+	eqInt(t, len(x.calls("Prompt pane=w1:p3 text=go")), 1, "the request's prompt typed into the resumed session")
 }
 
 // setupRunning is setup with lane L-01's open dispatch running model (its lane row's task and type): a start

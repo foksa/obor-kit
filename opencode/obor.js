@@ -8,6 +8,7 @@
 //	session.execution.started         → user-prompt-submit (prompt: the user text the session's inbox took since)
 //	session.execution.succeeded       → stop (its verdict is not acted on: opencode has no stop to block)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
+//	session.step.ended                → one line in the session's token file (turn what: context), no hook
 //	session hook prompt               → the start's model (OBOR_OPENCODE_MODEL, below), not a Claude hook
 //
 // The start's model and effort: obor's opencode kind exports OBOR_OPENCODE_MODEL=<provider>/<model>[#<variant>]
@@ -34,8 +35,8 @@
 //     data.parentID is a child (a subagent's): no hook runs for it.
 //   - (a) session id: every session event's data.sessionID; no session start event reaches a plugin set up after the
 //     session was made, hence "first event". Storage: one SQLite database for every session, <data>/opencode.db
-//     (opencode-<channel>.db off the release channels, OPENCODE_DB overrides; opencode's Y4) — no per-session file;
-//     transcript_path is that database.
+//     (opencode-<channel>.db off the release channels, OPENCODE_DB overrides; opencode's Y4) — no per-session file obor
+//     reads: the plugin writes its own per-session token file (tokensPath) and reports that as transcript_path.
 //   - (b) turn start: session.execution.started (after session.inbox.enqueued, whose item {type: "user", payload:
 //     {text}} is the prompt); turn end: session.execution.succeeded | failed {error} | interrupted {reason}. No
 //     session.idle (opencode 2.x emits none).
@@ -60,7 +61,6 @@
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -134,18 +134,12 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
   return [];
 }
 
-// databasePath is where opencode keeps its sessions (opencode's Y4 with xdg-basedir's data dir): OPENCODE_DB, else
-// opencode.db (opencode-<channel>.db off the release channels) in $XDG_DATA_HOME/opencode; "" for an in-memory one.
-// env is the plugin process's (the server's), whose data dir it is: no identity is read from it.
-const RELEASE_CHANNELS = ["latest", "beta", "next", "prod"];
-export function databasePath(channel, env = process.env) {
-  const data = path.join(env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "opencode");
-  let name = env.OPENCODE_DB;
-  if (!name) {
-    const plain = !channel || RELEASE_CHANNELS.includes(channel) || env.OPENCODE_DISABLE_CHANNEL_DB === "1" || env.OPENCODE_DISABLE_CHANNEL_DB === "true";
-    name = plain ? "opencode.db" : `opencode-${channel.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`;
-  }
-  return name === ":memory:" ? "" : path.resolve(data, name);
+// tokensPath is a session's token file, in the state dir the kind's manifest names (kinds/opencode/kind.TranscriptGlob):
+// ${HOME}/.obor/opencode/<session>.jsonl. The plugin appends one line per root session's step; turn what: context
+// reads its last line. "" without HOME: no file to name.
+export function tokensPath(sid, env = process.env) {
+  if (!env.HOME) return "";
+  return path.join(env.HOME, ".obor", "opencode", sid + ".jsonl");
 }
 
 // claudeError is Claude Code's StopFailure error for an opencode error (Session.StructuredError): rate_limit for a
@@ -182,20 +176,34 @@ const EVENT_TYPES = [
   "session.execution.started",
   "session.execution.succeeded",
   "session.execution.failed",
+  "session.step.ended",
 ];
 
 // sessionHooks is the state of one location's sessions (which are its, their pending prompt) and turns each opencode
-// event into the Claude hook calls it means: [{name, event}].
-// transcript is the session store's path (databasePath); start(id) is a session's session-start call.
-export function sessionHooks(cwd, transcript) {
+// event into the Claude hook calls it means: [{name, event}], appending a root session's step to its token file as a
+// side effect. transcriptOf(id) is a session's token file (tokensPath); start(id) is a session's session-start call.
+export function sessionHooks(cwd, transcriptOf) {
   const mine = new Map(); // session → this location's (true) or another's (false)
   const children = new Set(); // subagent sessions: no hook
   const prompts = new Map(); // session → the user texts its inbox took since its last turn start
-  const base = (name, id) => ({ hook_event_name: name, session_id: id, transcript_path: transcript, cwd });
+  const base = (name, id) => ({ hook_event_name: name, session_id: id, transcript_path: transcriptOf(id), cwd });
   const own = (id) => {
     if (id && !children.has(id)) mine.set(id, true);
   };
   const isMine = (id) => mine.get(id) === true && !children.has(id);
+
+  // step appends a root session's step to its token file: tokens is the prompt side (input + cache read + cache write,
+  // the sum obor reads from Claude's transcript) and at the step's time. A failed write leaves the last line: it is no
+  // turn to fail.
+  function step(id, tk, created) {
+    const file = transcriptOf(id);
+    if (!file || !tk) return;
+    const tokens = (tk.input ?? 0) + (tk.cache?.read ?? 0) + (tk.cache?.write ?? 0);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, JSON.stringify({ type: "context", tokens, at: new Date(created || Date.now()).toISOString() }) + "\n");
+    } catch {}
+  }
 
   // event returns the hook calls one event means (setup runs session-start before a session's first).
   function event(e) {
@@ -219,6 +227,9 @@ export function sessionHooks(cwd, transcript) {
         break;
       case "session.execution.failed":
         calls.push({ name: "stop-failure", event: { ...base("StopFailure", id), error: claudeError(d.error), error_details: errorDetails(d.error, e.created) } });
+        break;
+      case "session.step.ended":
+        step(id, d.tokens, e.created);
         break;
     }
     return calls;
@@ -310,10 +321,11 @@ function runHook(kit, name, event, cwd) {
 // only with OBOR_OPENCODE_MODEL) and the session events (event.subscribe).
 async function setup(ctx) {
   const model = process.env[MODEL_VAR];
+  const env = { ...process.env };
   const cwd = ctx.location?.directory || process.cwd();
   if (!inProject(cwd)) return;
   const kit = kitRoot();
-  const sessions = sessionHooks(path.resolve(cwd), databasePath(ctx.app?.channel));
+  const sessions = sessionHooks(path.resolve(cwd), (id) => tokensPath(id, env));
   const context = new Map(); // session → its session-start run: the context text
 
   // started runs session-start once per session (its first event or context call), before any other hook of it.

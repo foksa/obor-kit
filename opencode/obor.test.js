@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { toClaudeEvents, patchPaths, claudeError, errorDetails, databasePath, modelRef, modelSwitch } from "./obor.js";
+import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, tool_name, tool_input });
@@ -149,6 +149,9 @@ esac
   const was = process.env.OBOR_OPENCODE_MODEL;
   if (model === undefined) delete process.env.OBOR_OPENCODE_MODEL;
   else process.env.OBOR_OPENCODE_MODEL = model;
+  // HOME is this stub's: a step writes the plugin's token file under it, never the runner's own ~/.obor.
+  const wasHome = process.env.HOME;
+  process.env.HOME = base;
   const done = mod.default.setup({
     location: { directory: dir },
     app: { name: "cli", version, channel: "latest" },
@@ -158,18 +161,21 @@ esac
   });
   if (was === undefined) delete process.env.OBOR_OPENCODE_MODEL;
   else process.env.OBOR_OPENCODE_MODEL = was;
+  if (wasHome === undefined) delete process.env.HOME;
+  else process.env.HOME = wasHome;
   await done;
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
   const event = (line) => JSON.parse(line.replace(/^\S+ \S+ \S+ /, ""));
   const who = () => (fs.existsSync(path.join(base, "who")) ? fs.readFileSync(path.join(base, "who"), "utf8").trim().split("\n") : []);
   const names = () => calls().map((l) => l.split(" ")[0]);
-  return { hooked, calls, event, dir, mod, who, emit: events.emit, names };
+  const token = (sid) => tokensPath(sid, { HOME: base });
+  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token };
 }
 
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "databasePath", "default", "errorDetails", "modelRef", "modelSwitch", "patchPaths", "sessionHooks", "toClaudeEvents"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "default", "errorDetails", "modelRef", "modelSwitch", "patchPaths", "sessionHooks", "toClaudeEvents", "tokensPath"]);
 });
 
 test("setup: the guard, the context and the session events through its tool, session and event hooks", async (t) => {
@@ -181,6 +187,7 @@ test("setup: the guard, the context and the session events through its tool, ses
     "session.execution.started",
     "session.execution.succeeded",
     "session.inbox.enqueued",
+    "session.step.ended",
   ]);
 });
 
@@ -224,8 +231,8 @@ test("guard: an unreadable patch is denied without running obor", async (t) => {
   assert.equal(calls().length, 0);
 });
 
-test("session-start: context appended on every context call, obor run once per session, with its id and store", async (t) => {
-  const { hooked, calls, event, dir } = await stubPlugin(t);
+test("session-start: context appended on every context call, obor run once per session, with its id and token file", async (t) => {
+  const { hooked, calls, event, dir, token } = await stubPlugin(t);
   for (let i = 0; i < 2; i++) {
     const c = { sessionID: "s2", system: [{ type: "text", text: "base" }] };
     await hooked["session:context"](c);
@@ -233,7 +240,7 @@ test("session-start: context appended on every context call, obor run once per s
   }
   const c = calls();
   assert.equal(c.length, 1, c.join("\n"));
-  assert.deepEqual(event(c[0]), { hook_event_name: "SessionStart", session_id: "s2", transcript_path: databasePath("latest"), cwd: dir, source: "startup" });
+  assert.deepEqual(event(c[0]), { hook_event_name: "SessionStart", session_id: "s2", transcript_path: token("s2"), cwd: dir, source: "startup" });
 });
 
 test("setup outside an obor project registers nothing: no guard, no context, no session events", async (t) => {
@@ -271,8 +278,8 @@ const turn = (dir, id, text) => [
 const rateLimit = { type: "provider.rate-limit", message: "You exceeded your current quota; resets at 6pm", status: 429, retryAfterMs: 3600000 };
 
 test("session events: session start, turn start and turn end run session-start, user-prompt-submit and stop", async (t) => {
-  const { emit, names, calls, event, dir } = await stubPlugin(t);
-  const store = databasePath("latest");
+  const { emit, names, calls, event, dir, token } = await stubPlugin(t);
+  const store = token("s1");
   await emit(oc("session.created", { sessionID: "s1", slug: "x", version: "2.2.0" }, dir), ...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit", "stop"]);
   const [start, prompt, stop] = calls().map(event);
@@ -296,7 +303,7 @@ test("session events: a later turn runs no second session-start; its prompt is t
 });
 
 test("limit error: the turn's failure sends stop-failure (rate_limit, its reset epoch); its retries send nothing", async (t) => {
-  const { emit, names, calls, event, dir } = await stubPlugin(t);
+  const { emit, names, calls, event, dir, token } = await stubPlugin(t);
   const retry = (attempt, error) => oc("session.retry.scheduled", { sessionID: "s1", assistantMessageID: "msg_2", attempt, at: CREATED + 900000, error }, dir);
   await emit(...turn(dir, "s1", wake), retry(2, { type: "provider.transport", message: "ECONNREFUSED" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"], "a transport retry is no stop");
@@ -307,7 +314,7 @@ test("limit error: the turn's failure sends stop-failure (rate_limit, its reset 
   assert.deepEqual(event(calls()[2]), {
     hook_event_name: "StopFailure",
     session_id: "s1",
-    transcript_path: databasePath("latest"),
+    transcript_path: token("s1"),
     cwd: dir,
     error: "rate_limit",
     error_details: "You exceeded your current quota; resets at 6pm (provider.rate-limit)|1793365200",
@@ -329,6 +336,32 @@ test("session events: another directory's session, a child session and an interr
   assert.deepEqual(names(), []);
   await emit(...turn(dir, "s1", wake), oc("session.execution.interrupted", { sessionID: "s1", reason: "user" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"], "precondition: this directory's session runs its hooks");
+});
+
+// A root session's step appends one line to its token file: the prompt side (input + cache read + cache write) and the
+// step's time. A step runs no hook; a child's or another directory's session's writes no file.
+test("session steps: a root session's tokens append one line to its token file", async (t) => {
+  const { emit, names, dir, token } = await stubPlugin(t);
+  const stepEvent = (id, tokens, created) => ({ id: "evt_step", type: "session.step.ended", created, data: { sessionID: id, tokens } });
+  await emit(oc("session.created", { sessionID: "s1", slug: "x", version: "2.2.0" }, dir));
+  await emit(stepEvent("s1", { input: 7507, output: 11, reasoning: 0, cache: { read: 500, write: 0 } }, CREATED));
+  await emit(stepEvent("s1", { input: 10507, output: 3, reasoning: 0, cache: { read: 500, write: 0 } }, CREATED + 5000));
+  const file = token("s1");
+  assert.ok(fs.existsSync(file), "precondition: the first step wrote the session's token file " + file);
+  const lines = fs.readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(lines, [
+    { type: "context", tokens: 8007, at: new Date(CREATED).toISOString() },
+    { type: "context", tokens: 11007, at: new Date(CREATED + 5000).toISOString() },
+  ]);
+  assert.deepEqual(names(), [], "a step runs no hook");
+  await emit(oc("session.created", { sessionID: "c1", parentID: "s1", slug: "x", version: "2.2.0" }, dir));
+  await emit(stepEvent("c1", { input: 1, cache: { read: 0, write: 0 } }, CREATED + 6000));
+  const other = path.join(path.dirname(dir), "elsewhere");
+  await emit(oc("session.created", { sessionID: "s9", slug: "x", version: "2.2.0" }, other));
+  await emit(stepEvent("s9", { input: 1, cache: { read: 0, write: 0 } }, CREATED + 7000));
+  assert.equal(fs.readFileSync(file, "utf8").trim().split("\n").length, 2, "the root session's file keeps its two lines");
+  assert.equal(fs.existsSync(token("c1")), false, "a child writes none");
+  assert.equal(fs.existsSync(token("s9")), false, "another directory's session writes none");
 });
 
 // the start's model (OBOR_OPENCODE_MODEL) as opencode's Model.Ref.
@@ -452,15 +485,10 @@ test("errorDetails: message and type, and |<epoch> only with a reset", () => {
   assert.equal(errorDetails(undefined, CREATED), "(unknown)");
 });
 
-test("databasePath: opencode's store, by data dir, channel and OPENCODE_DB", () => {
-  const env = { XDG_DATA_HOME: "/d" };
-  assert.equal(databasePath("latest", env), "/d/opencode/opencode.db");
-  assert.equal(databasePath("dev", env), "/d/opencode/opencode-dev.db");
-  assert.equal(databasePath("dev", { ...env, OPENCODE_DISABLE_CHANNEL_DB: "1" }), "/d/opencode/opencode.db");
-  assert.equal(databasePath("latest", { ...env, OPENCODE_DB: "x.db" }), "/d/opencode/x.db");
-  assert.equal(databasePath("latest", { ...env, OPENCODE_DB: "/abs/y.db" }), "/abs/y.db");
-  assert.equal(databasePath("latest", { ...env, OPENCODE_DB: ":memory:" }), "");
-  assert.equal(databasePath("latest", {}), path.join(os.homedir(), ".local", "share", "opencode", "opencode.db"));
+test("tokensPath: a session's token file under the HOME the kind's transcript glob names", () => {
+  assert.equal(tokensPath("s1", { HOME: "/h" }), "/h/.obor/opencode/s1.jsonl");
+  assert.equal(tokensPath("ses_a", { HOME: "/h" }), "/h/.obor/opencode/ses_a.jsonl", "the session id is the file name");
+  assert.equal(tokensPath("s1", {}), "", "no HOME: no file to name");
 });
 
 // Each mapped event carries the fields its Go hook reads: UserPromptSubmit against a Claude capture

@@ -253,8 +253,7 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 }
 
 // the restore's --fresh decision reads serve's store only, as obor restart does. A worker with a session
-// there (Claude or Codex) resumes; none at all: TestRestoreWorkerWithoutSessionFresh. A kind that resumes nothing
-// (OpenCode) starts fresh whatever is recorded.
+// there resumes; none at all: TestRestoreWorkerWithoutSessionFresh.
 func TestRestoreWorkerRecordedSession(t *testing.T) {
 	t.Run("store-only Codex worker: resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
@@ -278,7 +277,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1")
 		lacks(t, f.restoreLog(), "no recorded session", "no --fresh note")
 	})
-	t.Run("OpenCode worker: --fresh even with a recorded session", func(t *testing.T) {
+	t.Run("OpenCode worker: its recorded session resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
 		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
@@ -286,39 +285,10 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "opencode", ID: "oc-1", Started: time.Now().Unix()})
 		f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
-		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
-		has(t, f.restoreLog(), "restore pj-l-01 (pane w1:p1) in "+f.p.Root+" (worker, kind opencode resumes nothing: --fresh)",
-			"the fresh start is logged")
+		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1")
+		has(t, f.restoreLog(), "restore pj-l-01 (pane w1:p1) in "+f.p.Root, "the resume is logged")
+		lacks(t, f.restoreLog(), "--fresh", "a recorded session resumes")
 	})
-}
-
-// the restore's resume decision reads the kind of the model a lane's open dispatch runs: an OpenCode dispatch
-// starts fresh whatever session is recorded, a Claude dispatch there resumes.
-func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
-	for _, c := range []struct{ typ, kind, want string }{
-		{"deepseek", "opencode", " --fresh"},
-		{"opus", "claude", ""},
-	} {
-		t.Run(c.kind, func(t *testing.T) {
-			f := newRfx(t)
-			lane := f.p.PlainLane("L-01", "task/T-01")
-			f.p.Config()
-			cfg, err := config.Load(f.p.Root)
-			if err != nil || len(cfg.Lanes()) != 1 {
-				t.Fatalf("precondition: one lane L-01: %v, %v", cfg.Lanes(), err)
-			}
-			f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-l-01","type":"`+c.typ+`"}`)
-			f.shell("w1:p1", lane, "pj-l-01")
-			recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: c.kind, ID: "s-1", Started: time.Now().Unix()})
-			f.pl.RestoreProject(context.Background(), f.p.Root, port.Lost{All: true})
-			f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1" + c.want)
-			if c.want != "" {
-				has(t, f.restoreLog(), "(worker, kind opencode resumes nothing: --fresh)", "the dispatch's kind is logged")
-			} else {
-				lacks(t, f.restoreLog(), "--fresh", "a Claude dispatch resumes")
-			}
-		})
-	}
 }
 
 // A role pane comes back only while serve's state has work open for it (OpenWork): the lead always, a worker by its

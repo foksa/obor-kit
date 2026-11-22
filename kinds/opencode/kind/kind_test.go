@@ -15,6 +15,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/plugin"
+	"obor/internal/project"
 	"obor/kinds/opencode/kind"
 )
 
@@ -31,9 +32,9 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 	return k
 }
 
-// OpenCode's start argv (--prompt, no resume, no registration on the command line), /exit with the popup's
-// second Enter and the clear keys, `opencode run`, registered per start (nothing user-global), no transcript, typed
-// delivery, the plugin hook transport.
+// OpenCode's start argv (--prompt, a resume with --session, no registration on the command line), /exit with the
+// popup's second Enter and the clear keys, `opencode run`, registered per start (nothing user-global), the plugin's
+// token file as its transcript, typed delivery, the plugin hook transport.
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	if got := agents.OverrideFiles(k); !slices.Equal(got, []string{"opencode_override.json"}) {
@@ -48,8 +49,10 @@ func TestKind(t *testing.T) {
 		{"fresh, prompt: the fixed flags first", agents.Start{Kit: "/kit", Args: []string{"--log-level", "DEBUG"}, Prompt: "go"},
 			[]string{"--auto", "--standalone", "--log-level", "DEBUG", "--prompt", "go"}},
 		{"fresh, no prompt, no args", agents.Start{Kit: "/kit"}, []string{"--auto", "--standalone"}},
-		{"a resume is no resume: nothing added", agents.Start{Kit: "/kit", Resume: "s", Prompt: "go"},
-			[]string{"--auto", "--standalone"}},
+		{"a resume: --session, then its prompt", agents.Start{Kit: "/kit", Resume: "ses_1", Prompt: "go"},
+			[]string{"--auto", "--standalone", "--session", "ses_1", "--prompt", "go"}},
+		{"a resume with no prompt", agents.Start{Kit: "/kit", Resume: "ses_1"},
+			[]string{"--auto", "--standalone", "--session", "ses_1"}},
 		{"the model is no flag of the TUI: dropped (the env carries it)", agents.Start{Args: []string{"-m", "p/x",
 			"--model=p/y", "--log-level", "DEBUG"}, Effort: "high"}, []string{"--auto", "--standalone", "--log-level", "DEBUG"}},
 		{"a fixed flag the args repeat is not doubled", agents.Start{Args: []string{"--standalone", "--model", "p/x", "--auto",
@@ -81,8 +84,11 @@ func TestKind(t *testing.T) {
 		!strings.Contains(how, "/kit/bin/obor mcp") || !strings.Contains(how, "plugin /kit/opencode") {
 		t.Errorf("Lane = %q, %v, %v: want registered per start by the generated config", how, reg, static)
 	}
-	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "s1"); got != "" {
-		t.Errorf("Transcript = %q, want none", got)
+	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "s1"); got != filepath.Join("/h", ".obor", "opencode", "s1.jsonl") {
+		t.Errorf("Transcript = %q, want the plugin's token file", got)
+	}
+	if got := k.Transcript(env(map[string]string{}), "s1"); got != "" {
+		t.Errorf("Transcript with no HOME = %q, want none", got)
 	}
 	if d, ok := k.Deliver("hi", nil); !ok || !d.Typed {
 		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
@@ -92,9 +98,6 @@ func TestKind(t *testing.T) {
 	}
 	if got, ok := k.Session([]byte(`{"type":"session_meta","payload":{"id":"x"}}` + "\n")); ok {
 		t.Errorf("Session = %+v, true; want none read", got)
-	}
-	if got, ok := k.Context([]byte(`{"type":"ctx-probe","tokens":7}` + "\n")); ok { // no transcript: no context
-		t.Errorf("Context = %+v, true; want none read", got)
 	}
 	// parse the plugin's StopFailure details; the app tests exercise worker and role routing.
 	at := time.Unix(1793361600, 0)
@@ -117,7 +120,8 @@ func TestKind(t *testing.T) {
 			t.Errorf("%s: Reset = %v, %v; want %v, %v", c.name, got, limited, c.want, c.limited)
 		}
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, ModelArg: true, VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Resume: true, Transcript: true, ModelArg: true,
+		VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
 	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {
@@ -125,6 +129,33 @@ func TestKind(t *testing.T) {
 	}
 	if !slices.Equal(k.Vars(), []string{kind.ModelVar, kind.ConfigVar, kind.SkillsVar}) {
 		t.Errorf("Vars = %q", k.Vars())
+	}
+}
+
+// The context of a token file's tail is its last line's tokens, the sum the plugin writes (a step's input + cache read
+// + cache write), at the line's time; no line with a count, or a last one whose time does not parse, reads none.
+func TestContext(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	at := time.Date(2026, 11, 22, 10, 0, 5, 0, time.UTC)
+	c, ok := k.Context([]byte(`{"type":"context","tokens":8007,"at":"2026-11-22T10:00:00.000Z"}
+{"type":"context","tokens":11007,"at":"2026-11-22T10:00:05Z"}
+{"other":"no count"}
+`))
+	if !ok || c.Tokens != 11007 || !c.At.Equal(at) || c.TTL != "" {
+		t.Errorf("Context = %+v, %v; want 11007 at %v", c, ok, at)
+	}
+	for _, tail := range []string{"", `{"tokens":7}` + "\n", `{"tokens":7,"at":"soon"}` + "\n"} {
+		if c, ok := k.Context([]byte(tail)); ok {
+			t.Errorf("Context(%q) = %+v, true; want none", tail, c)
+		}
+	}
+	// A token file's tail read through the kind's manifest, as the handoff reminder reads a session's transcript.
+	file := filepath.Join(t.TempDir(), "s1.jsonl")
+	if err := os.WriteFile(file, []byte(`{"type":"context","tokens":11007,"at":"2026-11-22T10:00:05Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := project.ContextOf(agents.WithPlugins([]agents.Kind{k}), kind.Name, file); !ok || c.Tokens != 11007 || !c.At.Equal(at) {
+		t.Errorf("ContextOf = %+v, %v; want 11007 at %v", c, ok, at)
 	}
 }
 

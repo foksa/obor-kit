@@ -21,8 +21,8 @@ import (
 // with none to resume.
 func TestLaunchSessionStep(t *testing.T) {
 	t.Parallel()
-	if k := testkit.Kinds(); k.Resumes("opencode") || !k.Resumes("codex") || k.NamedSession("codex") || !k.NamedSession("claude") {
-		t.Fatal("precondition: opencode resumes nothing, codex resumes sessions it does not name, claude names its own")
+	if k := testkit.Kinds(); !k.Resumes("opencode") || !k.Resumes("codex") || k.NamedSession("codex") || !k.NamedSession("claude") {
+		t.Fatal("precondition: opencode and codex resume sessions, codex does not name them, claude does")
 	}
 	x := setup(t)
 	kept := x.transcript("sid-1")
@@ -43,8 +43,8 @@ func TestLaunchSessionStep(t *testing.T) {
 		{name: "none recorded, not fresh: refused", tg: launch.Target{Kind: "claude"}, fail: noSession},
 		{name: "none recorded, a first prompt carried: fresh", tg: launch.Target{Kind: "claude"},
 			req: launch.Request{Prompt: "go"}, src: "record"},
-		{name: "a kind that resumes nothing: fresh", tg: launch.Target{Kind: "opencode", Sid: "oc-1"},
-			said: "warning: no resume for kind opencode: new session"},
+		{name: "opencode: the recorded session resumes", tg: launch.Target{Kind: "opencode", Sid: "oc-1"},
+			sid: "oc-1", src: "record"},
 		{name: "codex: the terminal's session when none is recorded", tg: launch.Target{Kind: "codex", Live: "cx-9",
 			LiveKind: "codex"}, sid: "cx-9", src: "herdr"},
 		{name: "claude: never the terminal's", tg: launch.Target{Kind: "claude", Live: "sid-9", LiveKind: "claude"},
