@@ -121,7 +121,7 @@ func TestKind(t *testing.T) {
 		ModelArg: true, VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
-	if !slices.Equal(k.Vars(), []string{kind.ModelVar, kind.ConfigVar, kind.SkillsVar}) {
+	if !slices.Equal(k.Vars(), []string{kind.ModelVar, kind.ConfigVar, kind.SkillsVar, kind.ResumeVar}) {
 		t.Errorf("Vars = %q", k.Vars())
 	}
 }
@@ -198,8 +198,8 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 				return "", nil
 			}})
 		v, set := l.Env[kind.ModelVar]
-		if off, unset := l.Env[kind.SkillsVar]; err == nil && (!set || len(l.Env) != 2 || !unset || off != "") {
-			t.Errorf("start(%q, %q) env = %v: want %s, %s unset and nothing else", args, effort, l.Env, kind.ModelVar, kind.SkillsVar)
+		if off, unset := l.Env[kind.SkillsVar]; err == nil && (!set || len(l.Env) != 3 || !unset || off != "" || l.Env[kind.ResumeVar] != "") {
+			t.Errorf("start(%q, %q) env = %v: want %s, and %s and %s unset, nothing else", args, effort, l.Env, kind.ModelVar, kind.SkillsVar, kind.ResumeVar)
 		}
 		return v, set, err
 	}
@@ -236,6 +236,32 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	}
 	if cerr := agents.CheckEffortOf(k, []string{"--model", "p/m"}, "turbo"); cerr == nil || !strings.Contains(cerr.Error(), `effort "turbo" is not one of opencode's`) {
 		t.Errorf("an effort not among its efforts: %v; want a refusal", cerr)
+	}
+}
+
+// a resume's env names the session in ResumeVar (the plugin's server process has no --session in its argv); a fresh
+// start has the variable there as "" (unset: the pane's shell may hold an earlier resume's), and the manifest's vars
+// name it so every other kind's start unsets it too.
+func TestStartEnvNamesTheResumedSession(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	if kind.ResumeVar != "OBOR_OPENCODE_RESUME" {
+		t.Errorf("ResumeVar = %q: opencode/obor.js reads OBOR_OPENCODE_RESUME", kind.ResumeVar)
+	}
+	if !slices.Contains(k.Vars(), kind.ResumeVar) {
+		t.Errorf("Vars %q lack %s: another kind's start would not unset it", k.Vars(), kind.ResumeVar)
+	}
+	start := func(resume string) agents.Launch {
+		l, err := agents.StartOf(k, agents.Start{Args: []string{"--model", "p/m"}, Resume: resume, Prompt: "go"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	if v := start("ses_1").Env[kind.ResumeVar]; v != "ses_1" {
+		t.Errorf("a resume: %s = %q, want ses_1", kind.ResumeVar, v)
+	}
+	if v, set := start("").Env[kind.ResumeVar]; !set || v != "" {
+		t.Errorf("a fresh start: %s = %q (in the env: %v), want it there and empty (unset)", kind.ResumeVar, v, set)
 	}
 }
 
@@ -288,7 +314,7 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 		t.Fatalf("written %v: want the one generated config", written)
 	}
 	vars := l.Env
-	if kind.ConfigVar != "OPENCODE_CONFIG" || vars[kind.ConfigVar] != "/p/.obor/state/opencode.json" || vars[kind.ModelVar] != "p/m#high" || len(vars) != 3 {
+	if kind.ConfigVar != "OPENCODE_CONFIG" || vars[kind.ConfigVar] != "/p/.obor/state/opencode.json" || vars[kind.ModelVar] != "p/m#high" || len(vars) != 4 {
 		t.Errorf("start env = %v: want OPENCODE_CONFIG=<the file> and the model", vars)
 	}
 	if !bytes.Equal(written[kind.ConfigFile], kind.Config("/kit")) {

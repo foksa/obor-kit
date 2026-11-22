@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import net from "node:net";
-import { resumedSession, toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
+import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name, tool_input });
@@ -101,12 +101,13 @@ function feed() {
 // obor) or "other" (plugin.json named other), entered at its main checkout or, with lane, at its lane worktree; each
 // bin/obor stub also logs its name (kit, main or lane) to <base>/who.
 // model sets OBOR_OPENCODE_MODEL for the setup call (setup reads it first, before any await), version opencode's
-// version, argv the process's arguments (setup reads them first, like the model), parents each session's parentID in the
+// version, resume OBOR_OPENCODE_RESUME (the resumed session's id; absent: unset, a fresh start), argv the process's
+// arguments (the spawned server's: opencode's TUI argv never reaches the plugin), parents each session's parentID in the
 // store (ctx.session.get; absent: the context has none) and gets the sessions it was asked for, and switched collects
 // the ctx.session.switchModel calls (none: the context has no switchModel). prompted
 // collects the ctx.session.prompt calls (a stop's block, an inbox line). inbox() is each hook call's OBOR_OPENCODE_INBOX
 // ("<hook> <path>", "" unset).
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], argv, parents, gets = [] } = {}) {
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -169,6 +170,9 @@ esac
   // HOME is this stub's: a step writes the plugin's token file under it, never the runner's own ~/.obor.
   const wasHome = process.env.HOME;
   process.env.HOME = base;
+  const wasResume = process.env.OBOR_OPENCODE_RESUME;
+  if (resume === undefined) delete process.env.OBOR_OPENCODE_RESUME;
+  else process.env.OBOR_OPENCODE_RESUME = resume;
   const wasArgv = process.argv;
   if (argv) process.argv = [...wasArgv.slice(0, 2), ...argv];
   const done = mod.default.setup({
@@ -182,6 +186,8 @@ esac
   else process.env.OBOR_OPENCODE_MODEL = was;
   if (wasHome === undefined) delete process.env.HOME;
   else process.env.HOME = wasHome;
+  if (wasResume === undefined) delete process.env.OBOR_OPENCODE_RESUME;
+  else process.env.OBOR_OPENCODE_RESUME = wasResume;
   process.argv = wasArgv;
   await done;
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
@@ -197,7 +203,7 @@ esac
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "resumedSession", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
 });
 
 test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
@@ -765,14 +771,6 @@ test("guard: exit 0 allows; exit 2 denies with its text; exit 1 and a kill by a 
   assert.equal(killed.calls().length, 1, "the killed hook did run");
 });
 
-test("resumedSession: the id after --session or in --session=<id>; none for a fresh start", () => {
-  assert.equal(resumedSession(["node", "opencode", "--standalone", "--session", "ses_1", "--prompt", "x"]), "ses_1");
-  assert.equal(resumedSession(["opencode", "--session=ses_2"]), "ses_2");
-  assert.equal(resumedSession(["opencode", "--standalone", "--prompt", "--session-not"]), "");
-  assert.equal(resumedSession(["opencode", "--session"]), "");
-  assert.equal(resumedSession([]), "");
-});
-
 // polled waits for the resumed start's background session-start (setup does not wait for it).
 const polled = async (what, ok) => {
   for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 10));
@@ -780,10 +778,10 @@ const polled = async (what, ok) => {
 };
 
 test("a resumed start binds the session's inbox and runs session-start before any turn; a fresh start runs nothing at setup", async (t) => {
-  const fresh = await stubPlugin(t, { argv: ["--standalone"] });
+  const fresh = await stubPlugin(t, { argv: ["serve", "--stdio", "--port", "0"] });
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(fresh.names(), [], "a fresh start waits for its first turn");
-  const { names, calls, event, inbox, sock, dir, token, prompted, hooked } = await stubPlugin(t, { argv: ["--standalone", "--session", "ses_r1"], parents: {} });
+  const { names, calls, event, inbox, sock, dir, token, prompted, hooked } = await stubPlugin(t, { resume: "ses_r1", argv: ["serve", "--stdio", "--port", "0"], parents: {} });
   await polled("session-start ran at setup", () => names().length > 0);
   assert.deepEqual(names(), ["session-start"]);
   assert.deepEqual(event(calls()[0]), { hook_event_name: "SessionStart", session_id: "ses_r1", transcript_path: token("ses_r1"), cwd: dir, agent_kind: "opencode", source: "startup" });
@@ -795,8 +793,16 @@ test("a resumed start binds the session's inbox and runs session-start before an
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"]);
 });
 
+test("a --session in the process's argv resumes nothing: only the start's env names the session", async (t) => {
+  const { names, inbox, sock } = await stubPlugin(t, { argv: ["opencode", "--session", "ses_a", "--session=ses_b"], parents: {} });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(names(), []);
+  assert.deepEqual(inbox(), []);
+  assert.equal(fs.existsSync(sock("ses_a")) || fs.existsSync(sock("ses_b")), false);
+});
+
 test("a resumed start whose session the store names a parent of binds nothing", async (t) => {
-  const { names, inbox, sock, gets } = await stubPlugin(t, { argv: ["--session", "ses_c"], parents: { ses_c: "ses_p" } });
+  const { names, inbox, sock, gets } = await stubPlugin(t, { resume: "ses_c", parents: { ses_c: "ses_p" } });
   await polled("the store was asked", () => gets.length > 0);
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(names(), []);
