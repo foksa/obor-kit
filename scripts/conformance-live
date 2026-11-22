@@ -1,9 +1,10 @@
 #!/bin/sh
 # conformance-live: the nightly's live conformance tier for agy (commands.conformance_live, nightly.also_run). agy
 # updates itself, so "a live tier at each agy upgrade" is no event anyone sees: this runs `make conformance TIER=live
-# KIND=agy` only when `agy --version` differs from the version its last live run recorded
-# (.obor/state/agy-live-version), and records the version once that run ends. The summary line starts with the
-# command's name, which is the line the nightly shows (make appends its failed-recipe trailer after it). POSIX sh.
+# KIND=agy TURN=1` (one model call, so the session hooks, MCP and inbox checks run) only when `agy --version` differs
+# from the version its last live run recorded (.obor/state/agy-live-version), and records the version once that run
+# ends. The summary line starts with the command's name, which is the line the nightly shows (make appends its
+# failed-recipe trailer after it). POSIX sh.
 set -eu
 
 # The record is the project's, not a worktree's: obor nightly runs this in its own worktree, and a lane typed into by
@@ -38,13 +39,13 @@ fi
 
 mkdir -p "$state"
 rc=0
-log=$(make conformance TIER=live KIND=agy 2>&1) || rc=$?
+log=$(make conformance TIER=live KIND=agy TURN=1 2>&1) || rc=$?
 if [ -n "$log" ]; then printf '%s\n' "$log"; fi
 printf '%s\n' "$version" > "$record"
 summary=$(printf '%s\n' "$log" | grep '^conformance: ' | tail -n 1) || summary=
 if [ -n "$summary" ]; then
   echo "conformance_live: agy $version live tier: $summary"
 else
-  echo "conformance_live: agy $version live tier: make conformance TIER=live KIND=agy exited $rc"
+  echo "conformance_live: agy $version live tier: make conformance TIER=live KIND=agy TURN=1 exited $rc"
 fi
 exit "$rc"
