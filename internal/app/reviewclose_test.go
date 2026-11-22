@@ -44,6 +44,17 @@ func TestReviewCloseRefusals(t *testing.T) {
 			startedReview(r.t, r)
 			r.fixTask("T-a", "Fixes: RV-5")
 		}, "RV-5's fixes are not verified: T-a (open, or merged and its verify not finished; --force closes anyway): nothing changed"},
+		{"a linked fix dispatched before the review, merged after", func(r *reviewRig) {
+			openReviewFile(r.t, r.p.root)
+			r.fixTask("T-pre", "")
+			startedReview(r.t, r)
+			r.setSpec("T-pre", "Fixes: RV-5")
+			r.merged("T-pre")
+			start := r.p.folded.rv.Cycle().Seq
+			if mt := r.p.folded.loop["T-pre"]; mt == nil || mt.dispSeq > start || mt.mergedSeq <= start {
+				r.t.Fatalf("precondition: T-pre %+v vs review start %d", mt, start)
+			}
+		}, "RV-5's fixes are not verified: T-pre (open, or merged and its verify not finished; --force closes anyway): nothing changed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

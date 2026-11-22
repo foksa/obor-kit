@@ -17,9 +17,10 @@ import (
 func TestVerifyRule(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name  string
-		setup func(r *reviewRig)
-		want  string // "": no action; "brief": the verify's brief; else the line's prefix
+		name   string
+		before func(r *reviewRig) // before the review starts (nil: nothing)
+		setup  func(r *reviewRig)
+		want   string // "": no action; "brief": the verify's brief; else the line's prefix
 	}{
 		{name: "no linked task", setup: func(r *reviewRig) { r.fixTask("T-c", "Review: on merge") }},
 		{name: "a spec naming another review", setup: func(r *reviewRig) { r.fixTask("T-c", "Fixes: RV-4") }},
@@ -32,6 +33,31 @@ func TestVerifyRule(t *testing.T) {
 			r.fixTask("T-a", "Fixes: RV-5")
 			r.merged("T-a")
 		}},
+		{name: "dispatched before the review, linked later, merged after", want: "brief",
+			before: func(r *reviewRig) { r.fixTask("T-pre", "") },
+			setup: func(r *reviewRig) {
+				r.setSpec("T-pre", "Fixes: RV-5")
+				r.merged("T-pre")
+				start := r.p.folded.rv.Cycle().Seq
+				if mt := r.p.folded.loop["T-pre"]; mt == nil || mt.dispSeq > start || mt.mergedSeq <= start {
+					r.t.Fatalf("precondition: T-pre %+v vs review start %d", mt, start)
+				}
+			}},
+		{name: "dispatched and merged before the review",
+			before: func(r *reviewRig) {
+				r.fixTask("T-pre", "")
+				r.merged("T-pre")
+			},
+			setup: func(r *reviewRig) {
+				r.setSpec("T-pre", "Fixes: RV-5")
+				start := r.p.folded.rv.Cycle().Seq
+				if mt := r.p.folded.loop["T-pre"]; mt == nil || mt.dispSeq > start || mt.mergedSeq > start {
+					r.t.Fatalf("precondition: T-pre %+v vs review start %d", mt, start)
+				}
+				if row, ok, err := specOf(r.p, "T-pre"); err != nil || !ok || !row.Spec.FixesOK || row.Spec.FixesReview != "RV-5" {
+					r.t.Fatalf("precondition: T-pre spec %+v ok=%v err=%v", row.Spec, ok, err)
+				}
+			}},
 		{name: "all merged, the reviewer working", setup: func(r *reviewRig) {
 			r.fixTask("T-a", "Fixes: RV-5")
 			r.merged("T-a")
@@ -71,6 +97,9 @@ func TestVerifyRule(t *testing.T) {
 			t.Parallel()
 			r := newReviewRig(t)
 			openReviewFile(t, r.p.root)
+			if c.before != nil {
+				c.before(r)
+			}
 			startedReview(t, r)
 			c.setup(r)
 			key, act, ok := verifyRule(context.Background(), r.a, r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}), r.now)
@@ -79,9 +108,19 @@ func TestVerifyRule(t *testing.T) {
 				if ok {
 					t.Errorf("an action (key %d, line %q, call %t), want none", key, act.line, act.call != nil)
 				}
+				if c.name == "dispatched and merged before the review" && len(r.p.fixes.Links) != 0 {
+					t.Errorf("links %+v, want none (ended before the review started)", r.p.fixes.Links)
+				}
 			case c.want == "brief":
 				if !ok || act.call == nil || act.line != "" || key == 0 {
 					t.Errorf("ok %t, key %d, line %q, call %t; want the brief, no line", ok, key, act.line, act.call != nil)
+					return
+				}
+				if err := act.call(context.Background()); err != nil {
+					t.Fatalf("brief call: %v", err)
+				}
+				if b := verifyBriefs(t, r.p.root); len(b) != 1 {
+					t.Errorf("%d verify briefs, want 1", len(b))
 				}
 			default:
 				if !ok || act.call != nil || !strings.HasPrefix(act.line, c.want) {

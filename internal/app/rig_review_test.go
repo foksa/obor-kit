@@ -503,13 +503,19 @@ func startedReview(t *testing.T, r *reviewRig) {
 	}
 }
 
-// fixTask stores task's spec with line between its title and its first heading, then dispatches and submits it.
-func (r *reviewRig) fixTask(task, line string) {
+// setSpec stores a new rev of task's spec with line between its title and its first heading.
+func (r *reviewRig) setSpec(task, line string) {
 	r.t.Helper()
 	text := "# " + task + " — fix\n\nDifficulty: medium\n" + line + "\n\n## Do\nfix it\n"
 	if _, _, err := store.SetSpec(r.p.log.DB(), task, text, "", "pj-lead", r.now); err != nil {
 		r.t.Fatal(err)
 	}
+}
+
+// fixTask stores task's spec with line between its title and its first heading, then dispatches and submits it.
+func (r *reviewRig) fixTask(task, line string) {
+	r.t.Helper()
+	r.setSpec(task, line)
 	if !r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
 		dispatchData{}) {
 		r.t.Fatal("the log refused the dispatch")
