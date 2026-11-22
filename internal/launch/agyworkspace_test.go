@@ -1,8 +1,11 @@
 package launch_test
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,6 +15,13 @@ import (
 	"obor/internal/testkit"
 	agykind "obor/kinds/agy/kind"
 )
+
+// agyRoles are the role agents whose cwd is their role worktree, by role.
+var agyRoles = []struct{ role, agent, pane string }{
+	{"integrator", "pj-int", "w1:p5"},
+	{"reviewer", "pj-rev", "w1:p7"},
+	{"deep_dive", "pj-deep-dive", "w1:p9"},
+}
 
 // staleHooks is agy's hooks file of an obor before T-1502: its PreToolUse matched three tools.
 const staleHooks = `{"obor": {"PreInvocation": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], ` +
@@ -101,6 +111,42 @@ func TestAgyLaneWorkerStartReadsTheLaneHooksFile(t *testing.T) {
 	}
 }
 
+// A role agent whose role worktree is absent: launch prepares the workspace before the kind's start reads it. The
+// preparer writes the current hooks file the check reads, and the agent starts there: a check before the preparation
+// would refuse the missing file.
+func TestAgyRoleAgentMissingWorktreeIsPreparedThenRead(t *testing.T) {
+	t.Parallel()
+	for _, r := range agyRoles {
+		t.Run(r.role, func(t *testing.T) {
+			t.Parallel()
+			x := agyOn(t, setup, currentHooks())
+			wt := x.p.Cfg().RoleWorktree(r.role)
+			if err := os.RemoveAll(wt); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(wt); !os.IsNotExist(err) {
+				t.Fatalf("precondition: no role worktree %s: %v", wt, err)
+			}
+			var prepared []string
+			x.workspace = func(_ context.Context, dir string) error {
+				prepared = append(prepared, dir)
+				x.p.Write(filepath.Join(dir, agykind.HooksFile), currentHooks())
+				return nil
+			}
+			x.shell(r.pane, r.agent, "")
+			out, ok := x.restart(launch.Request{Agent: r.agent, Fresh: true})
+			if !ok {
+				t.Fatalf("restart failed:\n%s", out)
+			}
+			contains(t, x.startCall(), "kind=agy", "the start")
+			if !slices.Equal(prepared, []string{wt}) {
+				t.Errorf("the prepared workspaces %q, want [%q]", prepared, wt)
+			}
+			eq(t, x.p.Read(filepath.Join(wt, agykind.HooksFile)), currentHooks(), "the hooks file the check read")
+		})
+	}
+}
+
 // A role agent (the reviewer: a role worktree there, detached) whose worktree's hooks file is stale once launch
 // prepared it (launch moves no existing role worktree) is refused, naming that file and the role worktree's fix; the
 // agent already running in its pane is not stopped. The main checkout's file is current.
@@ -111,7 +157,16 @@ func TestAgyRoleAgentStaleAfterPreparationIsRefusedRunningAgentKept(t *testing.T
 	x.p.Write(filepath.Join(x.p.Root, ".git", "worktrees", filepath.Base(wt), "HEAD"),
 		"3e2887a0865ebc86e62ed858ef347b863942ef12\n")
 	path := filepath.Join(wt, agykind.HooksFile)
-	x.p.Write(path, staleHooks)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("precondition: no role worktree hooks file yet: %v", err)
+	}
+	x.workspace = func(_ context.Context, dir string) error {
+		if dir != wt {
+			t.Errorf("the prepared workspace %s, want %s", dir, wt)
+		}
+		x.p.Write(path, staleHooks)
+		return nil
+	}
 	x.agent("w1:p7", "pj-rev", "agy", "idle")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true})
 	refusedFor(t, x, out, ok, "agy's hooks: "+path+"'s obor entry is not this kit's",

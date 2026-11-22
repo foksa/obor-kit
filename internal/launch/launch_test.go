@@ -104,7 +104,9 @@ type fx struct {
 	// where is serve's where answer the launcher's Locate reads (nil: serve answers that no pane proves the agent and
 	// that the panes asked about run no agent it knows).
 	where func(req wire.WhereReq) (wire.WhereReply, error)
-	mu    sync.Mutex // guards reported, logged, open, searches
+	// workspace is the launcher's workspace preparer (nil: its own, project.AddWorktree and project.LinkInto).
+	workspace func(ctx context.Context, dir string) error
+	mu        sync.Mutex // guards reported, logged, open, searches
 }
 
 // hold makes pid hold path open (a Codex writing its rollout).
@@ -285,7 +287,8 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 			x.mu.Unlock()
 			return x.startErr
 		},
-		Install: func() agents.InstallHost { return x.install },
+		Install:   func() agents.InstallHost { return x.install },
+		Workspace: x.workspace,
 		Where: func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
 			if x.where != nil {
 				return x.where(req)
