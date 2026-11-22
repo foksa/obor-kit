@@ -94,6 +94,10 @@ func TestHookMapping(t *testing.T) {
 			"", "obor: git writes are denied in a lane\n", 2,
 			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": `cd '/p/it'\''s' && git commit -m x`}}),
 			map[string]any{"decision": "deny", "reason": "obor: git writes are denied in a lane"}},
+		{"a daemon command", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "run_command", "args": {"CommandLine": "npm run dev", "IsDaemon": true}}}`,
+			"", "", 0,
+			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": "npm run dev", "run_in_background": true}}),
+			map[string]any{"decision": "ask"}},
 		{"a write", `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "write_file", "args": {"Path": "/p/wt/L-01/a.go", "Content": "x"}}}`,
 			"", "", 0,
 			"pre-tool-use", claude("PreToolUse", map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": "/p/wt/L-01/a.go"}}),
@@ -132,7 +136,7 @@ func TestHookMapping(t *testing.T) {
 }
 
 // Events obor has no hook for answer at once, obor not run: a later model call of a turn and agy's other events no
-// opinion, a tool with no Claude twin ask.
+// opinion, a tool the table passes ask.
 func TestHookNoRun(t *testing.T) {
 	for in, want := range map[string]map[string]any{
 		`{"hookEventName": "PreInvocation", ` + common + `, "invocationNum": 2}`:                                       {},
@@ -186,8 +190,8 @@ func TestHookFailures(t *testing.T) {
 	}
 }
 
-// Outside an obor project (the event's cwd, else the hook's own dir) obor is not run: a tool call is ask, any other
-// event no opinion, an event that does not parse ask.
+// Outside an obor project (the event's cwd, else the hook's own dir) obor is not run: a tool call is ask (a workflow and
+// a tool the table does not know too), any other event no opinion, an event that does not parse ask.
 func TestHookOutsideProject(t *testing.T) {
 	var asked []string
 	in := func(dir string) bool { asked = append(asked, dir); return false }
@@ -196,6 +200,8 @@ func TestHookOutsideProject(t *testing.T) {
 		`{"hookEventName": "SessionStart", ` + common + `}`:                                                                   {},
 		`{"hookEventName": "Stop", ` + common + `}`:                                                                           {},
 		`not json`: {"decision": "ask"},
+		`{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "run_workflow", "args": {"Script": "x"}}}`: {"decision": "ask"},
+		`{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": "browser_click"}}`:                         {"decision": "ask"},
 	} {
 		var runs []ran
 		var got map[string]any
@@ -205,7 +211,7 @@ func TestHookOutsideProject(t *testing.T) {
 		}
 	}
 	slices.Sort(asked)
-	if want := []string{"/p/.agents", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01"}; !slices.Equal(asked, want) {
+	if want := []string{"/p/.agents", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01"}; !slices.Equal(asked, want) {
 		t.Errorf("InProject asked of %q, want %q: the event's cwd, the hook's dir for the event with none", asked, want)
 	}
 }
@@ -242,13 +248,12 @@ func TestInProject(t *testing.T) {
 }
 
 // HooksEntry is obor's named hook as the probes' fixture spells one: SessionStart, PreInvocation and Stop flat, each
-// running obor kind agy hook with agy's 30 s timeout; PreToolUse one group per guarded tool, its matcher the tool's
-// name.
+// running obor kind agy hook with agy's 30 s timeout; PreToolUse one group, its matcher * (every tool, agy-probes.md
+// P13).
 func TestHooksEntry(t *testing.T) {
 	h := map[string]any{"type": "command", "command": "obor kind agy hook", "timeout": 30}
-	group := func(tool string) any { return map[string]any{"matcher": tool, "hooks": []any{h}} }
 	want := map[string]any{"SessionStart": []any{h}, "PreInvocation": []any{h}, "Stop": []any{h},
-		"PreToolUse": []any{group("run_command"), group("write_file"), group("edit_file")}}
+		"PreToolUse": []any{map[string]any{"matcher": "*", "hooks": []any{h}}}}
 	b, _ := json.Marshal(kind.HooksEntry())
 	if got := obj(string(b)); !reflect.DeepEqual(got, obj(mustJSON(want))) {
 		t.Errorf("HooksEntry = %v, want %v", got, want)
@@ -261,4 +266,74 @@ func TestHooksEntry(t *testing.T) {
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// obor-kit's committed .agents/hooks.json holds obor's named hook as HooksEntry writes it: its PreToolUse one
+// match-all group, not a list of tools.
+func TestCommittedHooksFile(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", kind.HooksFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file map[string]any
+	if err := json.Unmarshal(b, &file); err != nil {
+		t.Fatalf("%s: %v", kind.HooksFile, err)
+	}
+	if file["obor"] == nil {
+		t.Fatalf("precondition: %s has obor's named hook: %s", kind.HooksFile, b)
+	}
+	if want := obj(mustJSON(kind.HooksEntry())); !reflect.DeepEqual(file["obor"], want) {
+		t.Errorf("%s's obor = %v, want HooksEntry %v", kind.HooksFile, file["obor"], want)
+	}
+	groups, _ := file["obor"].(map[string]any)["PreToolUse"].([]any)
+	if len(groups) != 1 || groups[0].(map[string]any)["matcher"] != "*" {
+		t.Errorf("%s's PreToolUse = %v, want one group matching every tool", kind.HooksFile, groups)
+	}
+}
+
+// Every PreToolUse in a project goes by the transport's table, with obor hook answering deny (exit 2) to whatever it
+// is asked: run_command, write_file and edit_file run it (its deny comes back); the tools that only read, talk or
+// start a hooked child are no opinion (ask), obor not run; run_workflow and swarm are denied as a workflow script, a
+// tool the table does not know (or no name) denied naming it, obor not run either.
+func TestHookToolTable(t *testing.T) {
+	const workflow = "obor cannot guard a workflow script; run commands with run_command"
+	unknown := func(name string) map[string]any {
+		return map[string]any{"decision": "deny", "reason": "obor's agy transport does not know " + name +
+			"; a new agy tool needs a row in kinds/agy/kind/hook.go"}
+	}
+	guarded := map[string]any{"decision": "deny", "reason": "obor: denied by the guard"}
+	ask := map[string]any{"decision": "ask"}
+	for _, c := range []struct {
+		tool string
+		runs int
+		want map[string]any
+	}{
+		{"run_command", 1, guarded}, {"write_file", 1, guarded}, {"edit_file", 1, guarded},
+		{"read_file", 0, ask}, {"search_web", 0, ask}, {"list_resources", 0, ask}, {"read_resource", 0, ask},
+		{"ask_question", 0, ask}, {"manage_task", 0, ask}, {"manage_subagents", 0, ask}, {"define_subagent", 0, ask},
+		{"invoke_subagent", 0, ask}, {"schedule", 0, ask}, {"send_message", 0, ask}, {"finish", 0, ask},
+		{"call_mcp_tool", 0, ask},
+		{"run_workflow", 0, map[string]any{"decision": "deny", "reason": workflow}},
+		{"swarm", 0, map[string]any{"decision": "deny", "reason": workflow}},
+		{"browser_click", 0, unknown("browser_click")},
+		{"Run_Command", 0, unknown("Run_Command")},
+		{"", 0, unknown("a tool call with no name")},
+	} {
+		var runs []ran
+		in := `{"hookEventName": "PreToolUse", ` + common + `, "toolCall": {"name": ` + mustJSON(c.tool) +
+			`, "args": {"CommandLine": "ls", "Path": "/p/wt/L-01/a", "Script": "import os"}}}`
+		got, _ := hook(t, in, fake(&runs, "", "obor: denied by the guard\n", 2, nil))
+		if len(runs) != c.runs || (c.runs == 1 && runs[0].name != "pre-tool-use") {
+			t.Errorf("%q: obor hook ran %+v, want %d run(s) of pre-tool-use", c.tool, runs, c.runs)
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%q: the answer = %v, want %v", c.tool, got, c.want)
+		}
+	}
+	// No tool event at all (agy sends PreToolUse with no toolCall): a deny, never the guard's allow.
+	var runs []ran
+	if got, _ := hook(t, `{"hookEventName": "PreToolUse", `+common+`}`, fake(&runs, "", "", 0, nil)); len(runs) != 0 ||
+		!reflect.DeepEqual(got, unknown("a tool call with no name")) {
+		t.Errorf("a PreToolUse with no toolCall: ran %d, answered %v; want a deny", len(runs), got)
+	}
 }
