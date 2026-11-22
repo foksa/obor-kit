@@ -86,7 +86,7 @@ func (a *App) pruneLogIn(p *proj, cfg *config.Config, now time.Time, batch int) 
 // pruneCandidates is p's tasks the prune may delete at cutoff (under mu), each as the fold holds it now: dropped, or
 // merged with its after-merge steps done, no needs-you held or due, its end before cutoff; no lanes row names it, no
 // agent's start row was recorded by it, its record is not the idle key (idleEnd), idle or not now, no step of it runs or drop
-// of it is decided, and with a review open it was not dispatched after the review started (fixCandidates would link
+// of it is decided, and with a review open it is not a fix candidate of it (fixCandidate: fixCandidates would link
 // it). A rejected task is not ended for this: the owner
 // still owes it a drop.
 func (p *proj) pruneCandidates(cfg *config.Config, cutoff time.Time) map[string]mtask {
@@ -115,7 +115,7 @@ func (p *proj) pruneCandidates(cfg *config.Config, cutoff time.Time) map[string]
 		case mt.needs.due() || mt.needs.held():
 		case mt.endedAt.IsZero() || !mt.endedAt.Before(cutoff):
 		case pinned[task] || p.held[task] != "" || p.ended[task]:
-		case review >= 0 && mt.dispSeq > review:
+		case review >= 0 && mt.fixCandidate(review):
 		default:
 			out[task] = *mt
 		}

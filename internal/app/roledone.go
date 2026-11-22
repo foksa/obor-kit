@@ -26,11 +26,12 @@ func roleDoneLine(agent string, age time.Duration) string {
 // roleStopHint is the command that stops agent: obor status ends its line with it (wire.AgentStatus.Hint).
 func roleStopHint(agent string) string { return "obor restart " + agent + " --stop" }
 
-// roleDonePane is one of p's role agents' panes a done stretch may start in: the agent, and the pane its activity
-// dates.
+// roleDonePane is one of p's role agents' panes a done stretch may start in: the agent, its pane (overlaid with its
+// recorded session's transcript, when any) and the kind that reads it.
 type roleDonePane struct {
 	agent string
 	pane  port.Pane
+	kind  string
 }
 
 // roleDonePanes is the panes a done stretch may start in now (under mu): a pane of p that is ready (idle or done),
@@ -57,6 +58,7 @@ func (a *App) roleDonePanes(p *proj, cfg *config.Config) []roleDonePane {
 	var out []roleDonePane
 	for _, c := range cands {
 		if role, ok := roles[c.agent]; ok && !p.openWork(c.agent, role) {
+			c.pane, c.kind = p.sessionPane(c.pane)
 			out = append(out, c)
 		}
 	}
@@ -80,7 +82,7 @@ func (a *App) doneRoles(cfg *config.Config, now time.Time) map[string]time.Time 
 	a.mu.Unlock()
 	out := map[string]time.Time{}
 	for _, c := range cands {
-		last, known := a.activity.Activity(p.kind(c.pane.Agent), c.pane)
+		last, known := a.activity.Activity(p.kind(c.kind), c.pane)
 		if known && now.Sub(last) >= roleDoneAfter {
 			out[c.agent] = last
 		}

@@ -47,15 +47,22 @@ type verifyBrief struct {
 	head  string
 }
 
-// fixCandidates is the loop's tasks that can be linked to the review started at start (in task order): those still
-// open and those dispatched or ended since it, with their outcome.
+// fixCandidate: mt can be linked to the review started at start (not an undispatched spec drop, and still open or
+// dispatched or ended since start). Shared with pruneCandidates so the nightly prune keeps every task the verify
+// would link.
+func (mt *mtask) fixCandidate(start int64) bool {
+	if mt.droppedRev > 0 {
+		return false
+	}
+	return !states[mt.state].ended || max(mt.dispSeq, mt.endSeq()) > start
+}
+
+// fixCandidates is the loop's tasks that can be linked to the review started at start (in task order): those
+// fixCandidate admits, with their outcome.
 func fixCandidates(loop map[string]*mtask, start int64) []review.Link {
 	var out []review.Link
 	for _, mt := range loop {
-		if mt.droppedRev > 0 {
-			continue
-		}
-		if states[mt.state].ended && max(mt.dispSeq, mt.endSeq()) <= start {
+		if !mt.fixCandidate(start) {
 			continue
 		}
 		f := review.Link{Task: mt.task, Dispatched: mt.dispSeq}
