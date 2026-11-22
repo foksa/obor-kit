@@ -20,8 +20,8 @@ import (
 
 // The obor MCP server (`obor mcp`) is registered per agent kind, as its bridge says
 // (agents.Kind.Install): by the kit's manifest (Claude), per start (Codex's launch args, OpenCode's generated config)
-// or by a committed file of the project (agy's .agents/mcp_config.json, which obor setup agents writes). A kind
-// installs nothing user-global. This file reads those files.
+// or by committed files of the project (agy's .agents/mcp_config.json and .agents/hooks.json, which obor setup agents
+// writes). A kind installs nothing user-global. This file reads those files.
 
 // readConfig is the file as JSON (an absent or blank file is an empty config; not JSON is an error).
 func readConfig(path string) ([]byte, error) {
@@ -163,10 +163,10 @@ func pluginRootLine(out string) string {
 	return ""
 }
 
-// mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project uses (usedKinds; the others are
-// "not used", never a WARN) whether the obor MCP server is registered, then `obor mcp --check` (the handshake against
-// the server itself); --model <name> instead asks for that model alone, from its effective start args.
-// Read-only.
+// mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project configures (usedKinds; the
+// others are "not used", never a WARN) whether the obor MCP server (and any project hooks file) is registered, then
+// `obor mcp --check` (the handshake against the server itself); --model <name> instead asks for that model alone,
+// from its effective start args. Read-only.
 func (s *Setup) mcpCmd(ctx context.Context, args []string) error {
 	lane := ""
 	switch {
@@ -185,7 +185,7 @@ func (s *Setup) mcpCmd(ctx context.Context, args []string) error {
 	bad := false
 	for _, name := range s.cfg.Kinds().Names() {
 		if used != nil && !used[name] {
-			s.say("mcp %s: not used (no model of a level, role or agent of this project runs it)", name)
+			s.say("mcp %s: not used (no agents.models entry of kind %s)", name, name)
 			continue
 		}
 		k, _ := s.cfg.Kind(name)
@@ -200,33 +200,14 @@ func (s *Setup) mcpCmd(ctx context.Context, args []string) error {
 			bad = true
 			continue
 		}
-		m := in.MCP
-		switch {
-		case m.Where == agents.PerStart: // nothing to install
-			how, _, _ := m.Lane(nil, os.ReadFile)
-			s.say("mcp %s: registered per start (%s)", name, how)
-			continue
-		case m.Where == agents.Project && !filepath.IsAbs(m.Path): // no project here
-			s.say("mcp %s: registered by each project's %s (obor setup agents in the project writes it)", name, m.Path)
-			continue
-		case m.Where == agents.Project:
+		if in.MCP.Where == agents.Project && filepath.IsAbs(in.MCP.Path) ||
+			in.Hooks.Where == agents.Project && filepath.IsAbs(in.Hooks.Path) {
 			s.pathWarning(ctx, name)
 		}
-		// a manifest (every obor pane of the kind loads it with the plugin) or the project's file
-		fix := fixFor(m)
-		state, path, err := registration(m)
-		switch {
-		case err != nil:
-			s.say("WARN mcp %s: not registered: %s: %v (%s)", name, path, err, fix)
-		case state == entryNone:
-			s.say("WARN mcp %s: not registered: no current %s in %s (%s)", name, strings.Join(m.Key, "."), path, fix)
-		default:
-			s.say("mcp %s: registered (%s)", name, path)
+		bad = s.checkRegistration("mcp", name, in.MCP) || bad
+		if in.Hooks.Where == agents.Project {
+			bad = s.checkRegistration("hooks", name, in.Hooks) || bad
 		}
-		if state == entryUnpinned {
-			s.say("WARN mcp %s: registered without the %s pin: it reaches the cwd checkout's serve in an obor checkout (%s)", name, agents.Pin, fixHint)
-		}
-		bad = bad || state == entryNone
 	}
 	line, err := s.McpCheck(s.Env)
 	if err != nil {
@@ -242,6 +223,35 @@ func (s *Setup) mcpCmd(ctx context.Context, args []string) error {
 	return nil
 }
 
+// checkRegistration reports whether m (label: "mcp" or "hooks") is registered for kind name; bad is true when the
+// expected file entry is absent or unreadable.
+func (s *Setup) checkRegistration(label, name string, m agents.MCPRegistration) (bad bool) {
+	switch {
+	case m.Where == agents.PerStart: // nothing to install
+		how, _, _ := m.Lane(nil, os.ReadFile)
+		s.say("%s %s: registered per start (%s)", label, name, how)
+		return false
+	case m.Where == agents.Project && !filepath.IsAbs(m.Path): // no project here
+		s.say("%s %s: registered by each project's %s (obor setup agents in the project writes it)", label, name, m.Path)
+		return false
+	}
+	// a manifest (every obor pane of the kind loads it with the plugin) or the project's file
+	fix := fixFor(m)
+	state, path, err := registration(m)
+	switch {
+	case err != nil:
+		s.say("WARN %s %s: not registered: %s: %v (%s)", label, name, path, err, fix)
+	case state == entryNone:
+		s.say("WARN %s %s: not registered: no current %s in %s (%s)", label, name, strings.Join(m.Key, "."), path, fix)
+	default:
+		s.say("%s %s: registered (%s)", label, name, path)
+	}
+	if state == entryUnpinned {
+		s.say("WARN %s %s: registered without the %s pin: it reaches the cwd checkout's serve in an obor checkout (%s)", label, name, agents.Pin, fixHint)
+	}
+	return state == entryNone
+}
+
 // installHost is this machine for agents.InstallChecker: the CLI looked up on the project env's PATH (an env without
 // one finds none), the quarantine flags read with macOS's xattr (project.InstallHost, the one builder launch shares).
 func (s *Setup) installHost() agents.InstallHost {
@@ -251,9 +261,9 @@ func (s *Setup) installHost() agents.InstallHost {
 	return project.InstallHost(s.Env)
 }
 
-// usedKinds are the kinds the project runs: every used model's (a level's, a role's, an agent's), and agents.Default
-// for a role with no model, as launch starts it; nil when there is no project config (check every kind), and a config
-// that fails to load is its own error (the command fails with it).
+// usedKinds are the kinds the project configures: every agents.models entry's kind, and agents.Default for a role with
+// no model, as launch starts it; nil when there is no project config (check every kind), and a config that fails to
+// load is its own error (the command fails with it).
 func (s *Setup) usedKinds() (map[string]bool, error) {
 	cfg, err := s.projectConfig()
 	if err != nil || cfg == nil {
@@ -261,15 +271,13 @@ func (s *Setup) usedKinds() (map[string]bool, error) {
 	}
 	s.cfg = cfg
 	used := map[string]bool{}
-	for _, name := range s.cfg.UsedModels() {
+	for _, name := range s.cfg.ModelNames() {
 		if m, ok := s.cfg.Model(name); ok {
 			used[m.Kind] = true
 		}
 	}
 	for _, rc := range s.cfg.RoleAgents() {
-		if lt, ok := s.cfg.Model(rc.Type); ok && lt.Kind != "" {
-			used[lt.Kind] = true
-		} else {
+		if lt, ok := s.cfg.Model(rc.Type); !ok || lt.Kind == "" {
 			used[agents.Default] = true
 		}
 	}
@@ -327,6 +335,7 @@ func (s *Setup) mcpLane(ctx context.Context, name string) error {
 	}
 	how, registered, static := m.Lane(built.Args, os.ReadFile)
 
+	warnedPath := false
 	switch {
 	case !static && registered:
 		s.say("mcp model %s (%s): registered per start (%s)", name, lt.Kind, how)
@@ -338,23 +347,37 @@ func (s *Setup) mcpLane(ctx context.Context, name string) error {
 		if m.Where == agents.Project {
 			by = "the project's file"
 			s.pathWarning(ctx, lt.Kind)
+			warnedPath = true
 		}
-		switch state, path, err := registration(m); {
-		case err != nil:
-			s.say("WARN mcp model %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fixFor(m))
-			bad = true
-		case state == entryNone:
-			s.say("WARN mcp model %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fixFor(m))
-			bad = true
-		default:
-			s.say("mcp model %s (%s): registered by %s (%s)", name, lt.Kind, by, path)
+		bad = s.checkLaneFile("mcp", name, lt.Kind, by, m) || bad
+	}
+	if in.Hooks.Where == agents.Project {
+		if !warnedPath {
+			s.pathWarning(ctx, lt.Kind)
 		}
+		bad = s.checkLaneFile("hooks", name, lt.Kind, "the project's file", in.Hooks) || bad
 	}
 	if bad {
 		return project.Failf("mcp model %s", name)
 	}
 	s.say("OK mcp model %s", name)
 	return nil
+}
+
+// checkLaneFile reports whether m (label: "mcp" or "hooks") is registered for model of kind; bad is true when the
+// expected file entry is absent or unreadable.
+func (s *Setup) checkLaneFile(label, model, kind, by string, m agents.MCPRegistration) (bad bool) {
+	switch state, path, err := registration(m); {
+	case err != nil:
+		s.say("WARN %s model %s (%s): not registered: %s: %v (%s)", label, model, kind, path, err, fixFor(m))
+		return true
+	case state == entryNone:
+		s.say("WARN %s model %s (%s): not registered: no current %s in %s (%s)", label, model, kind, strings.Join(m.Key, "."), path, fixFor(m))
+		return true
+	default:
+		s.say("%s model %s (%s): registered by %s (%s)", label, model, kind, by, path)
+		return false
+	}
 }
 
 // kindList is the kinds of kinds (obor has a bridge for each), "a, b and c".

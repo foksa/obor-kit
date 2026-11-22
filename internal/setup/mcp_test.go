@@ -16,15 +16,15 @@ import (
 	"obor/internal/testkit"
 )
 
-// the doctor checks the kinds the project's models use (a level's,
-// a role's, an agent's); another registered kind is "not used", never a WARN or FAIL. A Claude-only project with no
-// OpenCode entry is OK; a role of an OpenCode model makes OpenCode used (checked: registered per start); a role
-// with no model runs agents.Default.
+// the doctor checks every kind any agents.models entry names (and agents.Default for a role with no model); another
+// registered kind is "not used", never a WARN or FAIL. A Claude-only project with no OpenCode entry is OK; adding an
+// OpenCode model to agents.models makes OpenCode checked (registered per start) even when no level or role names it.
 func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
+	claudeModels := testkit.Set("agents.models", `{"opus": {"kind": "claude", "id": "opus"}, "sonnet": {"kind": "claude", "id": "sonnet"}, "haiku": {"kind": "claude", "id": "haiku"}}`)
 	claudeOnly := testkit.Set("agents.difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
-	x.Config(claudeOnly)
+	x.Config(claudeModels, claudeOnly)
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 	if cfg, err := config.Load(x.Root); err != nil {
@@ -40,16 +40,20 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 		t.Errorf("a Claude-only project: exit %d, last %q\n%s", rc, last(out), out)
 	}
 	has(t, out, "mcp claude: registered", "claude is checked")
-	has(t, out, "mcp opencode: not used (no model of a level, role or agent of this project runs it)", "opencode is listed, not checked")
+	has(t, out, "mcp opencode: not used (no agents.models entry of kind opencode)", "opencode is listed, not checked")
 	has(t, out, "mcp codex: not used", "codex is listed, not checked")
+	has(t, out, "mcp agy: not used", "agy is listed, not checked")
 	hasNot(t, out, "WARN", "no warning for a kind the project does not run")
 
-	x.Config(claudeOnly, testkit.AddModels(`{"muse": {"kind": "opencode", "id": "x"}}`), testkit.Set("agents.roles.reviewer", "muse"))
+	x.Config(claudeModels, claudeOnly, testkit.AddModels(`{"muse": {"kind": "opencode", "id": "x"}}`))
+	if slices.Contains(x.Cfg().UsedModels(), "muse") {
+		t.Fatal("precondition: no level or role names muse")
+	}
 	out, rc = x.run(t, "mcp")
 	if rc != 0 || last(out) != "OK mcp" {
-		t.Errorf("an opencode reviewer, no opencode entry: exit %d, last %q\n%s", rc, last(out), out)
+		t.Errorf("an opencode model in agents.models, no opencode entry: exit %d, last %q\n%s", rc, last(out), out)
 	}
-	has(t, out, "mcp opencode: registered per start (OPENCODE_CONFIG", "a role's kind is checked")
+	has(t, out, "mcp opencode: registered per start (OPENCODE_CONFIG", "any agents.models entry's kind is checked")
 	has(t, out, "mcp claude: registered", "claude models of the levels, and the lead has no model: agents.Default")
 	has(t, out, "mcp codex: not used", "codex still unused")
 }
@@ -265,6 +269,7 @@ func TestSetupAgentsCachesTheKitKindWithoutWriting(t *testing.T) {
 func TestSetupMCPInstallWarning(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
+	claudeModels := testkit.Set("agents.models", `{"opus": {"kind": "claude", "id": "opus"}, "sonnet": {"kind": "claude", "id": "sonnet"}, "haiku": {"kind": "claude", "id": "haiku"}}`)
 	claudeOnly := testkit.Set("agents.difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
 	const host = "/c/0.167.0/bin/codex-code-mode-host"
 	asked := 0
@@ -273,7 +278,7 @@ func TestSetupMCPInstallWarning(t *testing.T) {
 			LookPath:   func(string) (string, error) { asked++; return "/c/0.167.0/bin/codex", nil },
 			Quarantine: func(p string) (uint32, bool) { return 0x0181, p == host }}
 	}
-	x.Config(claudeOnly)
+	x.Config(claudeModels, claudeOnly)
 	out, rc := x.run(t, "mcp")
 	if rc != 0 || asked != 0 {
 		t.Errorf("codex unused: exit %d, install checked %d times\n%s", rc, asked, out)
@@ -352,23 +357,29 @@ func writeFakeObor(t *testing.T, path, body string) {
 	}
 }
 
-// obor setup mcp checks a used agy's project file: missing, a WARN naming setup agents as the fix (the doctor
-// fails); written, registered. The file names obor by PATH, so a PATH with no obor, or with one running another kit,
-// is a WARN; one running this kit is none.
+// obor setup mcp checks an agy model's project files (.agents/mcp_config.json and .agents/hooks.json) even when no
+// level or role uses that model: missing either, a WARN naming setup agents as the fix (the doctor fails); written,
+// both registered. The files name obor by PATH, so a PATH with no obor, or with one running another kit, is a WARN;
+// one running this kit is none.
 // Not parallel: the config load registers its plugin kinds in the process registry.
 func TestSetupMCPChecksAgysProjectFile(t *testing.T) {
-	x := newFx(t, testkit.AddModels(`{"neon": {"kind": "agy", "id": "gemini-4-neon-high"}}`), testkit.Set("agents.roles.reviewer", "neon"))
+	x := newFx(t, testkit.AddModels(`{"neon": {"kind": "agy", "id": "gemini-4-neon-high"}}`))
+	if slices.Contains(x.Cfg().UsedModels(), "neon") {
+		t.Fatal("precondition: no level or role uses neon")
+	}
 	bin := filepath.Join(x.Base, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg"), "PATH=" + bin}
 	file := filepath.Join(x.Root, ".agents", "mcp_config.json")
+	hfile := filepath.Join(x.Root, ".agents", "hooks.json")
 	out, rc := x.run(t, "mcp")
 	if rc == 0 {
-		t.Errorf("no project file: exit 0\n%s", out)
+		t.Errorf("no project files: exit 0\n%s", out)
 	}
-	has(t, out, "WARN mcp agy: not registered: no current mcpServers.obor in "+file+" (run obor setup agents in the project, then commit the file)", "missing")
+	has(t, out, "WARN mcp agy: not registered: no current mcpServers.obor in "+file+" (run obor setup agents in the project, then commit the file)", "missing mcp")
+	has(t, out, "WARN hooks agy: not registered: no current obor in "+hfile+" (run obor setup agents in the project, then commit the file)", "missing hooks")
 	has(t, out, "WARN mcp agy: no obor on PATH", "no obor on PATH")
 	x.ok(t, "agents")
 	writeFakeObor(t, filepath.Join(bin, "obor"), "printf 'plugin root: %s\\n' '"+kit+"'\n")
@@ -376,9 +387,30 @@ func TestSetupMCPChecksAgysProjectFile(t *testing.T) {
 	if rc != 0 || last(out) != "OK mcp" {
 		t.Errorf("written, the kit's obor on PATH: exit %d, last %q\n%s", rc, last(out), out)
 	}
-	has(t, out, "mcp agy: registered ("+file+")", "registered")
-	hasNot(t, out, "WARN mcp agy", "the kit's own obor: no warning")
-	has(t, x.ok(t, "mcp", "--model", "neon"), "mcp model neon (agy): registered by the project's file ("+file+")", "a lane's start")
+	has(t, out, "mcp agy: registered ("+file+")", "registered mcp")
+	has(t, out, "hooks agy: registered ("+hfile+")", "registered hooks")
+	hasNot(t, out, "WARN", "the kit's own obor: no warning")
+	laneOut := x.ok(t, "mcp", "--model", "neon")
+	has(t, laneOut, "mcp model neon (agy): registered by the project's file ("+file+")", "a lane's start mcp")
+	has(t, laneOut, "hooks model neon (agy): registered by the project's file ("+hfile+")", "a lane's start hooks")
+
+	// Missing hooks file alone fails both the doctor and --model.
+	if err := os.Remove(hfile); err != nil {
+		t.Fatal(err)
+	}
+	out, rc = x.run(t, "mcp")
+	if rc == 0 {
+		t.Errorf("missing hooks file: exit 0\n%s", out)
+	}
+	has(t, out, "mcp agy: registered ("+file+")", "mcp still registered")
+	has(t, out, "WARN hooks agy: not registered: no current obor in "+hfile+" (run obor setup agents in the project, then commit the file)", "missing hooks reported")
+	out, rc = x.run(t, "mcp", "--model", "neon")
+	if rc == 0 {
+		t.Errorf("missing hooks file (--model): exit 0\n%s", out)
+	}
+	has(t, out, "WARN hooks model neon (agy): not registered: no current obor in "+hfile+" (run obor setup agents in the project, then commit the file)", "missing hooks reported by --model")
+
+	x.ok(t, "agents")
 	other := filepath.Join(x.Base, "other-kit")
 	writeFakeObor(t, filepath.Join(bin, "obor"), "printf 'plugin root: %s\\n' '"+other+"'\n")
 	out, _ = x.run(t, "mcp")
