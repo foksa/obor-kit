@@ -351,24 +351,35 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 	}
 }
 
-// a lead's start (untrimmed) and a worker's (trimmed) name different generated configs, and two worker starts the
-// same one: the project's override file changes the trimmed config, so the two starts of a project never write one
-// path with different bytes. Each start's env names the file it wrote.
+// A lead's start (untrimmed), a role agent's (trimmed) and a lane's (trimmed and strict) name three generated configs,
+// and two starts of one kind the same one: the project's override file changes the trimmed config and a lane's trim its
+// own, so the starts of one project never write one path with different bytes. Each start's env names the file it
+// wrote.
 func TestStartNamesOneFilePerContent(t *testing.T) {
 	k := opencode(t, t.TempDir())
+	xdg := t.TempDir()
+	userFile := filepath.Join(xdg, "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(userFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userFile, []byte(`{"mcp": {"servers": {"mine": {"type": "local", "command": ["m"]}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := func(v string) string { return map[string]string{"XDG_CONFIG_HOME": xdg}[v] }
 	type written struct {
 		name, path string
 		bytes      []byte
 	}
-	startOf := func(trim bool) written {
+	startOf := func(in agents.Start) written {
 		t.Helper()
 		var got written
 		write := func(name string, data []byte) (string, error) {
 			got = written{name: name, path: "/p/.obor/state/" + name, bytes: data}
 			return got.path, nil
 		}
-		l, err := agents.StartOf(k, agents.Start{Kit: "/kit", TrimUser: trim,
-			Overrides: map[string]string{kind.OverrideFile: `{"plugins": ["-herdr.opencode"]}`}, WriteState: write})
+		in.Kit, in.Env, in.WriteState = "/kit", env, write
+		in.Overrides = map[string]string{kind.OverrideFile: `{"plugins": ["-herdr.opencode"]}`}
+		l, err := agents.StartOf(k, in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,18 +388,23 @@ func TestStartNamesOneFilePerContent(t *testing.T) {
 		}
 		return got
 	}
-	lead, worker, again := startOf(false), startOf(true), startOf(true)
-	if lead.name != kind.ConfigFile || worker.name != kind.TrimmedConfigFile {
-		t.Errorf("lead wrote %q, worker %q; want %q and %q", lead.name, worker.name, kind.ConfigFile, kind.TrimmedConfigFile)
+	lane := agents.Start{TrimUser: true, StrictMCP: true}
+	lead, role, worker, again := startOf(agents.Start{}), startOf(agents.Start{TrimUser: true}), startOf(lane), startOf(lane)
+	if lead.name != kind.ConfigFile || role.name != kind.TrimmedConfigFile || worker.name != kind.LaneConfigFile {
+		t.Errorf("lead wrote %q, role agent %q, worker %q; want %q, %q and %q", lead.name, role.name, worker.name,
+			kind.ConfigFile, kind.TrimmedConfigFile, kind.LaneConfigFile)
 	}
-	if bytes.Equal(lead.bytes, worker.bytes) {
+	if bytes.Equal(lead.bytes, role.bytes) {
 		t.Fatal("precondition: the override file changes a trimmed start's config")
 	}
-	if lead.path == worker.path {
-		t.Errorf("lead and worker name one file %q: want two", lead.path)
+	if bytes.Equal(role.bytes, worker.bytes) {
+		t.Fatal("precondition: a lane's trim changes its config")
+	}
+	if lead.path == role.path || role.path == worker.path || lead.path == worker.path {
+		t.Errorf("lead, role agent and worker name %q, %q, %q: want three files", lead.path, role.path, worker.path)
 	}
 	if again.name != worker.name || again.path != worker.path {
-		t.Errorf("two trimmed starts name %q and %q: want one file", worker.path, again.path)
+		t.Errorf("two lane starts name %q and %q: want one file", worker.path, again.path)
 	}
 }
 
@@ -466,9 +482,9 @@ func TestMainRefuses(t *testing.T) {
 }
 
 // userConfig is a user's OpenCode config dir under a fresh XDG_CONFIG_HOME: opencode.json (with comments and
-// trailing commas) holding a setting and two MCP servers. started is the generated config of a start from kit /kit,
-// trimmed or not, with the override file override ("": the project has none), read back.
-func userConfig(t *testing.T) (started func(trim bool, override string) (map[string]any, []byte)) {
+// trailing commas) holding a setting and two MCP servers. started is the generated config of a start from kit /kit with
+// in as the rest of the start (its dir, lane flags and override files), read back.
+func userConfig(t *testing.T) (started func(in agents.Start) (map[string]any, []byte)) {
 	t.Helper()
 	xdg := t.TempDir()
 	file := filepath.Join(xdg, "opencode", "opencode.json")
@@ -483,14 +499,11 @@ func userConfig(t *testing.T) (started func(trim bool, override string) (map[str
 	}
 	k := opencode(t, t.TempDir())
 	env := func(v string) string { return map[string]string{"XDG_CONFIG_HOME": xdg, "HOME": "/nowhere"}[v] }
-	return func(trim bool, override string) (map[string]any, []byte) {
+	return func(in agents.Start) (map[string]any, []byte) {
 		t.Helper()
 		var b []byte
-		write := func(name string, data []byte) (string, error) { b = data; return "/state/" + name, nil }
-		in := agents.Start{Kit: "/kit", TrimUser: trim, Env: env, WriteState: write}
-		if override != "" {
-			in.Overrides = map[string]string{kind.OverrideFile: override}
-		}
+		in.Kit, in.Env = "/kit", env
+		in.WriteState = func(name string, data []byte) (string, error) { b = data; return "/state/" + name, nil }
 		if _, err := agents.StartOf(k, in); err != nil {
 			t.Fatal(err)
 		}
@@ -515,7 +528,10 @@ func serversOf(doc map[string]any) map[string]any {
 // the user's other server and keys stay, and obor's server is not the file's to replace.
 func TestOverrideFileIsMergedOverTheUserConfig(t *testing.T) {
 	started := userConfig(t)
-	doc, _ := started(true, `{"plugins": ["-herdr.opencode"]}`)
+	trimmed := func(override string) (map[string]any, []byte) {
+		return started(agents.Start{TrimUser: true, Overrides: map[string]string{kind.OverrideFile: override}})
+	}
+	doc, _ := trimmed(`{"plugins": ["-herdr.opencode"]}`)
 	if want := []any{"file:///kit/opencode", "-herdr.opencode"}; !reflect.DeepEqual(doc["plugins"], want) {
 		t.Errorf("plugins = %v, want %v", doc["plugins"], want)
 	}
@@ -523,7 +539,7 @@ func TestOverrideFileIsMergedOverTheUserConfig(t *testing.T) {
 		t.Errorf("the override names plugins alone: default_agent %v, servers %v, want the user's own beside obor's", doc["default_agent"], s)
 	}
 
-	doc, _ = started(true, `{"default_agent": "build", "mcp": {"timeout": 5, "servers": {
+	doc, _ = trimmed(`{"default_agent": "build", "mcp": {"timeout": 5, "servers": {
 		"herd": {"disabled": true}, "docs": null, "mine": {"type": "local", "command": ["m"]},
 		"obor": {"type": "local", "command": ["not-obor"]}}}}`)
 	if doc["default_agent"] != "build" {
@@ -553,13 +569,89 @@ func TestOverrideFileIsMergedOverTheUserConfig(t *testing.T) {
 func TestLeadStartConfigIsUnchanged(t *testing.T) {
 	started := userConfig(t)
 	const override = `{"plugins": ["-herdr.opencode"]}`
-	if _, b := started(true, override); bytes.Equal(b, kind.Config("/kit")) {
+	file := map[string]string{kind.OverrideFile: override}
+	if _, b := started(agents.Start{TrimUser: true, Overrides: file}); bytes.Equal(b, kind.Config("/kit")) {
 		t.Fatal("precondition: the override file changes a trimmed start's config")
 	}
-	if _, b := started(false, override); !bytes.Equal(b, kind.Config("/kit")) {
+	if _, b := started(agents.Start{Overrides: file}); !bytes.Equal(b, kind.Config("/kit")) {
 		t.Errorf("a lead's config:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
 	}
-	if _, b := started(true, ""); !bytes.Equal(b, kind.Config("/kit")) {
+	if _, b := started(agents.Start{TrimUser: true}); !bytes.Equal(b, kind.Config("/kit")) {
 		t.Errorf("a trimmed start's config with no override file:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
+	}
+}
+
+// A lane's agent (a worker, the owner's drive agent) keeps the user's own MCP servers out of its context: the
+// generated config holds each server of the user's that the project's own opencode.json(c) in the start dir does not
+// define and the override file does not name as the user's whole definition with disabled true (OpenCode ignores a bare
+// one), obor's own server and plugin stay, and a user server named obor is obor's. A lead's start and a role agent's
+// (trimmed, no lane) leave the user's servers to load.
+func TestLaneStartDisablesTheUsersServers(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	xdg := t.TempDir()
+	userFile := filepath.Join(xdg, "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(userFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userFile, []byte(`{"mcp": {"servers": {
+		"a": {"type": "local", "command": ["/u/a", "mcp"], "environment": {"A": "1"}},
+		"b": {"type": "remote", "url": "https://user.example/mcp"},
+		"obor": {"type": "local", "command": ["/u/obor", "mcp"]}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// the project's own config defines b, in its .opencode/ JSONC file
+	project := t.TempDir()
+	projectFile := filepath.Join(project, ".opencode", "opencode.jsonc")
+	if err := os.MkdirAll(filepath.Dir(projectFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectFile, []byte(`{ // ours
+		"mcp": {"servers": {"b": {"type": "remote", "url": "https://ours.example/mcp"},},},
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := func(v string) string { return map[string]string{"XDG_CONFIG_HOME": xdg, "HOME": "/nowhere"}[v] }
+	start := func(in agents.Start) (map[string]any, []byte) {
+		t.Helper()
+		var b []byte
+		in.Kit, in.Env, in.Dir = "/kit", env, project
+		in.WriteState = func(name string, data []byte) (string, error) { b = data; return "/state/" + name, nil }
+		if _, err := agents.StartOf(k, in); err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatalf("the generated config: %v: %s", err, b)
+		}
+		return doc, b
+	}
+	doc, _ := start(agents.Start{TrimUser: true, StrictMCP: true})
+	s := serversOf(doc)
+	a, _ := s["a"].(map[string]any)
+	if want := map[string]any{"type": "local", "command": []any{"/u/a", "mcp"},
+		"environment": map[string]any{"A": "1"}, "disabled": true}; !reflect.DeepEqual(a, want) {
+		t.Errorf("a worker's mcp.servers.a = %v, want the user's whole definition with disabled: true: %v", a, want)
+	}
+	o, _ := s["obor"].(map[string]any)
+	_, defined := s["b"]
+	if defined || len(s) != 2 || !reflect.DeepEqual(o["command"], []any{"/kit/bin/obor", "mcp"}) ||
+		!reflect.DeepEqual(o["environment"], map[string]any{agents.Pin: "1"}) || o["disabled"] != nil {
+		t.Errorf("a worker's mcp.servers = %v: want a disabled and obor's own server, b the project's", s)
+	}
+	if want := []any{"file:///kit/opencode"}; !reflect.DeepEqual(doc["plugins"], want) {
+		t.Errorf("a worker's plugins = %v, want %v", doc["plugins"], want)
+	}
+	doc, _ = start(agents.Start{TrimUser: true, StrictMCP: true, Overrides: map[string]string{kind.OverrideFile: `{"mcp": {"servers": {
+		"a": {"type": "local", "command": ["/p/a"]}}}}`}})
+	a, _ = serversOf(doc)["a"].(map[string]any)
+	_, disabled := a["disabled"]
+	if disabled || !reflect.DeepEqual(a["command"], []any{"/p/a"}) || a["environment"] == nil {
+		t.Errorf("an override naming a: mcp.servers.a = %v, want the override's command, the lane's trim no word on it", a)
+	}
+	if _, b := start(agents.Start{}); !bytes.Equal(b, kind.Config("/kit")) {
+		t.Errorf("a lead's config:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
+	}
+	if _, b := start(agents.Start{TrimUser: true}); !bytes.Equal(b, kind.Config("/kit")) {
+		t.Errorf("a role agent's config:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
 	}
 }

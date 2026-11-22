@@ -75,7 +75,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v: %s", err, out)
 			}
-			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode-trimmed.json", 1) + " " + c.pane + user
+			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode-lane.json", 1) + " " + c.pane + user
 			if got := strings.TrimSpace(string(out)); got != want {
 				t.Errorf("after a stale shell, the env line %q leaves %q, want %q", line, got, want)
 			}
@@ -83,14 +83,16 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 	}
 }
 
-// an OpenCode start, a lane's worker and a role agent alike, names its generated config in the env line
-// (OPENCODE_CONFIG=<project>/.obor/state/opencode-trimmed.json, a path: the line stays short): the file that line
-// names holds obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another
-// kind's start names none.
+// an OpenCode start names its generated config in the env line
+// (OPENCODE_CONFIG=<project>/.obor/state/<file>, a path: the line stays short): a lane's worker the lane's file (its
+// trim disables the user's own MCP servers) and a role agent the trimmed one. The file the role agent's line names
+// holds obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another kind's start
+// names none.
 func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.AddModels(`{"oc":{"kind":"opencode","id":"go/ds"}}`),
 		testkit.Set("agents.roles", `{"reviewer":"oc","integrator":"opus"}`))
+	lane := filepath.Join(x.p.Root, ".obor", "state", "opencode-lane.json")
 	file := filepath.Join(x.p.Root, ".obor", "state", "opencode-trimmed.json")
 	if _, err := os.Stat(file); err == nil {
 		t.Fatal("precondition: no generated config yet")
@@ -120,9 +122,15 @@ func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 		t.Fatalf("%s: no env line typed", req.Agent)
 		return "", ""
 	}
-	for _, req := range []launch.Request{{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, {Agent: "pj-rev", Fresh: true}} {
-		if line, config := lineOf(req); config != file {
-			t.Errorf("%s: the env line %q names config %q, want %s", req.Agent, line, config, file)
+	for _, c := range []struct {
+		req  launch.Request
+		want string
+	}{
+		{launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, lane},
+		{launch.Request{Agent: "pj-rev", Fresh: true}, file},
+	} {
+		if line, config := lineOf(c.req); config != c.want {
+			t.Errorf("%s: the env line %q names config %q, want %s", c.req.Agent, line, config, c.want)
 		}
 	}
 	if line, config := lineOf(launch.Request{Agent: "pj-int", Fresh: true}); config != "" {

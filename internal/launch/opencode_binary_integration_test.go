@@ -3,7 +3,6 @@
 package launch_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -24,7 +23,7 @@ import (
 // (a recording wrapper keeps each request): the start request carries the complete start (kit, the model's args, the
 // effort, the prompt, the lane dir, strict), and the start gets the argv, the env and the generated config the compiled
 // kind gave it (--auto --standalone, the model gone, --prompt; OBOR_OPENCODE_MODEL model#effort, OPENCODE_CONFIG the
-// file in the state dir holding the kit's mcp server and plugin).
+// lane's file in the state dir holding obor's server and plugin and the user's own server disabled).
 func TestLaneStartRunsTheBinary(t *testing.T) {
 	// testkit answers OpenCode in process: this test runs the binary. It is no parallel test (the parallel ones of the
 	// package start once it has returned), and puts the in-process answer back for them.
@@ -80,8 +79,24 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 		t.Fatalf("precondition: setup's describe was recorded: %v", err)
 	}
 
+	// the start reads the user's own OpenCode config (a lane's trim disables its MCP servers): a scratch one, so the
+	// machine's own servers are no row of this test
+	home := filepath.Join(dir, "home")
+	userConf := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(userConf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userConf, "opencode.json"),
+		[]byte(`{"mcp": {"servers": {"mine": {"type": "local", "command": ["x"]}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := func(key string) (string, bool) {
+		v, ok := map[string]string{"HOME": home}[key]
+		return v, ok
+	}
+
 	m, _ := cfg.Model("ds")
-	l := &launch.Launcher{Cfg: cfg, Kit: "/kit"}
+	l := &launch.Launcher{Cfg: cfg, Kit: "/kit", Env: env}
 	built, err := l.Build(launch.Build{Agent: "pj-l-01", Kind: m.Kind, Args: m.Args, Role: "worker", Effort: "high",
 		Dir: lane, Prompt: "go"})
 	if err != nil {
@@ -90,14 +105,29 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 	if want := []string{"--auto", "--standalone", "--prompt", "go"}; !slices.Equal(built.Args, want) {
 		t.Errorf("argv %q, want %q", built.Args, want)
 	}
-	conf := filepath.Join(cfg.StateDir(), kind.TrimmedConfigFile)
+	conf := filepath.Join(cfg.StateDir(), kind.LaneConfigFile)
 	if r, set := built.Vars[kind.ResumeVar]; len(built.Vars) != 4 || built.Vars[kind.ModelVar] != "go/ds#high" ||
 		built.Vars[kind.ConfigVar] != conf || built.Vars[kind.SkillsVar] != "1" || !set || r != "" {
 		t.Errorf("env %v, want %s=go/ds#high, %s=%s, a worker's %s=1 and %s unset (a fresh start)", built.Vars, kind.ModelVar,
 			kind.ConfigVar, conf, kind.SkillsVar, kind.ResumeVar)
 	}
-	if got, err := os.ReadFile(conf); err != nil || !bytes.Equal(got, kind.Config("/kit")) {
-		t.Errorf("the generated config %q (%v), want the kit's:\n%s", got, err, kind.Config("/kit"))
+	var got struct {
+		MCP struct {
+			Servers map[string]map[string]any `json:"servers"`
+		} `json:"mcp"`
+	}
+	raw, err := os.ReadFile(conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("%v: %s", err, raw)
+	}
+	if mine := got.MCP.Servers["mine"]; mine["disabled"] != true || mine["command"] == nil {
+		t.Errorf("the generated config's mine = %v, want the user's server whole with disabled: true", mine)
+	}
+	if o := got.MCP.Servers["obor"]; o["type"] != "local" || len(got.MCP.Servers) != 2 {
+		t.Errorf("mcp.servers = %v, want obor's own and the user's disabled", got.MCP.Servers)
 	}
 
 	lines, _ := os.ReadFile(rec)

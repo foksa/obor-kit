@@ -46,7 +46,7 @@ func opencodeLive(l *lab, turn bool) {
 		}
 		return xdg[n]
 	})
-	where3, where4 := at(opencodeGo, `case "install"`)+", P1, CAP §4.2", at(opencodeGo, "func Config")+", P1, CAP §4.3"
+	where3, where4 := at(opencodeGo, `case "install"`)+", P1, CAP §4.2", at("kinds/opencode/kind/override.go", "func Config")+", P1, CAP §4.3"
 	if inst.MCP.Where != agents.PerStart {
 		report("FAIL", "OC-L3", fmt.Sprintf("Install still registers globally (%s)", inst.MCP.Where), where3)
 		return
@@ -365,7 +365,7 @@ func (l *lab) opencodeAuth(xdg map[string]string) {
 // list the server's tools, or cannot call one, leaves no such result. Runs after ocTurn, so it sets the lane worker's
 // environment again (ocTurn left the main checkout as a researcher).
 func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
-	where := at("internal/mcp/mcp.go", "func Serve") + ", " + at(opencodeGo, "func Config") + ", T-898"
+	where := at("internal/mcp/mcp.go", "func Serve") + ", " + at("kinds/opencode/kind/override.go", "func Config") + ", T-898"
 	real, err := l.realKit()
 	if err != nil {
 		report("FAIL", "OC-L6", "the repository's own obor is not built: "+err.Error(), where)

@@ -161,6 +161,7 @@ func TestSweep(t *testing.T) {
 				filepath.Join(state, "kinds", "opencode.json"),
 				filepath.Join(state, "opencode.json"),
 				filepath.Join(state, "opencode-trimmed.json"),
+				filepath.Join(state, "opencode-lane.json"),
 				filepath.Join(state, "last-full-check"),
 				filepath.Join(state, "background.jsonl"),
 			}

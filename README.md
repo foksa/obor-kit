@@ -192,14 +192,16 @@ hooks.state={…={enabled=false}}`, read at every start; hooks declared inline i
 hook's list is replaced whole, so to drop one hook of a group write the event's groups without it. A hook the file
 adds does not run (validate warns): add it to the project's own Codex hooks.
 
-OpenCode agents (all but the lead) keep your `~/.config/opencode` as it is. With an override file, the config obor
-generates for the start (`.obor/state/opencode-trimmed.json`, named by `OPENCODE_CONFIG`, which OpenCode ranks above
-your own config) is your `opencode.json[c]` with the file merged over it, plus obor's MCP server and plugin
-(`mcp.servers.obor` stays obor's). OpenCode still reads your own config below it, so a `null` there removes nothing;
-use OpenCode's own syntax: `"plugins": ["-<id>"]` removes a plugin (the id its module declares, e.g.
-`herdr.opencode`, not its file name), and `{"disabled": true}` on an MCP server of yours disables it (the merge
-supplies the rest of its definition, which OpenCode needs). OpenCode's hooks are plugins. The project's own OpenCode
-config still wins over all of it.
+OpenCode agents keep your `~/.config/opencode` as it is. The config obor generates for a start (`.obor/state/opencode.json`
+for the lead, `opencode-trimmed.json` for every other agent, `opencode-lane.json` for a lane's worker and drive agent;
+named by `OPENCODE_CONFIG`, which OpenCode ranks above your own config) is obor's MCP server and plugin, and with an
+override file your `opencode.json[c]` with the file merged over it (`mcp.servers.obor` stays obor's). A lane's config
+also holds each MCP server of yours that the project's own `opencode.json[c]` does not define as its whole definition
+with `"disabled": true`, so a lane's agent reaches obor's server and the project's, not yours. OpenCode still reads your
+own config below it, so a `null` there removes nothing; use OpenCode's own syntax: `"plugins": ["-<id>"]` removes a
+plugin (the id its module declares, e.g. `herdr.opencode`, not its file name), and `{"disabled": true}` on an MCP server
+of yours disables it (the merge supplies the rest of its definition, which OpenCode needs). OpenCode's hooks are plugins.
+The project's own OpenCode config still wins over all of it.
 
 The Codex and OpenCode trims are best effort, not a project-only view: whatever a CLI has no switch for stays visible.
 
