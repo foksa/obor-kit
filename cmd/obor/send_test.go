@@ -271,8 +271,8 @@ func TestBriefFreshRefused(t *testing.T) {
 
 // the poster reads the inbox record of the lead's slot in its project, dials its socket and writes the auth line
 // (the record's token) then the user line with the text as it is, and the session reads both before the connection
-// ends; no record, or a record whose socket answers nothing (a dial refused), posts nothing (began false); inboxed
-// is true only for a record whose socket is there.
+// ends; no record, or a record whose socket answers nothing (a dial refused), posts nothing (began false, the record
+// marked refused); inboxed is true only for a record whose socket is there.
 func TestPosterPostsToTheInbox(t *testing.T) {
 	t.Parallel()
 	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
@@ -334,8 +334,64 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 	if began, err := p.Post(ctx, agents.Default, "pj-lead", line); began || err == nil {
 		t.Errorf("a dead socket: began %v, %v; want refused before a byte", began, err)
 	}
+	if in, err := project.ReadInbox(pj.Cfg(), "lead"); err != nil || !strings.Contains(in.Refused, "no such file") {
+		t.Errorf("the record after the missing socket's dial: %+v, %v; want it marked refused", in, err)
+	}
 	if _, ok := inboxed(pj.Root)("pj-lead"); ok {
 		t.Error("inboxed with a record whose socket is gone")
+	}
+}
+
+// A dial no socket answers (a session that ended left its socket) marks the record refused, as a refused agy send
+// does: the project has no live inbox for the agent, so the next pass holds its lines for its hooks instead of posting
+// to it again; a new session's record (its SessionStart's) is live again.
+func TestPosterMarksADeadSocketRefused(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	pj := testkit.NewPlain(t)
+	pj.Config()
+	sock := filepath.Join(dir, "dead.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false) // the session's socket stays, as a dead one's does
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("precondition: the dead session's socket file: %v", err)
+	}
+	if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Socket: sock, Token: "tok-1", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := inboxed(pj.Root)("pj-lead"); !ok || s != "s1" {
+		t.Fatalf("precondition: inboxed = %q, %v; want session s1 live (its socket file is there)", s, ok)
+	}
+	p := poster{pj.Root, testkit.Kinds()}
+	if began, err := p.Post(context.Background(), agents.Default, "pj-lead", "[obor other] hi"); began || err == nil ||
+		!strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("a dead socket: began %v, %v; want refused before a byte", began, err)
+	}
+	in, err := project.ReadInbox(pj.Cfg(), "lead")
+	if err != nil || !strings.Contains(in.Refused, "connection refused") || in.Socket != sock || in.Session != "s1" {
+		t.Fatalf("the record after the refused dial: %+v, %v; want it marked refused as it was read", in, err)
+	}
+	if _, ok := inboxed(pj.Root)("pj-lead"); ok {
+		t.Error("a refused record is live: the next pass would post to it again")
+	}
+	if err := project.WriteInbox(pj.Cfg(), "lead", project.Inbox{Socket: sock, Token: "tok-2", Session: "s2"}); err != nil {
+		t.Fatal(err)
+	}
+	if in, err := project.ReadInbox(pj.Cfg(), "lead"); err != nil || in.Refused != "" {
+		t.Fatalf("the new session's record: %+v, %v; want no refusal mark", in, err)
+	}
+	if s, ok := inboxed(pj.Root)("pj-lead"); !ok || s != "s2" {
+		t.Errorf("a new session's record: inboxed = %q, %v; want session s2 live again", s, ok)
 	}
 }
 

@@ -46,8 +46,8 @@ import (
 // (posted): a kind with an inbox (agents.Caps.Inbox) gets it posted to its session's inbox like the lead's when
 // that inbox is the live session's in its pane (liveSession), else typed into its pane as its job wakes are (a
 // line to an idle agent is never held on a missing or mismatched record); any other kind gets it typed into its pane
-// (the herdr call of job delivery). A line held (its agent busy, not identified; a lead line with no inbox record)
-// notes why (outbox.Line.Held: obor status, the line's needs-you). The oldest first and one per agent per pass, under
+// (the herdr call of job delivery). A line held (its agent busy, not identified; a lead line whose inbox record is not
+// live) notes why (outbox.Line.Held: obor status, the line's needs-you). The oldest first and one per agent per pass, under
 // deliver.<seq> (P, a wake's transport: prompt.go).
 //
 // A queued line is in one state (outbox.State; its moves: State.Next): waiting (nothing went out; why: the
@@ -55,7 +55,7 @@ import (
 // have gone out), sent and retired (both leave the outbox). A refusal before any byte went out (no inbox record, a
 // refused dial, a refused typing) is fact failed{step: deliver.<seq>, reason, via: inbox for a post}: the line waits
 // again with that reason (obor status, its needs-you) and is delivered again on a later pass, also after a restart,
-// typed when the refused one was a post to an idle identified agent (a lead line is posted again); a post
+// typed when the refused one was a post to an idle identified agent (a lead line goes by its hooks or waits); a post
 // serve's own stop cut before a byte records nothing and waits the same. An answer's line retires once its
 // question is settled another way (outbox.RetireAnswers): waiting, at once; sending, it is marked, and then a refusal before a
 // byte retires it, a delivery sends it, and a later pass closes its open delivery unsent (result outbox.RetiredResult). A
@@ -918,11 +918,15 @@ func (a *App) sendCall(c wire.SendReq) (string, error) {
 		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: " + p.out.Lead() + "'s kind has no inbox: " +
 			byHooks + ")"
 	case !a.inboxed(p.out.Lead()):
-		how := "" // a kind whose hooks act on the answers: they hand the line meanwhile
-		if mode == agents.LinesHooks {
-			how = ": " + byHooks
+		what := "no session recorded for " + p.out.Lead() // its kind has no inbox: its lines wait for one
+		how := ""                                         // a kind whose hooks act on the answers: they hand the line meanwhile
+		if inbox {
+			what = noLiveInbox(p.out.Lead())
 		}
-		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: no session recorded for " + p.out.Lead() +
+		if mode == agents.LinesHooks {
+			how = "; " + byHooks
+		}
+		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: " + what +
 			how + "; `obor restart " + p.out.Lead() + "` once it is idle registers it, or quit it and run `obor lead`)"
 	}
 	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {

@@ -16,8 +16,17 @@ import (
 
 func init() { agentkinds.Register(testkit.HookKind{}) } // a lead of it takes its lines through its hooks
 
+// byHooksWhy is how a lead's held lines reach it.
+const byHooksWhy = "its hooks hand it its lines at its next prompt or turn end"
+
 // hookHeldWhy is why a line to the rig's hook lead waits (obor status, its needs-you).
-const hookHeldWhy = "pj-lead's kind has no inbox: its hooks hand it its lines at its next prompt or turn end"
+const hookHeldWhy = "pj-lead's kind has no inbox: " + byHooksWhy
+
+// noLiveWhy is why an inbox kind's lead has no live record: none recorded, its socket gone, or a send refused.
+const noLiveWhy = "pj-lead's inbox is not live: a refused send, its socket gone, or none recorded"
+
+// noRecordWhy is why a line to an inbox kind's lead waits with no live record (obor status, its needs-you).
+const noRecordWhy = noLiveWhy + "; " + byHooksWhy + "; a newer record clears it"
 
 // leadKindRig is the loop rig (opts added) with the lead pj-lead an agent of the kind of model typ (its pane's agent
 // kind), idle in w1:p5, no inbox recorded.
@@ -343,7 +352,7 @@ func TestLeadLineRefusedSendGoesByHooks(t *testing.T) {
 		}
 		r.waitFor("the send refused", func() bool { return r.msgFailed() == 1 })
 		r.passes()
-		why := "no inbox recorded for pj-lead: " + "its hooks hand it its lines at its next prompt or turn end"
+		why := noRecordWhy
 		if w := r.waiting(); len(w) != 1 || w[0].Line != line || w[0].Held != why {
 			t.Fatalf("waiting %+v; want the line held for the lead's hooks", w)
 		}

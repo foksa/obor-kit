@@ -130,9 +130,10 @@ type Inbox struct {
 	Refused string `json:"refused,omitempty"`
 }
 
-// InboxLive is agent's inbox record in cfg's project when it is live: it names a socket that is there (a session that
-// ended removed it; a crashed one's is refused at the dial), or the kind sends with it and no send with it was refused:
-// the session that wrote it, ok. No slot, no record, no socket, or a refused send: not ok.
+// InboxLive is agent's inbox record in cfg's project when it is live: no send with it was refused, and it names a
+// socket that is there (a session that ended removed it; a crashed one's is refused at the dial), or the kind sends
+// with it: the session that wrote it, ok. No slot, no record, no socket, or a refused send (a refused dial, the kind's
+// own): not ok.
 func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
 	slot := AgentSlot(cfg, agent)
 	if slot == "" {
@@ -142,8 +143,11 @@ func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
 	if err != nil {
 		return "", false
 	}
+	if in.Refused != "" {
+		return in.Session, false
+	}
 	if in.Sends {
-		return in.Session, in.Refused == ""
+		return in.Session, true
 	}
 	_, err = os.Stat(in.Socket)
 	return in.Session, err == nil
@@ -176,13 +180,13 @@ func readInboxFile(f string) (Inbox, error) {
 }
 
 // RefuseInbox marks slot's inbox record in cfg's project refused (why) in each file of InboxFiles that still holds
-// the record a send was refused with (record, the kind's own; a newer one an obor command wrote since is left as it
-// is): not live (InboxLive) until the session records it again.
-func RefuseInbox(cfg *config.Config, slot, record, why string) error {
+// was, the record a send was refused with (a newer record an obor command wrote since is left as it is): not live
+// (InboxLive) until the session records it again.
+func RefuseInbox(cfg *config.Config, slot string, was Inbox, why string) error {
 	var first error
 	for _, f := range InboxFiles(cfg, slot) {
 		in, err := readInboxFile(f)
-		if err != nil || in.Record != record {
+		if err != nil || !sameInbox(in, was) {
 			continue
 		}
 		in.Refused = why
@@ -191,6 +195,12 @@ func RefuseInbox(cfg *config.Config, slot, record, why string) error {
 		}
 	}
 	return first
+}
+
+// sameInbox: a and b are one record, before any refusal mark.
+func sameInbox(a, b Inbox) bool {
+	a.Refused, b.Refused = "", ""
+	return a == b
 }
 
 // WriteInbox records in as slot's inbox in cfg's project: in the main checkout's file, else (a write there refused: a

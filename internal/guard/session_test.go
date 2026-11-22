@@ -649,7 +649,7 @@ func TestCommandRecordsTheInbox(t *testing.T) {
 		t.Error("the recorded inbox is not live")
 	}
 
-	if err := project.RefuseInbox(f.Cfg(), "lead", rec, "agentapi send-message: exit 1: invalid CSRF token"); err != nil {
+	if err := project.RefuseInbox(f.Cfg(), "lead", project.Inbox{Sends: true, Record: rec}, "agentapi send-message: exit 1: invalid CSRF token"); err != nil {
 		t.Fatal(err)
 	}
 	if _, live := project.InboxLive(cfg, "pj-lead"); live {

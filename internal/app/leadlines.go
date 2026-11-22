@@ -55,9 +55,15 @@ func (a *App) hookHeld(p *proj) string {
 	case mode != agents.LinesHooks:
 		return ""
 	case inbox:
-		return "no inbox recorded for " + p.out.Lead() + ": " + byHooks
+		return noLiveInbox(p.out.Lead()) + "; " + byHooks + "; a newer record clears it"
 	}
 	return p.out.Lead() + "'s kind has no inbox: " + byHooks
+}
+
+// noLiveInbox: why agent's inbox record is not live (Options.Inboxed), as a hold and obor send's reply say it: it names
+// a socket nothing answers, its socket is gone, or the session records none.
+func noLiveInbox(agent string) string {
+	return agent + "'s inbox is not live: a refused send, its socket gone, or none recorded"
 }
 
 // byHooks is hookHeld's clause of how a lead's held lines reach it.
