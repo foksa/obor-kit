@@ -109,18 +109,24 @@ func whoami(args []string) int {
 		fmt.Fprintf(out, "lane: %s\n", w.Role.Lane)
 	}
 	fmt.Fprintf(out, "source: %s\n", w.Role.Source)
+	lines := func() int { // after the other lines; a lead's: how its lines reach it (skills/lead/SKILL.md "Lines to you")
+		if w.Lines != "" {
+			fmt.Fprintf(out, "lines: %s\n", w.Lines)
+		}
+		return 0
+	}
 	if w.State == nil {
 		fmt.Fprintln(out, "lane row: none")
-		return 0
+		return lines()
 	}
 	fmt.Fprintf(out, "task: %s\nbranch: %s\nbase: %s\n", w.State.Task, w.State.Branch, w.State.Base)
 	if w.Rev == 0 {
 		fmt.Fprintf(out, "spec: none in obor serve's store\n")
-		return 0
+		return lines()
 	}
 	fmt.Fprintf(out, "spec: rev %d\n", w.Rev)
 	for _, p := range w.Protected {
 		fmt.Fprintf(out, "protected file unlocked: %s\n", p)
 	}
-	return 0
+	return lines()
 }

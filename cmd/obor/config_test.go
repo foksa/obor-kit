@@ -97,6 +97,9 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	if !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\nlane row: none\n") {
 		t.Errorf("lead: %q", text)
 	}
+	if !strings.HasSuffix(text, "source: env\nlane row: none\nlines: inbox\n") { // the line comes last (a Claude lead)
+		t.Errorf("a lead's lines line: %q", text)
+	}
 	if strings.Contains(text, "\nlane: ") { // no empty `lane:` line for a role without a lane
 		t.Errorf("a lead has no lane line: %q", text)
 	}
@@ -105,6 +108,8 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	}
 	if text, j := whoamiIn(t, lane); strings.Contains(text, "lead:") || j["lead"] != nil {
 		t.Errorf("a worker has no lead line: %q", text)
+	} else if strings.Contains(text, "lines:") {
+		t.Errorf("a worker has no lines line: %q", text)
 	} else if !strings.Contains(text, "\nlane: L-01\n") {
 		t.Errorf("a worker's lane line is missing: %q", text)
 	}

@@ -136,7 +136,7 @@ the integrator get jobs from serve, never messages.
 
 ## Lines to you
 Lines to you (another project's `obor send`, `[obor] <agent> finished …`, a watch's or the idle line, a needs-you) reach
-you in one of three modes, by your kind; none is typed into your pane:
+you in one of three modes, the `lines:` of `obor whoami` (the start checks run it); none is typed into your pane:
 - **Inbox:** each arrives as a message from another session, also while you are idle.
 - **Through hooks:** each arrives with your next prompt, or when your turn ends (the stop hands it to you and you go
   on); an idle session gets none until then.
@@ -163,8 +163,9 @@ Speak up unprompted about anything systemic (complexity, fragile dependencies, y
 
 ## Handoff
 A lead whose kind reads its context size and runs the prompt hook gets a reminder with each prompt past
-`agents.handoff_tokens`; nothing forces it. Any other lead hands off by its own count: the client's own context
-meter says when the context is large. At the next logical break (not mid-task, ask the person first if they are
+`agents.handoff_tokens`; nothing forces it. Where `lines:` is `status`, or the kind reads no context size (the context
+is past that threshold and no reminder ever came), hand off by your own count: the client's own context meter says
+when the context is large. At the next logical break (not mid-task, ask the person first if they are
 talking with you): write the Handoff section at the top of `BACKLOG.md`
 (state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --handoff`: the next session
 starts with `/obor:lead handoff` and continues from those next steps.
