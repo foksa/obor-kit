@@ -176,7 +176,7 @@ func ccL7(l *lab, pane string, turn bool) {
 		report("FAIL", "CC-L7", "obor init's starter list has no claude model", at("internal/setup/models.go", "var StarterModels")+", T-910")
 		return
 	}
-	start, err := l.launchOf("claude", model, real, nil)
+	start, err := l.launchOf("claude", model, real, nil, nil)
 	if err != nil {
 		report("FAIL", "CC-L7", "the launch of "+model+" cannot be built: "+err.Error(), at("internal/config/models.go", "func (m Model) Launch")+", T-910")
 		return
@@ -578,7 +578,7 @@ func ccL9(l *lab, pane string, turn bool) {
 	}()
 	k := kindOf("claude")
 	model, _ := liveModel("claude")
-	start, err := l.launchOf("claude", model, real, nil)
+	start, err := l.launchOf("claude", model, real, nil, nil)
 	if err != nil {
 		report("FAIL", "CC-L9", "the launch of "+model+" cannot be built: "+err.Error(), where)
 		return

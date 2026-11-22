@@ -99,10 +99,11 @@ type liveStart struct {
 }
 
 // launchOf builds a worker's start of model in the lab's project as internal/launch does (a compiled kind's), its start dir
-// the lab's lane (the project's CLI config there counts). Each kind's
-// real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that could drift
-// from it; model is a model of the lab config's agents.models (liveModel).
-func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) (string, error)) (liveStart, error) {
+// the lab's lane (the project's CLI config there counts), read in the environment env the kind's CLI runs in (nil: the
+// runner's own; a case that gives its CLI another home names it, as internal/launch passes the env its pane gets).
+// Each kind's real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that
+// could drift from it; model is a model of the lab config's agents.models (liveModel).
+func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) (string, error), env func(string) string) (liveStart, error) {
 	cfg, err := config.Load(l.main)
 	if err != nil {
 		return liveStart{}, err
@@ -122,11 +123,14 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	if writeState == nil { // a kind that writes a start file of its own (Claude's settings file)
 		writeState = project.StateWriter(l.main)
 	}
+	if env == nil {
+		env = os.Getenv
+	}
 	withKit, err := m.Launch("worker", over, agents.Start{Agent: "live", Kit: kit, WriteState: writeState})
 	if err != nil {
 		return liveStart{}, err
 	}
-	noKit, err := m.Launch("worker", over, agents.Start{Agent: "live", Dir: l.lane, Root: l.main, Read: os.ReadFile, Env: os.Getenv,
+	noKit, err := m.Launch("worker", over, agents.Start{Agent: "live", Dir: l.lane, Root: l.main, Read: os.ReadFile, Env: env,
 		Dirs: project.SubDirs, WriteState: writeState})
 	if err != nil {
 		return liveStart{}, err
