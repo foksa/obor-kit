@@ -28,6 +28,12 @@ func promptFx(t *testing.T, armed bool) (f hfx, o1 string) {
 // VAR=value. Returns the additionalContext ("" when no output) and checks the output's shape.
 func (f hfx) prompt(t *testing.T, cwd, prompt, extra string, env ...string) string {
 	t.Helper()
+	return f.promptLines(t, cwd, prompt, extra, nil, env...)
+}
+
+// promptLines is prompt with lines as the hook's ask for the lead's lines.
+func (f hfx) promptLines(t *testing.T, cwd, prompt, extra string, lines LeadLines, env ...string) string {
+	t.Helper()
 	ev := map[string]any{"hook_event_name": "UserPromptSubmit", "cwd": cwd, "prompt": prompt}
 	if extra != "" {
 		json.Unmarshal([]byte(extra), &ev)
@@ -35,7 +41,7 @@ func (f hfx) prompt(t *testing.T, cwd, prompt, extra string, env ...string) stri
 	}
 	b, _ := json.Marshal(ev)
 	var out bytes.Buffer
-	UserPromptSubmit(b, f.Env(env...), &out)
+	UserPromptSubmit(b, f.Env(env...), &out, lines)
 	if out.Len() == 0 {
 		return ""
 	}
@@ -194,7 +200,7 @@ func TestPromptCapturedPayloads(t *testing.T) {
 		ev["cwd"] = o1
 		b, _ = json.Marshal(ev)
 		var out bytes.Buffer
-		UserPromptSubmit(b, f.Env(), &out)
+		UserPromptSubmit(b, f.Env(), &out, nil)
 		if got := strings.Contains(out.String(), guardLine); got != c.guards {
 			t.Errorf("%s: guarded %v, want %v (output %q)", c.file, got, c.guards, out.String())
 		}
@@ -230,7 +236,7 @@ func TestPromptOnlyWorkersAndFailOpen(t *testing.T) {
 	}
 	for _, in := range []string{"not json", "", "[]", `{"prompt": 5}`} {
 		var out bytes.Buffer
-		UserPromptSubmit([]byte(in), f.Env(), &out)
+		UserPromptSubmit([]byte(in), f.Env(), &out, nil)
 		if out.Len() != 0 {
 			t.Errorf("input %q: %q", in, out.String())
 		}

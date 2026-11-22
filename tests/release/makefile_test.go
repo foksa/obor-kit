@@ -391,7 +391,7 @@ func TestMakeCheckTiers(t *testing.T) {
 			}
 			if c.target == "check-affected" {
 				// the reader globs ride on the one Go run: the non-Go files a package reads select that package
-				for _, want := range []string{"-reads skills/**=cmd/obor", "-reads README.md=cmd/obor", "-reads bin/obor=cmd/obor",
+				for _, want := range []string{"-reads skills/**=cmd/obor,internal/roles", "-reads README.md=cmd/obor", "-reads bin/obor=cmd/obor",
 					"-reads githooks/**=cmd/obor,internal/checks,internal/setup", "-reads opencode/**=cmd/obor"} {
 					if !strings.Contains(affected, want) {
 						t.Errorf("check-affected asks the affected list %q: no %q", affected, want)

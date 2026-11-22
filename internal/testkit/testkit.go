@@ -885,3 +885,37 @@ func (p *Project) enablePlugin(dir string) {
 		p.t.Fatal(err)
 	}
 }
+
+// HookKind is a kind with no inbox whose hook transport acts on the hooks' answers (agents.Caps.HookAnswers), as
+// agy's is to: a lead of it takes its lines through its hooks. Inert otherwise (no transcript, no headless form, no
+// delivery). Not registered here: a test package that runs such a lead registers it (agents.Register) and names it in
+// its config with HookModel.
+type HookKind struct{}
+
+// HookKindName is HookKind's name.
+const HookKindName = "hookkind"
+
+// HookModel is the config edit adding the model hooky of HookKind (a role's type: agents.roles.<role> "hooky").
+func HookModel() func(map[string]any) {
+	return Set("agents.models.hooky", map[string]any{"kind": HookKindName, "id": "hooky"})
+}
+
+func (HookKind) Name() string                                       { return HookKindName }
+func (HookKind) NotReady(string) string                             { return "" }
+func (HookKind) Efforts() []string                                  { return nil }
+func (HookKind) Vars() []string                                     { return nil }
+func (HookKind) Stop() agents.Stop                                  { return agents.Stop{} }
+func (HookKind) Headless() agents.Headless                          { return agents.Headless{} }
+func (HookKind) Install(string, func(string) string) agents.Install { return agents.Install{} }
+func (HookKind) Transcript(func(string) string, string) string      { return "" }
+func (HookKind) LastTurn([]byte) (agents.Turn, bool)                { return agents.Turn{}, false }
+func (HookKind) Context([]byte) (agents.Context, bool)              { return agents.Context{}, false }
+func (HookKind) Session([]byte) (agents.Session, bool)              { return agents.Session{}, false }
+func (HookKind) Reset(string, string, time.Time) (time.Time, bool) {
+	return time.Time{}, false
+}
+func (HookKind) Deliver(string, []byte) (agents.Delivery, bool) { return agents.Delivery{}, false }
+func (HookKind) InboxRecord(func(string) string) []byte         { return nil }
+func (HookKind) Caps() agents.Caps {
+	return agents.Caps{Hooks: agents.HooksPlugin, HookAnswers: true, Status: agents.StatusHooks}
+}

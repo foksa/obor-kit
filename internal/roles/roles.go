@@ -5,6 +5,7 @@ package roles
 import (
 	"fmt"
 	"obor/internal/agents"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -36,9 +37,12 @@ type Role struct {
 	Write        WriteProfile
 	Stoppable    bool
 	Dispatchable bool
-	Prompt       string // the first prompt of a fresh start of a Claude agent in this role ("": none)
-	Optional     bool   // counts (known agents, collisions) only when roles.<name> is configured
-	GitReadOnly  bool   // runs git reads only (the guard's read list); the lead commits its files
+	// Skill is the role's skill, the dir name under the kit's skills/ (the lead's "lead": skills/lead/SKILL.md): a
+	// fresh start of a kind that takes a plugin's slash command gets it as /obor:<Skill>, any other kind a plain
+	// prompt naming the file (StartPrompt); "" a role with no skill.
+	Skill       string
+	Optional    bool // counts (known agents, collisions) only when roles.<name> is configured
+	GitReadOnly bool // runs git reads only (the guard's read list); the lead commits its files
 	// Custom is a role a config row defines, a kit default row or the project's own: main checkout, git
 	// read-only, never lane-bound or dispatchable, no push, writes only WritePaths.
 	Custom bool
@@ -54,7 +58,7 @@ type Role struct {
 }
 
 var table = []Role{
-	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Prompt: "/obor:lead"},
+	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Skill: "lead"},
 	// The integrator runs in its own worktree, not the merge scratch, where gates run: a review job may check
 	// out the candidate there; its resolve jobs still work in the scratch the job names. Serve adds it (the launcher,
 	// obor setup role) but never moves it.
@@ -201,21 +205,38 @@ func LaneAgent(lane, prefix string) string {
 	return prefix + "-" + strings.ToLower(lane)
 }
 
-// StartPrompt is the first prompt of a fresh start of kind k in this role: only a kind that takes a plugin's slash
-// command as its first prompt (agents.Caps.Skills) gets the role's Prompt; another kind (or none, nil) starts
-// without one.
-func (r Role) StartPrompt(k agents.Kind) string {
-	if k == nil || !k.Caps().Skills {
+// SkillFile is the role's skill file in kit: <kit>/skills/<Skill>/SKILL.md, the one file of every kind. "" when the
+// role has no skill or there is no kit to name.
+func (r Role) SkillFile(kit string) string {
+	if r.Skill == "" || kit == "" {
 		return ""
 	}
-	return r.Prompt
+	return filepath.Join(kit, "skills", r.Skill, "SKILL.md")
 }
 
-// HandoffPrompt is StartPrompt's handoff form, for a fresh session that continues from a Handoff: the role's Prompt
-// with the argument `handoff` (the lead's `/obor:lead handoff`); "" where StartPrompt is (no skills for k, no
-// Prompt in the role).
-func (r Role) HandoffPrompt(k agents.Kind) string {
-	p := r.StartPrompt(k)
+// StartPrompt is the first prompt of a fresh start of kind k in this role, from the skill the role names: a kind
+// that takes a plugin's slash command as its first prompt (agents.Caps.Skills) gets /obor:<skill> (the lead's
+// /obor:lead); any other kind, none included, gets a plain prompt naming the skill file in kit (`read
+// <kit>/skills/lead/SKILL.md and follow it`). "" when the role has no skill, or kind k takes no slash command and kit
+// is "" (there is no file to name).
+func (r Role) StartPrompt(k agents.Kind, kit string) string {
+	if r.Skill == "" {
+		return ""
+	}
+	if k != nil && k.Caps().Skills {
+		return "/obor:" + r.Skill
+	}
+	if file := r.SkillFile(kit); file != "" {
+		return "read " + file + " and follow it"
+	}
+	return ""
+}
+
+// HandoffPrompt is StartPrompt's handoff form, for a fresh session that continues from a Handoff: the role's prompt
+// with the argument `handoff` (the lead's `/obor:lead handoff`, else `read <kit>/skills/lead/SKILL.md and follow it
+// handoff`); "" where StartPrompt is.
+func (r Role) HandoffPrompt(k agents.Kind, kit string) string {
+	p := r.StartPrompt(k, kit)
 	if p == "" {
 		return ""
 	}

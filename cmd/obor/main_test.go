@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/plugin"
 	"obor/internal/app/wire"
 	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
@@ -691,6 +692,61 @@ func TestTurnHooks(t *testing.T) {
 			c.Ended != (i == 1) {
 			t.Errorf("the reviewer's hook %d sent %s %+v, want a turn request (the second its end)", i, serve.sentMethods()[2+i], c)
 		}
+	}
+}
+
+// hookKindManifest is the describe reply of the plugin kind hookk: no inbox, its hooks act on the answers.
+const hookKindManifest = `{"version":1,"name":"hookk","status":"hooks","caps":{"hooks":"plugin","hook_answers":true}}`
+
+// A lead's UserPromptSubmit and Stop hooks, its kind (a project plugin kind, its manifest cached) with no inbox and
+// acting on the hooks' answers, each ask serve for its lines (one lead_lines request, the lead's agent and role) and
+// hand what serve answers: as the prompt's context, as the stop's block. Serve down: exit 0, nothing. An OpenCode
+// lead's (no hook_answers) ask nothing.
+func TestLeadLinesHooks(t *testing.T) {
+	t.Parallel()
+	bin := filepath.Join(t.TempDir(), "obor-kind-hookk")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\necho '"+hookKindManifest+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := servedProject(t, testkit.Set("agents.kinds.hookk", map[string]any{"plugin": bin}),
+		testkit.Set("agents.models.hooky", map[string]any{"kind": "hookk", "id": "hooky"}),
+		testkit.Set("agents.roles.lead", "hooky"))
+	if _, err := plugin.Cache("hookk", bin, filepath.Join(p.Root, ".obor", "state")); err != nil {
+		t.Fatalf("precondition: the kind's manifest cached: %v", err)
+	}
+	lead := []string{"OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	event := func(name string) string {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": name, "cwd": p.Root, "prompt": "what next?"})
+		return string(b)
+	}
+	if rc, stdout, _, _ := shimRun(t, p.Root, event("UserPromptSubmit"), append(lead, callDown), oborBin, "hook",
+		"user-prompt-submit"); rc != 0 || stdout != "" {
+		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
+	}
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "[obor other] hello", "")
+	rc, stdout, _, _ := shimRun(t, p.Root, event("UserPromptSubmit"), lead, oborBin, "hook", "user-prompt-submit")
+	if rc != 0 || !strings.Contains(stdout, `"additionalContext":"obor (lead): lines for you`) ||
+		!strings.Contains(stdout, `[obor other] hello`) {
+		t.Errorf("user-prompt-submit: exit %d, stdout %q; want the lines as context", rc, stdout)
+	}
+	rc, stdout, _, _ = shimRun(t, p.Root, event("Stop"), lead, oborBin, "hook", "stop")
+	if rc != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, `[obor other] hello`) {
+		t.Errorf("stop: exit %d, stdout %q; want the block with the lines", rc, stdout)
+	}
+	calls, _ := serve.requests()
+	if m := serve.sentMethods(); len(calls) != 2 || m[0] != wire.MethodLeadLines || m[1] != wire.MethodLeadLines {
+		t.Fatalf("serve got %v, want two lead_lines requests", m)
+	}
+	for _, c := range calls {
+		if c.Agent != "pj-lead" || c.Role != "lead" || c.Root != p.Root || c.CallID == "" {
+			t.Errorf("request %+v, want the lead's with a call id", c)
+		}
+	}
+	p.Config(testkit.Set("agents.roles.integrator", ""), testkit.Set("agents.roles.lead", "deepseek"))
+	shimRun(t, p.Root, event("UserPromptSubmit"), lead, oborBin, "hook", "user-prompt-submit")
+	shimRun(t, p.Root, event("Stop"), lead, oborBin, "hook", "stop")
+	if m := serve.sentMethods(); len(m) != 2 {
+		t.Errorf("an OpenCode lead's hooks sent %v, want none", m[2:])
 	}
 }
 

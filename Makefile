@@ -129,7 +129,8 @@ check:
 # changed file matching a glob adds its packages to check-affected's list, beside the Go packages and their importers.
 # TestOborKitReaders greps the .go files under cmd/ and internal/ for each of the first four paths and fails when a
 # package reads one and its line lacks it, and when a listed package stopped. Per path:
-#   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to)
+#   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to),
+#                    internal/roles (roles.go: SkillFile, the skill file a role's start prompt names)
 #   templates/**     cmd/obor (skills_test.go), internal/app (fetch.go, dispatch.go: the role texts and the job prompt),
 #                    internal/config (validate_test.go: templates/config.example.json), internal/guard (session.go: the
 #                    role text a session shows), internal/setup (init.go, agent.go: what setup copies into a project)
@@ -150,7 +151,7 @@ check:
 # class before readers (.claude-plugin/marketplace.json lies under readers' .claude-plugin/**), since the first class
 # whose glob matches owns the file.
 AFFECTED_READS := \
-	-reads 'skills/**=cmd/obor' \
+	-reads 'skills/**=cmd/obor,internal/roles' \
 	-reads 'templates/**=cmd/obor,internal/app,internal/config,internal/guard,internal/setup' \
 	-reads 'hooks/**=cmd/obor,internal/agents,internal/agents/codex,internal/agents/plugin,internal/checks' \
 	-reads '.claude-plugin/**=cmd/obor,internal/agents/claude,internal/setup' \

@@ -351,6 +351,8 @@ func (a *App) routeOf(p *proj, fx *Loop, q outbox.Line) (post, target, held stri
 	lead := q.IsLead() || to == p.out.Lead() // a lead line, or a brief whose agent has since become the lead
 	w := a.whereIs(p, to)
 	switch {
+	case lead && a.hookLead(p): // its hooks ask for its lines (leadLinesCall)
+		return "", "", hookHeld(to)
 	case lead && (fx.Inbox == nil || !a.inboxed(to)):
 		return "", "", "no inbox recorded for " + to + ": its SessionStart hook records one"
 	case lead && w.State != Identified: // a lead line goes out whatever its pane: through the lead's configured kind
@@ -561,9 +563,7 @@ func (a *App) freshStop(ctx context.Context, p *proj, fx *Loop, q outbox.Line, k
 // again as one at the next pass. Once the post's result is in the log each other member gets its own delivery
 // result "sent" (the log's per-line record; its fold settles nothing more).
 func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Line, post, target string) {
-	key := func(seq int64) event.Key {
-		return event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + strconv.FormatInt(seq, 10)}
-	}
+	key := lineKey
 	for {
 		head, lines, recovered := a.leadPost(p, qs, key)
 		if len(lines) == 0 {
@@ -604,14 +604,25 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Li
 		if err != nil { // the post's result is not in the log: its members wait with it
 			return
 		}
-		for _, q := range lines {
-			if q.Seq() != head {
-				_, _ = a.do(ctx, p, event.Intent{Key: key(q.Seq()), Class: event.ClassPrompt, Data: outbox.LineData{To: q.Msg().To}},
-					func(context.Context) (any, error) { return "sent", nil })
-			}
-		}
+		a.membersSent(ctx, p, lines, head)
 		if !recovered {
 			return
+		}
+	}
+}
+
+// lineKey is the delivery key of the line of fact seq (outbox.StepDeliver).
+func lineKey(seq int64) event.Key {
+	return event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + strconv.FormatInt(seq, 10)}
+}
+
+// membersSent gives each line of lines but head, the members of head's post whose result is in the log, its own
+// delivery result "sent" (the log's per-line record; its fold settles nothing more).
+func (a *App) membersSent(ctx context.Context, p *proj, lines []outbox.Line, head int64) {
+	for _, q := range lines {
+		if q.Seq() != head {
+			_, _ = a.do(ctx, p, event.Intent{Key: lineKey(q.Seq()), Class: event.ClassPrompt, Data: outbox.LineData{To: q.Msg().To}},
+				func(context.Context) (any, error) { return "sent", nil })
 		}
 	}
 }
@@ -873,7 +884,13 @@ func (a *App) sendCall(c wire.SendReq) (string, error) {
 	}
 	m := event.Message{To: p.out.Lead(), Line: sendLine(c.From, c.Text), From: c.From, Call: c.CallID,
 		Reply: "SENT to " + p.out.Lead() + " in " + p.name + " (posted to its session)"}
-	if !a.inboxed(p.out.Lead()) {
+	a.mu.Lock()
+	hooked := a.hookLead(p)
+	a.mu.Unlock()
+	switch {
+	case hooked:
+		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: " + hookHeld(p.out.Lead()) + ")"
+	case !a.inboxed(p.out.Lead()):
 		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: no session recorded for " + p.out.Lead() +
 			"; `obor restart " + p.out.Lead() + "` once it is idle registers it, or quit it and run `obor lead`)"
 	}

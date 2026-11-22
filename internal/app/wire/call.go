@@ -54,6 +54,7 @@ const (
 	MethodReviewClose = "review_close" // ReviewCloseReq
 	MethodEvents      = "events"       // EventsReq
 	MethodWhere       = "where"        // WhereReq
+	MethodLeadLines   = "lead_lines"   // LeadLinesReq
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request (JobNextReq, TaskDoneReq,

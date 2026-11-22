@@ -298,24 +298,33 @@ func TestLeadUsage(t *testing.T) {
 	}
 }
 
-// only a Claude lead gets the skill as its first prompt, in a labelled pane and in a new tab; --resume none.
-func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
+// the lead's first prompt names its skill for every kind, in a labelled pane and in a new tab: the slash command
+// where the kind takes it, here the skill file a codex lead reads; --resume none.
+func TestLeadStartPromptPerKind(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
-	x.f.Shell("w1:p1", "pj-lead", x.p.Root)
-	if out, rc := x.run(t); rc != 0 || !strings.HasPrefix(lastLine(out), "RESTARTED pj-lead") {
-		t.Fatalf("codex lead, labelled pane: exit %d\n%s", rc, out)
-	}
-	if c := x.calls(); !strings.Contains(c, "agent.start") || strings.Contains(c, "/obor:lead") {
-		t.Errorf("codex lead, labelled pane: started with no /obor:lead:\n%s", c)
-	}
-
-	x = newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
-	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)" { // its own workspace
-		t.Fatalf("codex lead, new tab: exit %d\n%s", rc, out)
-	}
-	if c := x.calls(); !strings.Contains(c, "agent.start") || strings.Contains(c, "/obor:lead") {
-		t.Errorf("codex lead, new tab: started with no /obor:lead:\n%s", c)
+	for _, c := range []struct {
+		name string
+		prep func(x *leadFx)
+		want string // the OK/RESTARTED line's prefix
+	}{
+		{"codex lead, labelled pane", func(x *leadFx) { x.f.Shell("w1:p1", "pj-lead", x.p.Root) }, "RESTARTED pj-lead"},
+		{"codex lead, new tab", nil, "OK pj-lead runs in workspace proj, tab lead (pane wn1:n2)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			x := newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
+			x.env = []string{"OBOR_PLUGIN_ROOT=" + x.p.Base} // the kit the prompt names, derived in a real run
+			if c.prep != nil {
+				c.prep(x)
+			}
+			if out, rc := x.run(t); rc != 0 || !strings.HasPrefix(lastLine(out), c.want) {
+				t.Fatalf("exit %d\n%s", rc, out)
+			}
+			calls := x.calls()
+			if prompt := "read " + x.p.Base + "/skills/lead/SKILL.md and follow it"; !strings.Contains(calls, "agent.start") ||
+				!strings.Contains(calls, prompt) || strings.Contains(calls, "/obor:lead") {
+				t.Errorf("started without the plain prompt %q:\n%s", prompt, calls)
+			}
+		})
 	}
 }
 

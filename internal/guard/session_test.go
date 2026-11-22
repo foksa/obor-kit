@@ -162,7 +162,8 @@ func TestSessionDenyCommandCount(t *testing.T) {
 }
 
 // the role-text line names the kit's text (absolute path) and, when the worktree has one, the project's
-// doc under paths.agents; the lead gets /obor:lead; a role without a text gets none; a custom role's doc is its own.
+// doc under paths.agents; the lead gets /obor:lead on a kind with caps skills and the skill file otherwise; a role
+// without a text gets none; a custom role's doc is its own.
 func TestSessionRoleTextRows(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
@@ -208,6 +209,12 @@ func TestSessionRoleTextRows(t *testing.T) {
 		{"the lead", nil, "lead", "root",
 			[]string{"obor: role lead", "obor: role text: run /obor:lead — read it before acting"},
 			[]string{"templates/agents/lead.md"}},
+		{"the lead on a kind without skills", func() {
+			f.Write(kit+"/skills/lead/SKILL.md", "# obor lead\n")
+			f.Config(testkit.Set("agents.roles.lead", "luna"))
+		}, "lead", "root",
+			[]string{"obor: role lead", "obor: role text: " + kit + "/skills/lead/SKILL.md — read it before acting"},
+			[]string{"run /obor:lead", "templates/agents/lead.md"}},
 		{"a role without a kit text", nil, "deep_dive", "root", nil, []string{"obor: role text"}},
 		{"a custom role's own doc", custom, "ux_buddy", "root",
 			[]string{"obor: role ux_buddy", "obor: role text: docs/agents/ux_buddy.md — read it before acting"},

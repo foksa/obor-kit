@@ -812,7 +812,8 @@ herdr plugin: serve restores its panes itself ("After a herdr restart" above).
   `hc` and `herdr-app` commands that create, end, type into or relabel terminals; reads stay allowed.
 
 ## Lines to the lead (2026-10-27 — owner decision)
-Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its Claude session, and delivers a brief to a role
+Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its Claude session (a lead of a kind
+with no inbox takes them through its hooks when they act on the answers), and delivers a brief to a role
 agent (posted to a Claude session, typed into another kind's pane); nothing is typed into the pane the owner
 writes in, and nothing else goes to a chat agent but a job's wake. State in `docs/state-model.md` row 47.
 - **`obor send <project> "<text>"`** (a lead or the owner): `<project>` is a path into an obor project. One `obor serve`
@@ -854,7 +855,27 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   stays in the box. No record → the line waits, untried; a refused dial (its socket gone) → fact `failed` with its
   reason, shown in `obor status` and the needs-you, posted again at the next pass (a lead line is never typed). There
   is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. A lead of
-  another kind (Codex, OpenCode) has no inbox: `obor status` and the 24 h needs-you.
+  another kind has no inbox: its hooks take its lines when its transport acts on their answers (next bullet), else
+  they wait.
+- **A lead whose kind has no inbox takes its lines through its hooks** (owner 2026-11-22: the lesser mode), when its
+  kind's hook transport acts on the hooks' answers (`agents.Caps.HookAnswers`, the manifest's `caps.hook_answers`).
+  When the lead's kind (its identified pane's, else its configured one) has no inbox (`agents.Caps.Inbox`) and that
+  cap, the delivery pass holds its lines (`<lead>'s kind has no inbox: its hooks hand it its lines at its next prompt
+  or turn end`, in `obor status` and the 24 h needs-you; `obor send`'s reply says it queued them so), and its hooks
+  ask serve for them (`lead_lines`; the hook's kind, from the config, has no inbox and the cap):
+  `user-prompt-submit` adds them as the prompt's
+  context, before the handoff reminder; `stop` blocks the stop with them, so a lead that just finished goes on with its
+  lines. Within an active stop loop (`stop_hook_active`) the stop hook asks nothing and the stop goes through, and a
+  background run of the lead's own blocks first (its lines wait). Serve hands every line queued for the lead, one per
+  row, as one post (an open post's members first, as a post goes again) and records it as a post's delivery (intent
+  `deliver.<first seq>{to, lines, via: hook}`, result `sent`, each other member's own result): a line handed out is
+  delivered, never handed out or posted again, and `obor status`, the 24 h needs-you and a needs-you line's repeat read
+  that delivery. A repeated call id gets the same lines; there is no ack: `sent` means handed to the hook. Any other
+  lead is refused (an inbox kind's lines are posted there). An idle lead of such a kind asks nothing: it is reached by
+  `obor status` and the needs-you notice (the owner's herdr notification), its lines waiting for its next prompt or
+  turn end. A lead whose kind has neither an inbox nor the cap (Codex: no hooks; OpenCode: its plugin drops the
+  answers) gets nothing through its hooks: its lines wait, untried and never recorded as delivered (`no inbox
+  recorded for <lead>: …` in `obor status`), and the 24 h needs-you reaches the owner.
 - **Role agents' lines go as the pane's kind takes them** (`agents.Kind.Deliver`), only while that agent's pane
   is idle or done (the rule of job delivery): a kind with an inbox (Claude) gets the line posted to its session when
   its inbox record is the live session's in that pane, else typed into the pane as its job wakes are (a line

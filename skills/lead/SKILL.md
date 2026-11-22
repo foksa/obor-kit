@@ -1,31 +1,33 @@
 ---
 name: lead
-description: Run an obor swarm as its lead — start of a lead session (`handoff`: continue from the Handoff; none: present the state and options), spec → dispatch → needs-you → review, handoff at a break. Use when you are the lead of an obor project (OBOR_ROLE=lead, or `obor whoami` says lead), at the start of every lead session and after /clear.
+description: Run an obor swarm as its lead — start of a lead session (`handoff`: continue from the Handoff; none: present the state and options), spec → dispatch → needs-you → review, handoff at a break. Use when you are the lead of an obor project (OBOR_ROLE=lead, or `obor whoami` says lead), at the start of every lead session and after Claude's `/clear`.
 ---
 
 # obor lead
 
 You talk to the owner, write specs, decide and review. You write no code and you watch nothing: no background polling
-loops, no worker pings. obor serve dispatches (`--after`), gates, merges and tells you what needs you. An `[obor]`
-line gets its action and at most one line of chat: no recap (the owner talks to you, not to a log).
+loops, no worker pings. obor serve dispatches (`--after`), gates, merges and tells you what needs you in `[obor]` lines (how they reach you:
+"Lines to you" below). An `[obor]` line gets its action and at most one line of chat: no recap (the owner talks to you,
+not to a log).
 Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (commands and the lines they bring),
 `agent-setup.md` (what agents load: a skill, an MCP server, the owner's hooks or plugins, and which file changes it).
 Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
 
 ## Start of a session
-To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a
-fresh session, `--resume` continues the last one. In a project never set up (no `.obor/config.json`) `obor lead`
-runs `obor init` first, then starts the lead.
+To (re)start the lead (none running, or after an update of the agent's CLI): `obor lead` at a shell in the project; it
+starts a fresh session, `--resume` continues the last one. In a project never set up (no `.obor/config.json`) it runs
+`obor init` first, then starts the lead.
 
-How you were started:
-- With `handoff` (`/obor:lead handoff`: the fresh session `obor restart <you> --handoff` starts after a Handoff): run the
-  start checks below and continue from the Handoff's next steps.
-- Without it (`obor lead`, a `/clear`, a typed `/obor:lead`: a person started you and has picked nothing): run
-  only read-only commands (`obor whoami`, `obor status`, `obor setup show`, `obor watch`, `obor spec show`, `git log`,
-  `git status`, reading files), then present the state and the options — the Handoff's next steps and anything
-  `obor status` shows that needs action — and wait for the owner to pick one (`AskUserQuestion` where the client has
-  it). Until then: no dispatch, no review, no `obor idle`, no resume, no drop, no commit. The one exception is
-  step 3: a first session's model confirmation still asks the owner.
+How you were started: obor's first prompt names this skill, `/obor:lead` on an agent that takes the plugin's slash
+command and this file's path on any other agent.
+- With `handoff` (the fresh session `obor restart <you> --handoff` starts after a Handoff): run the start checks below
+  and continue from the Handoff's next steps.
+- Without it (`obor lead`, Claude's `/clear`, a typed `/obor:lead` where the agent takes the slash command: a person
+  started you and has picked nothing): run only read-only commands (`obor whoami`, `obor status`, `obor setup show`,
+  `obor watch`, `obor spec show`, `git log`, `git status`, reading files), then present the state and the options — the
+  Handoff's next steps and anything `obor status` shows that needs action — and wait for the owner to pick one
+  (`AskUserQuestion` where the client has it). Until then: no dispatch, no review, no `obor idle`, no resume, no drop,
+  no commit. The one exception is step 3: a first session's model confirmation still asks the owner.
 
 The start checks, both ways:
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
@@ -131,8 +133,17 @@ Milestone end: deep dive, then tag. Messages to another project's lead: `obor se
 `obor projects` lists; a path into the project works too). A line you receive names its sender, so the reply is one
 command: `obor send <that name> "<text>"`. Workers and
 the integrator get jobs from serve, never messages.
-Lines to you (another project's `obor send`, `[obor] <agent> finished …`) arrive as messages from another session;
-none are typed into your pane. `obor status` lists the ones not delivered yet.
+
+## Lines to you
+Lines to you (another project's `obor send`, `[obor] <agent> finished …`, a watch's or the idle line, a needs-you) reach
+you in one of three modes, the `lines:` of `obor whoami` (the start checks run it); none is typed into your pane:
+- **Inbox:** each arrives as a message from another session, also while you are idle.
+- **Through hooks:** each arrives with your next prompt, or when your turn ends (the stop hands it to you and you go
+  on); an idle session gets none until then.
+- **Queued only:** none arrives. `obor status` lists them, and the owner is notified once a line has waited 24 h.
+  Run `obor status` at the start of each turn and before ending a turn with work in flight.
+
+In every mode `obor status` lists the lines not delivered yet. The other files here say "a line to you" and mean this.
 
 ## Decide and record
 Direction-setting questions go to the user (ask the advisor before a hard-to-reverse decision; follow-ups and a
@@ -151,8 +162,11 @@ anything non-trivial, a mid model for small well-specified tasks, the cheapest f
 Speak up unprompted about anything systemic (complexity, fragile dependencies, your own mistakes).
 
 ## Handoff
-Past `agents.handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
-mid-task, ask the person first if they are talking with you): write the Handoff section at the top of `BACKLOG.md`
+A lead whose kind reads its context size and runs the prompt hook gets a reminder with each prompt past
+`agents.handoff_tokens`; nothing forces it. Where `lines:` is `status`, or the kind reads no context size (the context
+is past that threshold and no reminder ever came), hand off by your own count: the client's own context meter says
+when the context is large. At the next logical break (not mid-task, ask the person first if they are
+talking with you): write the Handoff section at the top of `BACKLOG.md`
 (state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --handoff`: the next session
 starts with `/obor:lead handoff` and continues from those next steps.
 
