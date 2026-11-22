@@ -2,6 +2,7 @@ package launch_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +55,8 @@ func init() {
 
 // reviewerOn is the launcher's fixture with the reviewer (pj-rev) on model (neon: agy; mu: mute) and recs recorded,
 // its reports landing in serve's store as serve records them (fx.serve): a restart after it reads what it recorded.
-// The project commits agy's current hooks file (an agent's agy start refuses a project without it).
+// The project and the reviewer's role worktree (its start dir, whose hooks file agy runs) hold agy's current hooks file
+// (an agent's agy start refuses a start dir without it).
 func reviewerOn(t *testing.T, model string, recs ...store.Session) *fx {
 	t.Helper()
 	x := setup(t, testkit.AddModels(`{"neon":{"kind":"agy","id":"gemini-4-neon-high"},"mu":{"kind":"mute","id":"m"}}`),
@@ -62,6 +64,7 @@ func reviewerOn(t *testing.T, model string, recs ...store.Session) *fx {
 		testkit.Set("agents.roles", `{"integrator":"opus","lead":"opus","reviewer":"`+model+`"}`))
 	hooks, _ := json.Marshal(map[string]any{"obor": agykind.HooksEntry()})
 	x.p.Write(agykind.HooksFile, string(hooks))
+	x.p.Write(filepath.Join(x.p.Cfg().RoleWorktree("reviewer"), agykind.HooksFile), string(hooks)) // the file agy runs
 	x.serve = true
 	recordSessions(t, x.p.Root, recs...)
 	return x

@@ -581,8 +581,8 @@ const oldHooksEntry = `{"PreInvocation": [{"command": "obor kind agy hook", "tim
 	`"SessionStart": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}], ` +
 	`"Stop": [{"command": "obor kind agy hook", "timeout": 30, "type": "command"}]}`
 
-// A start in an obor project reads the main checkout's .agents/hooks.json (root; the start dir, a lane's worktree,
-// has none here): with obor's current entry it starts with no warning; with the pre-T-1502 three-matcher entry, an
+// A start in an obor project's main checkout (the start dir the root, or none named) reads the root's
+// .agents/hooks.json: with obor's current entry it starts with no warning; with the pre-T-1502 three-matcher entry, an
 // entry of another key alone or no file, an agent's (trimmed) start is refused naming the fix and a lead's starts with a
 // WARN naming it. A root that is no obor project, and the effort check, read no hooks file.
 func TestStartHooksFile(t *testing.T) {
@@ -603,7 +603,7 @@ func TestStartHooksFile(t *testing.T) {
 		{"no file", "", true, "agy's hooks: no {path}"},
 		{"no file outside an obor project", "", false, ""},
 	} {
-		root, dir := t.TempDir(), t.TempDir()
+		root := t.TempDir()
 		path := filepath.Join(root, kind.HooksFile)
 		if c.project {
 			writeFile(t, filepath.Join(root, ".obor", "config.json"), "{}")
@@ -612,10 +612,14 @@ func TestStartHooksFile(t *testing.T) {
 			writeFile(t, path, c.file)
 		}
 		why := strings.ReplaceAll(c.why, "{path}", path)
-		for _, trim := range []bool{true, false} {
-			who := map[bool]string{true: "an agent", false: "a lead"}[trim]
+		for _, start := range []struct {
+			trim bool
+			dir  string
+		}{{true, root}, {false, root}, {true, ""}, {false, ""}} {
+			trim := start.trim
+			who := map[bool]string{true: "an agent", false: "a lead"}[trim] + " in " + map[bool]string{true: "the root", false: "no dir"}[start.dir != ""]
 			r := startCall(t, models, home(t, ""), map[string]any{"args": []string{"--model", "gemini-4-neon-high"},
-				"trim_user": trim, "dir": dir, "root": root, "prompt": "go"})
+				"trim_user": trim, "dir": start.dir, "root": root, "prompt": "go"})
 			switch {
 			case why == "" && (r.Error != "" || len(r.Warnings) != 0 || len(r.Args) == 0):
 				t.Errorf("%s, %s: reply %+v, want a start with no warning", c.name, who, r)
@@ -630,6 +634,92 @@ func TestStartHooksFile(t *testing.T) {
 				"effort": "high", "trim_user": true, "root": root, "check": true})
 			if r.Error != "" || len(r.Warnings) != 0 {
 				t.Errorf("%s, the effort check: reply %+v, want no error and no warning", c.name, r)
+			}
+		}
+	}
+}
+
+// A start in a worktree of an obor project (a lane's, a role's) reads that worktree's .agents/hooks.json, the file agy
+// runs (docs/research/agy-probes.md P1), not the main checkout's: a current root with a stale or missing workspace file
+// refuses an agent's start, naming the workspace's file and its fix (a lane's branch task/<task>: a rebase or the task
+// redispatched; a detached role worktree: a move to the integration head, then a restart; a missing file: none counts as
+// stale, agy's fallback not verified), and warns a lead's with the same text; a current workspace starts with no warning
+// even when the root's is stale; a stale root and workspace name the root's fix first.
+func TestStartHooksFileWorkspace(t *testing.T) {
+	current, _ := json.Marshal(map[string]any{"obor": kind.HooksEntry()})
+	stale := `{"obor": ` + oldHooksEntry + `}`
+	models := kind.HandleModels(func() ([]byte, error) { return []byte(stubList), nil })
+	const setup = "run obor setup agents in the project, then commit .agents/hooks.json, then "
+	for _, c := range []struct {
+		name        string
+		root, ws    string   // the hooks files' text ("": none)
+		head        string   // the worktree's HEAD ("": no .git file)
+		want        []string // what the refusal holds, "{path}" the workspace's hooks file, "{ws}" the worktree ("": a start)
+		notVerified bool     // the refusal says agy's fallback is not verified (a missing file)
+	}{
+		{"current root, stale lane", string(current), stale, "ref: refs/heads/task/T-07",
+			[]string{"agy's hooks: {path}'s obor entry is not this kit's", "not the main checkout's",
+				"bring the lane's branch task/T-07 onto the integration branch's head: in {ws}, git rebase --autostash <merge.target_branch>",
+				`obor drop T-07 "<why>" --discard, then obor dispatch T-07`}, false},
+		{"current root, missing role worktree file", string(current), "", "3e2887a0865ebc86e62ed858ef347b863942ef12",
+			[]string{"agy's hooks: no {path} (", "move the role worktree to the integration branch's head: git -C {ws} checkout --detach <merge.target_branch>",
+				"obor brief <agent> --fresh", "then start the agent again: obor restart <agent> --fresh"}, true},
+		{"current root, stale worktree of an unknown HEAD", string(current), stale, "",
+			[]string{"agy's hooks: {path}'s obor entry is not this kit's", "a lane's, bring the lane's branch", "a role's, move the role worktree"}, false},
+		{"stale root, stale lane", stale, `{"mine": {}}`, "ref: refs/heads/task/T-07",
+			[]string{"agy's hooks: no obor entry in {path}", "): " + setup + "bring the lane's branch task/T-07"}, false},
+		{"current root, current workspace", string(current), string(current), "ref: refs/heads/task/T-07", nil, false},
+		{"stale root, current workspace", stale, string(current), "ref: refs/heads/task/T-07", nil, false},
+	} {
+		root, ws := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(root, ".obor", "config.json"), "{}")
+		writeFile(t, filepath.Join(root, kind.HooksFile), c.root)
+		path := filepath.Join(ws, kind.HooksFile)
+		if c.ws != "" {
+			writeFile(t, path, c.ws)
+		}
+		if c.head != "" {
+			gitdir := filepath.Join(root, ".git", "worktrees", filepath.Base(ws))
+			writeFile(t, filepath.Join(ws, ".git"), "gitdir: "+gitdir+"\n")
+			writeFile(t, filepath.Join(gitdir, "HEAD"), c.head+"\n")
+		}
+		var refusal string
+		for _, trim := range []bool{true, false} {
+			who := map[bool]string{true: "an agent", false: "a lead"}[trim]
+			r := startCall(t, models, home(t, ""), map[string]any{"args": []string{"--model", "gemini-4-neon-high"},
+				"trim_user": trim, "dir": ws, "root": root, "prompt": "go"})
+			if c.want == nil {
+				if r.Error != "" || len(r.Warnings) != 0 || len(r.Args) == 0 {
+					t.Errorf("%s, %s: reply %+v, want a start with no warning", c.name, who, r)
+				}
+				continue
+			}
+			if trim {
+				if r.Error == "" || len(r.Args) != 0 {
+					t.Errorf("%s, %s: reply %+v, want a refusal", c.name, who, r)
+					continue
+				}
+				refusal = r.Error
+				for _, w := range c.want {
+					w = strings.NewReplacer("{path}", path, "{ws}", ws).Replace(w)
+					if !strings.Contains(r.Error, w) {
+						t.Errorf("%s, %s: error %q lacks %q", c.name, who, r.Error, w)
+					}
+				}
+				if got := strings.Contains(r.Error, "is not verified"); got != c.notVerified {
+					t.Errorf("%s, %s: error %q says agy's fallback is not verified: %v, want %v", c.name, who, r.Error, got, c.notVerified)
+				}
+				if root := filepath.Join(root, kind.HooksFile); strings.Contains(r.Error, root) {
+					t.Errorf("%s, %s: error %q names the root's file %s, not the workspace's", c.name, who, r.Error, root)
+				}
+				continue
+			}
+			if refusal == "" {
+				t.Errorf("%s: precondition: the agent's start was refused", c.name)
+				continue
+			}
+			if r.Error != "" || len(r.Args) == 0 || !slices.Equal(r.Warnings, []string{"WARN " + refusal}) {
+				t.Errorf("%s, %s: reply %+v, want a start with the warning %q", c.name, who, r, "WARN "+refusal)
 			}
 		}
 	}
