@@ -44,7 +44,8 @@ func newRfx(t *testing.T) *rfx {
 	f := &rfx{t: t, p: p, fail: map[string]bool{}, prompts: map[string]string{}, free: map[string]bool{}}
 	f.h = newTerm()
 	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.h, Now: func() time.Time { return time.Unix(0, 0) },
-		Sessions: store.CurrentAt, // the App's fold stands in as the store the tests record into
+		Poll:     time.Millisecond, // the fake panes settle at once: no test waits a real settlePoll
+		Sessions: store.CurrentAt,  // the App's fold stands in as the store the tests record into
 		LaneState: func(cfg *config.Config, l config.Lane) string {
 			if f.free[l.Name] {
 				return port.LaneFree
