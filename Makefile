@@ -145,7 +145,8 @@ check:
 #   hooks/**         cmd/obor (plugin_wiring_test.go: hooks.json as the plugin registers it); internal/agents,
 #                    internal/agents/codex, internal/agents/plugin and internal/checks match only through the status
 #                    value "hooks" (Caps.Status), codex's "hooks" key, the kind protocol's caps.hooks and the
-#                    classification table's fixtures, no path: listed so the survey needs no per-file exception
+#                    classification table's fixtures, and internal/launch through its agy hooks fixture, no path:
+#                    listed so the survey needs no per-file exception
 #   .claude-plugin/  cmd/obor (plugin_wiring_test.go, shim_test.go), internal/agents/claude (claude.go: the manifest's
 #                    mcpServers entry), internal/setup (plugin.go, oborinit.go: install's registration)
 #   README.md        cmd/obor (skills_test.go)
@@ -161,7 +162,7 @@ check:
 AFFECTED_READS := \
 	-reads 'skills/**=cmd/obor,internal/roles' \
 	-reads 'templates/**=cmd/obor,internal/app,internal/config,internal/guard,internal/setup' \
-	-reads 'hooks/**=cmd/obor,internal/agents,internal/agents/codex,internal/agents/plugin,internal/checks' \
+	-reads 'hooks/**=cmd/obor,internal/agents,internal/agents/codex,internal/agents/plugin,internal/checks,internal/launch' \
 	-reads '.claude-plugin/**=cmd/obor,internal/agents/claude,internal/setup' \
 	-reads 'README.md=cmd/obor' \
 	-reads 'bin/obor=cmd/obor' \
