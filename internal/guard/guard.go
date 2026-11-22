@@ -14,7 +14,10 @@
 // in their own role worktree.
 // No role but the lead moves HEAD in the main checkout: the integrator, the reviewer and the deep dive
 // work in their own worktrees, and a custom role there reads git only. Which files of its lane
-// a worker edits is not checked (placement is checked at accept). An agent CLI run headless (codex exec,
+// a worker edits is not checked (placement is checked at accept). An MCP tool call (tool_name "mcp",
+// tool_input.mcp_server; a kind's transport maps its CLI's MCP tool to it) is denied for a lane-bound role (a worker,
+// the owner's drive agent) when it names a server the project's committed MCP config (agents.ProjectMCPFile) does not
+// declare; obor's own is always allowed. An agent CLI run headless (codex exec,
 // claude -p, opencode run) is denied for every role: agents run in herdr panes.
 //
 // It is an accident guard: it does not try to stop a crafted bypass (an interpreter, a script file, an alias, a
@@ -40,6 +43,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -92,6 +96,8 @@ func Run(input []byte, env project.Env, errw io.Writer) (code int, reason string
 	if g.tool == "Bash" {
 		g.bash()
 		g.recordBackground()
+	} else if g.tool == "mcp" {
+		g.mcp()
 	} else {
 		g.edit()
 	}
@@ -121,12 +127,14 @@ type event struct {
 		NotebookPath    string `json:"notebook_path"`
 		RunInBackground bool   `json:"run_in_background"`
 		Description     string `json:"description"`
+		MCPServer       string `json:"mcp_server"`
 	} `json:"tool_input"`
 }
 
 type guard struct {
 	env                    project.Env
 	tool, cwd, cmd, target string
+	mcpServer              string // an mcp call's server name (tool_input.mcp_server)
 	background             bool   // a Bash call run in the background (run_in_background)
 	description, session   string // the Bash call's description, the hook's session id
 	repo                   *project.Repo
@@ -198,12 +206,13 @@ func load(input []byte, env project.Env) *guard {
 		return nil
 	}
 	switch ev.ToolName {
-	case "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit":
+	case "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "mcp":
 	default:
 		return nil
 	}
 	g := &guard{env: env, tool: ev.ToolName, cwd: ev.Cwd, cmd: ev.ToolInput.Command, target: ev.ToolInput.FilePath,
-		background: ev.ToolInput.RunInBackground, description: ev.ToolInput.Description, session: ev.SessionID}
+		mcpServer: ev.ToolInput.MCPServer, background: ev.ToolInput.RunInBackground, description: ev.ToolInput.Description,
+		session: ev.SessionID}
 	if g.target == "" {
 		g.target = ev.ToolInput.NotebookPath
 	}
@@ -519,6 +528,49 @@ func listDenial(role string, list []string, r string) string {
 	}
 	return r + " is outside the " + role + " write profile — " + a + role + " writes only " + strings.Join(list, ", ") +
 		" (roles." + role + ".write); put anything else in your answer instead"
+}
+
+// oborServer is the name every kind registers obor's MCP server under (`mcpServers.obor` in an MCP config): it is
+// always a lane-bound role's to call, even while the project declares no server at all.
+const oborServer = "obor"
+
+// mcpOnly is the line every MCP call a lane-bound role may not make gets (owner 11-22).
+const mcpOnly = "obor lanes use the project's MCP servers only (" + agents.ProjectMCPFile + "; owner 11-22)"
+
+// mcp guards an MCP tool call (tool_name "mcp", tool_input.mcp_server the server it names): a lane-bound role (the
+// worker, the owner's drive agent) calls the servers the project declares and obor's; the user's own servers and an
+// agy plugin's are not the project's. Every other role has no opinion: the lead and the role agents keep every server.
+func (g *guard) mcp() {
+	if !roles.LaneBound(g.role) {
+		return
+	}
+	if g.mcpServer == "" {
+		deny("an MCP call naming no server — " + mcpOnly)
+	}
+	if !g.projectServers()[g.mcpServer] {
+		deny("MCP server " + g.mcpServer + " — " + mcpOnly)
+	}
+}
+
+// projectServers is the MCP servers the project declares, obor's always: the mcpServers keys of the project's
+// committed MCP config (agents.ProjectMCPFile), read from the main checkout (a lane worktree's copy is the same file,
+// and a hand-edited one there is not the project's). A missing or unreadable file declares none.
+func (g *guard) projectServers() map[string]bool {
+	servers := map[string]bool{oborServer: true}
+	b, err := os.ReadFile(filepath.Join(g.root, agents.ProjectMCPFile))
+	if err != nil {
+		return servers
+	}
+	var doc struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if json.Unmarshal(b, &doc) != nil {
+		return servers
+	}
+	for name := range doc.Servers {
+		servers[name] = true
+	}
+	return servers
 }
 
 // edit guards Edit / Write / MultiEdit / NotebookEdit.

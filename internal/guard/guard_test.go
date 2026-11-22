@@ -51,6 +51,7 @@ type tc struct {
 
 func bash(who, cwd, cmd, want string) tc     { return tc{who, cwd, "Bash", cmd, want} }
 func edit(who, cwd, tool, p, want string) tc { return tc{who, cwd, tool, p, want} }
+func mcp(who, cwd, server, want string) tc   { return tc{who, cwd, "mcp", server, want} }
 
 func (c tc) input(extra map[string]any) []byte {
 	in := map[string]any{"hook_event_name": "PreToolUse", "tool_name": c.tool, "cwd": c.cwd}
@@ -59,6 +60,8 @@ func (c tc) input(extra map[string]any) []byte {
 		in["tool_input"] = map[string]any{"command": c.arg, "description": "x"}
 	case "NotebookEdit":
 		in["tool_input"] = map[string]any{"notebook_path": c.arg}
+	case "mcp":
+		in["tool_input"] = map[string]any{"mcp_server": c.arg}
 	default:
 		in["tool_input"] = map[string]any{"file_path": c.arg}
 	}

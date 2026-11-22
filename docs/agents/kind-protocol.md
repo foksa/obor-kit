@@ -206,12 +206,19 @@ Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unrea
 
 | `obor hook` | The event fields it reads | The answer |
 |---|---|---|
-| `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
+| `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `mcp`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description`, `tool_input.mcp_server` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
 | `session-start` | `cwd`, `session_id`, `transcript_path`, `agent_kind` (a kind's transport names its kind: the session's kind when the config knows it, else the kind the agent runs as) | obor's context lines on stdout (role, lane, task, the spec's protected files, the hooks line, the role text; a `WARN` line for unknown config keys, or the one line of a config that does not load), nothing else; with a session id, the session is recorded and reported to serve with its transcript, its inbox record written and a plugin kind's marker |
 | `user-prompt-submit` | `cwd`, `session_id`, `transcript_path`, `prompt`, the origin fields `origin` (a string or `{"kind": …}`), `turn_origin`/`turnOrigin`, `prompt_source`/`promptSource` | one UserPromptSubmit context object on stdout, `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":…}}`: the lead's queued lines when no live inbox takes them and `hook_answers` (asked from serve, which records them as delivered) and its handoff reminder, or a worker's wrong-tab guard; nothing when neither applies; a worker's or role agent's turn is reported to serve as begun |
 | `stop` | `cwd`, `session_id`, `transcript_path`, `stop_hook_active` (only `true` counts), `background_tasks`, each with its `status` (`running` counts) | `{"decision":"block","reason":…}` on stdout (a background run this session started still running, a worker before its `task_done`, or the lead's queued lines when no live inbox takes them and `hook_answers`, not within an active stop loop: asked from serve, which records them as delivered), or nothing; a worker's or role agent's turn is reported to serve as ended |
 | `stop-failure` | `cwd`, `error`, `error_details` (both raw JSON, logged as written) | nothing: the event is logged under the project's state dir and, with an agent's name, its error reported to serve |
 | `noop` | — | nothing |
+
+A CLI's MCP tool call is `tool_name` `mcp` with the server's name in `tool_input.mcp_server` (the name its CLI's MCP
+config registers the server under; `obor` is obor's own, `mcpServers.obor`). The guard denies a lane-bound role — a
+worker, `obor drive` — any server the project does not declare, and a call that names none: allowed are the servers of
+the project's committed `.agents/mcp_config.json` (read from the main checkout; `obor`'s always among them), so obor
+lanes use the project's MCP servers only (`.agents/mcp_config.json`; owner 11-22); a missing or unreadable file allows
+only `obor`. A lead's and a role agent's call: no opinion.
 
 ## Not covered
 
