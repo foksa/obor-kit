@@ -57,8 +57,8 @@ Lead's note: <your --note>
 The accepted-findings part of the previous-review line is there only when `docs/accepted.md` exists in the main
 checkout: a project that accepted no finding has no file.
 
-Serve posts `[obor] <reviewer agent> finished (briefed <age> ago)` to your session once the reviewer has worked and is
-idle again: nothing to watch.
+Serve sends you `[obor] <reviewer agent> finished (briefed <age> ago)` once the reviewer has worked and is idle again
+(it reaches you as `SKILL.md` "Lines to you" says): nothing to watch.
 
 ## 3. When the review is written
 Read `<reviews>/<RV-xx>.md` in the main checkout; do not copy or commit it. Triage each finding (owner rule

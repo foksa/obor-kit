@@ -6,8 +6,9 @@ description: Run an obor swarm as its lead — start of a lead session (`handoff
 # obor lead
 
 You talk to the owner, write specs, decide and review. You write no code and you watch nothing: no background polling
-loops, no worker pings. obor serve dispatches (`--after`), gates, merges and tells you what needs you. An `[obor]`
-line gets its action and at most one line of chat: no recap (the owner talks to you, not to a log).
+loops, no worker pings. obor serve dispatches (`--after`), gates, merges and tells you what needs you in `[obor]` lines (how they reach you:
+"Lines to you" below). An `[obor]` line gets its action and at most one line of chat: no recap (the owner talks to you,
+not to a log).
 Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (commands and the lines they bring),
 `agent-setup.md` (what agents load: a skill, an MCP server, the owner's hooks or plugins, and which file changes it).
 Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
@@ -132,8 +133,17 @@ Milestone end: deep dive, then tag. Messages to another project's lead: `obor se
 `obor projects` lists; a path into the project works too). A line you receive names its sender, so the reply is one
 command: `obor send <that name> "<text>"`. Workers and
 the integrator get jobs from serve, never messages.
-Lines to you (another project's `obor send`, `[obor] <agent> finished …`) arrive as messages from another session;
-none are typed into your pane. `obor status` lists the ones not delivered yet.
+
+## Lines to you
+Lines to you (another project's `obor send`, `[obor] <agent> finished …`, a watch's or the idle line, a needs-you) reach
+you in one of three modes, by your kind; none is typed into your pane:
+- **Inbox:** each arrives as a message from another session, also while you are idle.
+- **Through hooks:** each arrives with your next prompt, or when your turn ends (the stop hands it to you and you go
+  on); an idle session gets none until then.
+- **Queued only:** none arrives. `obor status` lists them, and the owner is notified once a line has waited 24 h.
+  Run `obor status` at the start of each turn and before ending a turn with work in flight.
+
+In every mode `obor status` lists the lines not delivered yet. The other files here say "a line to you" and mean this.
 
 ## Decide and record
 Direction-setting questions go to the user (ask the advisor before a hard-to-reverse decision; follow-ups and a
@@ -152,8 +162,10 @@ anything non-trivial, a mid model for small well-specified tasks, the cheapest f
 Speak up unprompted about anything systemic (complexity, fragile dependencies, your own mistakes).
 
 ## Handoff
-Past `agents.handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
-mid-task, ask the person first if they are talking with you): write the Handoff section at the top of `BACKLOG.md`
+A lead whose kind reads its context size and runs the prompt hook gets a reminder with each prompt past
+`agents.handoff_tokens`; nothing forces it. Any other lead hands off by its own count: the client's own context
+meter says when the context is large. At the next logical break (not mid-task, ask the person first if they are
+talking with you): write the Handoff section at the top of `BACKLOG.md`
 (state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --handoff`: the next session
 starts with `/obor:lead handoff` and continues from those next steps.
 
