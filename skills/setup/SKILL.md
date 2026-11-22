@@ -47,8 +47,8 @@ Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … alre
 `obor setup agents` adds the `agents.models` entry of each model the config's levels and roles name without one, when
 obor knows it (uncommitted: commit it), caches each plugin kind's manifest (`.obor/state/kinds/`) and checks every kind's install;
 no kind installs anything outside the project. opencode lanes (`kind:
-opencode`, no Claude Code hooks) get obor's MCP server and its plugin (file guard and session context; there is no
-Stop hook, so nothing nudges a missing `task_done`) from each start's generated config (`OPENCODE_CONFIG`, under
+opencode`, no Claude Code hooks) get obor's MCP server and its plugin (the file guard, the session context, and the
+hooks' answers: a stop's block nudges a missing `task_done`) from each start's generated config (`OPENCODE_CONFIG`, under
 `.obor/state/`), Claude and Codex from the plugin manifest and launch args. If an obor before v0.25 put a global
 opencode registration on the machine, remove it by hand: the `mcp.servers.obor` entry of
 `~/.config/opencode/opencode.json` and the `plugins/obor.js` link there (`$XDG_CONFIG_HOME` respected); restart

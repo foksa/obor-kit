@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch } from "./obor.js";
+import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, tool_name, tool_input });
@@ -94,13 +94,15 @@ function feed() {
 }
 
 // The hooks against a stub kit: a copy of obor.js beside a bin/obor that logs each call (with the identity env it
-// sees) and answers per its mode (allow, deny or hang: each stub keeps its own, so the hang test runs beside the others), loaded through the opencode 2.x setup entry.
+// sees) and answers per its mode (allow, deny, answer, block, fail or hang: each stub keeps its own, so the hang test
+// runs beside the others), loaded through the opencode 2.x setup entry.
 // A checkout option makes the project a git repository: "obor" (an obor checkout: bin/obor and a plugin.json named
 // obor) or "other" (plugin.json named other), entered at its main checkout or, with lane, at its lane worktree; each
 // bin/obor stub also logs its name (kit, main or lane) to <base>/who.
 // model sets OBOR_OPENCODE_MODEL for the setup call (setup reads it first, before any await), version opencode's
-// version, and switched collects the ctx.session.switchModel calls (none: the context has no switchModel).
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched } = {}) {
+// version, and switched collects the ctx.session.switchModel calls (none: the context has no switchModel). prompted
+// collects the ctx.session.prompt calls of a stop's block.
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -112,10 +114,14 @@ async function stubPlugin(t, { project = true, checkout = "", lane = false, mode
     fs.writeFileSync(
       path.join(root, "bin", "obor"),
       `#!/bin/bash
+event=$(cat)
 echo ${name} >> ${base}/who
-echo "$2 OBOR_NO_SELF_HOST=$OBOR_NO_SELF_HOST id=\${OBOR_AGENT-}/\${OBOR_ROLE-}/\${OBOR_LANE-}/\${HERDR_PANE_ID-} $(cat)" >> ${log}
+echo "$2 OBOR_NO_SELF_HOST=$OBOR_NO_SELF_HOST id=\${OBOR_AGENT-}/\${OBOR_ROLE-}/\${OBOR_LANE-}/\${HERDR_PANE_ID-} $event" >> ${log}
 case "${mode}:$2" in
   deny:pre-tool-use) echo "obor: denied by the stub" >&2; exit 2 ;;
+  answer:user-prompt-submit) echo '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"obor: the lead has lines"}}' ;;
+  block:stop) case "$event" in *'"stop_hook_active":true'*) ;; *) echo '{"decision":"block","reason":"obor (worker L-01): not done yet"}' ;; esac ;;
+  fail:user-prompt-submit) echo "obor: the stub failed" >&2; exit 1 ;;
   hang:*) sleep 30 ;;
   *:session-start) echo "obor: role worker, lane D-01" ;;
 esac
@@ -144,7 +150,10 @@ esac
   const mod = await import(pathToFileURL(path.join(kit, "opencode", "obor.js")).href + "?" + base);
   const hooked = {};
   const events = feed();
-  const session = { hook: async (name, fn) => (hooked["session:" + name] = fn) };
+  const session = {
+    hook: async (name, fn) => (hooked["session:" + name] = fn),
+    prompt: async (a) => void prompted.push(a),
+  };
   if (switched) session.switchModel = async (a) => void switched.push(a);
   const was = process.env.OBOR_OPENCODE_MODEL;
   if (model === undefined) delete process.env.OBOR_OPENCODE_MODEL;
@@ -169,18 +178,18 @@ esac
   const who = () => (fs.existsSync(path.join(base, "who")) ? fs.readFileSync(path.join(base, "who"), "utf8").trim().split("\n") : []);
   const names = () => calls().map((l) => l.split(" ")[0]);
   const token = (sid) => tokensPath(sid, { HOME: base });
-  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token };
+  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted };
 }
 
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "default", "errorDetails", "modelRef", "modelSwitch", "patchPaths", "sessionHooks", "toClaudeEvents", "tokensPath"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "default", "errorDetails", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
 });
 
-test("setup: the guard, the context and the session events through its tool, session and event hooks", async (t) => {
+test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
   const { hooked } = await stubPlugin(t);
-  assert.deepEqual(Object.keys(hooked).sort(), ["event:subscribe", "session:context", "tool:execute.before"]);
+  assert.deepEqual(Object.keys(hooked).sort(), ["event:subscribe", "session:context", "session:prompt", "tool:execute.before"]);
   assert.deepEqual(hooked["event:subscribe"].types.sort(), [
     "session.created",
     "session.execution.failed",
@@ -275,11 +284,18 @@ const turn = (dir, id, text) => [
   oc("session.inbox.enqueued", { sessionID: id, inboxID: "msg_1", item: { type: "user", payload: { text }, delivery: "steer" } }, dir),
   oc("session.execution.started", { sessionID: id }),
 ];
+// promptOf runs the session prompt hook for one admitted prompt (opencode runs it before admission) and returns the
+// payload it may have mutated.
+const promptOf = (hooked, id, text, metadata) => {
+  const p = { sessionID: id, prompt: { text }, ...(metadata ? { metadata } : {}) };
+  return hooked["session:prompt"](p).then(() => p);
+};
 const rateLimit = { type: "provider.rate-limit", message: "You exceeded your current quota; resets at 6pm", status: 429, retryAfterMs: 3600000 };
 
 test("session events: session start, turn start and turn end run session-start, user-prompt-submit and stop", async (t) => {
-  const { emit, names, calls, event, dir, token } = await stubPlugin(t);
+  const { emit, names, calls, event, dir, token, hooked } = await stubPlugin(t);
   const store = token("s1");
+  await promptOf(hooked, "s1", wake);
   await emit(oc("session.created", { sessionID: "s1", slug: "x", version: "2.2.0" }, dir), ...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit", "stop"]);
   const [start, prompt, stop] = calls().map(event);
@@ -289,22 +305,26 @@ test("session events: session start, turn start and turn end run session-start, 
   for (const line of calls()) assert.match(line, /^\S+ OBOR_NO_SELF_HOST=1 id=/, line); // the identity: the identity vars test
 });
 
-test("session events: a later turn runs no second session-start; its prompt is that turn's inbox; context reuses the start", async (t) => {
+test("session events: a later turn runs no second session-start; each prompt carries its own text; context reuses the start", async (t) => {
   const { emit, names, calls, event, dir, hooked } = await stubPlugin(t);
+  await promptOf(hooked, "s1", "first");
   await emit(...turn(dir, "s1", "first"), oc("session.execution.succeeded", { sessionID: "s1" }));
   const c = { sessionID: "s1", system: [] };
   await hooked["session:context"](c);
   assert.deepEqual(c.system, [{ type: "text", text: "obor: role worker, lane D-01" }]);
-  await emit(...turn(dir, "s1", "second a"), ...turn(dir, "s1", "second b").slice(0, 1));
-  await emit(oc("session.execution.succeeded", { sessionID: "s1" }), ...turn(dir, "s1", "third"));
+  await promptOf(hooked, "s1", "second");
+  await emit(...turn(dir, "s1", "second"), oc("session.execution.succeeded", { sessionID: "s1" }));
+  await promptOf(hooked, "s1", "third");
+  await emit(...turn(dir, "s1", "third"));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit", "stop", "user-prompt-submit", "stop", "user-prompt-submit"]);
   const prompts = calls().map(event).filter((e) => e.hook_event_name === "UserPromptSubmit").map((e) => e.prompt);
-  assert.deepEqual(prompts, ["first", "second a", "second b\n\nthird"]);
+  assert.deepEqual(prompts, ["first", "second", "third"]);
 });
 
 test("limit error: the turn's failure sends stop-failure (rate_limit, its reset epoch); its retries send nothing", async (t) => {
-  const { emit, names, calls, event, dir, token } = await stubPlugin(t);
+  const { emit, names, calls, event, dir, token, hooked } = await stubPlugin(t);
   const retry = (attempt, error) => oc("session.retry.scheduled", { sessionID: "s1", assistantMessageID: "msg_2", attempt, at: CREATED + 900000, error }, dir);
+  await promptOf(hooked, "s1", wake);
   await emit(...turn(dir, "s1", wake), retry(2, { type: "provider.transport", message: "ECONNREFUSED" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"], "a transport retry is no stop");
   await emit(retry(3, rateLimit), retry(4, rateLimit));
@@ -320,6 +340,7 @@ test("limit error: the turn's failure sends stop-failure (rate_limit, its reset 
     error_details: "You exceeded your current quota; resets at 6pm (provider.rate-limit)|1793365200",
   });
   // The next turn may stop again.
+  await promptOf(hooked, "s1", "again");
   await emit(...turn(dir, "s1", "again"), oc("session.execution.failed", { sessionID: "s1", error: { type: "provider.budget-limit", message: "budget spent" } }));
   assert.deepEqual(names().slice(3), ["user-prompt-submit", "stop-failure"]);
   const last = event(calls()[4]);
@@ -328,12 +349,14 @@ test("limit error: the turn's failure sends stop-failure (rate_limit, its reset 
 });
 
 test("session events: another directory's session, a child session and an interrupted turn run no hook", async (t) => {
-  const { emit, names, dir } = await stubPlugin(t);
+  const { emit, names, dir, hooked } = await stubPlugin(t);
   const other = path.join(path.dirname(dir), "elsewhere");
   await emit(...turn(other, "s9", wake), oc("session.execution.succeeded", { sessionID: "s9" }), oc("session.execution.failed", { sessionID: "s9", error: rateLimit }));
   await emit(oc("session.created", { sessionID: "c1", parentID: "s1", slug: "x", version: "2.2.0" }, dir), ...turn(dir, "c1", "sub"), oc("session.execution.succeeded", { sessionID: "c1" }));
   await emit(oc("session.execution.started", { sessionID: "unknown" }), oc("session.execution.succeeded", { sessionID: "unknown" }));
+  await promptOf(hooked, "c1", "sub"); // a child's prompt: no hook
   assert.deepEqual(names(), []);
+  await promptOf(hooked, "s1", wake);
   await emit(...turn(dir, "s1", wake), oc("session.execution.interrupted", { sessionID: "s1", reason: "user" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"], "precondition: this directory's session runs its hooks");
 });
@@ -438,7 +461,7 @@ test("modelSwitch: a failed switch warns and lets the turn run", async () => {
   assert.match(warned[0], /switching session s1 to go\/ds failed: boom/);
 });
 
-test("setup: the prompt hook only with OBOR_OPENCODE_MODEL on opencode 2 with switchModel; it switches the root session", async (t) => {
+test("setup: the prompt hook carries the answers always; it switches the root session with OBOR_OPENCODE_MODEL on opencode 2 with switchModel", async (t) => {
   const switched = [];
   const { hooked } = await stubPlugin(t, { model: "go/ds#max", switched });
   assert.equal(typeof hooked["session:prompt"], "function");
@@ -448,18 +471,21 @@ test("setup: the prompt hook only with OBOR_OPENCODE_MODEL on opencode 2 with sw
     ["no variable", { switched: [] }],
     ["opencode 1.x", { model: "go/ds", version: "1.18.3", switched: [] }],
     ["no switchModel", { model: "go/ds" }],
-    ["outside an obor project", { model: "go/ds", switched: [], project: false }],
   ]) {
     const errs = [];
     const orig = console.error;
     console.error = (l) => errs.push(l);
     try {
       const { hooked: h } = await stubPlugin(t, opts);
-      assert.equal(h["session:prompt"], undefined, name);
+      assert.equal(typeof h["session:prompt"], "function", name);
+      await h["session:prompt"]({ sessionID: "s1", prompt: { text: "wake" } });
+      assert.deepEqual(opts.switched ?? [], [], name);
     } finally {
       console.error = orig;
     }
   }
+  const { hooked: outside } = await stubPlugin(t, { model: "go/ds", project: false });
+  assert.deepEqual(Object.keys(outside), [], "outside an obor project");
 });
 
 test("claudeError: Claude Code's StopFailure errors for opencode's error types", () => {
@@ -496,7 +522,8 @@ test("tokensPath: a session's token file under the HOME the kind's transcript gl
 // hooks read (guard.SessionStart: cwd, session_id; guard.Stop: cwd, session_id, transcript_path, stop_hook_active;
 // guard.StopFailure: cwd, error, error_details), each a field Claude Code sends.
 test("each mapped event has the fields the Go hook reads", async (t) => {
-  const { emit, calls, event, dir } = await stubPlugin(t);
+  const { emit, calls, event, dir, hooked } = await stubPlugin(t);
+  await promptOf(hooked, "s1", wake);
   await emit(...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }), ...turn(dir, "s1", "x"), oc("session.execution.failed", { sessionID: "s1", error: rateLimit }));
   const byName = Object.fromEntries(calls().map(event).map((e) => [e.hook_event_name, e]));
   assert.deepEqual(Object.keys(byName).sort(), ["SessionStart", "Stop", "StopFailure", "UserPromptSubmit"]);
@@ -514,6 +541,72 @@ test("each mapped event has the fields the Go hook reads", async (t) => {
       if (k !== "stop_hook_active") assert.notEqual(byName[name][k], "", `${name}.${k} empty`);
     }
   }
+});
+
+// The answers' shape: obor's user-prompt-submit writes its context in hookSpecificOutput.additionalContext, its stop a
+// block with a reason (guard.promptContext, guard.Stop); anything else is no answer.
+test("promptContext and stopBlock: the hooks' answers, and nothing for no answer", () => {
+  assert.equal(promptContext('{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"obor: hi"}}'), "obor: hi");
+  for (const none of ["", "not json", "{}", '{"hookSpecificOutput":{}}', '{"hookSpecificOutput":{"additionalContext":7}}']) {
+    assert.equal(promptContext(none), "", none);
+  }
+  assert.equal(stopBlock('{"decision":"block","reason":"go on"}'), "go on");
+  for (const none of ["", "not json", "{}", '{"decision":"allow"}', '{"decision":"block"}']) assert.equal(stopBlock(none), "", none);
+});
+
+// The prompt hook acts on user-prompt-submit's answer: its context is appended to the prompt's text, which opencode
+// stores in the user message (the model and the owner see it).
+test("prompt: user-prompt-submit's context is appended to the prompt's text", async (t) => {
+  const { hooked, calls, names, event } = await stubPlugin(t, { mode: "answer" });
+  const p = await promptOf(hooked, "s1", wake);
+  assert.equal(p.prompt.text, wake + "\n\nobor: the lead has lines");
+  assert.deepEqual(names(), ["session-start", "user-prompt-submit"]);
+  const asked = calls().map(event).find((e) => e.hook_event_name === "UserPromptSubmit");
+  assert.equal(asked.prompt, wake, "the hook asked with the prompt as typed, before the context");
+});
+
+test("prompt: no answer or a failing hook leaves the prompt as typed", async (t) => {
+  for (const [name, mode, want] of [["no answer", "allow", ["session-start", "user-prompt-submit"]], ["a failing hook", "fail", ["session-start", "user-prompt-submit"]]]) {
+    const { hooked, names } = await stubPlugin(t, { mode });
+    const p = await promptOf(hooked, "s1", wake);
+    assert.equal(p.prompt.text, wake, name);
+    assert.deepEqual(names(), want, name);
+  }
+});
+
+// A stop's block becomes the session's next prompt, marked metadata.obor (obor's own line: the prompt hook runs no
+// second reminder for it), and the stop that ends that turn carries stop_hook_active: true — once per stop loop.
+test("stop: a block prompts the session with its reason, and the loop's next stop says stop_hook_active", async (t) => {
+  const { emit, hooked, calls, event, dir, prompted } = await stubPlugin(t, { mode: "block" });
+  const stops = () => calls().map(event).filter((e) => e.hook_event_name === "Stop").map((e) => e.stop_hook_active);
+  await promptOf(hooked, "s1", wake);
+  await emit(...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }));
+  assert.deepEqual(prompted, [{ sessionID: "s1", text: "obor (worker L-01): not done yet", metadata: { obor: "stop" } }],
+    "one prompt with the block's reason, obor's own");
+  assert.deepEqual(stops(), [false]);
+  await emit(...turn(dir, "s1", "obor (worker L-01): not done yet"), oc("session.execution.succeeded", { sessionID: "s1" }));
+  assert.deepEqual(stops(), [false, true], "the stop ending the block's turn is the stop loop's");
+  assert.equal(prompted.length, 1, "that stop blocks nothing again");
+  await promptOf(hooked, "s1", "next");
+  await emit(...turn(dir, "s1", "next"), oc("session.execution.succeeded", { sessionID: "s1" }));
+  assert.deepEqual(stops(), [false, true, false], "a turn after the loop is a new one");
+  assert.equal(prompted.length, 2, "and its block is a new stop loop");
+});
+
+test("stop: no block (or a failure) prompts nothing and the next stop is a new loop", async (t) => {
+  const { emit, hooked, calls, event, dir, prompted } = await stubPlugin(t);
+  await promptOf(hooked, "s1", wake);
+  await emit(...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }), ...turn(dir, "s1", "next"), oc("session.execution.succeeded", { sessionID: "s1" }));
+  assert.deepEqual(prompted, []);
+  assert.deepEqual(calls().map(event).filter((e) => e.hook_event_name === "Stop").map((e) => e.stop_hook_active), [false, false]);
+});
+
+test("prompt: a prompt that carries metadata.obor is obor's own: no user-prompt-submit runs", async (t) => {
+  const { hooked, names } = await stubPlugin(t, { mode: "answer" });
+  const text = "obor (worker L-01): not done yet";
+  const p = await promptOf(hooked, "s1", text, { obor: "stop" });
+  assert.equal(p.prompt.text, text, "no context appended");
+  assert.deepEqual(names(), [], "no hook, not even session-start");
 });
 
 // The hanging guard waits out the plugin's 5 s timeout, so it starts when this file loads and runs beside the tests

@@ -87,17 +87,17 @@ func TestLeadLinesInboxKindNotAsked(t *testing.T) {
 	}
 }
 
-// A lead whose kind has no inbox but whose hooks do not act on the answers (OpenCode's plugin drops them) is never
+// A lead whose kind has no inbox but whose hooks do not act on the answers (Codex: none at all) is never
 // asked, at a prompt or at a stop: its lines stay queued for obor status, none recorded as delivered.
 func TestLeadLinesNoHookAnswersNotAsked(t *testing.T) {
 	t.Parallel()
 	f, _ := promptFx(t, true)
-	f.Config(testkit.Set("agents.roles.lead", "deepseek"))
+	f.Config(testkit.Set("agents.roles.lead", "terra"))
 	a := &askLines{text: twoLines}
 	if c := f.promptLines(t, f.Root, "what next?", "", a.ask, "OBOR_ROLE=lead"); c != "" {
-		t.Errorf("an OpenCode lead's prompt: context %q", c)
+		t.Errorf("a Codex lead's prompt: context %q", c)
 	}
-	f.stopLines(t, "lead", f.Root, "", a.ask).allow("an OpenCode lead's stop")
+	f.stopLines(t, "lead", f.Root, "", a.ask).allow("a Codex lead's stop")
 	if len(a.asks) != 0 {
 		t.Errorf("asks %q, want none", a.asks)
 	}

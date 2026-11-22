@@ -25,8 +25,8 @@ func whoamiFor(t *testing.T, dir, role string) *Who {
 	return w
 }
 
-// A lead's Whoami names how its lines reach it, from its kind's caps (a Claude ref: its inbox; a kind with no inbox
-// whose hooks act on the answers: its hooks; OpenCode, Codex: only obor status), and a worker's names none.
+// A lead's Whoami names how its lines reach it, from its kind's caps (a Claude ref: its inbox; OpenCode's and the test
+// kind's, no inbox and the hooks' answers: their hooks; Codex: only obor status), and a worker's names none.
 func TestWhoamiLeadLines(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -34,7 +34,7 @@ func TestWhoamiLeadLines(t *testing.T) {
 	}{
 		{"claude", "opus", LinesInbox},
 		{"hook-answers kind", "hooky", LinesHooks},
-		{"opencode", "deepseek", LinesStatus},
+		{"opencode", "deepseek", LinesHooks},
 		{"codex", "terra", LinesStatus},
 	} {
 		t.Run(c.name, func(t *testing.T) {

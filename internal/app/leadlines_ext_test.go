@@ -221,13 +221,13 @@ func TestLeadLinesRefusedForAnInboxLead(t *testing.T) {
 	})
 }
 
-// A lead whose kind has no inbox and whose hooks do not act on the answers (OpenCode: its plugin drops them) keeps
+// A lead whose kind has no inbox and whose hooks do not act on the answers (Codex: none at all) keeps
 // its lines waiting as a lead with no inbox record does: not held for the hooks, the send's reply and obor status
 // say so, the hook's ask is refused and hands nothing, nothing is recorded as delivered.
 func TestLeadLinesWaitWithoutHookAnswers(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
-		r := leadKindRig(t, "deepseek", "opencode")
+		r := leadKindRig(t, "terra", "codex")
 		r.start()
 		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
 		if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead;"; err != nil || !strings.HasPrefix(reply, want) {

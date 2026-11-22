@@ -34,7 +34,7 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 
 // OpenCode's start argv (--prompt, a resume with --session, no registration on the command line), /exit with the
 // popup's second Enter and the clear keys, `opencode run`, registered per start (nothing user-global), the plugin's
-// token file as its transcript, typed delivery, the plugin hook transport.
+// token file as its transcript, typed delivery, the plugin hook transport, which acts on the hooks' answers.
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	if got := agents.OverrideFiles(k); !slices.Equal(got, []string{"opencode_override.json"}) {
@@ -120,7 +120,7 @@ func TestKind(t *testing.T) {
 			t.Errorf("%s: Reset = %v, %v; want %v, %v", c.name, got, limited, c.want, c.limited)
 		}
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Resume: true, Transcript: true, ModelArg: true,
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, HookAnswers: true, Resume: true, Transcript: true, ModelArg: true,
 		VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}

@@ -1,21 +1,31 @@
 // obor's opencode plugin (design "opencode lanes"): opencode runs no Claude Code hooks, so each hook here maps
 // opencode's event to the Claude Code hook event JSON and runs `<kit>/bin/obor hook <name>`. No obor rule lives here:
-// the guard, the session context, the stop and the limit logic stay in the Go binary.
+// the guard, the session context, the hooks' verdicts and the limit logic stay in the Go binary; this file carries them
+// into opencode's prompt and events.
 //
 //	tool hook execute.before          → pre-tool-use (a deny throws with obor's line, which aborts the tool)
 //	a session's first event           → session-start (its context lines, appended to the system prompt by the
 //	                                     session hook context)
-//	session.execution.started         → user-prompt-submit (prompt: the user text the session's inbox took since)
-//	session.execution.succeeded       → stop (its verdict is not acted on: opencode has no stop to block)
+//	session hook prompt               → user-prompt-submit (its context appended to the prompt's text) and the start's
+//	                                     model (OBOR_OPENCODE_MODEL, below)
+//	session.execution.succeeded       → stop; its block's reason becomes the session's next prompt (a new turn)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
 //	session.step.ended                → one line in the session's token file (turn what: context), no hook
-//	session hook prompt               → the start's model (OBOR_OPENCODE_MODEL, below), not a Claude hook
+//
+// The plugin acts on the hooks' answers (agents.Caps.HookAnswers: design "Lines to the lead"): the session prompt hook
+// runs `obor hook user-prompt-submit` before admission (the hook holds admission) and appends its additionalContext to
+// the prompt's text, where the model and the owner see it and the session keeps it; a stop's
+// {"decision":"block","reason"} becomes ctx.session.prompt of the reason, marked metadata.obor, so it starts the
+// session's next turn, and the stop that ends that turn carries stop_hook_active: true (obor's stop hook then lets that
+// stop through, once per loop). A prompt that carries metadata.obor is obor's own line: the prompt hook runs no second
+// reminder, so the line starts no reminder loop. A failing hook leaves the prompt as typed, and a stop with no block
+// lets the turn end.
 //
 // The start's model and effort: obor's opencode kind exports OBOR_OPENCODE_MODEL=<provider>/<model>[#<variant>]
 // for the start (the type's --model, the effort as its variant). With it set, the session hook prompt switches each new
 // root session of this location to it, once, before its first turn (ctx.session.switchModel); a child (a subagent's)
-// is never switched (it inherits its parent's model), and without the variable nothing is registered, so the owner's
-// own opencode windows, which load this plugin too, are untouched. A live probe (opencode 2.2.0, a --standalone TUI in a
+// is never switched (it inherits its parent's model), and without the variable no switch is made, so the owner's own
+// opencode windows, which load this plugin too, keep their model. A live probe (opencode 2.2.0, a --standalone TUI in a
 // pty, a fake provider): the TUI switches the session to its own pick (for a new session the variant it remembers in
 // model.json first) just before it submits; the prompt hook runs after that switch and before the turn, so the turn
 // runs on the plugin's model and variant, and so do the later turns (the TUI follows the session's switch). A switch on
@@ -169,7 +179,28 @@ export function errorDetails(err, created) {
   return s;
 }
 
-// The opencode events the plugin reads (session-start comes from the first of them naming a session).
+// promptContext is a user-prompt-submit hook's answer: its additionalContext ("" when it has none or does not parse).
+export function promptContext(stdout) {
+  try {
+    const c = JSON.parse(String(stdout ?? "")).hookSpecificOutput?.additionalContext;
+    return typeof c === "string" ? c.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+// stopBlock is a stop hook's answer: the reason it blocks with ("" when it does not block or does not parse).
+export function stopBlock(stdout) {
+  try {
+    const o = JSON.parse(String(stdout ?? ""));
+    return o?.decision === "block" && typeof o.reason === "string" ? o.reason.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+// The opencode events the plugin reads (a session's first event or hook names it; a turn's start runs no hook: the
+// prompt hook reports the user's prompt, its answer included).
 const EVENT_TYPES = [
   "session.created",
   "session.inbox.enqueued",
@@ -179,13 +210,15 @@ const EVENT_TYPES = [
   "session.step.ended",
 ];
 
-// sessionHooks is the state of one location's sessions (which are its, their pending prompt) and turns each opencode
-// event into the Claude hook calls it means: [{name, event}], appending a root session's step to its token file as a
-// side effect. transcriptOf(id) is a session's token file (tokensPath); start(id) is a session's session-start call.
+// sessionHooks is the state of one location's sessions (which are its, the turn a stop's block began) and turns each
+// opencode event into the Claude hook calls it means: [{name, event}], appending a root session's step to its token file
+// as a side effect. prompt(id, text) is a user prompt's user-prompt-submit call; block(id) records a stop's block, so
+// the session's next stop ends that turn (stop_hook_active). transcriptOf(id) is a session's token file (tokensPath);
+// start(id) is a session's session-start call.
 export function sessionHooks(cwd, transcriptOf) {
   const mine = new Map(); // session → this location's (true) or another's (false)
   const children = new Set(); // subagent sessions: no hook
-  const prompts = new Map(); // session → the user texts its inbox took since its last turn start
+  const stopping = new Set(); // sessions whose stop loop a block began: the next stop ends its turn
   const base = (name, id) => ({ hook_event_name: name, session_id: id, transcript_path: transcriptOf(id), cwd });
   const own = (id) => {
     if (id && !children.has(id)) mine.set(id, true);
@@ -215,15 +248,8 @@ export function sessionHooks(cwd, transcriptOf) {
     if (!isMine(id)) return [];
     const calls = [];
     switch (e.type) {
-      case "session.inbox.enqueued":
-        if (d.item?.type === "user" && d.item.payload?.text) prompts.set(id, [...(prompts.get(id) ?? []), d.item.payload.text]);
-        break;
-      case "session.execution.started":
-        calls.push({ name: "user-prompt-submit", event: { ...base("UserPromptSubmit", id), prompt: (prompts.get(id) ?? []).join("\n\n") } });
-        prompts.delete(id);
-        break;
       case "session.execution.succeeded":
-        calls.push({ name: "stop", event: { ...base("Stop", id), stop_hook_active: false } });
+        calls.push({ name: "stop", event: { ...base("Stop", id), stop_hook_active: stopping.delete(id) } });
         break;
       case "session.execution.failed":
         calls.push({ name: "stop-failure", event: { ...base("StopFailure", id), error: claudeError(d.error), error_details: errorDetails(d.error, e.created) } });
@@ -234,7 +260,15 @@ export function sessionHooks(cwd, transcriptOf) {
     }
     return calls;
   }
-  return { event, own, isMine, isChild: (id) => children.has(id), start: (id) => ({ name: "session-start", event: { ...base("SessionStart", id), source: "startup" } }) };
+  return {
+    event,
+    own,
+    isMine,
+    isChild: (id) => children.has(id),
+    start: (id) => ({ name: "session-start", event: { ...base("SessionStart", id), source: "startup" } }),
+    prompt: (id, text) => ({ name: "user-prompt-submit", event: { ...base("UserPromptSubmit", id), prompt: text } }),
+    block: (id) => stopping.add(id),
+  };
 }
 
 // MODEL_VAR names the start's model for the plugin (agents/opencode.ModelVar).
@@ -317,8 +351,8 @@ function runHook(kit, name, event, cwd) {
 }
 
 // setup is the opencode 2.x entry (its runtime context; the published 1.18 types do not describe it): the guard
-// (tool hook execute.before), the session context (session hook context), the start's model (session hook prompt,
-// only with OBOR_OPENCODE_MODEL) and the session events (event.subscribe).
+// (tool hook execute.before), the session context (session hook context), the prompt's answer and the start's model
+// (session hook prompt) and the session events (event.subscribe).
 async function setup(ctx) {
   const model = process.env[MODEL_VAR];
   const env = { ...process.env };
@@ -328,7 +362,7 @@ async function setup(ctx) {
   const sessions = sessionHooks(path.resolve(cwd), (id) => tokensPath(id, env));
   const context = new Map(); // session → its session-start run: the context text
 
-  // started runs session-start once per session (its first event or context call), before any other hook of it.
+  // started runs session-start once per session (its first event, context or prompt call), before any other hook of it.
   const started = (id) => {
     if (!context.has(id)) {
       const s = sessions.start(id);
@@ -354,17 +388,49 @@ async function setup(ctx) {
     const text = await started(c.sessionID);
     if (text && Array.isArray(c.system)) c.system.push({ type: "text", text });
   });
-  // prompt: the start's model, before a new root session's first turn (OBOR_OPENCODE_MODEL).
+  // prompt: the user-prompt-submit answer on the prompt's text, and the start's model before a new root session's
+  // first turn (OBOR_OPENCODE_MODEL).
   const switchModel = modelSwitch(ctx, model, sessions.isChild);
-  if (switchModel) await ctx.session.hook("prompt", switchModel);
-  // The session events, one at a time in their order; an opencode without event.subscribe keeps the two hooks above.
+  await ctx.session.hook("prompt", async (p) => {
+    if (switchModel) await switchModel(p);
+    const id = p?.sessionID;
+    if (!id || p.metadata?.obor) return; // obor's own line (a stop's reason): no second reminder
+    sessions.own(id);
+    if (!sessions.isMine(id)) return;
+    await started(id);
+    const text = typeof p.prompt?.text === "string" ? p.prompt.text : "";
+    const ask = sessions.prompt(id, text);
+    const r = await runHook(kit, ask.name, ask.event, cwd);
+    if (r.failed || r.code !== 0) return;
+    const more = promptContext(r.stdout);
+    if (more && typeof p.prompt?.text === "string") p.prompt.text += "\n\n" + more;
+  });
+
+  // stopAnswer acts on a stop's answer: a block's reason becomes the session's next prompt, marked as obor's own, and
+  // the stop that ends that turn then carries stop_hook_active. No prompt call, or a failed one: the turn ends.
+  const stopAnswer = async (id, r) => {
+    const reason = r.failed || r.code !== 0 ? "" : stopBlock(r.stdout);
+    if (!reason || typeof ctx.session?.prompt !== "function") return;
+    try {
+      await ctx.session.prompt({ sessionID: id, text: reason, metadata: { obor: "stop" } });
+      sessions.block(id);
+    } catch (e) {
+      console.error(`obor: the stop's line for session ${id} did not go: ${e?.message ?? e}`);
+    }
+  };
+
+  // The session events, one at a time in their order; an opencode without event.subscribe keeps its tool, context and
+  // prompt hooks.
   if (typeof ctx.event?.subscribe !== "function") return;
   (async () => {
     for await (const e of ctx.event.subscribe({ types: EVENT_TYPES })) {
       const calls = sessions.event(e);
       if (calls.length === 0) continue;
       await started(e.data.sessionID);
-      for (const c of calls) await runHook(kit, c.name, c.event, cwd);
+      for (const c of calls) {
+        const r = await runHook(kit, c.name, c.event, cwd);
+        if (c.name === "stop") await stopAnswer(c.event.session_id, r);
+      }
     }
   })().catch(() => {});
 }

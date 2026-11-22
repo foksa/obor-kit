@@ -863,19 +863,18 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   cap, the delivery pass holds its lines (`<lead>'s kind has no inbox: its hooks hand it its lines at its next prompt
   or turn end`, in `obor status` and the 24 h needs-you; `obor send`'s reply says it queued them so), and its hooks
   ask serve for them (`lead_lines`; the hook's kind, from the config, has no inbox and the cap):
-  `user-prompt-submit` adds them as the prompt's
-  context, before the handoff reminder; `stop` blocks the stop with them, so a lead that just finished goes on with its
-  lines. Within an active stop loop (`stop_hook_active`) the stop hook asks nothing and the stop goes through, and a
-  background run of the lead's own blocks first (its lines wait). Serve hands every line queued for the lead, one per
-  row, as one post (an open post's members first, as a post goes again) and records it as a post's delivery (intent
-  `deliver.<first seq>{to, lines, via: hook}`, result `sent`, each other member's own result): a line handed out is
-  delivered, never handed out or posted again, and `obor status`, the 24 h needs-you and a needs-you line's repeat read
-  that delivery. A repeated call id gets the same lines; there is no ack: `sent` means handed to the hook. Any other
-  lead is refused (an inbox kind's lines are posted there). An idle lead of such a kind asks nothing: it is reached by
-  `obor status` and the needs-you notice (the owner's herdr notification), its lines waiting for its next prompt or
-  turn end. A lead whose kind has neither an inbox nor the cap (Codex: no hooks; OpenCode: its plugin drops the
-  answers) gets nothing through its hooks: its lines wait, untried and never recorded as delivered (`no inbox
-  recorded for <lead>: …` in `obor status`), and the 24 h needs-you reaches the owner.
+  `user-prompt-submit` adds them as the prompt's context, before the handoff reminder; `stop` blocks the stop with them,
+  so a lead that just finished goes on with its lines. Within an active stop loop (`stop_hook_active`) the stop hook
+  asks nothing and the stop goes through, and a background run of the lead's own blocks first (its lines wait). Serve
+  hands every line queued for the lead, one per row, as one post (an open post's members first, as a post goes again)
+  and records it as a post's delivery (intent `deliver.<first seq>{to, lines, via: hook}`, result `sent`, each other
+  member's own result): a line handed out is delivered, never handed out or posted again, and `obor status`, the 24 h
+  needs-you and a needs-you line's repeat read that delivery. A repeated call id gets the same lines; there is no ack:
+  `sent` means handed to the hook. Any other lead is refused (an inbox kind's lines are posted there). An idle lead of
+  such a kind asks nothing: it is reached by `obor status` and the needs-you notice (the owner's herdr notification),
+  its lines waiting for its next prompt or turn end. A lead whose kind has neither an inbox nor the cap (Codex: no
+  hooks) gets nothing through its hooks: its lines wait, untried and never recorded as delivered (`no inbox recorded
+  for <lead>: …` in `obor status`), and the 24 h needs-you reaches the owner.
 - **Role agents' lines go as the pane's kind takes them** (`agents.Kind.Deliver`), only while that agent's pane
   is idle or done (the rule of job delivery): a kind with an inbox (Claude) gets the line posted to its session when
   its inbox record is the live session's in that pane, else typed into the pane as its job wakes are (a line
@@ -921,8 +920,14 @@ stops loading). It holds no obor rules: each hook maps opencode's event to the C
 `obor hook <name>`, so the guard and the session context stay in the Go binary. `tool execute.before` →
 `pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
 → `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
-with `--session <id>`). There is no `task_done` re-prompt on 2.x (it delivered no idle event).
-`obor hook` runs without `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd (the same derivation), because a shared `opencode serve --service` carries whichever pane's env started it. opencode lanes
+with `--session <id>`). The plugin acts on the hooks' answers (`caps.hook_answers`): `user-prompt-submit` runs in the
+session `prompt` hook, before admission, and its `additionalContext` is appended to the prompt's text (the model and
+the owner see it, and the session keeps it); a stop's `{"decision":"block","reason"}` becomes
+`ctx.session.prompt({sessionID, text: reason, metadata: {obor: …}})`, which starts the session's next turn, and the
+stop ending that turn carries `stop_hook_active: true`. A prompt that carries `metadata.obor` is obor's own line: the
+prompt hook runs no second `user-prompt-submit` for it. A failing hook leaves the prompt as typed. `obor hook` runs
+without `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd (the same derivation), because a shared
+`opencode serve --service` carries whichever pane's env started it. opencode lanes
 run `opencode --auto --standalone` (own server with the pane's env). Installed user-global by `obor setup
 agents` (a link in `~/.config/opencode/plugins/`, beside herdr's own plugin); a no-op outside an obor project.
 The `obor` it runs is the linked kit's, except inside an obor checkout (`bin/obor`'s self-hosting rule): there the
@@ -935,8 +940,8 @@ The model and effort of an opencode start: the type's `--model provider/model[#v
 variant, reach the plugin as `OBOR_OPENCODE_MODEL` on the env line (unset for a type without `--model`: opencode's own
 choice stands; an effort then is an error). The plugin's session `prompt` hook switches each new root session of
 its location to it, once (`ctx.session.switchModel`), before the first turn; a child session is never switched (it
-inherits its parent's model), and without the variable no hook is registered, so the owner's own opencode windows are
-untouched. Gated on opencode 2 with `switchModel` (else one line, nothing). The TUI has no `--model` and, for a new
+inherits its parent's model), and without the variable no switch is made, so the owner's own opencode windows keep
+their model. Gated on opencode 2 with `switchModel` (else one line, nothing). The TUI has no `--model` and, for a new
 session, prefers the variant it remembers in its `model.json`; it switches the session to its pick just before it
 submits, and the prompt hook runs after that switch, so the start's model wins from the first turn (a
 switch on `session.created` loses). opencode runs on the owner's own state and config, which obor never writes.
