@@ -169,6 +169,7 @@ is past that threshold and no reminder ever came), hand off by your own count: t
 when the context is large. At the next logical break (not mid-task, ask the person first if they are
 talking with you): write the Handoff section at the top of `BACKLOG.md`
 (state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --handoff`: the next session
-starts with `/obor:lead handoff` and continues from those next steps.
+starts with `/obor:lead handoff` (a kind with no slash command: the skill-file prompt with `handoff` appended) and
+continues from those next steps.
 
 Hooks deny: `git push`, `pkill`/`killall`, `git commit -a` in the main checkout. Expect it in reports.

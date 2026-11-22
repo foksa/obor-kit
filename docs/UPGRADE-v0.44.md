@@ -41,10 +41,12 @@ OpenCode loads it at start: an OpenCode agent running across the upgrade keeps t
   them too. `obor setup mcp` warns when the `obor` on PATH is not the kit you run.
 - Each start gets a `--settings` file: auto mode, `mcp(obor/*)` and `command(obor)` allowed, the lane trusted when you
   trusted the project's main checkout. A project's own agy settings go in `.obor/agy/settings_override.json` (agy's
-  format, laid over yours). A lead takes the override's rules but never its `toolPermission` or `agentMode`.
+  format, laid over yours as a JSON Merge Patch: a list it sets replaces your saved list, it is not added to it). A
+  lead takes the override's rules but never its `toolPermission` or `agentMode`.
 - agy's auto mode runs commands in a sandbox first: git in a lane worktree and tests that open a unix socket fail
   there. A project whose lanes need either sets `{"toolPermission": "always-proceed"}` in the override; obor's hooks
-  still guard every agy agent (a deny is final).
+  still check every agy agent's shell and file-write tools (a deny is final). Other agy tools (other MCP servers',
+  workflows, subagents) are not checked by obor, which matters under `always-proceed`.
 - A model or effort `agy models` does not list fails the start (about 1.5 s per start to read the list).
 - Lines to an agy lead are posted through agy's `agentapi`; a refused send falls back to its hooks.
 
