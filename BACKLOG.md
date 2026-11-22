@@ -100,6 +100,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (2026-10-26, low) OpenCode dispatch: each `agent.start` result lands ~30 s after start even when the job was
   fetched in 4 s; starts run one at a time. The start could end on the delivered fact.
 ## Concerns
+- (11-22, RV-248) Hook time budgets drift: the lead-lines deadline starts inside the hook while OpenCode's transport has its own 5 s timer and the hook works before asking. When this path grows, carry one end-to-end deadline (or reserve the preceding work's budget).
 - (11-22, RV-246) A resumed idle OpenCode lead woken by a posted line (`OBOR_OPENCODE_RESUME`, T-1487) is unit-tested but not seen live: the reviewer's sandbox refused the listener. Check it at the next OpenCode lead restart (scratch project), before relying on it.
 - (11-22, RV-245) agy's quota-limit patterns (`kinds/agy/kind/kind.go` ~400) match CLI texts whose stop-hook form was never observed, and `agents.ResetIn` cannot parse "until 18:00": capture a real agy quota stop when one happens and check both.
 - (lead 11-22, T-1471) **OpenCode inbox has no ack**: a line posted to the plugin's socket counts as sent even if `session.prompt` then fails inside the plugin, so a lead line or a worker's wake can be lost. Since T-1471 OpenCode workers' wakes (deepseek lanes: the first model of medium and simple) go through it: watch for a deepseek lane that never picks up its job after a wake; if seen, the plugin acks after `session.prompt` returns.
