@@ -27,15 +27,19 @@ import (
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/store"
+	agykind "obor/kinds/agy/kind"
 	ockind "obor/kinds/opencode/kind"
 )
 
-// OpenCode is a plugin kind: a test binary has no built obor-kind-opencode, so its kind answers in process
-// (plugin.Local) with the handler the binary runs; a loaded config's kinds hold it (config.Config.Kinds), and Kinds
-// are the kinds of a test that has no config.
-func init() { plugin.Local[ockind.Name] = ockind.Handle }
+// OpenCode and agy are plugin kinds: a test binary has no built obor-kind-opencode or obor-kind-agy, so each kind
+// answers in process (plugin.Local) with the handler its binary runs; a loaded config's kinds hold them
+// (config.Config.Kinds), and Kinds are the kinds of a test that has no config.
+func init() {
+	plugin.Local[ockind.Name] = ockind.Handle
+	plugin.Local[agykind.Name] = agykind.Handle
+}
 
-// Kinds are the compiled kinds and the kit's plugin kinds (OpenCode) as a config naming none of its own has them,
+// Kinds are the compiled kinds and the kit's plugin kinds (OpenCode, agy) as a config naming none of its own has them,
 // for a test with no project.
 func Kinds() agents.Kinds {
 	var ks []agents.Kind
@@ -569,6 +573,14 @@ func (p *Project) Session(agent, id string) {
 	p.t.Helper()
 	path := p.Write(filepath.Join(".obor", "state", "sessions", id+".jsonl"), "")
 	p.eventAt(store.SessionTask, store.StepSession, store.Session{Agent: agent, Kind: "claude", ID: id, Transcript: path,
+		Started: time.Now().Unix()}, time.Now())
+}
+
+// SessionOf records agent's session id of kind with its transcript file (a path, not written), as serve records one
+// its SessionStart hook confirmed.
+func (p *Project) SessionOf(agent, kind, id, transcript string) {
+	p.t.Helper()
+	p.eventAt(store.SessionTask, store.StepSession, store.Session{Agent: agent, Kind: kind, ID: id, Transcript: transcript,
 		Started: time.Now().Unix()}, time.Now())
 }
 

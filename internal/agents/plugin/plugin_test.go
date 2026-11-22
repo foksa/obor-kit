@@ -110,7 +110,7 @@ var calls = []call{
 	}},
 	{"install", `{"version":1,"mcp":{"where":"start"}}`,
 		func(k *plugin.Kind, _ *bytes.Buffer) (string, string) {
-			in, err := k.InstallErr("/kit", nil)
+			in, err := k.InstallErr("/kit", "", nil)
 			if err != nil {
 				return "", err.Error()
 			}
@@ -186,9 +186,48 @@ func TestInstallRefusesAUserConfigPath(t *testing.T) {
 			"a kind installs nothing under ~/"},
 	} {
 		k, _ := kind(t, reply(c.body))
-		_, err := agents.InstallOf(k, "/kit", nil)
+		_, err := agents.InstallOf(k, "/kit", "", nil)
 		if err == nil || !strings.Contains(err.Error(), "kind stub: install: ") ||
 			!strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q in it", name, err, c.want)
+		}
+	}
+}
+
+// install's request carries the project's root; a where "project" reply names a file of the project, its path then
+// under that root (no root: as named, relative); a path that leaves the project, or a reply with no key or entry, is
+// refused naming the field.
+func TestInstallProjectFile(t *testing.T) {
+	const good = `{"version":1,"mcp":{"where":"project","path":".stub/mcp.json","key":["servers","obor"],"entry":{"command":"obor"}}}`
+	k, _ := kind(t, "cat >\"$REQ\"; cat <<'EOF'\n"+good+"\nEOF\n")
+	in, err := agents.InstallOf(k, "/kit", "/p", nil)
+	var req struct {
+		Root string `json:"root"`
+	}
+	b, _ := os.ReadFile(filepath.Join(stubDir, "req.json"))
+	if json.Unmarshal(b, &req) != nil || req.Root != "/p" {
+		t.Errorf("the install request %s: want root /p", b)
+	}
+	if m := in.MCP; err != nil || m.Where != agents.Project || m.Path != "/p/.stub/mcp.json" ||
+		!slices.Equal(m.Key, []string{"servers", "obor"}) || m.Entry["command"] != "obor" {
+		t.Errorf("Install = %+v, %v; want the project's file under its root", m, err)
+	}
+	if in, err := agents.InstallOf(k, "/kit", "", nil); err != nil || in.MCP.Path != ".stub/mcp.json" {
+		t.Errorf("no root: %+v, %v; want the path as named", in.MCP, err)
+	}
+	for name, c := range map[string]struct{ body, want string }{
+		"an absolute path": {`{"version":1,"mcp":{"where":"project","path":"/u/.stub.json","key":["a"],"entry":{}}}`,
+			`mcp.path "/u/.stub.json" is no file of the project`},
+		"a path out of the project": {`{"version":1,"mcp":{"where":"project","path":"../x.json","key":["a"],"entry":{}}}`,
+			`mcp.path "../x.json" is no file of the project`},
+		"no entry": {`{"version":1,"mcp":{"where":"project","path":"x.json","key":["a"]}}`,
+			`mcp.where "project" names no key or entry`},
+		"an unknown where": {`{"version":1,"mcp":{"where":"elsewhere"}}`,
+			`mcp.where "elsewhere" is none of manifest, start, project`},
+	} {
+		k, _ := kind(t, reply(c.body))
+		_, err := agents.InstallOf(k, "/kit", "/p", nil)
+		if err == nil || !strings.Contains(err.Error(), "kind stub: install: "+c.want) {
 			t.Errorf("%s: %v, want %q in it", name, err, c.want)
 		}
 	}
@@ -235,6 +274,32 @@ func TestContext(t *testing.T) {
 	k, _ = kind(t, reply(`{"version":1,"ok":false}`))
 	if _, ok := k.Context([]byte("{}\n")); ok {
 		t.Error("ok false: a context read")
+	}
+}
+
+// The context read is bounded by its own timeout, shorter than turn's (it runs inside a lead's hook and under serve's
+// lock): a reply slower than it is no context, while a turn read of the same speed is answered.
+func TestContextTimeout(t *testing.T) {
+	if plugin.Timeouts["context"] <= 0 || plugin.Timeouts["context"] >= plugin.Timeouts["turn"] {
+		t.Fatalf("precondition: context timeout %s, turn %s", plugin.Timeouts["context"], plugin.Timeouts["turn"])
+	}
+	k, _ := kind(t, `sleep 0.4; `+reply(`{"version":1,"ok":true,"context":{"tokens":7,"at":"2026-11-08T18:00:00Z"},"turn":{"id":"t1"}}`))
+	old := plugin.Timeouts
+	plugin.Timeouts = map[string]time.Duration{"turn": 5 * time.Second, "context": 100 * time.Millisecond}
+	defer func() { plugin.Timeouts = old }()
+	log := logged(t)
+	start := time.Now()
+	if c, ok := k.Context([]byte("{}\n")); ok {
+		t.Errorf("Context = %+v past its timeout, want none", c)
+	}
+	if took := time.Since(start); took > 300*time.Millisecond {
+		t.Errorf("Context took %s (its timeout is 100ms)", took)
+	}
+	if want := "kind stub: turn: no reply within 100ms"; !strings.Contains(log.String(), want) {
+		t.Errorf("log %q, want %q", log.String(), want)
+	}
+	if turn, ok := k.LastTurn([]byte("{}\n")); !ok || turn.ID != "t1" {
+		t.Errorf("LastTurn = %+v, %v; want t1 within turn's timeout", turn, ok)
 	}
 }
 
@@ -386,7 +451,7 @@ func TestNoCache(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "kind stub: no manifest cached") || !strings.Contains(err.Error(), "obor setup agents") {
 		t.Errorf("start without a cache: %v", err)
 	}
-	if _, err := agents.InstallOf(k, "/kit", nil); err == nil {
+	if _, err := agents.InstallOf(k, "/kit", "", nil); err == nil {
 		t.Error("install without a cache: no error")
 	}
 	if err := k.Uncached(); err == nil || !strings.Contains(err.Error(), "no manifest cached") {

@@ -316,10 +316,11 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	}
 }
 
-// A lead's context size is the kind's read of its transcript (agents.Kind.Context), asked in name order: a tail of a
-// format no compiled kind reads (the probe line) still sizes the session through the kind of the project's, and a
-// transcript no kind reads gets no reminder.
-func TestPromptHandoffReminderFromTheKind(t *testing.T) {
+// A lead's context size is its session's kind's read of its transcript (agents.Kind.Context), that kind alone: the
+// kind the store records for the session, else the kind the lead runs as (its configured model's, claude here). A tail
+// of a format only xkind reads sizes a session recorded as xkind; the same tail of a session recorded as codex, or of
+// an unrecorded one, gets no reminder, though xkind would read it.
+func TestPromptHandoffReminderFromTheSessionsKind(t *testing.T) {
 	t.Parallel()
 	f, _ := promptFx(t, true)
 	f.Config(testkit.Set("agents.handoff_tokens", 1000))
@@ -334,12 +335,16 @@ func TestPromptHandoffReminderFromTheKind(t *testing.T) {
 		}
 	}
 	tr := f.Write(f.Base+"/projects/p/probe.jsonl", probe+"\n")
+	f.SessionOf("pj-lead", "xkind", "s1", tr)
+	f.SessionOf("pj-lead", "codex", "s2", tr)
 	if c := f.prompt(t, f.Root, "hi", session("s1", tr), "OBOR_ROLE=lead"); c != "obor (lead): context is 900k (> 1k). "+leadWhen {
-		t.Errorf("the lead's reminder from the kind's read: %q", c)
+		t.Errorf("a session recorded as xkind: %q, want its reminder from xkind's read", c)
 	}
-	tr = f.Write(f.Base+"/projects/p/none.jsonl", `{"type":"user","timestamp":"2026-10-13T10:00:00Z"}`+"\n")
 	if c := f.prompt(t, f.Root, "hi", session("s2", tr), "OBOR_ROLE=lead"); c != "" {
-		t.Errorf("a transcript no kind reads: %q, want no reminder", c)
+		t.Errorf("a session recorded as codex: %q, want no reminder (codex reads no such line; xkind is not asked)", c)
+	}
+	if c := f.prompt(t, f.Root, "hi", session("s3", tr), "OBOR_ROLE=lead"); c != "" {
+		t.Errorf("an unrecorded session of the lead (claude): %q, want no reminder", c)
 	}
 }
 

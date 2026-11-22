@@ -54,11 +54,13 @@ func TestPromptLeadLinesNoInbox(t *testing.T) {
 	}
 }
 
-// The lines and the handoff reminder share one context, the lines first.
+// The lines and the handoff reminder share one context, the lines first. The reminder reads the session's transcript
+// as its recorded kind does (HookKind keeps none: this session is recorded as Claude's, whose transcript it is).
 func TestPromptLeadLinesWithHandoffReminder(t *testing.T) {
 	t.Parallel()
 	f := hookLeadFx(t)
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 600000)
+	f.SessionOf("pj-lead", "claude", "s1", tr)
 	a := &askLines{text: "[obor other] hi"}
 	c := f.promptLines(t, f.Root, "go on", session("s1", tr), a.ask, "OBOR_ROLE=lead")
 	want := "obor (lead): lines for you that arrived since your last turn (your session has no inbox: they come with " +

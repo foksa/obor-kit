@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"obor/internal/agents"
@@ -162,9 +163,10 @@ func (s *Setup) hooksLine(root string) string {
 // agentsCmd is `obor setup agents` (once per user, and after an upgrade): in a project, the agents.models entries its
 // levels and roles name without one are added and its former built-in entries with no kind get theirs
 // (upgradeModels: decided from config.json alone), then each plugin kind its config names
-// (kinds.<name>.command: the kit's OpenCode) is described and its manifest cached in the state dir
+// (kinds.<name>.command: the kit's OpenCode and agy) is described and its manifest cached in the state dir
 // (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
-// a failure is a FAIL. A kind installs nothing user-global, so each is said once.
+// a failure is a FAIL. A kind installs nothing user-global; one that registers through a project file (agy's
+// .agents/mcp_config.json) has it written there when the config has a model of that kind (projectInstall).
 func (s *Setup) agentsCmd(args []string) error {
 	if len(args) > 0 {
 		return errUsage
@@ -182,12 +184,79 @@ func (s *Setup) agentsCmd(args []string) error {
 	}
 	for _, name := range s.cfg.Kinds().Names() {
 		k, _ := s.cfg.Kind(name)
-		if _, err := agents.InstallOf(k, s.Kit, s.Env.Get); err != nil {
+		in, err := agents.InstallOf(k, s.Kit, s.root, s.Env.Get)
+		if err != nil {
 			return project.Failf("agents %s: %v", name, err)
 		}
-		s.say("agents %s: nothing to install", name)
+		if in.MCP.Where != agents.Project {
+			s.say("agents %s: nothing to install", name)
+			continue
+		}
+		if err := s.projectInstall(name, in.MCP); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// projectInstall writes kind name's registration m (where project) into the project: when the config has an
+// agents.models entry of the kind, m.Entry at m.Key of m.Path (the file's other entries kept; an absent file is made),
+// and the file's path, relative to the root, into rules.protected_files (no worker edits its own wiring); both
+// uncommitted, for the lead to commit. Outside a project, or with no model of the kind, nothing is written.
+func (s *Setup) projectInstall(name string, m agents.MCPRegistration) error {
+	if s.root == "" || !filepath.IsAbs(m.Path) {
+		s.say("agents %s: registered by each project's %s (obor setup agents in the project writes it)", name, m.Path)
+		return nil
+	}
+	rel := s.rel(m.Path)
+	if !s.hasModelOf(name) {
+		s.say("agents %s: not used (no agents.models entry of kind %s): %s not written", name, name, rel)
+		return nil
+	}
+	doc, err := readConfig(m.Path)
+	if err != nil {
+		return project.Failf("agents %s: %s: %v", name, rel, err)
+	}
+	switch state, _, err := registration(m); {
+	case err != nil:
+		return project.Failf("agents %s: %s: %v", name, rel, err)
+	case state == entryPinned:
+		s.say("OK agents %s: %s in %s", name, strings.Join(m.Key, "."), rel)
+	default:
+		out, err := config.EditJSON(doc, m.Key, m.Entry)
+		if err == nil {
+			err = os.MkdirAll(filepath.Dir(m.Path), 0o755)
+		}
+		if err == nil {
+			err = writeJSON(m.Path, out)
+		}
+		if err != nil {
+			return project.Failf("agents %s: cannot write %s: %v", name, rel, err)
+		}
+		s.say("agents %s: %s written in %s (uncommitted: commit it)", name, strings.Join(m.Key, "."), rel)
+	}
+	shared, err := config.LoadMain(s.root)
+	if err != nil {
+		return project.Failf("%v", err)
+	}
+	if slices.Contains(shared.ProtectedFiles(), rel) {
+		return nil
+	}
+	if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.AddProtectedFile(doc, rel) },
+		": commit it"); err != nil {
+		return err
+	}
+	return s.load()
+}
+
+// hasModelOf: the config has an agents.models entry of kind name.
+func (s *Setup) hasModelOf(name string) bool {
+	for _, n := range s.cfg.ModelNames() {
+		if m, ok := s.cfg.Model(n); ok && m.Kind == name {
+			return true
+		}
+	}
+	return false
 }
 
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config; a

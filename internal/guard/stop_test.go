@@ -153,7 +153,7 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	f.PlainLane("L-01", "task/T-01")
 	f.Config(testkit.Set("agents.handoff_tokens", 300000))
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 900000)
-	if c, ok := project.ContextOf(agents.Kinds{}, tr); !ok || c.Tokens != 900000 {
+	if c, ok := project.ContextOf(agents.Kinds{}, "claude", tr); !ok || c.Tokens != 900000 {
 		t.Fatalf("precondition: transcript context %d %v, want 900000", c.Tokens, ok)
 	}
 	f.stop(t, "lead", f.Root, session("s1", tr)).allow("a lead at 900k > 300k")

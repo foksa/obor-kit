@@ -73,7 +73,7 @@ func TestKind(t *testing.T) {
 	}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	// nothing user-global; an old global entry and link are the user's to remove by hand.
-	in, err := agents.InstallOf(k, "/kit", env(map[string]string{"HOME": "/h"}))
+	in, err := agents.InstallOf(k, "/kit", "", env(map[string]string{"HOME": "/h"}))
 	if m := in.MCP; err != nil || m.Where != agents.PerStart || m.Path != "" || m.Entry != nil {
 		t.Errorf("Install = %+v, %v: want per start, nothing user-global", in, err)
 	}

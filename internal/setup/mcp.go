@@ -16,8 +16,9 @@ import (
 )
 
 // The obor MCP server (`obor mcp`) is registered per agent kind, as its bridge says
-// (agents.Kind.Install): by the kit's manifest (Claude) or per start (Codex's launch args, OpenCode's generated config).
-// A kind installs nothing user-global. This file reads those files.
+// (agents.Kind.Install): by the kit's manifest (Claude), per start (Codex's launch args, OpenCode's generated config)
+// or by a committed file of the project (agy's .agents/mcp_config.json, which obor setup agents writes). A kind
+// installs nothing user-global. This file reads those files.
 
 // readConfig is the file as JSON (an absent or blank file is an empty config; not JSON is an error).
 func readConfig(path string) ([]byte, error) {
@@ -67,8 +68,34 @@ func registration(m agents.MCPRegistration) (state int, path string, err error) 
 	return entryNone, path, nil
 }
 
-// fixHint is how to register m: only the kit's manifest is left, and it ships with the kit.
+// fixHint is how to register a manifest entry: the kit's manifest ships with the kit.
 const fixHint = "update the plugin"
+
+// fixFor is how to register m: a project file's entry is obor setup agents' to write and the lead's to commit, a
+// manifest's is the kit's (fixHint).
+func fixFor(m agents.MCPRegistration) string {
+	if m.Where == agents.Project {
+		return "run obor setup agents in the project, then commit the file"
+	}
+	return fixHint
+}
+
+// pathWarning: kind name's project file names obor by PATH, so its agents run the obor on the project env's PATH: a
+// WARN when that is none, or not this kit's bin/obor (symlinks followed).
+func (s *Setup) pathWarning(name string) {
+	own := filepath.Join(s.Kit, "bin", "obor")
+	found, err := project.LookPath(s.Env.Get("PATH"), "obor")
+	if err != nil {
+		s.say("WARN mcp %s: no obor on PATH: its agents' MCP server (obor mcp) does not start", name)
+		return
+	}
+	a, aerr := filepath.EvalSymlinks(found)
+	b, berr := filepath.EvalSymlinks(own)
+	if aerr != nil || berr != nil || a != b {
+		s.say("WARN mcp %s: the obor on PATH (%s) is not this kit's (%s): its agents run that obor's MCP server", name,
+			found, own)
+	}
+}
 
 // mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project uses (usedKinds; the others are
 // "not used", never a WARN) whether the obor MCP server is registered, then `obor mcp --check` (the handshake against
@@ -101,25 +128,32 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 				s.say("WARN %s: %s", name, w)
 			}
 		}
-		in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
+		in, err := agents.InstallOf(k, s.Kit, s.root, s.Env.Get)
 		if err != nil { // a plugin kind's install failed
 			s.say("WARN mcp %s: %v", name, err)
 			bad = true
 			continue
 		}
 		m := in.MCP
-		if m.Where == agents.PerStart { // nothing to install
+		switch {
+		case m.Where == agents.PerStart: // nothing to install
 			how, _, _ := m.Lane(nil, os.ReadFile)
 			s.say("mcp %s: registered per start (%s)", name, how)
 			continue
+		case m.Where == agents.Project && !filepath.IsAbs(m.Path): // no project here
+			s.say("mcp %s: registered by each project's %s (obor setup agents in the project writes it)", name, m.Path)
+			continue
+		case m.Where == agents.Project:
+			s.pathWarning(name)
 		}
-		// a manifest: every obor pane of the kind loads it with the plugin
+		// a manifest (every obor pane of the kind loads it with the plugin) or the project's file
+		fix := fixFor(m)
 		state, path, err := registration(m)
 		switch {
 		case err != nil:
-			s.say("WARN mcp %s: not registered: %s: %v (%s)", name, path, err, fixHint)
+			s.say("WARN mcp %s: not registered: %s: %v (%s)", name, path, err, fix)
 		case state == entryNone:
-			s.say("WARN mcp %s: not registered: no current %s in %s (%s)", name, strings.Join(m.Key, "."), path, fixHint)
+			s.say("WARN mcp %s: not registered: no current %s in %s (%s)", name, strings.Join(m.Key, "."), path, fix)
 		default:
 			s.say("mcp %s: registered (%s)", name, path)
 		}
@@ -196,7 +230,7 @@ func (s *Setup) mcpLane(name string) error {
 		s.say("WARN mcp model %s (%s): not registered: obor registers its server for %s", name, lt.Kind, kindList(s.cfg.Kinds()))
 		return project.Failf("mcp model %s", name)
 	}
-	in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
+	in, err := agents.InstallOf(k, s.Kit, s.cfg.Root, s.Env.Get)
 	if err != nil { // a plugin kind's install failed
 		s.say("WARN mcp model %s (%s): %v", name, lt.Kind, err)
 		return project.Failf("mcp model %s", name)
@@ -233,16 +267,20 @@ func (s *Setup) mcpLane(name string) error {
 	case !static:
 		s.say("WARN mcp model %s (%s): not registered: %s", name, lt.Kind, how)
 		bad = true
-	default: // the kit's plugin manifest serves the start
+	default: // the kit's plugin manifest or the project's file serves the start
+		by := "the plugin manifest"
+		if m.Where == agents.Project {
+			by = "the project's file"
+		}
 		switch state, path, err := registration(m); {
 		case err != nil:
-			s.say("WARN mcp model %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fixHint)
+			s.say("WARN mcp model %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fixFor(m))
 			bad = true
 		case state == entryNone:
-			s.say("WARN mcp model %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fixHint)
+			s.say("WARN mcp model %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fixFor(m))
 			bad = true
 		default:
-			s.say("mcp model %s (%s): registered by the plugin manifest (%s)", name, lt.Kind, path)
+			s.say("mcp model %s (%s): registered by %s (%s)", name, lt.Kind, by, path)
 		}
 	}
 	if bad {

@@ -139,6 +139,11 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 	has(t, out, "agents codex: nothing to install", "codex: launch args")
 	// there is no global retire step; opencode installs nothing user-global (its start's generated config).
 	has(t, out, "agents opencode: nothing to install", "opencode: nothing user-global")
+	// agy registers through a project file, written only for a config with an agy model.
+	has(t, out, "agents agy: not used (no agents.models entry of kind agy): .agents/mcp_config.json not written", "agy unused")
+	if x.Exists(".agents/mcp_config.json") {
+		t.Error("setup agents wrote agy's project file for a config with no agy model")
+	}
 	if !strings.Contains(Usage(), "agents |") {
 		t.Errorf("usage names agents: %s", Usage())
 	}
@@ -284,4 +289,77 @@ func TestSetupMCPInstallWarning(t *testing.T) {
 	}
 	has(t, out, "WARN codex: "+host+" carry com.apple.quarantine", "the quarantined file is named")
 	has(t, out, "fix: xattr -dr com.apple.quarantine /c/0.167.0", "the fix on the version dir")
+}
+
+// obor setup agents writes agy's registration, mcpServers.obor naming obor on PATH, into the project's
+// .agents/mcp_config.json when the config has an agy model: the file's other servers kept, the file's path added to
+// rules.protected_files (both uncommitted); a second run finds both and writes nothing.
+// Not parallel: the config load registers its plugin kinds in the process registry.
+func TestSetupAgentsWritesAgysProjectFile(t *testing.T) {
+	x := newFx(t, testkit.AddModels(`{"neon": {"kind": "agy", "id": "gemini-4-neon-high"}}`),
+		testkit.Set("rules.protected_files", []string{"docs/design.md"}))
+	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
+	x.Write(".agents/mcp_config.json", `{"mcpServers": {"mine": {"command": "my-server"}}}`)
+	out := x.ok(t, "agents")
+	has(t, out, "agents agy: mcpServers.obor written in .agents/mcp_config.json (uncommitted: commit it)", "the entry written")
+	has(t, out, "config rules.protected_files = + .agents/mcp_config.json (uncommitted: commit it)", "the file protected")
+	var doc struct {
+		MCPServers map[string]map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(x.Read(".agents/mcp_config.json")), &doc); err != nil {
+		t.Fatalf("the file: %v\n%s", err, x.Read(".agents/mcp_config.json"))
+	}
+	if want := map[string]map[string]any{"mine": {"command": "my-server"}, "obor": {"command": "obor", "args": []any{"mcp"}}}; !reflect.DeepEqual(doc.MCPServers, want) {
+		t.Errorf("mcpServers = %v, want %v", doc.MCPServers, want)
+	}
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ProtectedFiles(); !slices.Equal(got, []string{"docs/design.md", ".agents/mcp_config.json"}) {
+		t.Errorf("rules.protected_files = %q, want the file added after the project's own", got)
+	}
+	file, conf := x.Read(".agents/mcp_config.json"), x.Read(".obor/config.json")
+	out = x.ok(t, "agents")
+	has(t, out, "OK agents agy: mcpServers.obor in .agents/mcp_config.json", "the second run finds the entry")
+	if x.Read(".agents/mcp_config.json") != file || x.Read(".obor/config.json") != conf || strings.Contains(out, "config rules") {
+		t.Errorf("a second run wrote again:\n%s", out)
+	}
+}
+
+// obor setup mcp checks a used agy's project file: missing, a WARN naming setup agents as the fix (the doctor
+// fails); written, registered. The file names obor by PATH, so a PATH with no obor, or with another kit's, is a WARN;
+// the kit's own bin/obor (through a symlink) is none.
+// Not parallel: the config load registers its plugin kinds in the process registry.
+func TestSetupMCPChecksAgysProjectFile(t *testing.T) {
+	x := newFx(t, testkit.AddModels(`{"neon": {"kind": "agy", "id": "gemini-4-neon-high"}}`), testkit.Set("agents.roles.reviewer", "neon"))
+	bin := filepath.Join(x.Base, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg"), "PATH=" + bin}
+	file := filepath.Join(x.Root, ".agents", "mcp_config.json")
+	out, rc := x.run(t, "mcp")
+	if rc == 0 {
+		t.Errorf("no project file: exit 0\n%s", out)
+	}
+	has(t, out, "WARN mcp agy: not registered: no current mcpServers.obor in "+file+" (run obor setup agents in the project, then commit the file)", "missing")
+	has(t, out, "WARN mcp agy: no obor on PATH", "no obor on PATH")
+	x.ok(t, "agents")
+	if err := os.Symlink(filepath.Join(kit, "bin", "obor"), filepath.Join(bin, "obor")); err != nil {
+		t.Fatal(err)
+	}
+	out, rc = x.run(t, "mcp")
+	if rc != 0 || last(out) != "OK mcp" {
+		t.Errorf("written, the kit's obor on PATH: exit %d, last %q\n%s", rc, last(out), out)
+	}
+	has(t, out, "mcp agy: registered ("+file+")", "registered")
+	hasNot(t, out, "WARN mcp agy", "the kit's own obor: no warning")
+	has(t, x.ok(t, "mcp", "--model", "neon"), "mcp model neon (agy): registered by the project's file ("+file+")", "a lane's start")
+	os.Remove(filepath.Join(bin, "obor"))
+	if err := os.WriteFile(filepath.Join(bin, "obor"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = x.run(t, "mcp")
+	has(t, out, "WARN mcp agy: the obor on PATH ("+filepath.Join(bin, "obor")+") is not this kit's ("+filepath.Join(kit, "bin", "obor")+")", "another obor")
 }

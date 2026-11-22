@@ -458,8 +458,8 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	}
 	catalog := f.Git(f.Root, "show", "v1.2.4:bin/checksums.txt")
 	main := strings.Split(strings.TrimSpace(catalog), "\n")
-	if len(main) != 12 {
-		t.Errorf("the tag's catalog has %d lines, want 4 old and 8 new (obor and the OpenCode kind):\n%s", len(main), catalog)
+	if len(main) != 4+len(releaseAssets("1.2.4")) {
+		t.Errorf("the tag's catalog has %d lines, want 4 old and one per new asset (obor and the kit's kinds):\n%s", len(main), catalog)
 	}
 	for _, a := range releaseAssets("1.2.4") {
 		if !strings.Contains(catalog, "  dist/"+a+"\n") && !strings.HasSuffix(catalog, "  dist/"+a) {
@@ -497,8 +497,8 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	}
 }
 
-// A normal release's catalog is the shipped one (origin/main's, the catalog users have) plus this version's eight
-// lines: every shipped line stays.
+// A normal release's catalog is the shipped one (origin/main's, the catalog users have) plus this version's lines,
+// one per asset: every shipped line stays.
 func TestMakeReleaseKeepsTheShippedCatalog(t *testing.T) {
 	t.Parallel()
 	f := newReleaseFixture(t)
@@ -507,8 +507,8 @@ func TestMakeReleaseKeepsTheShippedCatalog(t *testing.T) {
 		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
 	}
 	catalog := f.Git(f.Root, "show", "v1.2.4:bin/checksums.txt")
-	if lines := strings.Split(strings.TrimSpace(catalog), "\n"); len(lines) != 4+8 {
-		t.Errorf("the tag's catalog has %d lines, want the shipped 4 and the new 8:\n%s", len(lines), catalog)
+	if lines := strings.Split(strings.TrimSpace(catalog), "\n"); len(lines) != 4+len(releaseAssets("1.2.4")) {
+		t.Errorf("the tag's catalog has %d lines, want the shipped 4 and one per new asset:\n%s", len(lines), catalog)
 	}
 	for _, a := range releaseAssets("1.2.4") {
 		if !strings.Contains(catalog, "  dist/"+a+"\n") && !strings.HasSuffix(catalog, "  dist/"+a) {
@@ -548,8 +548,8 @@ func TestMakeReleaseDropsAnUnshippedVersionsLines(t *testing.T) {
 	if strings.Contains(catalog, "-1.2.3-") {
 		t.Errorf("the tag's catalog keeps the unshipped 1.2.3's lines:\n%s", catalog)
 	}
-	if lines := strings.Split(strings.TrimSpace(catalog), "\n"); len(lines) != 4+8 {
-		t.Errorf("the tag's catalog has %d lines, want the shipped 4 and the new 8:\n%s", len(lines), catalog)
+	if lines := strings.Split(strings.TrimSpace(catalog), "\n"); len(lines) != 4+len(releaseAssets("1.2.4")) {
+		t.Errorf("the tag's catalog has %d lines, want the shipped 4 and one per new asset:\n%s", len(lines), catalog)
 	}
 	for _, pl := range publishPlatforms {
 		if !strings.Contains(catalog, "dist/obor-1.2.2-"+pl) {
@@ -666,7 +666,7 @@ func TestMakeReleaseDryRun(t *testing.T) {
 		t.Fatalf("the dry run failed:\n%s", out)
 	}
 	for _, want := range []string{"would: set VERSION", "would: make check", "would: git commit", "would: git worktree add",
-		"would: copy the 8 dist", "next (owner): make ship"} {
+		"would: copy the 12 dist", "next (owner): make ship"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the dry run does not print %q:\n%s", want, out)
 		}

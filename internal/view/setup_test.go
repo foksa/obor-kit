@@ -118,8 +118,8 @@ func TestSetup(t *testing.T) {
 		t.Errorf("model opus paused %+v, want none", m.Paused)
 	}
 	// kinds: every agent kind, its args and whether a job_note is set
-	wantKinds := []SetupKind{{Name: "claude", Args: []string{}}, {Name: "codex", Args: []string{"--search"}},
-		{Name: "opencode", Args: []string{}, JobNote: true}}
+	wantKinds := []SetupKind{{Name: "agy", Args: []string{}}, {Name: "claude", Args: []string{}},
+		{Name: "codex", Args: []string{"--search"}}, {Name: "opencode", Args: []string{}, JobNote: true}}
 	if !reflect.DeepEqual(s.Kinds, wantKinds) {
 		t.Errorf("kinds %+v, want %+v", s.Kinds, wantKinds)
 	}

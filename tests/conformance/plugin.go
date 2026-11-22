@@ -74,7 +74,7 @@ func pluginStatic() {
 		k.NotReady("Updating to 2.0") == "is updating itself" && k.NotReady("> ") == "",
 		fmt.Sprintf("%q / %q", k.NotReady("Updating to 2.0"), k.NotReady("> ")), where("func (k *Kind) NotReady"))
 
-	inst, err := agents.InstallOf(k, "/kit", os.Getenv)
+	inst, err := agents.InstallOf(k, "/kit", "", os.Getenv)
 	how, registered, static := "", false, false
 	if err == nil {
 		how, registered, static = inst.MCP.Lane(nil, nil)

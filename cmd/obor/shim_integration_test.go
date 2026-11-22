@@ -685,8 +685,9 @@ printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 	if len(kinds) != 4 || slices.Contains(kinds, staleKind) {
 		t.Errorf("release writes exactly four fresh entries for the kind (stale one replaced): %q", kinds)
 	}
-	if len(lines) != 12 {
-		t.Errorf("catalog = four old and eight new entries, got %d:\n%s", len(lines), strings.Join(lines, "\n"))
+	if len(lines) != 16 {
+		t.Errorf("catalog = four old and twelve new entries (obor and the kit's two kinds), got %d:\n%s", len(lines),
+			strings.Join(lines, "\n"))
 	}
 	if !slices.IsSortedFunc(lines, func(a, b string) int { return strings.Compare(fields2(a), fields2(b)) }) {
 		t.Errorf("release checksum catalog is sorted by name:\n%s", strings.Join(lines, "\n"))

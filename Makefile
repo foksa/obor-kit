@@ -11,7 +11,7 @@
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
-# (scripts/ship); `make release` without V → only the local release files; `make publish` → the eight of them to a
+# (scripts/ship); `make release` without V → only the local release files; `make publish` → the twelve of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
 # GOFLAGS carries -trimpath for every Go command of every target: without it Go puts the package's directory
@@ -44,7 +44,7 @@ GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 # KINDS are the plugin kinds the kit ships as their own binaries (kinds/<kind>): built beside obor, released
 # beside it (obor-kind-<kind>-<version>-<os>-<arch>; scripts/release-lib.sh's binaries names them too).
-KINDS := opencode
+KINDS := agy opencode
 RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 
 .PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-race check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
@@ -62,7 +62,7 @@ test:
 
 # The conformance suite (deep dive §6): tests/conformance, behind the conformance build tag so
 # go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
-# KIND=herdr|claude|codex|opencode (default: all), TIER=static (default; no session, no model) or live (one throwaway
+# KIND=herdr|claude|codex|opencode|agy (default: all), TIER=static (default; no session, no model) or live (one throwaway
 # herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call
 # per kind), TERMINAL=hc (live: the agent kinds start in a throwaway hc session instead, non-gating). Prints
 # PASS/FAIL/SKIP/WARN lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line
@@ -290,7 +290,7 @@ deps:
 	$(GO) mod download
 
 # release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on the loop's branch,
-# the scratch worktree with marketplace obor-kit and the eight binaries (obor and each kind, per platform), the tag, the catalog committed on the branch and
+# the scratch worktree with marketplace obor-kit and the twelve binaries (obor and each kind, per platform), the tag, the catalog committed on the branch and
 # main fast-forwarded to it); without V it writes only the local release files: the build and bin/checksums.txt, the
 # shipped catalog's lines (origin/main's; HEAD's when there is no origin/main) plus this version's. DRY=1 (with V)
 # prints the steps and changes nothing. The owner's next command: ship.
@@ -329,7 +329,7 @@ ship:
 	@sh scripts/ship "$(VERSION)"
 
 # publish is outward-facing and explicit: after `make release`, committing bin/checksums.txt and tagging, `make publish`
-# uploads exactly the eight binaries of v$(VERSION) (obor and each kind, per platform), each checked against the tag's catalog (scripts/publish; --verify-tag:
+# uploads exactly the twelve binaries of v$(VERSION) (obor and each kind, per platform), each checked against the tag's catalog (scripts/publish; --verify-tag:
 # no tag, no upload). The platform list there is literal, so GOOS_LIST/GOARCH_LIST overrides do not change it.
 publish:
 	@sh scripts/publish "$(VERSION)"

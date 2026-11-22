@@ -38,7 +38,7 @@ import (
 
 // liveKinds is each kind's live tier.
 var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude": claudeLive, "codex": codexLive,
-	"opencode": opencodeLive}
+	"opencode": opencodeLive, "agy": agyLive}
 
 // liveIDs are each kind's live rows, for the SKIP lines when the kind cannot run.
 var liveIDs = map[string][]string{
@@ -46,6 +46,7 @@ var liveIDs = map[string][]string{
 	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7", "CC-L8", "CC-L9"},
 	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11", "H-L14"},
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6", "H-L14"},
+	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "P10", "P10-control"},
 }
 
 func live(kinds []string, turn bool) {
@@ -136,6 +137,7 @@ type lab struct {
 	real      string     // root/real: a kit whose bin/obor is the repository's own obor (realKit)
 	realErr   error      // why realKit failed (nil until it is asked)
 	app       *stubServe // the app socket's stub serve (startStubServe)
+	atReady   string     // agy's visible screen when herdr last reported it ready (live_agy.go)
 	session   string     // obor-conf-<kind>
 	sock      string
 	env       []string  // the server's clean environment
@@ -243,13 +245,17 @@ func (l *lab) makeProject() error {
 	for _, e := range setup.StarterModels {
 		models[e.Name] = config.ModelEntry{Kind: e.Kind, ID: e.ID}
 	}
+	if l.kind == "agy" { // agy's rows start this model (obor init's starter list has no agy entry)
+		models["agy-live"] = config.ModelEntry{Kind: "agy", ID: agyModel()}
+		models["agy-bogus"] = config.ModelEntry{Kind: "agy", ID: "gemini-9-bogus"} // AG-L7: no such model
+	}
 	agentsDoc := map[string]any{"models": models}
-	if l.kind == "opencode" {
-		cmd, err := l.opencodeKind()
+	if l.kind == "opencode" || l.kind == "agy" {
+		cmd, err := l.kitKind(l.kind)
 		if err != nil {
 			return err
 		}
-		agentsDoc["kinds"] = map[string]any{"opencode": map[string]any{"plugin": cmd}}
+		agentsDoc["kinds"] = map[string]any{l.kind: map[string]any{"plugin": cmd}}
 	}
 	b, err := json.Marshal(agentsDoc)
 	if err != nil {
@@ -262,13 +268,13 @@ func (l *lab) makeProject() error {
 	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
 		return err
 	}
-	if l.kind == "opencode" { // its manifest cached as obor setup agents caches it: the config's kind carries it
+	if l.kind == "opencode" || l.kind == "agy" { // its manifest cached as obor setup agents caches it: the config's kind carries it
 		cfg, err := config.Load(l.main)
 		if err == nil {
-			_, err = plugin.Cache("opencode", cfg.KindCommand("opencode"), cfg.StateDir())
+			_, err = plugin.Cache(l.kind, cfg.KindCommand(l.kind), cfg.StateDir())
 		}
 		if err != nil {
-			return fmt.Errorf("the opencode kind: %v", err)
+			return fmt.Errorf("the %s kind: %v", l.kind, err)
 		}
 	}
 	git := func(dir string, args ...string) error {
@@ -292,12 +298,12 @@ func (l *lab) makeProject() error {
 	return nil
 }
 
-// opencodeKind builds the OpenCode kind's binary (kinds/opencode) into the scratch dir, as `make build` puts it
-// beside obor: the lab's opencode is that plugin kind, run through obor's plugin package.
-func (l *lab) opencodeKind() (string, error) {
-	exe := filepath.Join(l.root, "bin", "obor-kind-opencode")
-	if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./kinds/opencode"); err != nil {
-		return "", fmt.Errorf("go build ./kinds/opencode: %v: %s", err, o)
+// kitKind builds the kit kind name's binary (kinds/<name>) into the scratch dir, as `make build` puts it beside
+// obor: the lab's kind is that plugin kind, run through obor's plugin package.
+func (l *lab) kitKind(name string) (string, error) {
+	exe := filepath.Join(l.root, "bin", "obor-kind-"+name)
+	if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./kinds/"+name); err != nil {
+		return "", fmt.Errorf("go build ./kinds/%s: %v: %s", name, err, o)
 	}
 	return exe, nil
 }

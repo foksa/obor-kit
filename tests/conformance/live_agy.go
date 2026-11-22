@@ -1,0 +1,529 @@
+//go:build conformance
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"obor/internal/agents"
+	"obor/internal/config"
+)
+
+const agyGo = "kinds/agy/kind/kind.go" // the agy kind's binary (a tool may not import a kind's package)
+
+// agyModel is the model id the agy rows start (CONF_AGY_MODEL; default the probes' cheap model).
+func agyModel() string {
+	if m := os.Getenv("CONF_AGY_MODEL"); m != "" {
+		return m
+	}
+	return "gemini-3.8-flash-low"
+}
+
+// agyStatic: `agy --help` still lists every flag and subcommand the kind's start and headless forms use.
+func agyStatic() {
+	where := at(agyGo, "func start(") + ", " + at(agyGo, `"headless"`)
+	path, _, ok := tool("agy", map[string]string{"AG-S1": where})
+	if !ok {
+		return
+	}
+	help, err := output(30*time.Second, path, "--help")
+	if err != nil {
+		report("FAIL", "AG-S1", "agy --help failed: "+firstLine(help+err.Error()), where)
+		return
+	}
+	var gone []string
+	for _, f := range []string{"--settings", "--model", "--effort", "--conversation", "--prompt-interactive", "--print",
+		"--prompt ", "--add-dir", "acp"} {
+		if !strings.Contains(help, f) {
+			gone = append(gone, strings.TrimSpace(f))
+		}
+	}
+	if len(gone) > 0 {
+		report("FAIL", "AG-S1", "agy --help no longer lists "+strings.Join(gone, ", "), where)
+		return
+	}
+	report("PASS", "AG-S1", "agy --help lists --settings, --model, --effort, --conversation, --prompt-interactive, --print, --prompt, --add-dir and acp", where)
+}
+
+// agyLive: a worker of the lab's project started as obor's launch builds it (config.Model.Launch: the real kinds/agy
+// binary through obor's plugin package), in the lane, with the project's .agents/mcp_config.json as obor setup agents
+// writes it and the repository's own obor first on PATH (the file names obor by PATH), a stub serve on the project's
+// socket. AG-L1 the start (no trust dialog, no wrong-model notice, idle), AG-L4 the quit. With TURN=1: AG-L2 the first
+// prompt in the argv, AG-L3 an obor MCP tool call with no prompt (job_next's reply in the transcript), AG-L6 the
+// context read of that transcript, AG-L5 the resume by herdr's conversation id, and P10 (agy-probes.md): with
+// command(obor), command(go test) and read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a
+// unix socket and a module download run in auto mode with no prompt.
+//
+// agy trusts a folder by exact path and the kind adds a lane only when the project's root is in the user's saved
+// trustedWorkspaces, which the lab must not write: so the lab adds its scratch dirs to each start's settings file
+// (trustLab), standing in for the owner's trust of the project.
+func agyLive(l *lab, turn bool) {
+	k := l.kindOf("agy")
+	whereStart, whereMCP := at(agyGo, "func start("), at(agyGo, `case "install"`)
+	real, err := l.realKit()
+	if err != nil {
+		report("FAIL", "AG-L1", "the repository's own obor is not built: "+err.Error(), whereMCP)
+		return
+	}
+	if err := l.startStubServe(); err != nil {
+		report("FAIL", "AG-L1", err.Error(), whereMCP)
+		return
+	}
+	inst, err := agents.InstallOf(k, real, l.lane, nil)
+	if err != nil || inst.MCP.Where != agents.Project {
+		report("FAIL", "AG-L3", fmt.Sprintf("install: %+v, %v; want where project", inst.MCP, err), whereMCP)
+		return
+	}
+	if err := writeEntry(inst.MCP); err != nil {
+		report("FAIL", "AG-L3", "the project file: "+err.Error(), whereMCP)
+		return
+	}
+	pane, err := l.workspace("conf", l.lane)
+	if err != nil {
+		report("FAIL", "AG-L1", "no workspace in the throwaway session: "+err.Error(), "deep dive §6")
+		return
+	}
+	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane,
+		"PATH": filepath.Join(real, "bin") + string(os.PathListSeparator) + l.envOf("PATH")}
+	if st, err := l.shell(pane, "cd "+shq(l.lane)+" && "+exports(paneEnv), 10*time.Second); err != nil || st != 0 {
+		report("FAIL", "AG-L1", fmt.Sprintf("the env line failed (status %d, %v)", st, err), at(launchGo, "func envLine"))
+		return
+	}
+	stop := k.Stop()
+	whereStop := at(agyGo, `"stop"`)
+	l.agyWrongModel(k, pane)
+	if !turn {
+		if s, ok := l.agyStart(k, pane, agents.Start{}, "no prompt"); ok {
+			agyQuit(l, pane, stop, whereStop)
+			_ = s
+		}
+		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "P10", "P10-control"} {
+			report("SKIP", id, "needs TURN=1 (a model call)", whereStart)
+		}
+		return
+	}
+	const first = "AGY-FIRST-OK"
+	s, ok := l.agyStart(k, pane, agents.Start{Prompt: "Reply with exactly " + first}, "first prompt")
+	if !ok {
+		return
+	}
+	sid, text := l.agyConversation(k, s, first)
+	if sid == "" {
+		report("FAIL", "AG-L2", "the first prompt's reply is in no conversation's transcript in 120s; screen: "+tail(l.screen(pane), 4), whereStart)
+		l.stopAgent(pane)
+		return
+	}
+	report("PASS", "AG-L2", "-i <prompt>: the reply "+first+" is in conversation "+sid+"'s transcript.jsonl", whereStart)
+
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
+		report("FAIL", "AG-L3", "agent.prompt: "+err.Error(), whereMCP)
+	} else {
+		asked := ""
+		text, ok = waitTranscript(180*time.Second, func() string {
+			if m := agyAskRE.FindString(l.screen(pane)); m != "" && asked == "" {
+				asked = m
+			}
+			return l.agyTranscript(k, sid)
+		}, mcpJobHead, mcpMarker)
+		fact := l.mcpFact("the real `obor mcp` (mcpServers.obor of .agents/mcp_config.json, obor on PATH) answered job_next into agy's transcript", text, ok)
+		switch {
+		case asked != "":
+			report("FAIL", "AG-L3", fact+"; agy asked: "+asked+" (mcp(obor/*) in the start's settings should allow it)", whereMCP)
+		case ok:
+			report("PASS", "AG-L3", fact+"; no permission prompt", whereMCP)
+		default:
+			report("FAIL", "AG-L3", fact+"; screen: "+tail(l.screen(pane), 4), whereMCP)
+		}
+	}
+	c, cok := k.Context([]byte(text))
+	if whereCtx := at(agyGo, "func Context("); cok && c.Tokens > 0 {
+		report("PASS", "AG-L6", fmt.Sprintf("turn what: context reads %d tokens at %s from the transcript", c.Tokens, c.At.Format(time.RFC3339)), whereCtx)
+	} else {
+		report("FAIL", "AG-L6", fmt.Sprintf("turn what: context read %+v, %v from the transcript: %s", c, cok, tail(text, 2)), whereCtx)
+	}
+	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
+	agyQuit(l, pane, stop, whereStop)
+
+	const resumed = "AGY-RESUMED-OK"
+	if _, ok := l.agyStart(k, pane, agents.Start{Resume: sid}, "resume"); ok {
+		if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "Reply with exactly " + resumed}, 15*time.Second); err != nil {
+			report("FAIL", "AG-L5", "agent.prompt: "+err.Error(), whereStart)
+		} else if text, ok := waitTranscript(120*time.Second, func() string { return l.agyTranscript(k, sid) }, first, resumed); ok {
+			report("PASS", "AG-L5", "--conversation "+sid+": the resumed session answered "+resumed+" into the same transcript", whereStart)
+		} else {
+			report("FAIL", "AG-L5", "--conversation "+sid+": no "+resumed+" in its transcript in 120s: "+tail(text, 2)+"; screen: "+tail(l.screen(pane), 4), whereStart)
+		}
+		poll(60*time.Second, func() bool { a, err := l.agent(pane); return err == nil && a.Status == "idle" })
+		if _, err := l.quit(pane, stop); err != nil {
+			l.stopAgent(pane)
+		}
+	}
+	agyP10(l, k, pane, stop, true)
+	agyP10(l, k, pane, stop, false)
+}
+
+// agyAskRE is a prompt of agy's on the screen: a permission request, a trust dialog.
+var agyAskRE = regexp.MustCompile(`Allow calling this tool\?|Requesting permission for[^\n]*|Do you trust the contents of this project\?`)
+
+// writeEntry writes m.Entry at m.Key of m.Path, as obor setup agents does for a project (here the lane's copy, as a
+// commit would give it).
+func writeEntry(m agents.MCPRegistration) error {
+	doc := []byte("{}")
+	out, err := config.EditJSON(doc, m.Key, m.Entry)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(m.Path), 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(m.Path, out, 0o644)
+	}
+	return err
+}
+
+// agyStart starts agy in pane as obor's launch builds a worker's start of the lab's agy model (in: the start's prompt
+// or resume), its settings file trusting the lab's dirs (trustLab): AG-L1 (H-L1's fact) when it comes up idle with no
+// prompt of agy's and no wrong-model notice; false (reported) when it does not.
+func (l *lab) agyStart(k agents.Kind, pane string, in agents.Start, mode string) (started, bool) {
+	where := at(agyGo, "func start(") + ", " + at(agyGo, "const NotReadyPattern")
+	s, ready, launch, screen, err := l.agyUp(k, pane, "agy-live", in)
+	if err != nil {
+		report("FAIL", "AG-L1", mode+": the start: "+err.Error(), where)
+		return started{}, false
+	}
+	reportStart("agy "+mode, s, ready)
+	switch {
+	case l.atShell(pane):
+		report("FAIL", "AG-L1", mode+": agy did not start: "+tail(screen, 6), where)
+		return s, false
+	case agyAskRE.MatchString(screen):
+		report("FAIL", "AG-L1", mode+": agy asks on its start screen: "+agyAskRE.FindString(screen), where)
+		l.stopAgent(pane)
+		return s, false
+	case k.NotReady(screen) != "":
+		report("FAIL", "AG-L1", mode+": "+k.NotReady(screen)+": "+tail(screen, 4), where)
+		l.stopAgent(pane)
+		return s, false
+	}
+	report("PASS", "AG-L1", fmt.Sprintf("%s: `agy %s` came up with no prompt of agy's and no wrong-model notice", mode,
+		strings.Join(redactPrompt(launch.Args), " ")), where)
+	return s, true
+}
+
+// agyWrongModel is AG-L7: a start of a model agy does not know runs (agy starts its default model) and its start
+// screen shows the notice the manifest's not_ready matches, which fails obor's start.
+func (l *lab) agyWrongModel(k agents.Kind, pane string) {
+	where := at(agyGo, "const NotReadyPattern")
+	_, _, _, screen, err := l.agyUp(k, pane, "agy-bogus", agents.Start{})
+	switch why := k.NotReady(screen); {
+	case err != nil:
+		report("FAIL", "AG-L7", "the start: "+err.Error(), where)
+	case why != "":
+		report("PASS", "AG-L7", fmt.Sprintf("--model gemini-9-bogus: the start screen's notice is not ready (on the screen when herdr reported the agent ready: %v): %s",
+			k.NotReady(l.atReady) != "", why), where)
+	default:
+		report("FAIL", "AG-L7", "--model gemini-9-bogus: no notice the manifest's not_ready matches: "+tail(screen, 5), where)
+	}
+	if code, err := l.quit(pane, k.Stop()); err != nil || code != 0 {
+		l.stopAgent(pane)
+	}
+}
+
+// agyUp starts agy in pane as obor's launch builds a worker's start of model (the lab config's), its settings file
+// trusting the lab's dirs (trustLab), and waits until herdr reports it idle (or 30 s): the start, when it took input
+// (readyAfter), its launch, and the screen then (a few seconds on, for a notice).
+func (l *lab) agyUp(k agents.Kind, pane, model string, in agents.Start) (started, time.Duration, agents.Launch, string, error) {
+	cfg := l.config()
+	m, ok := cfg.Model(model)
+	if !ok {
+		return started{}, 0, agents.Launch{}, "", fmt.Errorf("the lab project's config has no model %s", model)
+	}
+	over, err := cfg.Overrides("agy")
+	if err != nil {
+		return started{}, 0, agents.Launch{}, "", err
+	}
+	in.Dir, in.Root, in.Env, in.Read = l.lane, l.main, l.envOf, os.ReadFile
+	in.WriteState = func(name string, data []byte) (string, error) {
+		path := filepath.Join(l.root, "state", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return "", err
+		}
+		return path, os.WriteFile(path, data, 0o644)
+	}
+	launch, err := m.LaunchOf(k, "worker", over, in)
+	if err == nil {
+		err = l.trustLab(launch.Args)
+	}
+	if err != nil {
+		return started{}, 0, launch, "", err
+	}
+	_, _ = l.shell(pane, "clear", 10*time.Second) // the last start's screen (a notice) is not this one's
+	t0 := time.Now()
+	s := l.start("conf-agy", "agy", pane, launch.Args, 60*time.Second)
+	ready := l.readyAfter(s, t0, "idle", "done")
+	l.atReady = l.visible(pane)
+	time.Sleep(3 * time.Second) // the model resolves after sign-in: its notice comes a moment after the input shows
+	return s, ready, launch, l.visible(pane), nil
+}
+
+// redactPrompt is args with the settings file's path cut to its name.
+func redactPrompt(args []string) []string {
+	out := slices.Clone(args)
+	for i := range out {
+		if i > 0 && out[i-1] == "--settings" {
+			out[i] = "<state>/" + filepath.Base(out[i])
+		}
+	}
+	return out
+}
+
+// trustLab adds the lab's main checkout and lane to the trustedWorkspaces of the settings file args name.
+func (l *lab) trustLab(args []string) error {
+	i := slices.Index(args, "--settings")
+	if i < 0 || i+1 >= len(args) {
+		return fmt.Errorf("the start names no --settings file: %q", args)
+	}
+	b, err := os.ReadFile(args[i+1])
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return err
+	}
+	tw, _ := doc["trustedWorkspaces"].([]any)
+	doc["trustedWorkspaces"] = append(tw, l.main, l.lane)
+	out, _ := json.MarshalIndent(doc, "", "  ")
+	return os.WriteFile(args[i+1], out, 0o644)
+}
+
+// agyConversation is the conversation of s whose transcript carries marker (herdr's agent_session, else the newest
+// conversation that has it), and its transcript; "" after 120 s.
+func (l *lab) agyConversation(k agents.Kind, s started, marker string) (string, string) {
+	var sid, text string
+	poll(120*time.Second, func() bool {
+		if a, err := l.agent(s.name); err == nil && a.Session != nil && a.Session.Value != "" {
+			id := strings.TrimSuffix(filepath.Base(a.Session.Value), filepath.Ext(a.Session.Value))
+			if t := l.agyTranscript(k, id); strings.Contains(t, marker) {
+				sid, text = id, t
+				return true
+			}
+		}
+		dirs, _ := filepath.Glob(filepath.Join(l.envOf("HOME"), ".gemini", "antigravity-cli", "brain", "*"))
+		for _, d := range dirs {
+			if fi, err := os.Stat(d); err != nil || time.Since(fi.ModTime()) > 10*time.Minute {
+				continue
+			}
+			if t := l.agyTranscript(k, filepath.Base(d)); strings.Contains(t, marker) {
+				sid, text = filepath.Base(d), t
+				return true
+			}
+		}
+		return false
+	})
+	return sid, text
+}
+
+// agyTranscript is conversation sid's transcript.jsonl (the kind's glob).
+func (l *lab) agyTranscript(k agents.Kind, sid string) string {
+	return transcripts(k.Transcript(l.envOf, sid))
+}
+
+// agyQuit is AG-L4: the kind's quit recipe ends agy with status 0.
+func agyQuit(l *lab, pane string, st agents.Stop, where string) {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
+		report("FAIL", "AG-L4", fmt.Sprintf("%s: exit status %d (%v)", recipeFact(st), code, orOK(err)), where)
+		l.stopAgent(pane)
+		return
+	}
+	report("PASS", "AG-L4", recipeFact(st)+" exits with status 0", where)
+}
+
+// p10Commands are P10's commands, each run as its own tool call: obor's own command (it dials serve's unix socket: the
+// lab's stub serve records the request), a test that opens a unix socket, a module download from the Go proxy, and a
+// control, a host no rule names.
+var p10Commands = []string{"obor status", "go test ./sockprobe/", "go mod download golang.org/x/text@v0.3.0",
+	"curl -sS -o /dev/null https://example.com"}
+
+// agyP10 answers P10 (docs/research/agy-probes.md): the project's settings_override.json allows command(obor),
+// command(go test) and read_url(proxy.golang.org) (rules; else P10-control: an empty override, the start's own rules
+// alone); a fresh start in auto mode runs p10Commands. Per command: whether
+// agy asked (its prompt answered with its default, Yes, so the next command runs), its exit code and first line.
+// The module cache is a new dir of the lane per run (a workspace dir), the sum database off, the proxy proxy.golang.org alone.
+func agyP10(l *lab, k agents.Kind, pane string, st agents.Stop, rules bool) {
+	where := "docs/research/agy-probes.md P10, " + at(agyGo, "func start(")
+	id := "P10"
+	allow := `{"permissions": {"allow": ["command(obor)", "command(go test)", "read_url(proxy.golang.org)"]}}`
+	if !rules {
+		id, allow = "P10-control", `{}`
+	}
+	files := map[string]string{
+		filepath.Join(l.main, ".obor", "agy", "settings_override.json"): allow + "\n",
+		filepath.Join(l.lane, "go.mod"):                                 "module p10\n\ngo 1.22\n",
+		filepath.Join(l.lane, "sockprobe", "sock_test.go"): `package sockprobe
+
+import (
+	"net"
+	"path/filepath"
+	"testing"
+)
+
+func TestUnixSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() { c, err := ln.Accept(); if err == nil { c.Write([]byte("x")); c.Close() } }()
+	c, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	b := make([]byte, 1)
+	if _, err := c.Read(b); err != nil || b[0] != 'x' {
+		t.Fatalf("read: %q %v", b, err)
+	}
+	t.Log("P10-SOCKET-OK")
+}
+`,
+	}
+	for path, text := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+			err = os.WriteFile(path, []byte(text), 0o644)
+		}
+	}
+	env := map[string]string{"GOMODCACHE": filepath.Join(l.lane, ".modcache-"+id), "GOSUMDB": "off", "GOPROXY": "https://proxy.golang.org",
+		"GOFLAGS": "-modcacherw"}
+	if st, err := l.shell(pane, exports(env), 10*time.Second); err != nil || st != 0 {
+		report("FAIL", id, fmt.Sprintf("the env line failed (status %d, %v)", st, err), where)
+		return
+	}
+	var list []string
+	for i, c := range p10Commands {
+		list = append(list, fmt.Sprintf("%d) %s", i+1, c))
+	}
+	const done = "P10-DONE"
+	prompt := "Run these shell commands, each as its own run_command call, exactly as written, one after another, " +
+		"even when one fails: " + strings.Join(list, " ") + ". Do not retry or change them. Then reply " + done + "."
+	before := len(l.app.asked())
+	s, ok := l.agyStart(k, pane, agents.Start{Prompt: prompt}, id)
+	if !ok {
+		report("FAIL", id, "agy did not start with the override file", where)
+		return
+	}
+	var asked []string
+	sid, text := "", ""
+	poll(300*time.Second, func() bool {
+		if m := agyAskRE.FindString(l.visible(pane)); m != "" {
+			asked = append(asked, m)
+			_ = l.keys(pane, "enter")
+			time.Sleep(2 * time.Second)
+		}
+		if sid == "" {
+			if a, err := l.agent(s.name); err == nil && a.Session != nil && a.Session.Value != "" {
+				sid = strings.TrimSuffix(filepath.Base(a.Session.Value), filepath.Ext(a.Session.Value))
+			}
+		}
+		if sid != "" {
+			text = l.agyTranscript(k, sid)
+		}
+		return strings.Contains(text, `"content":"`+done)
+	})
+	if sid == "" {
+		sid, text = l.agyConversation(k, s, done)
+	}
+	results := p10Results(text)
+	var parts []string
+	for _, c := range p10Commands {
+		r, ran := results[c]
+		if !ran {
+			parts = append(parts, c+": not run")
+			continue
+		}
+		parts = append(parts, c+": "+r)
+	}
+	fact := strings.Join(parts, "; ")
+	fact += fmt.Sprintf("; the stub serve got %s from obor status", orNone(strings.Join(l.app.asked()[before:], " ")))
+	if len(asked) > 0 {
+		fact += "; agy asked: " + strings.Join(asked, " / ")
+	} else {
+		fact += "; agy asked nothing"
+	}
+	if len(results) < len(p10Commands) {
+		report("FAIL", id, fact+"; transcript end: "+tail(text, 3), where)
+	} else {
+		report("PASS", id, fact, where)
+	}
+	if _, err := l.quit(pane, st); err != nil {
+		l.stopAgent(pane)
+	}
+	for path := range files {
+		os.Remove(path)
+	}
+}
+
+// p10Results are the commands the transcript ran (a PLANNER_RESPONSE's run_command, then its GENERIC result), each
+// as "exit <n>: <its first output line>" (the sandbox's refusal shows as "operation not permitted" there).
+func p10Results(text string) map[string]string {
+	out := map[string]string{}
+	pending := ""
+	for _, line := range strings.Split(text, "\n") {
+		var l struct {
+			Type      string `json:"type"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Name string `json:"name"`
+				Args struct {
+					CommandLine string `json:"CommandLine"`
+				} `json:"args"`
+			} `json:"tool_calls"`
+		}
+		if json.Unmarshal([]byte(line), &l) != nil {
+			continue
+		}
+		for _, c := range l.ToolCalls {
+			if c.Name == "run_command" {
+				var cmd string
+				if json.Unmarshal([]byte(c.Args.CommandLine), &cmd) != nil {
+					cmd = c.Args.CommandLine
+				}
+				pending = strings.TrimSpace(cmd)
+			}
+		}
+		if l.Type == "GENERIC" && pending != "" {
+			out[pending] = p10Outcome(l.Content)
+			pending = ""
+		}
+	}
+	return out
+}
+
+var exitRE = regexp.MustCompile(`Command exited with code (\d+)`)
+
+// p10Outcome is a run_command result as "exit <n>: <the line that tells>".
+func p10Outcome(content string) string {
+	code := "?"
+	if m := exitRE.FindStringSubmatch(content); m != nil {
+		code = m[1]
+	}
+	tell := ""
+	for _, line := range strings.Split(content, "\n") {
+		low := strings.ToLower(line)
+		if strings.Contains(low, "not permitted") || strings.Contains(low, "p10-socket-ok") || strings.Contains(low, "denied") ||
+			strings.HasPrefix(line, "ok ") || strings.HasPrefix(line, "FAIL") || strings.Contains(low, "error") ||
+			strings.Contains(low, "serve") {
+			tell = strings.TrimSpace(line)
+			break
+		}
+	}
+	if len(tell) > 160 {
+		tell = tell[:160]
+	}
+	return "exit " + code + ": " + orNone(tell)
+}

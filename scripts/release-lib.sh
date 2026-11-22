@@ -3,7 +3,7 @@
 
 # The release's files: obor and each kind binary obor runs beside it (Makefile RELEASE_BINARIES), one per
 # platform each, dist/<binary>-<version>-<os>-<arch> and the asset of that name on the GitHub release.
-binaries="obor obor-kind-opencode"
+binaries="obor obor-kind-agy obor-kind-opencode"
 platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 
 # release_assets <version>: the release's asset names, one per line: each binary's four platforms, obor's first.

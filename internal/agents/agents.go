@@ -399,14 +399,15 @@ type Install struct {
 const (
 	Manifest = "manifest" // the kit's plugin manifest (Path)
 	PerStart = "start"    // launch args on every start: nothing to install
+	Project  = "project"  // a file of the project, committed (Path: under the project's root): obor setup agents writes it
 )
 
 // MCPRegistration is how obor's MCP server reaches a CLI.
 type MCPRegistration struct {
-	Where    string         // Manifest or PerStart
-	Path     string         // the manifest ("" for PerStart)
-	Key      []string       // Manifest: the obor entry's place in the file's JSON, outermost first
-	Entry    map[string]any // Manifest: the obor entry
+	Where    string         // Manifest, PerStart or Project
+	Path     string         // the manifest, or the project's file ("" for PerStart)
+	Key      []string       // Manifest, Project: the obor entry's place in the file's JSON, outermost first
+	Entry    map[string]any // Manifest, Project: the obor entry
 	Unpinned map[string]any // Manifest: the entry as written before the pin: registered, with a warning
 	// Lane is how a start with the type's args gets the server (obor setup mcp --lane): static true when the Where
 	// registration serves it (setup checks that file), else registered per start or not, how saying which.
@@ -669,10 +670,11 @@ func AsNow(k Kind) (Kind, error) {
 	return k, nil
 }
 
-// Fallible is a kind whose install can fail (a plugin kind runs a process): Install with its error. Its
+// Fallible is a kind whose install can fail (a plugin kind runs a process): Install with its error, for the project
+// at root ("": none; a registration in the project's files then names its path relative to a project's root). Its
 // Install gives the failure's zero form (no registration, Lane saying why).
 type Fallible interface {
-	InstallErr(kit string, env func(string) string) (Install, error)
+	InstallErr(kit, root string, env func(string) string) (Install, error)
 }
 
 // Launch is one start as its kind built it: the argv after the binary and the start's own env (variable → value; ""
@@ -737,10 +739,10 @@ func StartOf(k Kind, in Start) (Launch, error) {
 	return Launch{Args: args, Env: env}, nil
 }
 
-// InstallOf is k.Install(kit, env), or a Fallible kind's InstallErr.
-func InstallOf(k Kind, kit string, env func(string) string) (Install, error) {
+// InstallOf is k.Install(kit, env), or a Fallible kind's InstallErr for the project at root.
+func InstallOf(k Kind, kit, root string, env func(string) string) (Install, error) {
 	if f, ok := k.(Fallible); ok {
-		return f.InstallErr(kit, env)
+		return f.InstallErr(kit, root, env)
 	}
 	return k.Install(kit, env), nil
 }

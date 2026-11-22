@@ -14,7 +14,7 @@ import (
 	"obor/internal/testkit" // OpenCode, a plugin kind answering in process
 )
 
-// kinds are a project's kinds as its config holds them: the compiled ones and OpenCode, the kit's plugin kind.
+// kinds are a project's kinds as its config holds them: the compiled ones and the kit's plugin kinds (OpenCode, agy).
 var kinds = testkit.Kinds()
 
 // the registry holds the compiled kinds alone (the zero Kinds); a Kinds adds its plugin kinds to them, one list
@@ -24,7 +24,7 @@ func TestRegistry(t *testing.T) {
 	if got := (agents.Kinds{}).Names(); !slices.Equal(got, []string{"claude", "codex"}) {
 		t.Errorf("the compiled kinds = %q", got)
 	}
-	if got := kinds.Names(); !slices.Equal(got, []string{"claude", "codex", "opencode"}) {
+	if got := kinds.Names(); !slices.Equal(got, []string{"agy", "claude", "codex", "opencode"}) {
 		t.Errorf("Names = %q", got)
 	}
 	oc, ok := kinds.Lookup("opencode")

@@ -29,7 +29,7 @@ none of this replaces the task, and "nothing to flag" needs no line.
   matching `modernc.org/libc` pin) and the official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`, adopted
   2026-11-05, with `github.com/google/jsonschema-go` for the tools' schemas). One static binary
   (`make build` → `dist/obor`), and beside it each plugin kind the kit ships as its own (`dist/obor-kind-opencode`,
-  `kinds/opencode`); `bin/obor` is the only bash (bash 3.2 compatible, macOS).
+  `kinds/opencode`; `dist/obor-kind-agy`, `kinds/agy`); `bin/obor` is the only bash (bash 3.2 compatible, macOS).
 - Runtime deps: **git, herdr, jq** (jq only in the `bin/obor` shim) + the binary. No python, node or bun in shipped
   code.
 - Timeouts through `context`; processes that may leave children run as a process group (`run.Group`).
@@ -37,7 +37,7 @@ none of this replaces the task, and "nothing to flag" needs no line.
 
 ## Layout
 `.claude-plugin/plugin.json` · `skills/` · `hooks/hooks.json` · `bin/obor` (the one bash shim) · `cmd/obor/` +
-`internal/` (Go) · `kinds/opencode/` (the kind's own binary) · `githooks/` · `templates/` · `tests/` · `docs/`
+`internal/` (Go) · `kinds/opencode/`, `kinds/agy/` (each kind's own binary) · `githooks/` · `templates/` · `tests/` · `docs/`
 (this repo's own process; your spec comes in your first prompt (`obor spec show T-xx`) — edit only in your lane;
 no per-file list is enforced: the integrator checks placement against `docs/module-map.md` at accept).
 
@@ -96,7 +96,7 @@ no per-file list is enforced: the integrator checks placement against `docs/modu
   with `HERDR_CONFIG_PATH`), so it would act on the user's real panes. A live probe uses only a throwaway named
   session (`herdr --session <probe-name>`) in a scratch dir and never addresses the default session.
 - A task that touches agent identity, the MCP server or how an agent is launched runs `make conformance TIER=live
-  TURN=1 KIND=<kind>` for each agent kind it affects (claude, codex, opencode) before `task_done`, and puts each
+  TURN=1 KIND=<kind>` for each agent kind it affects (claude, codex, opencode, agy) before `task_done`, and puts each
   summary line in its report: stubs do not catch a real CLI's behaviour.
 
 ## Workflow
@@ -106,4 +106,5 @@ worker role text `templates/agents/worker.md` + `docs/agents/worker.md`. Never r
 A job is fetched, not typed: the first prompt is the constant wake `[obor job <id>] call the obor
 job_next tool`; call `job_next` first. A worker finishes only with `task_done`, its report as the argument (there is
 no done file). `obor setup mcp` shows whether the `obor mcp` server is registered per agent kind (Claude: the plugin
-manifest's `mcpServers`; Codex: launch args; OpenCode: each start's generated config).
+manifest's `mcpServers`; Codex: launch args; OpenCode: each start's generated config; agy: the project's
+`.agents/mcp_config.json`).

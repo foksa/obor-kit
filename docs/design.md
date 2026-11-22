@@ -20,7 +20,8 @@ read in place from the kit (projects keep only short `docs/agents/<role>.md` stu
 - **Hooks:** no-op when the project has no `.obor/config.json`; **no herdr calls, no network**; fast (< 200 ms
   typical; a timed-out PreToolUse hook does *not* block, so speed is part of correctness). They find the project via
   stdin `cwd` → `git rev-parse --git-common-dir`, never `CLAUDE_PROJECT_DIR` (stays at the session-start dir).
-- Hooks only cover Claude Code panes. Codex/opencode lanes rely on their sandbox + the worker prompt; the integrator's
+- Hooks cover Claude Code panes and OpenCode lanes (through its plugin, "opencode lanes" below); Codex and agy lanes
+  have none yet and rely on their sandbox + the worker prompt; the integrator's
   review at accept (placement against `docs/module-map.md`) is the real control for every lane. The Edit/Write guard is
   a backstop, not a sandbox.
 - No `git push`, ever, from any obor script (agents: only leads listed in `rules.may_push`).
@@ -166,8 +167,8 @@ refusal carries its entry to paste, and `obor setup agents` adds the entry of ea
 without one, writing nothing else. `obor init` writes the entries of each kind whose CLI is on PATH from its starter
 list (`internal/setup/models.go`; it changes new projects only). `agents.difficulty` names all three levels (init writes them). A start is its
 kind's base args (claude `--permission-mode auto`; codex `-s workspace-write -a never --no-daemon`; opencode
-`--auto --standalone`), the model, then `agents.kinds.<kind>.args`; the effort is the kind's own flag,
-refused when the kind does not take it.
+`--auto --standalone`; agy `--settings <the start's settings file>`), the model, then `agents.kinds.<kind>.args`; the
+effort is the kind's own flag, refused when the kind does not take it.
 `lanes.count` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks); `lanes.list` names
 the lanes instead (each `{name, keep_agent}`). There are no caps. A key obor does not know (`lane_types`, `lanes` as
 an object of typed lanes) is dropped with a WARN by every command and serve (its setting does not apply);
@@ -186,6 +187,7 @@ the default.
 | `.obor/codex/config_override.toml` | `~/.codex/config.toml` (`$CODEX_HOME`) |
 | `.obor/codex/hooks_override.json` | `~/.codex/hooks.json` |
 | `.obor/opencode/opencode_override.json` | the user's `opencode.json[c]` (`$XDG_CONFIG_HOME/opencode`, `~/.config/opencode`) |
+| `.obor/agy/settings_override.json` | `~/.gemini/antigravity-cli/settings.json` |
 
 The merge is a JSON Merge Patch (RFC 7396; `agents.MergePatch`): objects merge key by key, `null` deletes a key,
 anything else (a list too) replaces; TOML the same on its parsed tree (TOML has no `null`). A kind names its files
@@ -230,7 +232,13 @@ config and below the project's) is the user's `opencode.json` then `opencode.jso
 them, then obor's own entries (obor's plugin first in `plugins`, `mcp.servers.obor` obor's own); without the file it
 is obor's entries alone. OpenCode still reads the user's own config below it, so removal is by OpenCode's own syntax:
 `"plugins": ["-<id>"]`, and an MCP server with `"disabled": true` (the merge makes `{"disabled": true}` the user's
-whole definition, which OpenCode needs). The trim is best
+whole definition, which OpenCode needs). agy: the start's `--settings` file (`.obor/state/agy-settings-<lead|trimmed>-<dir
+hash>.json`, one per kind of start and start dir), which agy lays over the user's saved settings by top-level key: each
+key it names is the user's saved value with `settings_override.json` merged over it (a trimmed start only), then
+obor's entries: `agentMode: "auto"` for every agent but a lead (agy's sandbox runs its commands with no prompt),
+`permissions.allow` gains `mcp(obor/*)` (a lead's also `command(obor)`), and `trustedWorkspaces` gains the start dir
+when the project's root is in the user's saved list (a lane follows the main checkout's trust). agy has no switch for
+the user's own plugins, skills, hooks and MCP servers: they stay. The trim is best
 effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user config, plugins,
 `~/.config/opencode/skills` and `~/.agents/skills`, stay unless an override file switches them off. The project's own settings and skills stay for Claude and
 Codex; OpenCode keeps the project's `.agents/skills` and `.opencode/skills`, not its `.claude/skills`. A lane's agent
@@ -417,7 +425,7 @@ allows silently.
      that cannot push cannot advance a milestone; entries are roles, `["lead"]`, a derived name `ob-lead` read as
      its slot; an accident guard, not a security boundary);
      `pkill`/`killall` by pattern (`pkill -f`, `pkill <name>`, `killall`); `git commit` with `-a`/`--all`/`-am` when cwd
-     is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run` — for every
+     is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run`, `agy -p`/`--print`/`--prompt`/`acp` — for every
      role, the lead included (owner 2026-10-27: agents run in herdr panes); a command the project's
      `rules.deny_commands` matches (regex on the resolved command; `alone`: also two matching at once via `&`,
      `xargs -P`, `parallel`, background units) — for every role (owner 2026-11-05; obor-kit's config carries
@@ -932,3 +940,18 @@ untouched. Gated on opencode 2 with `switchModel` (else one line, nothing). The 
 session, prefers the variant it remembers in its `model.json`; it switches the session to its pick just before it
 submits, and the prompt hook runs after that switch, so the start's model wins from the first turn (a
 switch on `session.created` loses). opencode runs on the owner's own state and config, which obor never writes.
+
+## agy lanes
+agy (Antigravity CLI) is a kit kind, `kinds/agy` (`obor-kind-agy`), wired by files the project commits, never by
+anything user-level: `.agents/mcp_config.json` holds `mcpServers.obor` = `obor mcp`, the `obor` on the agent's
+`PATH` (the server inherits the agent's role, lane and pane). `obor setup agents` writes the entry when the config
+has an agy model (the file's other servers kept) and adds the file to `rules.protected_files`; the lead commits both;
+`obor setup mcp` checks the entry and warns when the `obor` on `PATH` is not the running kit's. A lane worktree has
+the file through git. agy runs no obor hooks yet: auto mode's sandbox (no writes outside the workspace, temp dirs and
+caches, no unix socket, even for a command an allow rule names; no network unless a `read_url` allow rule opens it) is
+a lane's guard, as Codex's is. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id
+without its effort word> --effort <effort>`; the first prompt as `-i`, a resume as `--conversation <id>` (herdr's
+session id). With a wrong model or effort agy starts its default model and says so on its start screen; the
+manifest's `not_ready` matches that notice, which launch reads only when the terminal's start fails (agy's comes up
+ready). Stop: `/exit`. The context size is the conversation's `transcript.jsonl`
+(`~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`).

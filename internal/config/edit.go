@@ -532,3 +532,24 @@ func PushEntries(doc []byte) []string {
 func SetPushEntries(doc []byte, entries []string) ([]byte, error) {
 	return EditJSON(doc, pushPath(doc), entries)
 }
+
+// AddProtectedFile returns doc with file added to rules.protected_files (the list it has kept, in its order); a doc
+// whose list has it already is returned as it is, with an empty Key.
+func AddProtectedFile(doc []byte, file string) (Write, error) {
+	at := p("rules", "protected_files")
+	raw, err := MemberAt(doc, at)
+	if err != nil {
+		return Write{}, err
+	}
+	var list []string
+	if raw != nil {
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return Write{}, fmt.Errorf("rules.protected_files: %v", err)
+		}
+	}
+	if slices.Contains(list, file) {
+		return Write{Doc: doc}, nil
+	}
+	out, err := EditJSON(doc, at, append(list, file))
+	return Write{Doc: out, Key: "rules.protected_files", Val: "+ " + file}, err
+}

@@ -49,28 +49,21 @@ func TranscriptOf(root, sid string, env Env, kinds agents.Kinds) string {
 
 var sidRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
-// ContextOf is a transcript file's context size as the kind that records it reads it: the file's last 400 lines
-// (TailLines) given to the kinds that keep a transcript, in name order, the first that reads one in its own format
-// (agents.Kind.Context). ok false: no file, no such tail, or no kind reads its form.
-func ContextOf(kinds agents.Kinds, file string) (agents.Context, bool) {
-	if file == "" {
+// ContextOf is the context size of a session of kind kind (the kind its session is recorded as) from its transcript
+// file, as that kind alone reads it: the file's last 400 lines (TailLines) given to its agents.Kind.Context. A plugin
+// kind's read is one process bounded by the context timeout (internal/agents/plugin: Timeouts["context"]), short
+// enough for a hook and for serve's lock. ok false: no kind or an unknown one, a kind that keeps no transcript, no
+// file, no tail, or the kind reads none in it.
+func ContextOf(kinds agents.Kinds, kind, file string) (agents.Context, bool) {
+	k, ok := kinds.Lookup(kind)
+	if kind == "" || !ok || !k.Caps().Transcript || file == "" {
 		return agents.Context{}, false
 	}
 	lines, err := TailLines(file, 400)
 	if err != nil || len(lines) == 0 {
 		return agents.Context{}, false
 	}
-	tail := []byte(strings.Join(lines, "\n") + "\n")
-	for _, name := range kinds.Names() {
-		k, ok := kinds.Lookup(name)
-		if !ok || !k.Caps().Transcript {
-			continue
-		}
-		if c, ok := k.Context(tail); ok {
-			return c, true
-		}
-	}
-	return agents.Context{}, false
+	return k.Context([]byte(strings.Join(lines, "\n") + "\n"))
 }
 
 // tailBudget bounds how far back TailLines reads: a hook reading a transcript must stay fast whatever its size.
