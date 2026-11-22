@@ -3592,8 +3592,8 @@ func TestRestartLockHeld(t *testing.T) {
 
 // a fresh start without --prompt gets its role's first prompt: a handoff restart (Handoff) the lead's
 // /obor:lead handoff, any other start the role's own (/obor:lead), also a lead's fresh start; a kind with no plugin
-// slash command gets the plain prompt naming the skill file, handoff the same way; --prompt wins, a resume carries
-// none, a role without a skill starts bare.
+// slash command gets the plain prompt naming the skill file, handoff with its argument spelled out; --prompt wins, a
+// resume carries none, a role without a skill starts bare.
 func TestFreshStartRolePrompt(t *testing.T) {
 	t.Parallel()
 	const plain = "read /kit/skills/lead/SKILL.md and follow it"
@@ -3614,7 +3614,7 @@ func TestFreshStartRolePrompt(t *testing.T) {
 		{"lead on a kind without skills: the skill file", "pj-lead", "lead", "luna", "codex", launch.Request{Fresh: true}, false,
 			plain},
 		{"lead on a kind without skills, handoff", "pj-lead", "lead", "luna", "codex", launch.Request{Fresh: true, Handoff: true}, false,
-			plain + " handoff"},
+			plain + ", with the argument handoff"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

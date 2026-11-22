@@ -67,8 +67,8 @@ func (k stubKind) Name() string      { return k.name }
 func (k stubKind) Caps() agents.Caps { return agents.Caps{Skills: k.skills} }
 
 // A role names its skill: a kind with caps skills gets it as the plugin's slash command, with ` handoff` on a handoff
-// start; any other kind (no kind too) a plain prompt naming the skill file in the kit, handoff the same way. A role
-// with no skill, and a kind without skills with no kit to name, start bare.
+// start; any other kind (no kind too) a plain prompt naming the skill file in the kit, its handoff argument spelled
+// out. A role with no skill, and a kind without skills with no kit to name, start bare.
 func TestStartPrompt(t *testing.T) {
 	slash := stubKind{name: "claude", skills: true}
 	plain := stubKind{name: "codex"}
@@ -86,7 +86,7 @@ func TestStartPrompt(t *testing.T) {
 		{name: "a kind without skills: the skill file", role: lead, kind: plain, kit: "/kit",
 			want: "read /kit/skills/lead/SKILL.md and follow it"},
 		{name: "a kind without skills, handoff", role: lead, kind: plain, kit: "/kit", handoff: true,
-			want: "read /kit/skills/lead/SKILL.md and follow it handoff"},
+			want: "read /kit/skills/lead/SKILL.md and follow it, with the argument handoff"},
 		{name: "no kind: the skill file", role: lead, kit: "/kit", want: "read /kit/skills/lead/SKILL.md and follow it"},
 		{name: "a role with no skill", role: worker, kind: slash, kit: "/kit", want: ""},
 		{name: "a kind without skills and no kit", role: lead, kind: plain, want: ""},

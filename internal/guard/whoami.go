@@ -78,7 +78,7 @@ func Whoami(repo *project.Repo, cfg *config.Config, env project.Env) (*Who, erro
 }
 
 // JSON is `obor whoami --json`: role, its agent name when it derives one, lane, source; the lane row's task, branch and base when it has one, the spec's
-// rev when stored and the protected files it unlocks when it names any.
+// rev when stored, the protected files it unlocks when it names any and a lead's lines when it has them.
 func (w *Who) JSON() any {
 	type out struct {
 		Role      string   `json:"role"`
@@ -90,8 +90,10 @@ func (w *Who) JSON() any {
 		Base      *string  `json:"base,omitempty"`
 		Rev       int      `json:"rev,omitempty"`
 		Protected []string `json:"protected,omitempty"`
+		Lines     string   `json:"lines,omitempty"`
 	}
-	o := out{Role: w.Role.Role, Agent: w.Agent, Lane: w.Role.Lane, Source: w.Role.Source, Rev: w.Rev, Protected: w.Protected}
+	o := out{Role: w.Role.Role, Agent: w.Agent, Lane: w.Role.Lane, Source: w.Role.Source, Rev: w.Rev, Protected: w.Protected,
+		Lines: w.Lines}
 	if w.State != nil {
 		o.Task, o.Branch, o.Base = &w.State.Task, &w.State.Branch, &w.State.Base
 	}

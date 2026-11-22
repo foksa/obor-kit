@@ -328,9 +328,21 @@ func kindCmd(args []string) int {
 		return 2
 	}
 	path := config.KitKind(bin)
-	err = syscall.Exec(path, append([]string{path}, args[1:]...), append(os.Environ(), agents.ExeVar+"="+exe))
+	err = syscall.Exec(path, append([]string{path}, args[1:]...), kindEnv(os.Environ(), exe))
 	errf("obor kind %s: %s: %v", args[0], path, err)
 	return 2
+}
+
+// kindEnv is environ with agents.ExeVar set to exe, the environment `obor kind` execs a kit kind with: an entry
+// environ inherited is replaced, never left beside this one (a reader takes the first match, the stale value).
+func kindEnv(environ []string, exe string) []string {
+	out := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, agents.ExeVar+"=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, agents.ExeVar+"="+exe)
 }
 
 // stopFailure is the StopFailure hook: the log line (guard.StopFailure), then one request to the project's

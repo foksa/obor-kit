@@ -232,13 +232,17 @@ func (r Role) StartPrompt(k agents.Kind, kit string) string {
 	return ""
 }
 
-// HandoffPrompt is StartPrompt's handoff form, for a fresh session that continues from a Handoff: the role's prompt
-// with the argument `handoff` (the lead's `/obor:lead handoff`, else `read <kit>/skills/lead/SKILL.md and follow it
-// handoff`); "" where StartPrompt is.
+// HandoffPrompt is StartPrompt's handoff form, for a fresh session that continues from a Handoff: the role's slash
+// command with the argument `handoff` (the lead's `/obor:lead handoff`), else its skill-file prompt with the argument
+// spelled out (`read <kit>/skills/lead/SKILL.md and follow it, with the argument handoff`); "" where StartPrompt is.
 func (r Role) HandoffPrompt(k agents.Kind, kit string) string {
 	p := r.StartPrompt(k, kit)
-	if p == "" {
+	switch {
+	case p == "":
 		return ""
+	case strings.HasPrefix(p, "/"): // a slash command takes its argument as a word
+		return p + " handoff"
+	default: // a sentence: a bare ` handoff` would read as part of it
+		return p + ", with the argument handoff"
 	}
-	return p + " handoff"
 }
