@@ -100,6 +100,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (2026-10-26, low) OpenCode dispatch: each `agent.start` result lands ~30 s after start even when the job was
   fetched in 4 s; starts run one at a time. The start could end on the delivered fact.
 ## Concerns
+- (11-22, RV-245) agy's quota-limit patterns (`kinds/agy/kind/kind.go` ~400) match CLI texts whose stop-hook form was never observed, and `agents.ResetIn` cannot parse "until 18:00": capture a real agy quota stop when one happens and check both.
 - (lead 11-22, T-1471) **OpenCode inbox has no ack**: a line posted to the plugin's socket counts as sent even if `session.prompt` then fails inside the plugin, so a lead line or a worker's wake can be lost. Since T-1471 OpenCode workers' wakes (deepseek lanes: the first model of medium and simple) go through it: watch for a deepseek lane that never picks up its job after a wake; if seen, the plugin acks after `session.prompt` returns.
 - (lead 11-22) agy lanes: the first (T-1472) stalled twice on agy's auto-mode dialog; with obor-kit's `always-proceed` override the second (T-1477, gemini) ran with no dialog and its fix passed review. Two clean agy lanes so far; the codex/claude extraction waits for a few days of them (owner D5).
 - (lead 11-22) **`internal/launch` time cap**: T-1456 brought it to 5.5 s (was 9.2 s against 6.0); cap now 8.3. Confirm at the next full check, then drop this line. Git per full test run 2,670 (11-21 full check); the race fix (T-1437) verified: 0 data races.
