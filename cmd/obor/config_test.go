@@ -106,13 +106,13 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	if strings.Contains(text, "\nlane: ") { // no empty `lane:` line for a role without a lane
 		t.Errorf("a lead has no lane line: %q", text)
 	}
-	if want := map[string]any{"role": "lead", "agent": "pj-lead", "lane": "", "source": "env"}; !reflect.DeepEqual(j, want) {
+	if want := map[string]any{"role": "lead", "agent": "pj-lead", "lane": "", "source": "env", "lines": "hooks"}; !reflect.DeepEqual(j, want) {
 		t.Errorf("lead --json: %v", j)
 	}
 	if text, j := whoamiIn(t, lane); strings.Contains(text, "lead:") || j["lead"] != nil {
 		t.Errorf("a worker has no lead line: %q", text)
-	} else if strings.Contains(text, "lines:") {
-		t.Errorf("a worker has no lines line: %q", text)
+	} else if strings.Contains(text, "lines:") || j["lines"] != nil {
+		t.Errorf("a worker has no lines line: %q, %v", text, j["lines"])
 	} else if !strings.Contains(text, "\nlane: L-01\n") {
 		t.Errorf("a worker's lane line is missing: %q", text)
 	}

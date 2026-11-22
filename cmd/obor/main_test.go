@@ -121,6 +121,28 @@ func TestExitCodes(t *testing.T) {
 	// Outside a git repository: TestExitCodesOutsideARepo (main_integration_test.go: project.Find asks git there).
 }
 
+// kindEnv is the environment `obor kind` execs a kit kind with: this obor's executable in agents.ExeVar, and an entry
+// it inherits replaced rather than left beside this one (a reader takes the first match, the stale obor).
+func TestKindEnvSetsItsOwnExe(t *testing.T) {
+	t.Parallel()
+	const exe = "OBOR_EXE=/this/obor"
+	for _, c := range []struct {
+		name    string
+		environ []string
+		want    []string
+	}{
+		{"none inherited: appended", []string{"PATH=/bin", "HOME=/h"}, []string{"PATH=/bin", "HOME=/h", exe}},
+		{"inherited: replaced", []string{"PATH=/bin", "OBOR_EXE=/other/obor", "HOME=/h"},
+			[]string{"PATH=/bin", "HOME=/h", exe}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := kindEnv(c.environ, "/this/obor"); !slices.Equal(got, c.want) {
+				t.Errorf("kindEnv = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // `obor … | head` with the reader gone: the buffered writer's flush gets EPIPE → exit 0, nothing on stderr.
 func TestClosedStdoutExitsZeroQuietly(t *testing.T) {
 	bin := build(t)
