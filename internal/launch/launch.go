@@ -120,6 +120,10 @@ type Launcher struct {
 	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
+	// Workspace prepares the workspace a start runs in (roleWorktree): the role worktree a role agent's cwd is, added
+	// when missing and given the files it lacks. nil: project.AddWorktree and project.LinkInto. A test fakes it to
+	// assert that the workspace is prepared before the kind's start reads it, without git.
+	Workspace func(ctx context.Context, dir string) error
 	// Job is the open job (<task>/<attempt>/<step>) obor serve holds for role's agent on lane ("": none): a lane
 	// worker's work or fix job of the task its lane holds, the integrator's review or resolve job of a task;
 	// obor restart sends its wake, never an idle agent with no job. An error refuses the restart before the old
@@ -1087,25 +1091,36 @@ func (l *Launcher) envOrOS() project.Env {
 	return l.Env
 }
 
-// roleWorktree adds the role worktree a role agent's cwd is when it is missing (the reviewer's, the deep
-// dive's, the integrator's <lanes.dir>/<role>), detached at merge.target_branch, so the kind's start reads its files
-// (Launch prepares it before the start is built: agy's hooks check) and the env line's cd finds it: serve's starts and
-// obor restart of a project whose role worktree is absent. The worktree, added now or there before, gets the links it
-// lacks (project.WorktreeLinks, project.LinkInto): a settings file its checkout lacks (git does not track
-// it, or the worktree sits behind the commit that did) reaches it only as a link, listed in lanes.links or not, and with
-// it obor's plugin. Any other cwd: nothing.
+// roleWorktree prepares the workspace a role agent starts in: the role worktree its cwd is, added when missing
+// (detached at merge.target_branch) and given the links it lacks (project.WorktreeLinks, project.LinkInto), so the
+// kind's start reads the tree the agent starts in (agy's hooks check reads that tree's hooks file) and the env line's
+// cd finds it: serve's starts and obor restart of a project whose role worktree is absent. Launch prepares it before
+// the start is built and before the stop: a start the kind refuses leaves a running agent running. l.Workspace
+// prepares it instead of git. Any other cwd: nothing.
 func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 	r, ok := roles.Lookup(t.info.Role)
 	if !ok || r.Cwd != roles.CwdRoleWorktree || l.Cfg == nil || t.info.Cwd != l.Cfg.RoleWorktree(r.Name) {
 		return nil
 	}
-	if _, err := project.AddWorktree(ctx, l.Cfg.Root, t.info.Cwd, l.Cfg.MainBranch()); err != nil {
-		return project.Failf("%s: its worktree: %v", t.agent, err)
+	prepare := l.Workspace
+	if prepare == nil {
+		prepare = l.addWorktree
 	}
-	if _, err := project.LinkInto(l.Cfg.Root, t.info.Cwd, project.WorktreeLinks(l.Cfg, t.info.Cwd)); err != nil {
+	if err := prepare(ctx, t.info.Cwd); err != nil {
 		return project.Failf("%s: its worktree: %v", t.agent, err)
 	}
 	return nil
+}
+
+// addWorktree is roleWorktree's own preparation, by git: the worktree dir added when missing and every link it lacks
+// made. A settings file its checkout lacks (git does not track it, or the worktree sits behind the commit that did)
+// reaches it only as a link, listed in lanes.links or not, and with it obor's plugin.
+func (l *Launcher) addWorktree(ctx context.Context, dir string) error {
+	if _, err := project.AddWorktree(ctx, l.Cfg.Root, dir, l.Cfg.MainBranch()); err != nil {
+		return err
+	}
+	_, err := project.LinkInto(l.Cfg.Root, dir, project.WorktreeLinks(l.Cfg, dir))
+	return err
 }
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does, from the one builder of a start's
