@@ -198,10 +198,16 @@ func (s *Setup) agentsCmd(args []string) error {
 		if len(files) == 0 {
 			s.say("agents %s: nothing to install", name)
 		}
+		wrote := false
 		for _, m := range files {
-			if err := s.projectInstall(name, m); err != nil {
+			w, err := s.projectInstall(name, m)
+			if err != nil {
 				return err
 			}
+			wrote = wrote || w
+		}
+		if wrote { // the files name obor by PATH: the one that is there is the one its agents run
+			s.pathWarning(name)
 		}
 	}
 	return nil
@@ -210,24 +216,25 @@ func (s *Setup) agentsCmd(args []string) error {
 // projectInstall writes kind name's registration m (where project: its MCP server's or its hooks') into the project:
 // when the config has an agents.models entry of the kind, m.Entry at m.Key of m.Path (the file's other entries kept; an
 // absent file is made), and the file's path, relative to the root, into rules.protected_files (no worker edits its own
-// wiring); both uncommitted, for the lead to commit. Outside a project, or with no model of the kind, nothing is written.
-func (s *Setup) projectInstall(name string, m agents.MCPRegistration) error {
+// wiring); both uncommitted, for the lead to commit. wrote says the entry was written (not already there). Outside a
+// project, or with no model of the kind, nothing is written.
+func (s *Setup) projectInstall(name string, m agents.MCPRegistration) (wrote bool, err error) {
 	if s.root == "" || !filepath.IsAbs(m.Path) {
 		s.say("agents %s: registered by each project's %s (obor setup agents in the project writes it)", name, m.Path)
-		return nil
+		return false, nil
 	}
 	rel := s.rel(m.Path)
 	if !s.hasModelOf(name) {
 		s.say("agents %s: not used (no agents.models entry of kind %s): %s not written", name, name, rel)
-		return nil
+		return false, nil
 	}
 	doc, err := readConfig(m.Path)
 	if err != nil {
-		return project.Failf("agents %s: %s: %v", name, rel, err)
+		return false, project.Failf("agents %s: %s: %v", name, rel, err)
 	}
 	switch state, _, err := registration(m); {
 	case err != nil:
-		return project.Failf("agents %s: %s: %v", name, rel, err)
+		return false, project.Failf("agents %s: %s: %v", name, rel, err)
 	case state == entryPinned:
 		s.say("OK agents %s: %s in %s", name, strings.Join(m.Key, "."), rel)
 	default:
@@ -239,22 +246,23 @@ func (s *Setup) projectInstall(name string, m agents.MCPRegistration) error {
 			err = writeJSON(m.Path, out)
 		}
 		if err != nil {
-			return project.Failf("agents %s: cannot write %s: %v", name, rel, err)
+			return false, project.Failf("agents %s: cannot write %s: %v", name, rel, err)
 		}
 		s.say("agents %s: %s written in %s (uncommitted: commit it)", name, strings.Join(m.Key, "."), rel)
+		wrote = true
 	}
 	shared, err := config.LoadMain(s.root)
 	if err != nil {
-		return project.Failf("%v", err)
+		return wrote, project.Failf("%v", err)
 	}
 	if slices.Contains(shared.ProtectedFiles(), rel) {
-		return nil
+		return wrote, nil
 	}
 	if err := s.editConfig(func(doc []byte) (config.Write, error) { return config.AddProtectedFile(doc, rel) },
 		": commit it"); err != nil {
-		return err
+		return wrote, err
 	}
-	return s.load()
+	return wrote, s.load()
 }
 
 // hasModelOf: the config has an agents.models entry of kind name.
