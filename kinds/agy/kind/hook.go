@@ -24,9 +24,12 @@ import (
 // the stop are obor hook's.
 //
 //	SessionStart                       → session-start; its context lines → injectSteps (a system message)
-//	PreToolUse run_command             → pre-tool-use, Bash (args.CommandLine → command; args.Cwd → a cd before it)
+//	PreToolUse run_command             → pre-tool-use, Bash (args.CommandLine → command; args.Cwd → a cd before it;
+//	                                     args.IsDaemon → run_in_background)
 //	PreToolUse write_file / edit_file  → pre-tool-use, Write / Edit (args.Path → file_path)
 //	                                     a deny → {"decision":"deny","reason":…}; an allow → {"decision":"ask"}
+//	PreToolUse, any other tool         → tools' row: no opinion ({"decision":"ask"}) or a deny with its reason; a tool
+//	                                     with no row is a deny naming it
 //	PreInvocation, invocationNum 0     → user-prompt-submit (lastUserInput → prompt); its context → injectSteps
 //	Stop                               → stop (executionNum > 0 → stop_hook_active; fullyIdle false → a running
 //	                                     background task); a block → {"decision":"continue","reason":…}
@@ -52,21 +55,62 @@ const HookTimeout = 25 * time.Second
 // HookTimeoutSeconds is HooksEntry's timeout per handler, agy's default made explicit.
 const HookTimeoutSeconds = 30
 
-// GuardedTools are agy's tools obor's guard checks, in HooksEntry's order: one PreToolUse group each, a matcher
-// naming the tool exactly (each matched alone in docs/research/agy-probes.md P3).
-var GuardedTools = []string{"run_command", "write_file", "edit_file"}
+// MatchAll is HooksEntry's one PreToolUse matcher: agy's matcher is a regular expression on the tool's name and `*`
+// matches every tool (docs/research/agy-probes.md P13), so every tool call reaches the transport and its table.
+const MatchAll = "*"
 
-// HooksEntry is obor's named hook in HooksFile (the key obor): every event obor maps, each running HookCommand.
+// HooksEntry is obor's named hook in HooksFile (the key obor): every event obor maps, each running HookCommand;
+// PreToolUse one group matching every tool.
 func HooksEntry() map[string]any {
 	handler := func() []any {
 		return []any{map[string]any{"type": "command", "command": HookCommand, "timeout": HookTimeoutSeconds}}
 	}
-	var groups []any
-	for _, t := range GuardedTools {
-		groups = append(groups, map[string]any{"matcher": t, "hooks": handler()})
-	}
 	return map[string]any{"SessionStart": handler(), "PreInvocation": handler(), "Stop": handler(),
-		"PreToolUse": groups}
+		"PreToolUse": []any{map[string]any{"matcher": MatchAll, "hooks": handler()}}}
+}
+
+// toolRule is what the transport does with a PreToolUse of one of agy's tools in an obor project.
+type toolRule int
+
+const (
+	unknownTool toolRule = iota // no row: a deny naming the tool
+	guardTool                   // obor hook pre-tool-use decides (toClaude maps it)
+	passTool                    // no opinion: agy's own check decides
+	denyTool                    // a deny: obor cannot guard what it runs
+)
+
+// tools is the transport's table of agy's tools (agy 1.5.14 offers the 17 of docs/research/agy-probes.md P13, and a
+// workflow agent finish): the three obor's guard checks; those that only read, talk or start a child whose own tool
+// calls fire these hooks again (a subagent, a workflow agent(), a timer's prompt), no opinion; a workflow script
+// (run_workflow, swarm), whose Python runs with no hook at all, denied. A tool not here is denied by name, so an agy
+// update that adds one shows as a named deny, never a silent bypass.
+var tools = map[string]toolRule{
+	"run_command": guardTool, "write_file": guardTool, "edit_file": guardTool,
+	"read_file": passTool, "search_web": passTool, "list_resources": passTool, "read_resource": passTool,
+	"ask_question": passTool, "manage_task": passTool, "manage_subagents": passTool, "define_subagent": passTool,
+	"invoke_subagent": passTool, "schedule": passTool, "send_message": passTool, "finish": passTool,
+	"call_mcp_tool": passTool, "run_workflow": denyTool, "swarm": denyTool,
+}
+
+// workflowDenied is the reason a denyTool row gives.
+const workflowDenied = "obor cannot guard a workflow script; run commands with run_command"
+
+// tableAnswer is agy's PreToolUse answer to a call of tool by its row in tools; guarded: the tool is the guard's
+// (toClaude maps it and obor hook pre-tool-use answers), no answer here.
+func tableAnswer(tool string) (answer map[string]any, guarded bool) {
+	switch tools[tool] {
+	case guardTool:
+		return nil, true
+	case passTool:
+		return ask, false
+	case denyTool:
+		return deny(workflowDenied), false
+	}
+	name := tool
+	if name == "" {
+		name = "a tool call with no name"
+	}
+	return deny("obor's agy transport does not know " + name + "; a new agy tool needs a row in kinds/agy/kind/hook.go"), false
 }
 
 // Runner runs `obor hook <name>` with event on stdin: its stdout, its stderr and its exit code; err when it did not
@@ -86,6 +130,7 @@ type agyEvent struct {
 		Args struct {
 			CommandLine string `json:"CommandLine"`
 			Cwd         string `json:"Cwd"`
+			IsDaemon    bool   `json:"IsDaemon"`
 			Path        string `json:"Path"`
 		} `json:"args"`
 	} `json:"toolCall"`
@@ -119,11 +164,13 @@ func Hook(in []byte, dir string, run Runner, inProject func(string) bool, stderr
 	if perr != nil {
 		return answer(deny("obor: cannot read agy's hook event: " + perr.Error()))
 	}
+	if ev.Event == "PreToolUse" {
+		if a, guarded := tableAnswer(ev.ToolCall.Name); !guarded {
+			return answer(a)
+		}
+	}
 	name, claude := toClaude(ev)
 	if name == "" {
-		if ev.Event == "PreToolUse" {
-			return answer(ask) // a tool with no Claude twin: obor's guard allows it
-		}
 		return answer(noOpinion)
 	}
 	event, _ := json.Marshal(claude)
@@ -159,7 +206,11 @@ func toClaude(ev agyEvent) (name string, claude map[string]any) {
 			if args.Cwd != "" {
 				command = "cd " + shellQuote(args.Cwd) + " && " + command
 			}
-			claude["tool_name"], claude["tool_input"] = "Bash", map[string]any{"command": command}
+			input := map[string]any{"command": command}
+			if args.IsDaemon { // a long-running process agy starts in the background: obor records it as Claude's
+				input["run_in_background"] = true
+			}
+			claude["tool_name"], claude["tool_input"] = "Bash", input
 		case "write_file", "edit_file":
 			file := args.Path
 			if file != "" && !filepath.IsAbs(file) && ev.Cwd != "" {
