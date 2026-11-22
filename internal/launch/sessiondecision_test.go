@@ -10,6 +10,7 @@ import (
 	"obor/internal/launch"
 	"obor/internal/store"
 	"obor/internal/testkit"
+	ockind "obor/kinds/opencode/kind"
 )
 
 // mute is a plugin kind that resumes nothing (its manifest has no caps.resume), answered in process.
@@ -19,9 +20,16 @@ func init() {
 	plugin.Local[mute] = func(call string, req []byte) ([]byte, error) {
 		var reply map[string]any
 		switch call {
-		case "describe":
-			reply = map[string]any{"name": mute, "status": "terminal", "caps": map[string]any{"hooks": "none",
-				"model_arg": true}, "stop": map[string]any{"quit": "/exit"}}
+		case "describe": // OpenCode's manifest under another name, without its resume
+			b, err := ockind.Handle(call, []byte(`{"version":1}`))
+			if err != nil {
+				return nil, err
+			}
+			if err := json.Unmarshal(b, &reply); err != nil {
+				return nil, err
+			}
+			reply["name"] = mute
+			delete(reply["caps"].(map[string]any), "resume")
 		case "start":
 			var in struct {
 				Args   []string `json:"args"`
