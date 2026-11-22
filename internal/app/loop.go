@@ -168,6 +168,7 @@ type mtask struct {
 	mergedSeq         int64  // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
 	dropped           string // stDropped: obor drop's why
 	droppedSeq        int64  // stDropped: the dropped fact's seq (the idle line's last end)
+	rejectedSeq       int64  // stRejected: the reject verdict's seq
 	needs             block  // the needs-you on its phase (block.go; none: it goes on)
 	// droppedRev: stDropped of a spec stored and never dispatched: the spec rev the drop recorded; a
 	// spec.set of a later rev revives the task (foldSpecSet), a dispatch is refused until then. 0: a loop task's drop.

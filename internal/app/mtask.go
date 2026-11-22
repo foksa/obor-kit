@@ -154,7 +154,11 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.unblock() // a verdict on a held (or late) job ends the needs-you
 				mt.state = mt.jobState(true)
 			}
+			prev := mt.state
 			mt.verdict(method, v)
+			if prev != stRejected && mt.state == stRejected {
+				mt.rejectedSeq = r.Seq
+			}
 			return
 		}
 		var g gateOut
@@ -260,6 +264,19 @@ const (
 // rejected task is not ended (the owner still owes it a drop), nor is a merged one still running its steps.
 func (mt *mtask) ended() bool {
 	return mt.state == stDropped || mt.state == stMerged && mt.after >= len(afterSteps)
+}
+
+// endSeq is the seq of the record that ended mt (0: open).
+func (mt *mtask) endSeq() int64 {
+	switch mt.state {
+	case stMerged:
+		return mt.mergedSeq
+	case stDropped:
+		return mt.droppedSeq
+	case stRejected:
+		return mt.rejectedSeq
+	}
+	return 0
 }
 
 // taskEnded: the fold has the task ended now (mtask.ended); a task it does not know is not ended (its logs are

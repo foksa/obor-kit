@@ -48,12 +48,14 @@ type verifyBrief struct {
 }
 
 // fixCandidates is the loop's tasks that can be linked to the review started at start (in task order): those still
-// open and those dispatched since it (a fix task is dispatched while its review is open), with their outcome.
+// open and those dispatched or ended since it, with their outcome.
 func fixCandidates(loop map[string]*mtask, start int64) []review.Link {
 	var out []review.Link
 	for _, mt := range loop {
-		ended := states[mt.state].ended
-		if ended && mt.dispSeq <= start {
+		if mt.droppedRev > 0 {
+			continue
+		}
+		if states[mt.state].ended && max(mt.dispSeq, mt.endSeq()) <= start {
 			continue
 		}
 		f := review.Link{Task: mt.task, Dispatched: mt.dispSeq}
