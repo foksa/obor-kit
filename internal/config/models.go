@@ -340,10 +340,11 @@ func (c *Config) OverridesOf(k agents.Kind) (map[string]string, error) {
 // Launch is a start of this model as its kind builds it (agents.StartOf: one call of a plugin kind): in, the
 // launch boundary's complete start (kit, effort, dir, write dirs, resume or first prompt, session, env, readers and
 // writer), with the model's args, the settings and a lane's strictness. The args with effort: the kind sets it
-// the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
-// MCP server alone). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
-// (only the lead on the phone, and only the lead keeps auto memory) and trimmed (agents.Start.TrimUser: the kind's
-// default part of the user's own settings off); a lead's start keeps the user's own settings untrimmed. overrides
+// the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (obor's MCP
+// server and the project's approved .mcp.json servers, none of the user's). Every agent but a lead starts with
+// {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, and only the lead keeps
+// auto memory) and trimmed (agents.Start.TrimUser: the kind's default part of the user's own settings off); a
+// lead's start keeps the user's own settings untrimmed. overrides
 // (Config.Overrides; none: the kind's defaults alone) are handed to every start, and each kind decides whether a lead's
 // start applies them (agy applies them; claude, codex and opencode apply them only when TrimUser). role is the agent's
 // (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the

@@ -31,12 +31,38 @@ func (kind) Name() string { return name }
 // server included.
 const StrictFlag = "--strict-mcp-config"
 
-// MCPConfig is the --mcp-config JSON of this kit's obor server, as the plugin manifest declares it but with the kit's
-// path spelled out (a strict start has no ${CLAUDE_PLUGIN_ROOT}) and the pin, so bin/obor runs this kit. The
+// MCPConfig is the --mcp-config JSON of this kit's obor server alone, as the plugin manifest declares it but with the
+// kit's path spelled out (a strict start has no ${CLAUDE_PLUGIN_ROOT}) and the pin, so bin/obor runs this kit. The
 // OBOR_* variables need no entry: Claude passes its own environment to the server.
-func MCPConfig(kit string) string {
-	b, _ := json.Marshal(map[string]any{serversKey: map[string]any{"obor": oborServer(kit)}})
+func MCPConfig(kit string) string { return mcpConfig(agents.Start{Kit: kit}) }
+
+// mcpConfig is a strict start's --mcp-config JSON: the servers of the start dir's .mcp.json the project's settings
+// approve, then this kit's obor server (obor's entry replaces a project one of that name).
+func mcpConfig(in agents.Start) string {
+	servers := approvedServers(in)
+	if in.Kit != "" {
+		servers["obor"] = oborServer(in.Kit)
+	}
+	b, _ := json.Marshal(map[string]any{serversKey: servers})
 	return string(b)
+}
+
+// approvedServers are the servers of the start dir's .mcp.json that the project's settings approve
+// (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names), by name as written; none without a start
+// dir, a file or an approval.
+func approvedServers(in agents.Start) map[string]any {
+	out := map[string]any{}
+	if in.Dir == "" {
+		return out
+	}
+	proj, _ := projectSettings(in)
+	own, _ := objectFile(in.Read, filepath.Join(in.Dir, ".mcp.json"))[serversKey].(map[string]any)
+	for name, def := range own {
+		if proj.approves(name) {
+			out[name] = def
+		}
+	}
+	return out
 }
 
 // oborServer is the kit's obor server as an mcpServers entry.
@@ -58,23 +84,22 @@ const serversKey = "mcpServers"
 // project,local --settings <in.SettingsFile>` (Claude loads the project's settings and that file, never the
 // user's own, so what the file leaves out of the user's settings is off; --setting-sources as the args name it,
 // when they do), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
-// --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
-// when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
-// resume carries none. The only `--` is obor's own (config validate refuses one in the args).
+// --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value): the start dir's
+// .mcp.json servers the project's settings approve, then obor's own, so a lane loads the project's declared servers
+// and none of the user's (mcpConfig); then one `--` when a config flag could take the prompt, then the prompt. The
+// prompt is positional, never a config value; a resume carries none. The only `--` is obor's own (config validate
+// refuses one in the args).
 //
-// The project's committed .claude/settings.json in in.Dir outranks obor's policy: a project that opts into its
-// .mcp.json servers (enableAllProjectMcpServers true, or a non-empty enabledMcpjsonServers, which also approves them,
-// so an unattended lane does not sit on the approval prompt) starts without the strict flag, obor's server then the
-// plugin manifest's as for a role (a start with an MCP file is strict all the same: the file holds those servers); a
-// settings key the file sets is left out of --settings (no --settings when it sets
-// all). A file that does not parse counts as absent (config validate warns).
+// The project's committed .claude/settings.json in in.Dir outranks obor's policy for its --settings keys: a key the
+// file sets is left out (no --settings when it sets all); a file that does not parse counts as absent (config
+// validate warns).
 func (kind) Start(in agents.Start) []string {
 	proj, _ := projectSettings(in)
 	args := withEffort(in.Args, in.Effort)
 	switch {
 	case in.MCPFile != "":
 		args = withStrict(append(args, "--mcp-config", in.MCPFile))
-	case in.StrictMCP && !proj.mcpOptIn():
+	case in.StrictMCP:
 		args = withStrict(args)
 	}
 	if in.SettingsFile != "" {
@@ -96,7 +121,7 @@ func (kind) Start(in agents.Start) []string {
 	out := make([]string, 0, len(args)+4)
 	if p.needsObor(in.Kit, in.Read) {
 		out = append(out, args[:p.strict]...)
-		out = append(out, "--mcp-config", MCPConfig(in.Kit))
+		out = append(out, "--mcp-config", mcpConfig(in))
 		out = append(out, args[p.strict:]...)
 		p.hasConf = true
 	} else {
@@ -127,13 +152,6 @@ func projectFile(in agents.Start, rel string) (settings, error) {
 		return nil, nil
 	}
 	return settingsFile(in.Read, filepath.Join(in.Dir, rel))
-}
-
-// mcpOptIn: the project opts into its .mcp.json servers and approves them (enableAllProjectMcpServers true, or a
-// non-empty enabledMcpjsonServers).
-func (s settings) mcpOptIn() bool {
-	var names []json.RawMessage
-	return s.approvesAll() || json.Unmarshal(s["enabledMcpjsonServers"], &names) == nil && len(names) > 0
 }
 
 // approvesAll: enableAllProjectMcpServers is true.
@@ -269,14 +287,8 @@ func servers(in agents.Start, patch map[string]any) map[string]any {
 		}
 	}
 	out := agents.MergePatch(user, patch)
-	if in.Dir != "" {
-		proj, _ := projectSettings(in)
-		own, _ := objectFile(in.Read, filepath.Join(in.Dir, ".mcp.json"))[serversKey].(map[string]any)
-		for name, def := range own {
-			if proj.approves(name) {
-				out[name] = def
-			}
-		}
+	for name, def := range approvedServers(in) {
+		out[name] = def
 	}
 	if in.Kit != "" {
 		out["obor"] = oborServer(in.Kit)
@@ -431,7 +443,7 @@ func withEffort(args []string, effort string) []string {
 }
 
 // withStrict is args with the strict flag last, unless they already name it (either spelling): a lane's agent starts
-// with obor's MCP server alone.
+// with obor's MCP server and the project's approved .mcp.json servers, none of the user's.
 func withStrict(args []string) []string {
 	if hasFlag(args, StrictFlag) {
 		return args

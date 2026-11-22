@@ -97,8 +97,9 @@ type Start struct {
 	// Args set; "": Args as given.
 	Effort string
 	// StrictMCP is a lane's agent starting (a worker, the owner's drive agent): a kind that hides the MCP servers
-	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
-	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
+	// its command line does not name starts that way, obor's own and the project's approved .mcp.json servers
+	// registered on the start (claude: --strict-mcp-config with --mcp-config MCPConfig and those servers; a kind that
+	// hides nothing ignores it).
 	StrictMCP bool
 	// TrimUser is every agent but a lead starting: the kind switches off its default part of the user's own
 	// settings (claude: the user's plugins, in Prepare's merged settings file; codex: -c features.plugins,

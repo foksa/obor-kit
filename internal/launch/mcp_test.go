@@ -216,9 +216,9 @@ func TestStartArgsTable(t *testing.T) {
 }
 
 // a lane worker's start reads the project's committed CLI config in its lane worktree (its cwd), in both
-// passes of the argv (LaunchArgs, then the kind's start with the kit): Claude with an MCP opt-in starts without the
-// strict flag and obor's --mcp-config, its settings file keeping the key the file does not set; Codex with a top-level
-// sandbox_mode and update check starts without -s workspace-write and obor's update-check option.
+// passes of the argv (LaunchArgs, then the kind's start with the kit): Claude's settings file keeps the key its file
+// sets and stays strict with obor's --mcp-config; Codex with a top-level sandbox_mode and update check starts without
+// -s workspace-write and obor's update-check option.
 func TestStartReadsTheLaneProjectConfig(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -226,8 +226,8 @@ func TestStartReadsTheLaneProjectConfig(t *testing.T) {
 		has, lacks           []string // of the Start call, with the content of a Claude start's settings file
 	}{
 		{"claude", "", ".claude/settings.json", `{"enabledMcpjsonServers":["mine"],"autoMemoryEnabled":true}`,
-			[]string{`settings file {"remoteControlAtStartup":false}`, "kind=claude"},
-			[]string{"--strict-mcp-config", "--mcp-config", "autoMemoryEnabled"}},
+			[]string{`settings file {"remoteControlAtStartup":false}`, "kind=claude", "--strict-mcp-config"},
+			[]string{"autoMemoryEnabled"}},
 		{"codex", "luna", ".codex/config.toml", "sandbox_mode = \"read-only\"\ncheck_for_update_on_startup = true\n",
 			[]string{"kind=codex", "-a never"}, []string{"workspace-write", "check_for_update_on_startup"}},
 	} {

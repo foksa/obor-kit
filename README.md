@@ -104,7 +104,7 @@ the flag for it:
 
 | CLI | Project file | Key it sets | obor then leaves out |
 | --- | --- | --- | --- |
-| Claude | `.claude/settings.json` | `enableAllProjectMcpServers: true` or a non-empty `enabledMcpjsonServers` | `--strict-mcp-config` on a lane's agent: the project's `.mcp.json` servers load (the list also approves them, so no prompt waits) |
+| Claude | `.claude/settings.json` | `enableAllProjectMcpServers: true` or a non-empty `enabledMcpjsonServers` | nothing: those `.mcp.json` servers join a lane agent's own `--mcp-config`, beside obor's (the list also approves them, so no prompt waits) |
 | Claude | `.claude/settings.json` or `.claude/settings.local.json` | any settings entry (`remoteControlAtStartup`, `autoMemoryEnabled`, an `env` variable, a plugin in `enabledPlugins`, `statusLine`, …) | that entry of the agent's settings file (non-lead roles, below): the project's value applies |
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |

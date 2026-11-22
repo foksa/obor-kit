@@ -533,13 +533,12 @@ func ccResume(l *lab, k agents.Kind, pane string, base []string, settings map[st
 	}
 }
 
-// ccL9: a lane whose committed .claude/settings.json opts into its.mcp.json servers (enabledMcpjsonServers)
-// starts without --strict-mcp-config and obor's --mcp-config, so obor's server is the plugin manifest's (the repository's
-// own manifest, loaded from the real kit with --plugin-dir in place of the project's enabledPlugins): obor's job_next
-// result reaches the transcript, the project's .mcp.json server (the stub, `mcp project`) starts beside it, and the
-// session lists one obor server's tools, not two.
+// ccL9: a lane whose committed .claude/settings.json approves its .mcp.json server (enabledMcpjsonServers) stays
+// strict, and that server joins obor's in the start's own --mcp-config (the repository's own obor, from the real kit):
+// obor's job_next result reaches the transcript, the project's .mcp.json server (the stub, `mcp project`) starts
+// beside it, and the session lists one obor server's tools: the plugin manifest's server (--plugin-dir) stays hidden.
 func ccL9(l *lab, pane string, turn bool) {
-	where := at(claudeGo, "func (s settings) mcpOptIn") + ", " + at(claudeGo, "func (kind) Start") + ", T-1033"
+	where := at(claudeGo, "func mcpConfig") + ", " + at(claudeGo, "func approvedServers") + ", T-1506"
 	if !turn {
 		report("SKIP", "CC-L9", "needs TURN=1 (a model call that uses the tool)", where)
 		return
@@ -584,15 +583,22 @@ func ccL9(l *lab, pane string, turn bool) {
 		report("FAIL", "CC-L9", "the launch of "+model+" cannot be built: "+err.Error(), where)
 		return
 	}
-	if slices.Contains(start.args, "--strict-mcp-config") {
-		report("FAIL", "CC-L9", "the lane's enabledMcpjsonServers left --strict-mcp-config in the launch: "+strings.Join(start.args, " "), where)
+	if !slices.Contains(start.args, "--strict-mcp-config") {
+		report("FAIL", "CC-L9", "the lane's enabledMcpjsonServers dropped --strict-mcp-config from the launch: "+strings.Join(start.args, " "), where)
 		return
 	}
 	sid := uuid()
 	argv := k.(agents.Split).Start(agents.Start{Kit: real, Args: append(start.args, "--plugin-dir", real), Session: sid, Dir: l.lane,
 		Read: os.ReadFile})
-	if slices.Contains(argv, "--mcp-config") {
-		report("FAIL", "CC-L9", "a non-strict start still names obor's --mcp-config: "+strings.Join(argv, " "), where)
+	var conf string
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "--mcp-config" {
+			conf = argv[i+1]
+		}
+	}
+	if !strings.Contains(conf, `"conf_proj"`) || !strings.Contains(conf, `"obor"`) {
+		report("FAIL", "CC-L9", "the strict start's --mcp-config names neither the project's approved server nor obor's: "+
+			strings.Join(argv, " "), where)
 		return
 	}
 	l.fresh()
@@ -624,7 +630,7 @@ func ccL9(l *lab, pane string, turn bool) {
 			projTools = append(projTools, n)
 		}
 	}
-	fact := l.mcpFact(fmt.Sprintf("non-strict start (argv: no --strict-mcp-config, no --mcp-config); obor's job_next "+
+	fact := l.mcpFact(fmt.Sprintf("strict start with --mcp-config naming conf_proj and obor; obor's job_next "+
 		"result in the transcript: %v; the .mcp.json server started: %v; job_next tools: %s; conf_proj tools: %s",
 		ok, proj, orNone(strings.Join(jobNext, " ")), orNone(strings.Join(projTools, " "))), text, ok)
 	if ok && proj && len(jobNext) == 1 && len(projTools) > 0 {
