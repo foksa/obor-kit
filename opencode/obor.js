@@ -11,6 +11,7 @@
 //	session.execution.succeeded       → stop; its block's reason becomes the session's next prompt (a new turn)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
 //	session.execution.interrupted     → no hook; like every turn's end, it ends the session's stop loop
+//	every turn's end                  → its session's token file dated to now (activity), content unchanged
 //	session.step.ended                → one line in the session's token file (turn what: context), no hook
 //	the session's inbox socket        → a line obor serve posts becomes the session's prompt (below)
 //
@@ -367,6 +368,18 @@ export function sessionHooks(cwd, transcriptOf) {
     } catch {}
   }
 
+  // touch dates a root session's token file to now, its content unchanged: obor reads a role agent's done time from
+  // that file's mtime, and a turn's end is activity even when its last step wrote nothing (older, or none). A session
+  // with no token file yet gets none: missing evidence never makes a false done.
+  function touch(id) {
+    const file = transcriptOf(id);
+    if (!file || !fs.existsSync(file)) return;
+    try {
+      const now = new Date();
+      fs.utimesSync(file, now, now);
+    } catch {}
+  }
+
   // event returns the hook calls one event means (setup runs session-start before a session's first).
   function event(e) {
     const d = e?.data ?? {};
@@ -378,6 +391,8 @@ export function sessionHooks(cwd, transcriptOf) {
     // A stop loop's state ends with its turn, in one place and on every outcome: only a succeeded turn's stop reports
     // the loop it ends; a failure or an interruption leaves none for the next independent turn.
     const looping = TURN_ENDS.has(e.type) && stopping.delete(id);
+    // A turn's end is the session's activity, whatever its outcome.
+    if (TURN_ENDS.has(e.type)) touch(id);
     const calls = [];
     switch (e.type) {
       case "session.execution.succeeded":
