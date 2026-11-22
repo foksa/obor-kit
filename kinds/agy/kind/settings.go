@@ -9,8 +9,12 @@ import (
 )
 
 // OverrideFile is agy's override file (agents.OverrideDir: .obor/agy/), in agy's own settings format: laid over the
-// user's saved settings for every start, a lead included.
+// user's saved settings for every start (whole on a trimmed start; without modeKeys on a lead's start).
 const OverrideFile = "settings_override.json"
+
+// modeKeys are the agy settings keys that set a permission or agent mode, omitted from the project's override on a
+// lead's start so a lead keeps plain auto mode while taking the override's permissions and other keys.
+var modeKeys = []string{"toolPermission", "agentMode"}
 
 // UserSettingsFile is the user's saved agy settings, relative to HOME.
 const UserSettingsFile = ".gemini/antigravity-cli/settings.json"
@@ -42,14 +46,21 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 // Settings is a start's --settings document. agy lays it over the user's saved settings by top-level key, a key it
 // names replacing the saved value whole, so each key it names is the user's saved value with over laid over it (a JSON
 // Merge Patch) and obor's entries last:
-//   - every key over names (one over deletes, null, is left out: the saved value applies);
+//   - every key over names (on a lead's start, without modeKeys: the lead takes the override's permissions and other
+//     keys, never its permission or agent mode; a key over deletes, null, is left out so the saved value applies);
 //   - agentMode "auto" for every agent, a lead too (auto mode runs commands in agy's sandbox and has its reviewer
 //     approve, with no prompt, the re-run of one the sandbox refused: a socket, the network, a write outside the
 //     workspace; docs/research/agy-probes.md P11), obor's hooks (hook.go) guarding every call;
 //   - permissions, its allow list gaining MCPRule and CommandRule;
 //   - trustedWorkspaces gaining dir, only when root is in the user's saved trustedWorkspaces (the owner trusted the
 //     project in its main checkout; its lanes follow): else the key is left to the saved value, and agy asks.
-func Settings(user, over map[string]any, dir, root string) map[string]any {
+func Settings(user, over map[string]any, lead bool, dir, root string) map[string]any {
+	if lead && len(over) > 0 {
+		over = maps.Clone(over)
+		for _, k := range modeKeys {
+			delete(over, k)
+		}
+	}
 	merged := agents.MergePatch(user, over)
 	out := map[string]any{}
 	for k := range over {

@@ -234,7 +234,8 @@ is obor's entries alone. OpenCode still reads the user's own config below it, so
 `"plugins": ["-<id>"]`, and an MCP server with `"disabled": true` (the merge makes `{"disabled": true}` the user's
 whole definition, which OpenCode needs). agy: the start's `--settings` file (`.obor/state/agy-settings-<lead|trimmed>-<dir
 hash>.json`, one per kind of start and start dir), which agy lays over the user's saved settings by top-level key: each
-key it names is the user's saved value with `settings_override.json` merged over it (every start, a lead included), then
+key it names is the user's saved value with `settings_override.json` merged over it (whole on a trimmed start; without
+its mode keys `toolPermission` and `agentMode` on a lead's start), then
 obor's entries: `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands with no prompt, and
 its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)` and `command(obor)`, and `trustedWorkspaces` gains the start dir
 when the project's root is in the user's saved list (a lane follows the main checkout's trust). agy has no switch for
@@ -1003,12 +1004,14 @@ unix socket, no network), and one the sandbox refuses is re-run outside it once 
 network, a write outside the workspace: no prompt; a destructive one asks); obor's guard checks each attempt. obor
 allows its own MCP tools (`mcp(obor/*)`) and commands (`command(obor)`) through agy's `permissions.allow` rules on
 every start (turning a reviewer ask on an unsandboxed re-run into a run; deny rules stay final). A project's own
-command rules go in its override's `permissions.allow` (`.obor/agy/settings_override.json`, merged into every agy
-start's settings file, lead included; the lead keeps the user's own settings untrimmed). Allow rules do not lift the
+command rules go in its override's `permissions.allow` (`.obor/agy/settings_override.json`, merged whole into a trimmed
+start's settings file and without its mode keys `toolPermission` and `agentMode` into a lead's, so the lead takes the
+project's rules and other keys, never its permission mode, while keeping the user's own settings untrimmed). Allow rules
+do not lift the
 sandboxed first attempt or skip the review: git in a linked worktree (whose git dir sits outside the workspace) and
 tests that dial a unix socket still fail sandboxed, which is why a project's workers may set
-`toolPermission: "always-proceed"` in the override; in plain auto mode, each `obor` call runs sandboxed first and then
-goes through the reviewer's check (11–36 s). The
+`toolPermission: "always-proceed"` in the override while the lead stays in plain auto mode (where each `obor` call runs
+sandboxed first and then goes through the reviewer's check, 11–36 s). The
 session record is the SessionStart hook's (a new conversation, again after `/clear`; a resume fires none and needs
 none): a restart without `--fresh` resumes it after the agent exited or its pane is gone, and a recorded session of
 another kind (the agent ran one before) is never resumed: herdr's live agy session of the pane, else a new one. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id

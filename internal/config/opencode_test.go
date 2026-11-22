@@ -16,7 +16,7 @@ func TestOpencodeModelEffort(t *testing.T) {
 	p := testkit.NewDir(t)
 	p.Config(testkit.Set("agents.models.muse", map[string]any{"kind": "opencode", "id": ""}),
 		testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-4-neon-high"}))
-	p.Write(".obor/agy/settings_override.json", `{"toolPermission":"always-proceed"}`)
+	p.Write(".obor/agy/settings_override.json", `{"toolPermission":"always-proceed","permissions":{"allow":["command(go test)"]}}`)
 	c, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,8 @@ func TestOpencodeModelEffort(t *testing.T) {
 	if !c.Kinds().IsPlugin("opencode") {
 		t.Fatal("precondition: opencode is a plugin kind of the loaded config")
 	}
-	// Launch hands the project's override files to a lead's start too: agy merges them into its lead's settings file.
+	// Launch hands the project's override files to a lead's start too: agy merges the override's rules into its lead's
+	// settings file without its mode keys.
 	if gem, ok := c.Model("gem"); !ok {
 		t.Fatal("precondition: config has agy model gem")
 	} else if over, err := c.Overrides("agy"); err != nil || len(over) != 1 {
@@ -33,8 +34,8 @@ func TestOpencodeModelEffort(t *testing.T) {
 		var settings string
 		if _, err := gem.Launch("lead", over, agents.Start{
 			WriteState: func(name string, b []byte) (string, error) { settings = string(b); return "/state/" + name, nil },
-		}); err != nil || !strings.Contains(settings, `"always-proceed"`) {
-			t.Errorf("an agy lead's launch with an override: settings %q, err %v; want toolPermission from override", settings, err)
+		}); err != nil || !strings.Contains(settings, `"command(go test)"`) || strings.Contains(settings, `"always-proceed"`) {
+			t.Errorf("an agy lead's launch with an override: settings %q, err %v; want allow rule without toolPermission", settings, err)
 		}
 	}
 	ds, _ := c.Model("deepseek")
