@@ -5,6 +5,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -125,5 +128,45 @@ func TestLaneTable(t *testing.T) {
 	}
 	if ls[0].Agent != "pj-l-01" {
 		t.Errorf("agent %q, want the lane's worker pj-l-01", ls[0].Agent)
+	}
+}
+
+// A dial refused for permission (no permission on serve's socket) is not "serve: down": obor status exits non-zero
+// with a line naming the socket; with no listener it still reports serve: down and exits 0.
+func TestStatusSocketPermission(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	sock := wire.SocketPath(p.Root)
+	// Precondition: no listener -> serve: down, exit 0.
+	rc, stdout, stderr := run(t, p.Root, nil, "status")
+	if rc != 0 || !strings.HasPrefix(stdout, "serve: down (") {
+		t.Fatalf("precondition (no listener): exit %d, stdout %q, stderr %q; want exit 0 and serve: down",
+			rc, stdout, stderr)
+	}
+	// Socket with no permission -> non-zero exit and the permission line naming the socket, never serve: down.
+	if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(sock, 0o600)
+		_ = ln.Close()
+	})
+	if err := os.Chmod(sock, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	rc, stdout, stderr = run(t, p.Root, nil, "status")
+	if rc != 1 {
+		t.Fatalf("no-permission socket: exit %d, stdout %q, stderr %q; want 1", rc, stdout, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("no-permission socket wrote stdout %q; want none (never serve: down)", stdout)
+	}
+	if !strings.Contains(stderr, sock) || !strings.Contains(stderr, "permission") {
+		t.Errorf("no-permission socket stderr = %q; want the socket path %q and permission reason", stderr, sock)
 	}
 }

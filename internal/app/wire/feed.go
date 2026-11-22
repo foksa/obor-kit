@@ -73,7 +73,7 @@ func Feed(ctx context.Context, path, root string, seq int64, follow bool, each f
 	c, err := d.DialContext(dctx, "unix", path)
 	cancel()
 	if err != nil {
-		return seq, fmt.Errorf("obor serve is not running (%w)", err)
+		return seq, dialErr(path, err)
 	}
 	defer c.Close()
 	stop := context.AfterFunc(ctx, func() { c.Close() })

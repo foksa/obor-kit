@@ -194,6 +194,21 @@ func absent(err error) bool {
 // record to the agent's own hook (a Claude start's session: its SessionStart hook records it anyway).
 func Absent(err error) bool { return absent(err) }
 
+// Permission: err is a dial refused for permission (EPERM or EACCES, e.g. a sandbox blocking the socket): not a
+// missing listener, so callers report an error instead of "serve: down".
+func Permission(err error) bool {
+	return errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) || errors.Is(err, os.ErrPermission)
+}
+
+// dialErr wraps a dial failure of serve's socket at path: a permission refusal names the socket instead of claiming
+// serve is not running; any other dial error keeps "obor serve is not running".
+func dialErr(path string, err error) error {
+	if Permission(err) {
+		return fmt.Errorf("serve socket %s could not be opened (permission): %w", path, err)
+	}
+	return fmt.Errorf("obor serve is not running (%w)", err)
+}
+
 // cut is a transport failure the call's own deadline caused: ctx closed the connection under the read (net.ErrClosed,
 // "use of closed network connection") or ended the dial. A verdict maps it to the deadline's own line.
 func cut(err error) bool {
@@ -211,7 +226,7 @@ func askOnce(ctx context.Context, path string, req Request) (Answer, error) {
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
-		return Answer{}, fmt.Errorf("obor serve is not running (%w)", err)
+		return Answer{}, dialErr(path, err)
 	}
 	defer c.Close()
 	stop := context.AfterFunc(ctx, func() { c.Close() })
