@@ -156,16 +156,19 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 	if !ok || !k.Caps().Inbox {
 		return false, fmt.Errorf("%s: kind %s posts through no inbox", agent, kind)
 	}
-	slot, err := slotOf(p.root, agent)
+	cfg, slot, err := slotOf(p.root, agent)
 	if err != nil {
 		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
 	}
-	f := project.InboxFile(p.root, slot)
+	f, err := project.InboxAt(cfg, slot)
+	if err != nil {
+		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
+	}
 	rec, err := os.ReadFile(f)
 	if err != nil {
 		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
 	}
-	in, err := project.ReadInbox(p.root, slot)
+	in, err := project.ReadInbox(cfg, slot)
 	if err == nil && in.Record != "" {
 		rec = []byte(in.Record) // a plugin kind's deliver is given back its own record
 	}
@@ -178,7 +181,7 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 		if why == "" {
 			why = "its deliver sends nothing with the record"
 		}
-		_ = project.RefuseInbox(p.root, slot, in.Record, why)
+		_ = project.RefuseInbox(cfg, slot, in.Record, why)
 		return false, fmt.Errorf("%s refused the send: %s", agent, why)
 	case !ok || d.Typed || d.Socket == "":
 		return false, fmt.Errorf("no session recorded for %s: %s names no socket", agent, f)
@@ -206,17 +209,17 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 }
 
 // slotOf is the slot agent holds in the project at root, its inbox record's key (project.AgentSlot under the config as
-// it is now: a rename moves no record); an error when agent holds none there.
-func slotOf(root, agent string) (string, error) {
+// it is now, returned with it: a rename moves no record); an error when agent holds none there.
+func slotOf(root, agent string) (*config.Config, string, error) {
 	cfg, err := config.Load(root)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	slot := project.AgentSlot(cfg, agent)
 	if slot == "" {
-		return "", fmt.Errorf("%s holds no slot of the project at %s", agent, root)
+		return nil, "", fmt.Errorf("%s holds no slot of the project at %s", agent, root)
 	}
-	return slot, nil
+	return cfg, slot, nil
 }
 
 // inboxed is app.Options.Inboxed for the project at root (its config as it is now): project.InboxLive.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"obor/internal/agents"
+	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
@@ -108,7 +109,7 @@ func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 		if strings.Count(out, "\n") != 1 {
 			t.Errorf("%s: want one line, got\n%s", b.name, out)
 		}
-		in, err := project.ReadInbox(f.Root, "L-01")
+		in, err := project.ReadInbox(config.Fallback(f.Root), "L-01") // the broken config: the hook's fallback
 		if err != nil || in != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: "sid-1"}) {
 			t.Errorf("%s: .inbox = %+v, %v; want the last readable session's (sid-1)", b.name, in, err)
 		}

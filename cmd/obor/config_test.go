@@ -150,7 +150,7 @@ func TestWhoamiRecordsAnAgyLeadsInbox(t *testing.T) {
 	if !strings.HasSuffix(text, "lines: inbox\n") {
 		t.Errorf("an agy lead's whoami: %q; want its lines to its inbox", text)
 	}
-	in, err := project.ReadInbox(p.Root, "lead")
+	in, err := project.ReadInbox(p.Cfg(), "lead")
 	if err != nil || !in.Sends || !strings.Contains(in.Record, `"ANTIGRAVITY_CSRF_TOKEN":"tok-1"`) {
 		t.Errorf("the record: %+v, %v; want the kind's record, sent by the kind", in, err)
 	}

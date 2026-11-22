@@ -12,12 +12,65 @@ import (
 	"obor/internal/roles"
 )
 
-// InboxFile is where the SessionStart hook records the session inbox of the session holding slot in the
-// project at root: <root>/.obor/state/inbox/<slot>, its "/" a "." (L-03/drive →
-// L-03.drive), mode 0600 (it holds the session's messaging token). Keyed by the project and the slot, never by an agent
-// name: two projects with one prefix keep apart, and a rename leaves it where it is. obor serve posts there.
+// InboxFile is slot's inbox record file under the checkout at root: <root>/.obor/state/inbox/<slot>, its "/" a "."
+// (L-03/drive → L-03.drive), mode 0600 (it holds the session's messaging token). Keyed by the project and the slot,
+// never by an agent name: two projects with one prefix keep apart, and a rename leaves it where it is. InboxFiles are
+// the checkouts a record may be in.
 func InboxFile(root, slot string) string {
 	return filepath.Join(StateDir(root), "inbox", strings.ReplaceAll(slot, "/", "."))
+}
+
+// InboxFiles are the files slot's inbox record may be in, in cfg's project: InboxFile of the main checkout, then of the
+// worktree the slot's session runs in (its lane; a role worktree) when that is another. A sandboxed agent writes only
+// its own workspace, its temp dirs and caches (agy's auto mode: docs/research/agy-probes.md P9), so a command it runs
+// records its inbox in its worktree's gitignored state dir when the main checkout refuses the write (WriteInbox).
+func InboxFiles(cfg *config.Config, slot string) []string {
+	files := []string{InboxFile(cfg.Root, slot)}
+	if dir := slotDir(cfg, slot); dir != "" && filepath.Clean(dir) != filepath.Clean(cfg.Root) {
+		files = append(files, InboxFile(dir, slot))
+	}
+	return files
+}
+
+// slotDir is the worktree the session holding slot runs in: a lane-bound slot's lane (L-03, L-03/drive), else the
+// role's dir (config.RoleDir); "" for a slot cfg does not know.
+func slotDir(cfg *config.Config, slot string) string {
+	lane, _, _ := strings.Cut(slot, "/")
+	if l, ok := cfg.Lane(lane); ok {
+		return l.Dir
+	}
+	if rc, ok := cfg.Role(slot); ok {
+		return cfg.RoleDir(rc.Role)
+	}
+	return ""
+}
+
+// InboxAt is the file holding slot's inbox record in cfg's project: of InboxFiles, the one written last (the main
+// checkout's on a tie); an error when there is none.
+func InboxAt(cfg *config.Config, slot string) (string, error) {
+	at, newest, first := "", time.Time{}, error(nil)
+	for _, f := range InboxFiles(cfg, slot) {
+		fi, err := os.Stat(f)
+		switch {
+		case err != nil:
+			if first == nil {
+				first = err
+			}
+		case at == "" || fi.ModTime().After(newest):
+			at, newest = f, fi.ModTime()
+		}
+	}
+	if at == "" {
+		return "", first
+	}
+	return at, nil
+}
+
+// RemoveInbox removes slot's inbox record from every file of InboxFiles in cfg's project, best-effort.
+func RemoveInbox(cfg *config.Config, slot string) {
+	for _, f := range InboxFiles(cfg, slot) {
+		_ = os.Remove(f)
+	}
 }
 
 // InboxSlot is the slot a session of role holds, its inbox record's key: the role (lead, reviewer …), a worker's lane
@@ -85,7 +138,7 @@ func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
 	if slot == "" {
 		return "", false
 	}
-	in, err := ReadInbox(cfg.Root, slot)
+	in, err := ReadInbox(cfg, slot)
 	if err != nil {
 		return "", false
 	}
@@ -96,11 +149,19 @@ func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
 	return in.Session, err == nil
 }
 
-// ReadInbox is the inbox record of slot in root's project; an error when there is none or it names neither a socket
-// nor the kind's own send.
-func ReadInbox(root, slot string) (Inbox, error) {
+// ReadInbox is the inbox record of slot in cfg's project (the file InboxAt names); an error when there is none or it
+// names neither a socket nor the kind's own send.
+func ReadInbox(cfg *config.Config, slot string) (Inbox, error) {
+	f, err := InboxAt(cfg, slot)
+	if err != nil {
+		return Inbox{}, err
+	}
+	return readInboxFile(f)
+}
+
+// readInboxFile is the inbox record in file f: ReadInbox's rule on one file.
+func readInboxFile(f string) (Inbox, error) {
 	var in Inbox
-	f := InboxFile(root, slot)
 	b, err := os.ReadFile(f)
 	if err != nil {
 		return in, err
@@ -114,26 +175,44 @@ func ReadInbox(root, slot string) (Inbox, error) {
 	return in, nil
 }
 
-// RefuseInbox marks slot's inbox record in root's project refused (why) when it is still the record a send was refused
-// with (record, the kind's own; a newer one an obor command wrote since is left as it is): not live (InboxLive) until
-// the session records it again.
-func RefuseInbox(root, slot, record, why string) error {
-	in, err := ReadInbox(root, slot)
-	if err != nil || in.Record != record {
-		return err
+// RefuseInbox marks slot's inbox record in cfg's project refused (why) in each file of InboxFiles that still holds
+// the record a send was refused with (record, the kind's own; a newer one an obor command wrote since is left as it
+// is): not live (InboxLive) until the session records it again.
+func RefuseInbox(cfg *config.Config, slot, record, why string) error {
+	var first error
+	for _, f := range InboxFiles(cfg, slot) {
+		in, err := readInboxFile(f)
+		if err != nil || in.Record != record {
+			continue
+		}
+		in.Refused = why
+		if err := writeInboxFile(f, in); err != nil && first == nil {
+			first = err
+		}
 	}
-	in.Refused = why
-	return WriteInbox(root, slot, in)
+	return first
 }
 
-// WriteInbox records in as slot's inbox in root's project, mode 0600, replacing any record at once (a reader never
-// sees half of it).
-func WriteInbox(root, slot string, in Inbox) error {
+// WriteInbox records in as slot's inbox in cfg's project: in the main checkout's file, else (a write there refused: a
+// sandboxed session) the next file of InboxFiles; an error naming each refused write when none took it.
+func WriteInbox(cfg *config.Config, slot string, in Inbox) error {
+	var why []string
+	for _, f := range InboxFiles(cfg, slot) {
+		err := writeInboxFile(f, in)
+		if err == nil {
+			return nil
+		}
+		why = append(why, err.Error())
+	}
+	return errors.New(strings.Join(why, "; "))
+}
+
+// writeInboxFile writes in to file f, mode 0600, replacing any record at once (a reader never sees half of it).
+func writeInboxFile(f string, in Inbox) error {
 	b, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	f := InboxFile(root, slot)
 	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 		return err
 	}

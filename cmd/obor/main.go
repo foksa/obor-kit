@@ -74,7 +74,7 @@ func main() {
 	sub, args := os.Args[1], os.Args[2:]
 	if recordsInbox(sub) {
 		cwd, _ := os.Getwd()
-		guard.CommandRecord(cwd, project.OSEnv)
+		guard.CommandRecord(cwd, project.OSEnv, os.Stderr)
 	}
 	switch sub {
 	case "help", "-h", "--help":

@@ -74,14 +74,14 @@ func TestPromptLeadLinesWithHandoffReminder(t *testing.T) {
 	}
 }
 
-// liveInbox records root's lead slot an inbox whose socket is there (a plain file: the check is its existence).
-func liveInbox(t *testing.T, root string) {
+// liveInbox records f's lead slot an inbox whose socket is there (a plain file: the check is its existence).
+func liveInbox(t *testing.T, f *testkit.Project) {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "s.sock")
 	if err := os.WriteFile(sock, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := project.WriteInbox(root, "lead", project.Inbox{Socket: sock, Session: "s1"}); err != nil {
+	if err := project.WriteInbox(f.Cfg(), "lead", project.Inbox{Socket: sock, Session: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -92,7 +92,7 @@ func liveInbox(t *testing.T, root string) {
 func TestLeadLinesInboxKindAskedOnlyWithoutALiveInbox(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, true)
-	liveInbox(t, f.Root)
+	liveInbox(t, f.Project)
 	a := &askLines{text: twoLines}
 	if c := f.promptLines(t, f.Root, "what next?", "", a.ask, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("a Claude lead's prompt: context %q", c)
@@ -102,7 +102,7 @@ func TestLeadLinesInboxKindAskedOnlyWithoutALiveInbox(t *testing.T) {
 	if len(a.asks) != 0 {
 		t.Errorf("asks %q, want none", a.asks)
 	}
-	in, err := project.ReadInbox(f.Root, "lead")
+	in, err := project.ReadInbox(f.Cfg(), "lead")
 	if err != nil {
 		t.Fatal(err)
 	}

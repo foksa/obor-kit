@@ -55,14 +55,14 @@ func TestWhoamiLeadLines(t *testing.T) {
 			f.Config(testkit.HookModel(), testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"}),
 				testkit.Set("agents.roles.lead", c.ref))
 			if c.live {
-				liveInbox(t, f.Root)
+				liveInbox(t, f.Project)
 			}
 			if c.sends != "" {
 				in := project.Inbox{Sends: true, Record: `{"ANTIGRAVITY_CSRF_TOKEN":"t"}`}
 				if c.sends == "refused" {
 					in.Refused = "agentapi send-message: exit 1: invalid CSRF token"
 				}
-				if err := project.WriteInbox(f.Root, "lead", in); err != nil {
+				if err := project.WriteInbox(f.Cfg(), "lead", in); err != nil {
 					t.Fatal(err)
 				}
 			}
