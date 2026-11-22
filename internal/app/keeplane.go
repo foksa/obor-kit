@@ -59,12 +59,30 @@ func (a *App) kept(p *proj, mt mtask, cfg *config.Config) bool {
 	return ok
 }
 
-// keepWaits: mt's keep lane dispatch, its work not sent yet, waits for the handoff rule (under mu): the lane's kept
-// agent (keptPane) is past handoff_tokens, so its job goes to a fresh session once the rule stopped this one (never
-// typed into a session past the threshold).
-func (a *App) keepWaits(p *proj, mt mtask, cfg *config.Config) bool {
-	pane, ok := a.keptPane(p, mt, cfg)
-	return ok && a.pastHandoff(p, cfg, pane)
+// keptWork is the step of mt's keep lane dispatch whose work job goes to the lane's kept agent (kept; under mu): its
+// session's size is read outside mu (pastRead, a kind's call), then, the lane's kept agent still in the session read
+// (keptPane, sizeOf), its wake is typed into that session. A session past handoff_tokens waits for the handoff rule's
+// stop (never typed into a session past the threshold), its next dispatch's start a fresh one; a kept agent changed
+// since the read waits for the next pass's read.
+func (a *App) keptWork(p *proj, mt mtask, cfg *config.Config) step {
+	limit := cfg.HandoffTokens()
+	pane, _ := a.keptPane(p, mt, cfg)
+	read := a.sizeOf(p, mt.agent, pane)
+	return func(ctx context.Context, fx *Loop) bool {
+		if limit > 0 {
+			if a.pastRead(p, read, limit) {
+				return false
+			}
+			a.mu.Lock()
+			cur, ok := a.keptPane(p, mt, cfg)
+			same := ok && a.sizeOf(p, mt.agent, cur) == read
+			a.mu.Unlock()
+			if !same {
+				return false
+			}
+		}
+		return a.sendWork(ctx, p, fx, mt, nth(event.StepWork, mt.works+1))
+	}
 }
 
 // keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (dispatchData.Stop):
@@ -103,21 +121,29 @@ func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref s
 	return ok && typ != "" && typ == ran && effort == ranEffort && lt.Kind != "" && lt.Kind == row.Kind
 }
 
-// pastHandoff: the session of the agent in pane is larger than the project's handoff_tokens (under mu; 0: off). Its
-// transcript and kind are the recorded session's, else the transcript herdr names for the pane's agent kind; none
-// readable is not past. A transcript's size is that one kind's read (project.ContextOf, bounded for the lock).
-func (a *App) pastHandoff(p *proj, cfg *config.Config, pane port.Pane) bool {
-	limit := cfg.HandoffTokens()
-	if limit <= 0 {
-		return false
-	}
+// sizeRead is what a session's size is read from, taken under mu (sizeOf) for the read outside it (pastRead): the
+// agent's pane, the session running there (liveSession), its transcript and the kind that reads it (sessionFile). Two
+// equal reads name the same session in the same pane.
+type sizeRead struct {
+	pane, session, path, kind string
+}
+
+// sizeOf is the size read of agent's session in pane (under mu).
+func (a *App) sizeOf(p *proj, agent string, pane port.Pane) sizeRead {
 	path, kind := a.sessionFile(p, pane)
+	return sizeRead{pane: pane.ID, session: p.liveSession(agent, pane), path: path, kind: kind}
+}
+
+// pastRead: the session of read r is larger than limit tokens (not under mu: a plugin kind's read is a process, a
+// describe first when its binary changed). The size is that one kind's read of the transcript (project.ContextOf);
+// none readable is not past.
+func (a *App) pastRead(p *proj, r sizeRead, limit int64) bool {
 	var n int
 	var ok bool
 	if tokens := a.opt.Tokens; tokens != nil {
-		n, ok = tokens(path)
+		n, ok = tokens(r.path)
 	} else {
-		n, ok = transcriptTokens(a.p.kinds(), kind, path)
+		n, ok = transcriptTokens(p.kinds(), r.kind, r.path)
 	}
 	return ok && int64(n) > limit
 }
@@ -141,7 +167,7 @@ func transcriptTokens(kinds agents.Kinds, kind, path string) (int, bool) {
 
 // keepBetween is keep lane lane's state between tasks (under mu): the key of its last ended keep task (the merged or
 // dropped fact's seq) and ok when no task holds its agent now: each of the lane's tasks is ended (merged, dropped,
-// rejected), waiting, or dispatched with no work sent and no start (a dispatch keepWaits holds). ok false: a task is
+// rejected), waiting, or dispatched with no work sent and no start (a dispatch keptWork holds). ok false: a task is
 // mid-way on the lane (its work sent, submitted, in the gate or review, sent back), or none ran there in keep mode.
 func (p *proj) keepBetween(lane string) (int64, bool) {
 	var key int64
@@ -166,43 +192,76 @@ func (p *proj) keepBetween(lane string) (int64, bool) {
 
 // handoffRule is the keep lane handoff rule (rule tier). Condition: a keep lane of the config between tasks
 // (keepBetween), its agent live in the lane (identified in its worktree), idle, its session past handoff_tokens
-// (pastHandoff), no claim on the lane's tasks and the project's pause not in force. Action: agent.stop of that agent
+// (pastRead), no claim on the lane's tasks and the project's pause not in force. Action: agent.stop of that agent
 // (stopAgent: a gone one is done); the lane's next dispatch starts a fresh one (nextDispatch, as a fresh lane does).
-// Keyed by the lane's last ended keep task; done when the lane runs no agent past the threshold.
+// Keyed by the lane's last ended keep task; done when the lane runs no agent past the threshold. The candidates are
+// taken under mu, their sizes read outside it (kind calls), and a candidate acts only when it is still the same under
+// mu again (handoffCand: lane, task, agent and session); one changed since its read waits for the next pass.
 func handoffRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
 	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
 	}
 	cfg := fx.Cfg
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !p.dispatching || p.paused(now) != nil {
+	limit := cfg.HandoffTokens()
+	if limit <= 0 {
 		return 0, action{}, false
 	}
+	var cands []handoffCand
+	a.mu.Lock()
 	for _, l := range cfg.Lanes() {
-		if l.Mode != config.LaneKeep {
+		if c, ok := a.handoffCand(p, cfg, l, now); ok {
+			cands = append(cands, c)
+		}
+	}
+	a.mu.Unlock()
+	for _, c := range cands {
+		if !a.pastRead(p, c.read, limit) {
 			continue
 		}
-		key, between := p.keepBetween(l.Name)
-		agent := cfg.AgentName("worker", l.Name)
-		if !between || agent == "" || p.laneBusy(l.Name) {
+		a.mu.Lock()
+		again, ok := a.handoffCand(p, cfg, c.lane, now)
+		a.mu.Unlock()
+		if !ok || again != c {
 			continue
 		}
-		w, _ := a.agentOf(p, port.Lane{Dir: l.Dir, Agent: agent})
-		if w.State != Identified || !Ready(w.Pane.Status) || !a.pastHandoff(p, cfg, w.Pane) {
-			continue
-		}
-		return key, action{call: func(ctx context.Context) error {
-			line, _, err := a.stopAgent(ctx, p, fx, agent, false, true)
+		return c.key, action{call: func(ctx context.Context) error {
+			line, _, err := a.stopAgent(ctx, p, fx, c.agent, false, true)
 			if err != nil {
-				return fmt.Errorf("keep lane %s: %s not stopped for its handoff: %w", l.Name, agent, err)
+				return fmt.Errorf("keep lane %s: %s not stopped for its handoff: %w", c.lane.Name, c.agent, err)
 			}
 			a.logf("%s: keep lane %s's agent past handoff_tokens, between tasks: %s (its next task starts it fresh)",
-				p.name, l.Name, line)
+				p.name, c.lane.Name, line)
 			return nil
 		}}, true
 	}
 	return 0, action{}, false
+}
+
+// handoffCand is a keep lane's candidate for the handoff rule, its size not read yet: the lane, its last ended keep
+// task (keepBetween's key), its agent, and that agent's session read (sizeOf).
+type handoffCand struct {
+	lane  config.Lane
+	key   int64
+	agent string
+	read  sizeRead
+}
+
+// handoffCand is keep lane l's candidate now (under mu). ok false: l is no keep lane, not between tasks, a claim holds
+// its tasks, its agent is not live and idle in it, or the project does not dispatch or is paused.
+func (a *App) handoffCand(p *proj, cfg *config.Config, l config.Lane, now time.Time) (handoffCand, bool) {
+	if l.Mode != config.LaneKeep || !p.dispatching || p.paused(now) != nil {
+		return handoffCand{}, false
+	}
+	key, between := p.keepBetween(l.Name)
+	agent := cfg.AgentName("worker", l.Name)
+	if !between || agent == "" || p.laneBusy(l.Name) {
+		return handoffCand{}, false
+	}
+	w, _ := a.agentOf(p, port.Lane{Dir: l.Dir, Agent: agent})
+	if w.State != Identified || !Ready(w.Pane.Status) {
+		return handoffCand{}, false
+	}
+	return handoffCand{lane: l, key: key, agent: agent, read: a.sizeOf(p, agent, w.Pane)}, true
 }
 
 // laneBusy: a step or claim of a task on lane is in flight (under mu, p.busy's).

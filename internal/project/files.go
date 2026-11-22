@@ -52,7 +52,7 @@ var sidRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 // ContextOf is the context size of a session of kind kind (the kind its session is recorded as) from its transcript
 // file, as that kind alone reads it: the file's last 400 lines (TailLines) given to its agents.Kind.Context. A plugin
 // kind's read is one process bounded by the context timeout (internal/agents/plugin: Timeouts["context"]), short
-// enough for a hook and for serve's lock. ok false: no kind or an unknown one, a kind that keeps no transcript, no
+// enough for a hook; serve reads it outside its lock (internal/app: pastRead). ok false: no kind or an unknown one, a kind that keeps no transcript, no
 // file, no tail, or the kind reads none in it.
 func ContextOf(kinds agents.Kinds, kind, file string) (agents.Context, bool) {
 	k, ok := kinds.Lookup(kind)

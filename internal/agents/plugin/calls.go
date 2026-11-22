@@ -21,7 +21,7 @@ import (
 
 // Timeouts bound each call (start, turn and the per-poll ones short; describe and install longer): a slow plugin is an
 // error naming the kind and the call, never a hang.
-// "context" is turn's what: context, which runs inside a lead's hook and under serve's lock (project.ContextOf).
+// "context" is turn's what: context, which runs inside a lead's hook (project.ContextOf).
 var Timeouts = map[string]time.Duration{
 	"describe": 10 * time.Second, "install": 30 * time.Second,
 	"start": 5 * time.Second, "not-ready": 2 * time.Second, "turn": 5 * time.Second, "deliver": 3 * time.Second,

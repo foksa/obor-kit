@@ -90,11 +90,11 @@ func (a *App) nextDispatch(p *proj, mt mtask, cfg *config.Config) step {
 		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, mt.refusedCause(), mt.refused) }
 	case mt.base == "":
 		return func(ctx context.Context, fx *Loop) bool { return a.prepare(ctx, p, fx, mt) }
-	case !mt.started && mt.disp.Keep && mt.work == "" && a.keepWaits(p, mt, cfg):
-		return nil // the kept agent is past handoff_tokens: the handoff rule stops it, then it starts fresh
+	case !mt.started && mt.work == "" && a.kept(p, mt, cfg): // a keep lane's live agent: its wake typed, no start
+		return a.keptWork(p, mt, cfg) // a session past handoff_tokens waits for the handoff rule's stop
 	case !mt.started && !a.kept(p, mt, cfg):
 		return a.nextStart(p, mt, cfg)
-	case mt.work == "": // started, or a keep lane's live agent: the wake typed into its session, no start
+	case mt.work == "": // started: the wake typed into its session
 		return func(ctx context.Context, fx *Loop) bool {
 			return a.sendWork(ctx, p, fx, mt, nth(event.StepWork, mt.works+1))
 		}
