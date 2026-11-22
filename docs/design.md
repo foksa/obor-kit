@@ -250,7 +250,8 @@ dir's `.mcp.json` servers the project's settings approve (`enableAllProjectMcpSe
 `enabledMcpjsonServers`), then obor's. Codex gets `-c mcp_servers.<name>.enabled=false` for each server of the user's
 `config.toml` that the project's `.codex/config.toml` does not define (obor's and a name `config_override.toml` sets are
 left alone). OpenCode's generated config makes `{"disabled": true}` each server of the user's `opencode.json(c)` that the
-project's does not define (obor's and an override's entry are left alone). agy has no switch, so the guard denies a lane
+project's does not define (obor's and an override's entry are left alone). Claude, Codex and OpenCode read the lane's own copy of the project file at its start; agy's rule reads the main
+checkout's. agy has no switch, so the guard denies a lane
 agent's `call_mcp_tool`, `list_resources` and `read_resource` on a server its project's `.agents/mcp_config.json` does not
 list (a missing file: obor's alone). With `claude_override.json` naming `mcpServers`, a Claude lane's merge starts from the approved project servers
 instead of the user's (above). The lead and the role agents keep every server.
@@ -434,7 +435,7 @@ allows silently.
      that cannot push cannot advance a milestone; entries are roles, `["lead"]`, a derived name `ob-lead` read as
      its slot; an accident guard, not a security boundary);
      `pkill`/`killall` by pattern (`pkill -f`, `pkill <name>`, `killall`); `git commit` with `-a`/`--all`/`-am` when cwd
-     is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run`, `agy -p`/`--print`/`--prompt`/`acp` — for every
+     is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run`/`acp`/`serve`, `agy -p`/`--print`/`--prompt`/`acp` — for every
      role, the lead included (owner 2026-10-27: agents run in herdr panes); a command the project's
      `rules.deny_commands` matches (regex on the resolved command; `alone`: also two matching at once via `&`,
      `xargs -P`, `parallel`, background units) — for every role (owner 2026-11-05; obor-kit's config carries
@@ -871,7 +872,8 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   interrupted; the owner's draft stays. The socket is removed when it closes and when the process exits. No record, or
   its socket gone → the lead's hooks take its lines when they act on the answers (next bullet), else the line waits,
   untried; a refused dial (a socket file nobody listens on) → fact `failed` with its reason, shown in `obor status`
-  and the needs-you, posted again at the next pass while the record's socket is there (a lead line is never typed).
+  and the needs-you, and the record marked refused: the lead's hooks take its lines until the session records an inbox
+  again (a lead line is never typed).
   There is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. **agy's inbox** is its
   language server's: `agentapi send-message <conversationId> <text>` (agy's own `agentapi`) starts a turn in an idle
   session and reaches a busy one at its next model call, the owner's draft kept; it arrives as a system message. Its
@@ -1003,9 +1005,15 @@ number. A child session's steps and another directory's sessions write none.
 agy (Antigravity CLI) is a kit kind, `kinds/agy` (`obor-kind-agy`), wired by files the project commits, never by
 anything user-level: `.agents/mcp_config.json` holds `mcpServers.obor` = `obor mcp`, the `obor` on the agent's
 `PATH` (the server inherits the agent's role, lane and pane), and `.agents/hooks.json` the named hook `obor`, whose
-handlers (SessionStart, PreInvocation, Stop, and PreToolUse for `run_command`, `write_file`, `edit_file`) run `obor
-kind agy hook`: that obor execs the kit's `obor-kind-agy hook`, which rewrites agy's event as Claude Code's, runs
-`obor hook <name>` on the same obor and rewrites the answer (`kinds/agy/kind/hook.go`; no rule lives there). obor's
+handlers (SessionStart, PreInvocation, Stop, and PreToolUse matching every tool) run `obor kind agy hook`: that obor
+execs the kit's `obor-kind-agy hook`, which rewrites agy's event as Claude Code's, runs `obor hook <name>` on the same
+obor and rewrites the answer (`kinds/agy/kind/hook.go`; no rule lives there). Its tool table maps `run_command`,
+`write_file`, `edit_file` to the guard's shell and write events and `call_mcp_tool`/`list_resources`/`read_resource` to
+`mcp`; the tools obor cannot guard (`run_workflow`: a script with no hook; `swarm`; `invoke_subagent`: a child's session
+cannot be told from the agent's) and any tool it does not know go to the guard as `unguarded` with agy's reason, and the
+guard denies them for an agent with a role (a role-less session in the main checkout: no opinion); the rest only read or
+talk and get no opinion. A stopped project runs none of it. A start refuses (a lead: warns) a workspace whose
+`.agents/hooks.json` obor entry is not this kit's, after launch has prepared that workspace. obor's
 allow is agy's `ask` (agy's own check decides: in auto mode, none), a deny is final; agy denies a tool call whose hook
 fails, so the transport always answers, and a failing `obor hook pre-tool-use` is a deny naming the failure.
 `obor setup agents` writes both entries when the config has an agy model (each file's other entries kept) and adds
@@ -1028,9 +1036,9 @@ session record is the SessionStart hook's (a new conversation, again after `/cle
 none): a restart without `--fresh` resumes it after the agent exited or its pane is gone, and a recorded session of
 another kind (the agent ran one before) is never resumed: herdr's live agy session of the pane, else a new one. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id
 without its effort word> --effort <effort>`; the first prompt as `-i`, a resume as `--conversation <id>` (the
-recorded session id). A start checks its model and effort against `agy models` (agy's own list, read at the start: about
-1.5 s, and it needs the network) and fails for an unknown model, an effort the model lacks or a failing `agy models`
-before agy runs; the effort check (`obor config validate`, a dispatch) reads the manifest only, no CLI. One limit: a
+recorded session id). A fresh start checks its model and effort against `agy models` (agy's own list, live, up to 4 s,
+in its own process group; the last good list is kept in `~/.obor/agy/models` and used when the live call fails) and
+fails for an unknown model or an effort the model lacks before agy runs; a resume checks nothing; the effort check (`obor config validate`, a dispatch) reads the manifest only, no CLI. One limit: a
 custom model from agy's settings (`customModels`) that `agy models` leaves out is refused at the start. The manifest's
 `not_ready` matches the notice agy shows when it still runs another model. Stop: `/exit`. The context size is the conversation's `transcript.jsonl`
 (`~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`).

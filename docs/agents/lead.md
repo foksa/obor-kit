@@ -12,9 +12,13 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
 - Main checkout `~/Work/obor-kit` (branch `main`); lanes `~/Work/obor-kit-wt/<LANE>`; who runs where:
   `obor status` (or obor web). The `obor` on PATH is the stable checkout: in obor-kit use `./bin/obor` for main's code.
 - Milestone end: tag `m<n>-<name>` after the deep dive's easy findings are fixed and verified.
+- A spec that changes behaviour `docs/design.md` describes names those design.md lines (as it names its test change),
+  and the lead updates them at merge. A `deny` a hook transport writes that is not "the guard said so" or "the guard did
+  not answer" is a review finding by default (rules live in the guard).
 - Before each release, two deep dives on the same brief (owner 11-22, until the new kinds settle): the deep dive on
   `opus:high` first; move its file out of the project; set `agents.roles.deep_dive` to `gemini` (agy) and brief it fresh;
-  set the role back; then the advisor verifies both against the code and says what to fix before the tag.
+  set the role back; then the advisor verifies both against the code and says what to fix before the tag. The brief
+  asks for a probe wherever one is cheap.
 - Integrator: ob-int (`agents.roles.integrator`). The lead never merges by hand; `obor serve` gates a finished lane and
   sends ob-int its review job (`obor status --facts` shows the task move through gate → review).
 - A merge-loop needs-you of obor serve (`obor status --facts`: held, job not delivered/stalled, red past K, publish,

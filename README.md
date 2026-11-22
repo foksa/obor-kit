@@ -6,7 +6,7 @@ family. Every agent runs in a visible [herdr](https://github.com/herdrdev/herdr)
 dispatches tasks, runs the merge checks, merges and tells the lead what needs a human.
 
 It ships as a Claude Code plugin (`obor`: the lead skill, role texts, guard hooks, an MCP server) plus one Go binary.
-Workers can be Claude Code, Codex or OpenCode.
+Workers can be Claude Code, Codex, OpenCode or agy (Antigravity CLI).
 
 > **Status:** early: built and used daily by one person on two projects. Expect rough edges and breaking changes
 > between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md` (the current minor's in
@@ -139,6 +139,7 @@ kind for every agent of that CLI but the lead:
 | `.obor/codex/config_override.toml` | `~/.codex/config.toml` (`$CODEX_HOME`) |
 | `.obor/codex/hooks_override.json` | `~/.codex/hooks.json` |
 | `.obor/opencode/opencode_override.json` | `~/.config/opencode/opencode.json[c]` (`$XDG_CONFIG_HOME/opencode`) |
+| `.obor/agy/settings_override.json` | agy's saved settings, laid over by top-level key (a lead takes its rules, never `toolPermission`/`agentMode`) |
 
 The merge is a JSON Merge Patch (RFC 7396), for TOML on the parsed tables: an object (a table) merges key by key,
 so you write only what changes; `null` deletes a key; anything else, a list too, replaces yours whole. The file is
