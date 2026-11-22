@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"obor/internal/agents"
 	"obor/internal/config"
@@ -80,27 +83,91 @@ func fixFor(m agents.MCPRegistration) string {
 	return fixHint
 }
 
+// pathKitTimeout bounds the obor help call pathWarning runs to ask the shim which kit it runs.
+const pathKitTimeout = 5 * time.Second
+
 // pathWarning: kind name's project file names obor by PATH, so its agents run the obor the project env's PATH finds for
-// their MCP server and hooks: a WARN when that is none, or another kit's. The kit is resolved as bin/obor resolves its
-// own: the file's symlinks followed, then the parent of its directory.
-func (s *Setup) pathWarning(name string) {
+// their MCP server and hooks: a WARN when that is none, cannot be asked, or runs another kit. The shim owns the choice
+// (self-hosting included), so pathWarning runs it with help in the project root.
+func (s *Setup) pathWarning(ctx context.Context, name string) {
 	found, err := project.LookPath(s.Env.Get("PATH"), "obor")
 	if err != nil {
 		s.say("WARN mcp %s: no obor on PATH: its agents' MCP server and hooks do not start", name)
 		return
 	}
-	root := filepath.Dir(filepath.Dir(project.Physical(found)))
+	dir := s.root
+	if dir == "" {
+		dir = s.Dir
+	}
+	root, err := shimKit(ctx, found, dir)
+	if err != nil {
+		s.say("WARN mcp %s: could not tell which kit the obor on PATH (%s) runs (%v): %s's hooks and MCP server run it",
+			name, found, err, name)
+		return
+	}
+	root = project.Physical(root)
 	if own := project.Physical(s.Kit); root != own {
 		s.say("WARN mcp %s: the obor on PATH (%s, kit %s) is not this kit (%s): %s's hooks and MCP server run it",
 			name, found, root, own, name)
 	}
 }
 
+// shimKit runs path with help in dir under pathKitTimeout as its own process group, with OBOR_SELF_HOSTED and
+// OBOR_NO_SELF_HOST unset (as an agent's pane has them) and OBOR_NO_FETCH=1 (no network), and returns its
+// "plugin root:" line.
+func shimKit(ctx context.Context, path, dir string) (string, error) {
+	tctx, cancel := context.WithTimeout(ctx, pathKitTimeout)
+	defer cancel()
+	execPath := path
+	if !filepath.IsAbs(execPath) {
+		if a, err := filepath.Abs(execPath); err == nil {
+			execPath = a
+		}
+	}
+	cmd := exec.CommandContext(tctx, execPath, "help")
+	cmd.Dir = dir
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "OBOR_SELF_HOSTED=") ||
+			strings.HasPrefix(kv, agents.Pin+"=") ||
+			strings.HasPrefix(kv, "OBOR_NO_FETCH=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "OBOR_NO_FETCH=1")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cleanup := project.Group(cmd)
+	defer cleanup()
+	if err := cmd.Run(); err != nil {
+		if errors.Is(tctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return "", fmt.Errorf("timed out after %s", pathKitTimeout)
+		}
+		return "", errors.New(exitText(err))
+	}
+	root := pluginRootLine(stdout.String())
+	if root == "" {
+		return "", errors.New("no plugin root line")
+	}
+	return root, nil
+}
+
+// pluginRootLine is the path on the "plugin root: <path>" line of obor help's output, or "" when absent.
+func pluginRootLine(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "plugin root:"); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
 // mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project uses (usedKinds; the others are
 // "not used", never a WARN) whether the obor MCP server is registered, then `obor mcp --check` (the handshake against
 // the server itself); --model <name> instead asks for that model alone, from its effective start args.
 // Read-only.
-func (s *Setup) mcpCmd(_ context.Context, args []string) error {
+func (s *Setup) mcpCmd(ctx context.Context, args []string) error {
 	lane := ""
 	switch {
 	case len(args) == 2 && args[0] == "--model" && args[1] != "":
@@ -109,7 +176,7 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 		return errUsage
 	}
 	if lane != "" {
-		return s.mcpLane(lane)
+		return s.mcpLane(ctx, lane)
 	}
 	used, err := s.usedKinds()
 	if err != nil {
@@ -143,7 +210,7 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 			s.say("mcp %s: registered by each project's %s (obor setup agents in the project writes it)", name, m.Path)
 			continue
 		case m.Where == agents.Project:
-			s.pathWarning(name)
+			s.pathWarning(ctx, name)
 		}
 		// a manifest (every obor pane of the kind loads it with the plugin) or the project's file
 		fix := fixFor(m)
@@ -215,7 +282,7 @@ func (s *Setup) usedKinds() (map[string]bool, error) {
 // args on every start; opencode: the start's generated config (OPENCODE_CONFIG). It starts no agent and runs no `claude -p`
 // (a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake: `obor setup mcp`
 // runs it.
-func (s *Setup) mcpLane(name string) error {
+func (s *Setup) mcpLane(ctx context.Context, name string) error {
 	if err := s.load(); err != nil {
 		return err
 	}
@@ -270,7 +337,7 @@ func (s *Setup) mcpLane(name string) error {
 		by := "the plugin manifest"
 		if m.Where == agents.Project {
 			by = "the project's file"
-			s.pathWarning(lt.Kind)
+			s.pathWarning(ctx, lt.Kind)
 		}
 		switch state, path, err := registration(m); {
 		case err != nil:
