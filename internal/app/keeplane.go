@@ -104,28 +104,38 @@ func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref s
 }
 
 // pastHandoff: the session of the agent in pane is larger than the project's handoff_tokens (under mu; 0: off). Its
-// transcript is the recorded session's, else the one herdr names; none readable is not past. A transcript's size is
-// the kind's read (project.ContextOf).
+// transcript and kind are the recorded session's, else the transcript herdr names for the pane's agent kind; none
+// readable is not past. A transcript's size is that one kind's read (project.ContextOf, bounded for the lock).
 func (a *App) pastHandoff(p *proj, cfg *config.Config, pane port.Pane) bool {
 	limit := cfg.HandoffTokens()
 	if limit <= 0 {
 		return false
 	}
-	path := cmp.Or(a.transcript(p, pane), a.activity.Transcript(p.kind(pane.Agent), pane))
+	path, kind := a.sessionFile(p, pane)
 	var n int
 	var ok bool
 	if tokens := a.opt.Tokens; tokens != nil {
 		n, ok = tokens(path)
 	} else {
-		n, ok = transcriptTokens(a.p.kinds(), path)
+		n, ok = transcriptTokens(a.p.kinds(), kind, path)
 	}
 	return ok && int64(n) > limit
 }
 
-// transcriptTokens is a transcript's context size as the project's kinds read it (project.ContextOf; ok false:
-// none read).
-func transcriptTokens(kinds agents.Kinds, path string) (int, bool) {
-	c, ok := project.ContextOf(kinds, path)
+// sessionFile is the transcript of pane's agent and the kind that reads it (under mu): its recorded current session's
+// (its transcript, else the one herdr names, read as the session's kind), else herdr's for the pane's agent kind.
+func (a *App) sessionFile(p *proj, pane port.Pane) (path, kind string) {
+	if agent, ok := p.reg.WhoIs(pane); ok {
+		if s, ok := p.session(agent); ok && s.Kind != "" {
+			return cmp.Or(s.Transcript, a.activity.Transcript(p.kind(s.Kind), pane)), s.Kind
+		}
+	}
+	return a.activity.Transcript(p.kind(pane.Agent), pane), pane.Agent
+}
+
+// transcriptTokens is a transcript's context size as kind reads it (project.ContextOf; ok false: none read).
+func transcriptTokens(kinds agents.Kinds, kind, path string) (int, bool) {
+	c, ok := project.ContextOf(kinds, kind, path)
 	return c.Tokens, ok
 }
 

@@ -185,7 +185,7 @@ func TestModelsEntries(t *testing.T) {
 	if m, ok := c.Model("bare"); ok {
 		t.Errorf("Model(bare) = %+v, want no model: its entry names no kind", m)
 	}
-	if err := c.CheckModelRef("bare"); err == nil || err.Error() != `"bare" names no kind: set agents.models.bare.kind (claude, codex, opencode)` {
+	if err := c.CheckModelRef("bare"); err == nil || err.Error() != `"bare" names no kind: set agents.models.bare.kind (agy, claude, codex, opencode)` {
 		t.Errorf("CheckModelRef(bare) = %v, want the missing kind named", err)
 	}
 }

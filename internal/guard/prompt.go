@@ -98,8 +98,8 @@ func promptContext(out io.Writer, ctx string) {
 }
 
 // handoffReminder (reminder): the lead's session context (sid, else the transcript file's name;
-// the transcript at path, else project.TranscriptOf) above handoff_tokens → a reminder to hand off at the next logical
-// break: the Handoff section of BACKLOG.md, then the handoff restart `obor restart <you> --handoff` of agent ("<you>"
+// the transcript at path, else project.TranscriptOf; read by the session's kind alone, leadKind) above handoff_tokens
+// → a reminder to hand off at the next logical break: the Handoff section of BACKLOG.md, then the handoff restart `obor restart <you> --handoff` of agent ("<you>"
 // when unknown), which obor restart schedules from the agent's own pane until it is idle. Only the lead is reminded:
 // a role agent restarts with a plain --fresh. Nothing forces the handoff: the agent picks the break. "" = no reminder.
 func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path string) string {
@@ -113,7 +113,7 @@ func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path strin
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
 		path = project.TranscriptOf(cfg.Root, sid, env, cfg.Kinds())
 	}
-	c, ok := project.ContextOf(cfg.Kinds(), path)
+	c, ok := project.ContextOf(cfg.Kinds(), leadKind(cfg, agent, sid), path)
 	if !ok || int64(c.Tokens) <= limit {
 		return ""
 	}
@@ -123,6 +123,15 @@ func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path strin
 		"steps), commit it, then run " + restart
 	return fmt.Sprintf("obor (lead): context is %dk (> %dk). Hand off at the next logical break, not in the middle of work: %s. "+
 		"If the person is talking with you, ask them first.", (c.Tokens+500)/1000, limit/1000, when)
+}
+
+// leadKind is the kind of the lead's session sid: the kind its record in the project's store names, else the kind
+// agent runs as in the main checkout (sessionKind: what the SessionStart hook records for it).
+func leadKind(cfg *config.Config, agent, sid string) string {
+	if s, ok := store.SessionAt(cfg.Root, sid); ok && s.Kind != "" {
+		return s.Kind
+	}
+	return sessionKind(cfg, agent, cfg.Root)
 }
 
 var (

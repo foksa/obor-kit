@@ -13,7 +13,9 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/store"
 )
 
 // dispatchSonnet folds T-1's dispatch onto L-01 as sonnet: the start's row takes its ref at the fold (foldStart).
@@ -107,10 +109,11 @@ func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 	}
 }
 
-// A keep lane's handoff size is the kind's read of its session's transcript (project.ContextOf over the project's
-// kinds): the probe line no compiled kind reads sizes pj-l-01's session only through the fake kind, and the kind's
-// count, not a fixed yes, is what the threshold sees.
-func TestPastHandoffReadsTheKindsContext(t *testing.T) {
+// A keep lane's handoff size is its session's kind's read of the session's transcript (project.ContextOf, that kind
+// alone): the probe line no compiled kind reads sizes pj-l-01's session recorded as ctxprobe through that kind, and the
+// kind's count, not a fixed yes, is what the threshold sees; the same transcript of a session recorded as claude is
+// not past (ctxprobe is not asked).
+func TestPastHandoffReadsTheSessionsKind(t *testing.T) {
 	t.Parallel()
 	h, _ := seedSched(t, false)
 	probe := `{"type":"ctx-probe","tokens":%d,"at":"2026-10-13T10:00:00Z"}`
@@ -130,8 +133,15 @@ func TestPastHandoffReadsTheKindsContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	record := func(kind, id string) {
+		t.Helper()
+		if _, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: "pj-l-01", Kind: kind, ID: id,
+			Transcript: file, Pane: "w1:p1", Lane: "L-01", Task: "T-1", Started: 100, Source: "SessionStart hook"})); err != nil {
+			t.Fatal(err)
+		}
+	}
 	write(900000)
-	h.session("pj-l-01", "s1", file, 100)
+	record("ctxprobe", "s1")
 	h.a.opt.Kinds = func() agents.Kinds { return agents.WithPlugins([]agents.Kind{ctxKind{}}) }
 	p := reloadProj(t, h)
 	cfg := loadCfg(t, h.root)
@@ -147,6 +157,12 @@ func TestPastHandoffReadsTheKindsContext(t *testing.T) {
 	write(10)
 	if past() {
 		t.Error("pastHandoff = true at the kind's 10 tokens, want false")
+	}
+	write(900000)
+	record("claude", "s2")
+	p = reloadProj(t, h)
+	if past() {
+		t.Error("pastHandoff = true for a session recorded as claude: only its kind reads its transcript")
 	}
 }
 

@@ -125,8 +125,8 @@ func initEnv(t *testing.T, more map[string]string) (env []string, log, home stri
 	return env, log, home
 }
 
-// obor init in a clean project with the kit binary (the real obor-kind-opencode beside obor)
-// caches OpenCode's manifest before its panes; init in a project whose integrator is OpenCode's (its pane's start
+// obor init in a clean project with the kit binary (the real obor-kind-opencode and obor-kind-agy beside obor)
+// caches the kit kinds' manifests (OpenCode's checked here) before its panes; init in a project whose integrator is OpenCode's (its pane's start
 // built from the manifest) succeeds, obor setup mcp --model deepseek works there with no hand step, and so does the
 // rerun.
 func TestInitCachesThePluginKinds(t *testing.T) {
@@ -140,7 +140,9 @@ func TestInitCachesThePluginKinds(t *testing.T) {
 			t.Fatalf("%s: precondition: no manifest cached (%v)", what, err)
 		}
 		rc, stdout, stderr := run(t, p.Root, env, "init")
-		if rc != 0 || !strings.Contains(stdout, "  kinds      done     opencode: manifest cached") {
+		// the config's own plugin kinds first, then the kit kinds it names none for (config.PluginKinds)
+		if rc != 0 || !strings.Contains(stdout, "  kinds      done     agy, opencode: manifest cached") &&
+			!strings.Contains(stdout, "  kinds      done     opencode, agy: manifest cached") {
 			t.Fatalf("%s: exit %d\n%s%s", what, rc, stdout, stderr)
 		}
 		b, err := os.ReadFile(cacheOf(p))

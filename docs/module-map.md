@@ -80,7 +80,7 @@ imports no obor package (every other layer may import it). `agents.Kind`: `Name`
 Install` (MCP registration), `Transcript(env, sid)` (a glob: the file of that session id, no cwd — a
 kind's directory for it is the kind's own), `Session(first line)` (the session a
 transcript begins with: Codex's `session_meta`), `Context(tail)` (a session's context size from its own transcript
-format; `project.ContextOf` reads a file's tail and asks the kinds that keep one), `Deliver(text, record) (Delivery,
+format; `project.ContextOf` reads a file's tail and gives it to the session's recorded kind alone), `Deliver(text, record) (Delivery,
 bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
 transcript, a named session: `NamedSession`, obor chooses the id of a fresh start; `Status`, where the status and
@@ -88,8 +88,8 @@ turns come from: `terminal`, `hooks`, `transcript`; `App`, the name its agents r
 `Start(Start) []string`, the fresh/resume argv, MCP registration and first prompt, `Start.Read` the adapter's file read;
 `StartEnv`, a start's own env) or `agents.Whole` (a plugin kind's one start call: its argv, env and files together;
 a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds alone, each registered from its init; a
-project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode's the kit's
-binary, `kinds/opencode`), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
+project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode's and agy's
+the kit's binaries, `kinds/opencode`, `kinds/agy`), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
 built once at the launch boundary from the complete `agents.Start` (`agents.StartOf`), and a plugin kind's start and
 install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A project's kinds:
@@ -102,7 +102,11 @@ binary `obor-kind-opencode` (`main.go`: stdin → `kind.Handle` → stdout) besi
 the kind: the manifest, `start` (the args without `--model`, `--prompt`; `OBOR_OPENCODE_MODEL` model#effort and
 `OPENCODE_CONFIG`, the generated config with obor's MCP server and plugin `<kit>/opencode`), `turn` (a `rate_limit`'s
 reset; no turn, session or context read), `project-warnings`. It imports `agents` only (`Pin`, `ResetIn`); testkit
-registers its handler in process (`plugin.Local`).
+registers its handler in process (`plugin.Local`). `kinds/agy` (`obor-kind-agy`), the same shape: package
+`kinds/agy/kind` is the manifest, `start` (`--settings` with the start's settings file, `settings.go`: the user's saved
+agy settings, the project's `settings_override.json` and obor's entries; the model and `--effort`; `-i` or
+`--conversation`), `install` (`where: project`, `.agents/mcp_config.json`), `turn` (`context` from `transcript.jsonl`,
+a limit's reset).
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

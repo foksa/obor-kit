@@ -429,8 +429,8 @@ func TestShipPushDoneWhenOriginContainsMain(t *testing.T) {
 	}
 }
 
-// Ship publish row: done is a release that is not a draft and has all eight assets (obor and the
-// OpenCode kind per platform). A release missing some gets only those, after scripts/publish's byte checks; a draft
+// Ship publish row: done is a release that is not a draft and has all its assets (obor and the kit's
+// kinds per platform). A release missing some gets only those, after scripts/publish's byte checks; a draft
 // stops with the exact repair command.
 func TestShipPublishEvidence(t *testing.T) {
 	t.Parallel()

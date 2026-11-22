@@ -424,29 +424,35 @@ func TestSelfDerivesTheName(t *testing.T) {
 	}
 }
 
-func TestContextOfReadsThroughTheKind(t *testing.T) {
+// A session's context is read by its kind alone: the file's tail goes to the named kind, never to another kind that
+// keeps a transcript (one named first that would read the same line included); no kind, an unknown kind, one that
+// keeps no transcript, one that reads nothing in the tail, or no file reads none.
+func TestContextOfAsksTheSessionsKindOnly(t *testing.T) {
 	t.Parallel()
 	file := filepath.Join(t.TempDir(), "t.jsonl")
 	os.WriteFile(file, []byte(`{"type":"ctx-probe","tokens":7,"at":"2026-10-13T10:00:00Z"}`+"\n"), 0o644)
-	k := &probeKind{name: "probe", read: true}
-	got, ok := ContextOf(agents.WithPlugins([]agents.Kind{k}), file)
+	first, k := &probeKind{name: "aaa", read: true}, &probeKind{name: "probe", read: true}
+	kinds := agents.WithPlugins([]agents.Kind{k, first, &untranscribed{}})
+	got, ok := ContextOf(kinds, "probe", file)
 	if !ok || got.Tokens != 7 || got.At.Unix() != 1791885600 || k.seen != `{"type":"ctx-probe","tokens":7,"at":"2026-10-13T10:00:00Z"}`+"\n" {
-		t.Errorf("ContextOf = %+v %v, kind saw %q; want the kind's 7 at 10:00 and the file's one line",
-			got, ok, k.seen)
+		t.Errorf("ContextOf = %+v %v, kind saw %q; want the kind's 7 at 10:00 and the file's one line", got, ok, k.seen)
 	}
-	// Kinds are asked in name order: one whose format it is not reads nothing and the next reads it.
-	other, k := &probeKind{name: "aaa"}, &probeKind{name: "probe", read: true}
-	if got, ok := ContextOf(agents.WithPlugins([]agents.Kind{k, other}), file); !ok || got.Tokens != 7 ||
-		other.seen != "" || k.seen == "" {
-		t.Errorf("ContextOf with a non-reading kind first = %+v %v (seen %q, %q); want the reading kind's answer",
-			got, ok, other.seen, k.seen)
+	if first.seen != "" {
+		t.Errorf("another kind was asked: it saw %q", first.seen)
 	}
-	// A kind that keeps no transcript is not asked.
-	if _, ok := ContextOf(agents.WithPlugins([]agents.Kind{&untranscribed{}}), file); ok {
-		t.Error("ContextOf read by a kind whose caps keep no transcript")
+	k.seen = ""
+	silent := &probeKind{name: "silent"}
+	kinds = agents.WithPlugins([]agents.Kind{k, first, silent, &untranscribed{}})
+	for _, c := range []struct{ name, kind, file string }{
+		{"no kind", "", file}, {"an unknown kind", "gone", file}, {"a kind that keeps no transcript", "untranscribed", file},
+		{"a kind that reads nothing in it", "silent", file}, {"no file", "probe", ""},
+	} {
+		if got, ok := ContextOf(kinds, c.kind, c.file); ok {
+			t.Errorf("%s: ContextOf = %+v, want none", c.name, got)
+		}
 	}
-	if _, ok := ContextOf(agents.WithPlugins([]agents.Kind{k}), ""); ok {
-		t.Error("ContextOf with no file: ok")
+	if first.seen != "" || k.seen != "" {
+		t.Errorf("a kind other than the session's was asked: %q, %q", first.seen, k.seen)
 	}
 }
 

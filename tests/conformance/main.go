@@ -2,7 +2,7 @@
 
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
-// `make conformance [KIND=herdr|claude|codex|opencode|plugin|hc] [TIER=static|live] [TURN=1] [TERMINAL=hc]` (plugin: the
+// `make conformance [KIND=herdr|claude|codex|opencode|agy|plugin|hc] [TIER=static|live] [TURN=1] [TERMINAL=hc]` (plugin: the
 // kind protocol against a shell-script kind, static only; hc: the hc probes of live_hc.go, live only, run only when
 // named; TERMINAL=hc: the live tier's agent kinds start on hc instead of herdr, live_hcterm.go). Each
 // check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them.
@@ -55,7 +55,7 @@ func at(file, needle string) string {
 }
 
 // kinds are the kinds the suite checks, in the order a run without KIND takes them.
-var kinds = []string{"herdr", "claude", "codex", "opencode"}
+var kinds = []string{"herdr", "claude", "codex", "opencode", "agy"}
 
 func main() {
 	kind, tier, turn := os.Getenv("KIND"), os.Getenv("TIER"), os.Getenv("TURN") == "1"
@@ -116,7 +116,7 @@ func main() {
 
 // static is each kind's static tier.
 var static = map[string]func(){"herdr": herdrStatic, "claude": claudeStatic, "codex": codexStatic, "opencode": opencodeStatic,
-	"plugin": pluginStatic, "herdrapp": herdrappStatic}
+	"agy": agyStatic, "plugin": pluginStatic, "herdrapp": herdrappStatic}
 
 // toRepoRoot moves to the directory holding go.mod, so the driver files named in the lines resolve.
 func toRepoRoot() error {

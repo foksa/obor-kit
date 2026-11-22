@@ -1,4 +1,4 @@
-# agy probes: what Antigravity CLI does at run time (T-1458)
+# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460)
 
 `docs/research/agent-kinds-advice.md` §1.1 lists nine questions (P1 to P9) the agy kind's design rests on, all
 answered from documents so far. This run started agy live and records what it did, with the command or screen that
@@ -48,6 +48,7 @@ Summary:
 | P7 | `agentapi send-message <conversationId> <text>` starts a turn in an idle session and reaches a busy one at its next model call; a half-typed draft stays. But the CSRF token it needs is only in the environment of commands the agent runs: not in hooks, not in MCP servers, not on disk. | lead lines: delivery works, getting the token to obor is open (see P7) |
 | P8 | `/exit` quits on one Enter (the popup's) and prints the resume command; Ctrl+D twice and Ctrl+C twice quit; Ctrl+U and Esc Esc clear the input. No dialog with background tasks running; they are stopped. Untrusted folder: "Do you trust the contents of this project?", default "Yes, I trust this folder". Self-update check at most every 15 min at start. A linked worktree is in `default-cli-project`, as the main checkout. | stop, not-ready, trust |
 | P9 | Auto mode (also the default here) runs commands in a sandbox: `go build`, `go test` and git reads pass; network and unix sockets are refused; writes outside the workspace, temp dirs and caches are refused. A PreToolUse deny is final. MCP calls prompt unless a `permissions.allow` rule names them. | D1: `--mode auto` works for a lane except anything that talks to a socket or the network |
+| P10 | A `command(<prefix>)` allow rule in the `--settings` file does not take a command out of the sandbox: `obor status` (allowed by `command(obor)`) reached no unix socket, a test allowed by `command(go test)` got `connect: operation not permitted`. A `read_url(proxy.golang.org)` rule opened the network: a module download passed, and so did `curl` to example.com, which no rule names; without the rules both failed. Nothing asked. | an agy lane in auto mode cannot dial serve or run socket tests; `toolPermission: "always-proceed"` (with obor's hooks) is the way for obor-kit's lanes |
 
 ## P1: workspace config, plugins.json, worktrees, skills
 
@@ -456,6 +457,45 @@ Decides (D1): `--mode auto` runs a worker's build, tests and git reads with no p
 (module downloads, `gh`), unix sockets and writes outside the workspace, temp dirs and caches. Every `obor` or `herdr`
 command a lane runs in a shell that talks to a socket fails there; obor's MCP server is started by agy outside the
 sandbox and is not affected. The fixed args also need obor's `permissions.allow` rule, or every obor MCP call asks.
+
+## P10: command and read_url allow rules in auto mode
+
+Question (`docs/research/agent-kinds-advice.md` §1.4): with `permissions.allow: ["command(obor)", "command(go test)"]`
+in the `--settings` file, do `obor status` and a test that opens a unix socket run in auto mode with no prompt; does
+`read_url(proxy.golang.org)` let a module download through.
+
+Ran (2026-11-22, agy 1.5.14, herdr 0.9.5, `gemini-3.8-flash-low`): the live conformance tier's P10 rows
+(`make conformance TIER=live TURN=1 KIND=agy`, `tests/conformance/live_agy.go` `agyP10`), twice in a throwaway herdr
+session: a worker start as obor builds it (auto mode from the start's settings file), once with the project's
+`.obor/agy/settings_override.json` allowing `command(obor)`, `command(go test)` and `read_url(proxy.golang.org)`, once
+with an empty override (the control). The first prompt asked for four commands, each its own `run_command`: `obor
+status` (the repository's own obor; the lab's stub serve listens on the project's socket and records every request),
+`go test ./sockprobe/` (a test that listens on a unix socket in its temp dir and dials it), `go mod download
+golang.org/x/text@v0.3.0` (a fresh `GOMODCACHE` in the lane, `GOPROXY=https://proxy.golang.org`, `GOSUMDB=off`) and
+`curl -sS -o /dev/null https://example.com` (a host no rule names). Results from the conversation's transcript.
+
+Saw:
+
+| Command | With the rules | Without (control) |
+|---|---|---|
+| `obor status` | exit 0, `serve: down (obor serve install)`; the stub serve got no request | the same |
+| `go test ./sockprobe/` | exit 1: `dial: dial unix …/T/TestUnixSocket…/001/s.sock: connect: operation not permitted` (the listen passed) | the same |
+| `go mod download golang.org/x/text@v0.3.0` | exit 0 | exit 1, agy's note `There were sandbox errors …` |
+| `curl -sS -o /dev/null https://example.com` | exit 0 | exit 6, the same note |
+
+- No permission prompt in either run: the commands ran in the sandbox (agy added its sandbox note to each failure).
+- `command(…)` rules did not lift the sandbox for these commands: a unix-socket connect is refused with or without
+  them, so `obor status`, `obor run` and every obor command that dials serve fail in an agy lane in auto mode (obor
+  status prints serve as down), as do tests that open a socket.
+- `read_url(proxy.golang.org)` opened the sandbox's network, and not for that host alone: `curl` to example.com
+  passed too. Whether any `read_url` rule opens all of it, or the rule matches more than its domain, was not
+  separated.
+
+Decides (D1): obor-kit's own lanes, whose worker doc runs `go test -tags integration` (unix sockets) before
+`task_done`, cannot run on agy in auto mode with allow rules; the advice's fallback stands: `toolPermission:
+"always-proceed"` in the project's override file once agy runs obor's hooks. A lead on agy needs the same (its obor
+commands dial serve). A project whose lanes need only the network can allow a `read_url` rule, knowing it opens more
+than the named host.
 
 ## Not verified
 

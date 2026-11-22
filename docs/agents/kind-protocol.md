@@ -10,6 +10,9 @@ changes (`docs/plan/architecture-target.md` §2a).
 `make build` writes it as `dist/obor-kind-opencode` beside `dist/obor`; a release ships it beside obor's binary
 (`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor` into `~/.obor/bin` with obor's). `opencode/obor.js` stays
 its hook transport. A test binary answers it in process (`plugin.Local`, testkit), with the handler the binary runs.
+The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, built and shipped the same way as
+`obor-kind-agy`: obor's MCP server through the project's `.agents/mcp_config.json` (`install`'s `where: project`),
+no hooks yet.
 
 ## Register one
 
@@ -19,9 +22,9 @@ its hook transport. A test binary answers it in process (`plugin.Local`, testkit
 
 - `agents.kinds.<name>.plugin`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
   (`agents.models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's. The name of a binary the kit ships
-  (`obor-kind-opencode`, `config.KitKinds`) is that binary beside the running obor (`config.KitKind`: `dist/obor`'s
+  (`obor-kind-opencode`, `obor-kind-agy`, `config.KitKinds`) is that binary beside the running obor (`config.KitKind`: `dist/obor`'s
   `dist/obor-kind-opencode`, a release binary's same-suffixed file in `~/.obor/bin`). `obor init` writes
-  `"opencode": {"plugin": "obor-kind-opencode"}`.
+  `"opencode": {"plugin": "obor-kind-opencode"}` and `"agy": {"plugin": "obor-kind-agy"}`.
 - A config that uses OpenCode may name `agents.kinds.opencode.plugin` (`"plugin": "obor-kind-opencode"`); with no
   line it runs the kit's binary all the same (`config.KitKinds`, the default). `obor setup agents` caches the
   resolved command's manifest and writes nothing to the config (a value obor derives needs no line).
@@ -42,7 +45,8 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 - The request always has `"version": 1` and `"call": "<call>"`, then the call's fields below.
 - The reply must have `"version": 1`. `"error": "<why>"` in a reply makes the call fail with that text.
 - The command runs in its own process group with obor's environment, under a timeout: `describe` 10 s, `install`
-  30 s, `start` and `turn` 5 s, `deliver` 3 s, `not-ready` 2 s. A timeout, a non-zero exit (its stderr's first line is
+  30 s, `start` and `turn` 5 s, `turn` `what: context` 1 s (it runs inside a lead's hook and under serve's lock),
+  `deliver` 3 s, `not-ready` 2 s. A timeout, a non-zero exit (its stderr's first line is
   quoted), a reply that does not parse or names another version is an error naming the kind and the call:
   `kind mykind: start: no reply within 5s`, `kind mykind: turn: exit 3: boom`, `kind mykind: deliver: malformed reply: …`.
 - Bytes (a transcript's tail, a file's contents) travel as JSON strings (text).
@@ -56,21 +60,29 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
 | `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `overrides`, `session`, `write_dirs`, `dir`, `root` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
-| `install` | `kit`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
+| `install` | `kit`, `root`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: context` + `tail`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; context: `ok`, `context: {tokens, at, ttl}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Context`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, the handoff reminder and a keep lane's handoff rule, a stop on an error |
 | `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
 | `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself) |
 
 An install reply registers nothing user-global: `mcp.where` is
-`manifest` or `start`, never `config`, and no `plugin` link is in it. A reply that carries either is refused with
-an error naming the field; a kind registers per launch or through the project's own files.
+`manifest`, `start` or `project`, never `config`, and no `plugin` link is in it. A reply that carries either is refused
+with an error naming the field; a kind registers per launch or through the project's own files.
+
+`where: project` is a file the project commits: `path` relative to the project's root (the request's `root`; an
+absolute path or one with `..` is refused), `key` the obor entry's place in the file's JSON (outermost first), `entry`
+the entry. `obor setup agents` writes the entry into the file, keeping its other entries, when the config has a model
+of the kind, and adds the file's path to `rules.protected_files`; the lead commits both. `obor setup mcp` checks the
+entry and, since such an entry names `obor` by `PATH`, warns when the `obor` on `PATH` is not the running kit's.
+agy's: `{"where": "project", "path": ".agents/mcp_config.json", "key": ["mcpServers", "obor"], "entry": {"command":
+"obor", "args": ["mcp"]}}`. With no `root` (outside a project) the path stays as the reply names it.
 
 Times are RFC 3339 strings ("" none).
 
 `turn` `what: context` is the kind's own transcript format: the tail's last main-chain line with a token count, its
-time and the cache TTL the line names (`"1h"`, `"5m"`, `"30m"`; `""` none). obor reads a session's context this way:
-the kinds that keep a transcript (`transcript` set), in name order, are given the file's last 400 lines, and the first
-whose format the tail is answers; a kind with no transcript answers `ok: false`.
+time and the cache TTL the line names (`"1h"`, `"5m"`, `"30m"`; `""` none). obor reads a session's context this way
+(`project.ContextOf`): the file's last 400 lines go to the kind the session is recorded as, that kind alone (a kind
+that keeps no transcript is not asked); a kind whose format the tail is not answers `ok: false`.
 
 ### start: the closures as data
 

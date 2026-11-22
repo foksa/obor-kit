@@ -70,6 +70,9 @@ func TestMakeBuildOut(t *testing.T) {
 		if got := readFile(t, filepath.Join(dir, "dist", "obor-kind-opencode")); got != "binary\n" {
 			t.Errorf("make build left %q at dist/obor-kind-opencode, want the built kind", got)
 		}
+		if !strings.Contains(build, "-o dist/obor-kind-agy ./kinds/agy") {
+			t.Errorf("the default build is %q, want the kind built as dist/obor-kind-agy", build)
+		}
 	})
 	t.Run("OUT: the binary lands there, not in dist/", func(t *testing.T) {
 		t.Parallel()

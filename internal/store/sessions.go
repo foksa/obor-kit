@@ -244,6 +244,19 @@ func CurrentAt(root, agent string) (Session, bool) {
 	return f.Current(agent)
 }
 
+// SessionAt is the newest record of session id in the project at root (the fold's admitted records); ok false: none
+// recorded, or the store cannot be read.
+func SessionAt(root, id string) (Session, bool) {
+	ss, _ := sessionFacts(root)
+	owned := Owned(ss)
+	for i := len(owned) - 1; i >= 0; i-- {
+		if owned[i].ID == id {
+			return owned[i], true
+		}
+	}
+	return Session{}, false
+}
+
 // TranscriptAt is the recorded transcript of session id in the project at root ("": none recorded).
 func TranscriptAt(root, id string) string {
 	ss, _ := sessionFacts(root)
