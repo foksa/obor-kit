@@ -264,9 +264,10 @@ func TestStartSettingsFile(t *testing.T) {
 	}
 }
 
-// claude_override.json naming mcpServers makes the start strict on an MCP file obor writes: the user's servers
-// (~/.claude.json's own and those it holds for the project's root) with the override laid over them, the project's
-// approved .mcp.json servers and obor's own. Without mcpServers in it the start is as without the file.
+// A role agent's start (trimmed, not a lane) with claude_override.json naming mcpServers is strict on an MCP file
+// obor writes: the user's servers (~/.claude.json's own and those it holds for the project's root) with the override
+// laid over them, the project's approved .mcp.json servers and obor's own. Without mcpServers in it the start is as
+// without the file. A lane's start builds the file from the approved project servers instead (TestStartMCPOverrideLane).
 func TestStartMCPOverride(t *testing.T) {
 	k := kind(t)
 	user := `{"mcpServers":{"blender":{"command":"b"},"x":{"command":"x"}},` +
@@ -316,6 +317,72 @@ func TestStartMCPOverride(t *testing.T) {
 	}
 	if got := checker.OverrideWarnings(m.in(map[string]string{claude.MCPOverride: `{"mcpServers": {}}`}, nil)); len(got) != 0 {
 		t.Errorf("OverrideWarnings of mcpServers alone = %q, want none", got)
+	}
+}
+
+// A lane's start (StrictMCP) with claude_override.json naming mcpServers builds its MCP file from the project's
+// approved .mcp.json servers with the override laid over them, then obor's own: the user's servers never reach it.
+// A role agent with the same override keeps the user's servers (TestStartMCPOverride), and a lane with no override
+// stays strict on the inline config of the approved servers and obor's alone.
+func TestStartMCPOverrideLane(t *testing.T) {
+	k := kind(t)
+	user := `{"mcpServers":{"blender":{"command":"b"},"x":{"command":"x"}},` +
+		`"projects":{"/main":{"mcpServers":{"local":{"command":"l"}}}}}`
+	m := machine{files: map[string]string{userFile: user,
+		"/lane/.mcp.json": `{"mcpServers":{"proj":{"command":"p"},"unapproved":{"command":"u"}}}`,
+		projSettings:      `{"enabledMcpjsonServers":["proj"]}`}}
+	override := `{"mcpServers": {"mine": {"command": "m"}, "obor": {"command": "fake"}}}`
+	var ours map[string]map[string]any
+	if err := json.Unmarshal([]byte(claude.MCPConfig("/kit")), &ours); err != nil {
+		t.Fatal(err)
+	}
+	obor, _ := json.Marshal(ours["mcpServers"]["obor"])
+
+	// a lane: the approved project server and the override's, obor's own last (the override's obor entry loses).
+	in := m.in(map[string]string{claude.MCPOverride: override}, nil)
+	in.Kit, in.Prompt, in.StrictMCP = "/kit", "go", true
+	l, err := agents.StartOf(k, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--model", "opus", "--mcp-config", mcpFile, "--strict-mcp-config", "--setting-sources", "project,local",
+		"--settings", stateFile, "--", "go"}; !slices.Equal(l.Args, want) {
+		t.Errorf("argv\n %q\nwant\n %q", l.Args, want)
+	}
+	oborEntry := `"obor":` + string(obor)
+	want := `{"mcpServers":{"mine":{"command":"m"},` + oborEntry + `,"proj":{"command":"p"}}}`
+	if got := m.written(t, claude.StateMCP("pj-l-01")); got != want {
+		t.Errorf("a lane's MCP file\n %s\nwant (the user's blender, x and local absent, the approved proj and the override's mine in, obor's own last)\n %s",
+			got, want)
+	}
+
+	// a role agent with the same override: the user's servers stay (the override still only removes and adds).
+	role := m.in(map[string]string{claude.MCPOverride: override}, nil)
+	role.Kit, role.Prompt = "/kit", "go"
+	if _, err := agents.StartOf(k, role); err != nil {
+		t.Fatal(err)
+	}
+	want = `{"mcpServers":{"blender":{"command":"b"},"local":{"command":"l"},"mine":{"command":"m"},` + oborEntry +
+		`,"proj":{"command":"p"},"x":{"command":"x"}}}`
+	if got := m.written(t, claude.StateMCP("pj-l-01")); got != want {
+		t.Errorf("a role agent's MCP file\n %s\nwant (the user's blender, x and local kept)\n %s", got, want)
+	}
+
+	// a lane with no override: no MCP file, strict on the inline config of the approved server and obor's.
+	bare := m.in(nil, nil)
+	bare.Kit, bare.StrictMCP = "/kit", true
+	l, err = agents.StartOf(k, bare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inline, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
+		"obor": ours["mcpServers"]["obor"], "proj": map[string]any{"command": "p"}}})
+	if want := []string{"--model", "opus", "--mcp-config", string(inline), "--strict-mcp-config", "--setting-sources",
+		"project,local", "--settings", stateFile}; !slices.Equal(l.Args, want) {
+		t.Errorf("a lane's start without an override: argv %q, want %q", l.Args, want)
+	}
+	if _, wrote := m.state[claude.StateMCP("pj-l-01")]; wrote {
+		t.Errorf("a lane's start without an override wrote an MCP file: %v", m.state)
 	}
 }
 

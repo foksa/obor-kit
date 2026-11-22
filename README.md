@@ -134,7 +134,7 @@ kind for every agent of that CLI but the lead:
 | File | Merged over |
 | --- | --- |
 | `.obor/claude/settings_override.json` | `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR`) |
-| `.obor/claude/claude_override.json` | the `mcpServers` of `~/.claude.json` |
+| `.obor/claude/claude_override.json` | the `mcpServers` of `~/.claude.json` (a role agent) or the project's approved `.mcp.json` servers (a lane) |
 | `.obor/codex/config_override.toml` | `~/.codex/config.toml` (`$CODEX_HOME`) |
 | `.obor/codex/hooks_override.json` | `~/.codex/hooks.json` |
 | `.obor/opencode/opencode_override.json` | `~/.config/opencode/opencode.json[c]` (`$XDG_CONFIG_HOME/opencode`) |
@@ -176,10 +176,11 @@ the project's settings say (it is the project's word for its agents); obor sets 
 Your MCP servers are not in `settings.json` but in `~/.claude.json`: a lane's agent starts without them
 (`--strict-mcp-config`), a role agent keeps them. Only `mcpServers` of `claude_override.json` has an effect (validate
 warns on any other key). Once it names `mcpServers`, every agent but the lead starts with `--strict-mcp-config
---mcp-config .obor/state/mcp/<agent>.json`: the file holds your servers (the top-level `mcpServers` of
-`~/.claude.json` and those it keeps for the project's root) with the override merged over them, the project's
-`.mcp.json` servers its settings approve, and obor's own. Strict means those are all the agent loads: the MCP
-servers of other plugins and your claude.ai connectors are hidden too.
+--mcp-config .obor/state/mcp/<agent>.json`. A role agent's file holds your servers (the top-level `mcpServers` of
+`~/.claude.json` and those it keeps for the project's root) with the override merged over them, then the project's
+`.mcp.json` servers its settings approve; a lane's file holds those approved project servers with the override merged
+over them and nothing of the user's `~/.claude.json`. Either way obor's own server comes last. Strict means those are
+all the agent loads: the MCP servers of other plugins and your claude.ai connectors are hidden too.
 
 Codex agents (all but the lead) keep your `~/.codex/config.toml` and get `-c` options over it: the switches of the
 Codex rows above, then the override. Each key `config_override.toml` sets becomes one `-c <key>=<value>` (a table is
