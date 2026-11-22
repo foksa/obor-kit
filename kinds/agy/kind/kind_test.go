@@ -240,7 +240,9 @@ func TestStartModels(t *testing.T) {
 		}
 	}
 	failed := stubAGY(t, "", 1)
-	if _, _, err := started(t, k, agents.Start{Args: []string{"--model", "gemini-4-neon-high"}}); err == nil ||
+	fresh := home(t, "") // no cached list: the failure is the start's own
+	if _, _, err := started(t, k, agents.Start{Args: []string{"--model", "gemini-4-neon-high"},
+		Env: func(v string) string { return fresh[v] }}); err == nil ||
 		!strings.Contains(err.Error(), "agy models: exit 1: Error: timed out waiting for available models") {
 		t.Errorf("a failing agy models: %v, want the start's error naming its failure", err)
 	}
@@ -253,11 +255,137 @@ func TestStartModels(t *testing.T) {
 	}
 }
 
+// startReply is a start's protocol reply: its argv, its error and the lines it warns with.
+type startReply struct {
+	Args     []string `json:"args"`
+	Error    string   `json:"error"`
+	Warnings []string `json:"warnings"`
+}
+
+// startCall is one start as the binary answers it (Handle, or HandleModels for a check whose list the test supplies),
+// its reply.
+func startCall(t *testing.T, handle func(call string, req []byte) ([]byte, error), env map[string]string, start map[string]any) startReply {
+	t.Helper()
+	in := map[string]any{"version": kind.Version, "env": env}
+	for k, v := range start {
+		in[k] = v
+	}
+	req, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := handle("start", req)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	var r startReply
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatalf("start reply %s: %v", out, err)
+	}
+	return r
+}
+
+// modelsCacheFile is the model cache's path under h, written with text when that is not "".
+func modelsCacheFile(t *testing.T, h, text string) string {
+	t.Helper()
+	p := filepath.Join(h, kind.ModelsFile)
+	if text == "" {
+		return p
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A resume runs no `agy models` (the conversation keeps running the model it ran): the fake agy's marker stays empty
+// and the argv carries --conversation alone. A first start does run it, and keeps its answer as the cached list under
+// the start's HOME.
+func TestStartResumeChecksNoModel(t *testing.T) {
+	k := agy(t, t.TempDir())
+	env := home(t, "")
+	ran := stubAGY(t, stubList, 0)
+	start := func(resume string) []string {
+		t.Helper()
+		argv, _, err := started(t, k, agents.Start{Args: []string{"--model", "gemini-4-neon-high"}, Resume: resume,
+			Env: func(v string) string { return env[v] }})
+		if err != nil {
+			t.Fatalf("start (resume %q): %v", resume, err)
+		}
+		return argv
+	}
+	if argv := start(""); !ran() {
+		t.Errorf("precondition: a first start's check ran the fake agy, argv %q", argv)
+	}
+	p := modelsCacheFile(t, env["HOME"], "")
+	if cached, err := os.ReadFile(p); err != nil || string(cached) != stubList {
+		t.Errorf("the check's answer cached at %s: %q, %v; want the stub's list", p, cached, err)
+	}
+	ran = stubAGY(t, stubList, 0)
+	argv := start("c1")
+	if ran() {
+		t.Error("a resume ran agy models")
+	}
+	if want := []string{"--settings", "{settings}", "--model", "gemini-4-neon-high", "--conversation", "c1"}; !slices.Equal(argv, want) {
+		t.Errorf("a resume's argv = %q, want %q", argv, want)
+	}
+}
+
+// The start's model check falls back to the cached list: a live list is checked, a check that times out or fails
+// checks the last good list, a timeout with no list at all starts the ref unchecked with a WARN naming the cache, and
+// a failure with no list is the start's error.
+func TestStartModelCache(t *testing.T) {
+	timeout := func() ([]byte, error) { return nil, kind.ErrModelsTimeout }
+	failure := func() ([]byte, error) { return nil, fmt.Errorf("exit 1: no network") }
+	for _, c := range []struct {
+		name     string
+		live     func() ([]byte, error)
+		cached   string
+		ref      string
+		wantErr  string
+		wantWarn string // "{cache}" is the cache's path
+	}{
+		{"a live list checks the ref", func() ([]byte, error) { return []byte(stubList), nil }, "", "gemini-4-neon-high", "", ""},
+		{"a timeout checks the cached list", timeout, stubList, "gemini-3.8-flash-low", "", ""},
+		{"a failure checks the cached list", failure, stubList, "gemini-4-neon-high", "", ""},
+		{"a cached list still refuses an unknown model", timeout, stubList, "gemini-9-bogus",
+			"model gemini-9-bogus is not in agy models", ""},
+		{"a timeout with no list starts unchecked with a WARN", timeout, "", "gemini-4-neon-high", "",
+			"WARN agy models: no reply within 4s and no cached list in {cache}: the start's model is unchecked"},
+		{"a failure with no list is the error", failure, "", "gemini-4-neon-high", "agy models: exit 1: no network", ""},
+	} {
+		env := home(t, "")
+		p := modelsCacheFile(t, env["HOME"], c.cached)
+		r := startCall(t, kind.HandleModels(c.live), env, map[string]any{"args": []string{"--model", c.ref}})
+		switch {
+		case c.wantErr != "":
+			if !strings.Contains(r.Error, c.wantErr) {
+				t.Errorf("%s: reply %+v, want the error %q", c.name, r, c.wantErr)
+			}
+		case r.Error != "":
+			t.Errorf("%s: reply %+v, want a start", c.name, r)
+		case len(r.Args) < 4 || r.Args[0] != "--settings" || !strings.HasPrefix(r.Args[1], "{file:") ||
+			!slices.Equal(r.Args[2:], []string{"--model", c.ref}):
+			t.Errorf("%s: args %q, want --settings <file> --model %s", c.name, r.Args, c.ref)
+		}
+		want := strings.ReplaceAll(c.wantWarn, "{cache}", p)
+		switch {
+		case want == "" && len(r.Warnings) != 0:
+			t.Errorf("%s: warnings %q, want none", c.name, r.Warnings)
+		case want != "" && (len(r.Warnings) != 1 || r.Warnings[0] != want):
+			t.Errorf("%s: warnings %q, want %q", c.name, r.Warnings, want)
+		}
+	}
+}
+
 // A lead's start (untrimmed) and another agent's (trimmed) write their settings to different files, per start dir:
-// both are auto mode with obor's MCP and command rules; a trimmed start merges the project's override file whole, while
-// a lead's start merges it without its mode keys (toolPermission, agentMode) so the lead takes the override's rules and
-// other keys without its permission mode (without an override, a lead holds the user's saved permissions plus obor's
-// entries alone).
+// both take obor's MCP and command rules; a trimmed start merges the project's override file whole, its agentMode and
+// toolPermission included, while a lead's start merges it without those two keys: the lead takes the override's rules
+// and other keys, is always auto mode, and (without an override) holds the user's saved permissions plus obor's entries
+// alone.
 func TestStartSettingsLeadAndWorker(t *testing.T) {
 	k := agy(t, t.TempDir())
 	env := home(t, `{"colorScheme":"dark","permissions":{"allow":["command(git status)"],"deny":["command(rm)"]}}`)
@@ -281,7 +409,7 @@ func TestStartSettingsLeadAndWorker(t *testing.T) {
 		"deny": []any{"command(rm)"}}}); !reflect.DeepEqual(lead, want) {
 		t.Errorf("a lead's settings without an override = %v, want %v", lead, want)
 	}
-	wantWorker := map[string]any{"toolPermission": "always-proceed", "agentMode": "auto", "editorMode": "vim",
+	wantWorker := map[string]any{"toolPermission": "always-proceed", "agentMode": "plan", "editorMode": "vim",
 		"permissions": map[string]any{"allow": []any{"command(go test)", kind.MCPRule, kind.CommandRule},
 			"deny": []any{"command(rm)"}}}
 	if worker := start(true, over); !reflect.DeepEqual(worker, wantWorker) {
@@ -300,14 +428,15 @@ func TestStartSettingsLeadAndWorker(t *testing.T) {
 
 // Each key the settings file names is the user's saved value with the override laid over it (a JSON Merge Patch) and
 // obor's entries last; the user's other keys are left out (agy keeps its saved values), and so is a key the override
-// deletes. On a lead's start, the override's mode keys (toolPermission, agentMode) are ignored without mutating over.
+// deletes. A trimmed start's override names its agentMode; on a lead's start the override's mode keys (toolPermission,
+// agentMode) are ignored without mutating over, so a lead is always auto.
 func TestSettingsMerge(t *testing.T) {
 	user := map[string]any{"colorScheme": "dark", "model": "gemini-4-neon-high",
 		"permissions": map[string]any{"allow": []any{"command(ls)"}, "ask": []any{"read_url(*)"}}}
 	over := map[string]any{"model": nil, "toolPermission": "request-review", "agentMode": "plan", "editorMode": "vim",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", kind.MCPRule}, "ask": nil}}
 	got := kind.Settings(user, over, false, "", "")
-	want := map[string]any{"toolPermission": "request-review", "agentMode": "auto", "editorMode": "vim",
+	want := map[string]any{"toolPermission": "request-review", "agentMode": "plan", "editorMode": "vim",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", kind.MCPRule, kind.CommandRule}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Settings = %v, want %v", got, want)

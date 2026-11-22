@@ -9,12 +9,12 @@ import (
 )
 
 // OverrideFile is agy's override file (agents.OverrideDir: .obor/agy/), in agy's own settings format: laid over the
-// user's saved settings for every start (whole on a trimmed start; without modeKeys on a lead's start).
+// user's saved settings for every start (whole on a trimmed start; without modeKeys and agentMode on a lead's start).
 const OverrideFile = "settings_override.json"
 
-// modeKeys are the agy settings keys that set a permission or agent mode, omitted from the project's override on a
-// lead's start so a lead keeps plain auto mode while taking the override's permissions and other keys.
-var modeKeys = []string{"toolPermission", "agentMode"}
+// modeKeys are the agy settings keys that set a permission mode, omitted from the project's override on a lead's start
+// so a lead keeps plain auto mode while taking the override's permissions and other keys.
+var modeKeys = []string{"toolPermission"}
 
 // UserSettingsFile is the user's saved agy settings, relative to HOME.
 const UserSettingsFile = ".gemini/antigravity-cli/settings.json"
@@ -50,7 +50,8 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 //     keys, never its permission or agent mode; a key over deletes, null, is left out so the saved value applies);
 //   - agentMode "auto" for every agent, a lead too (auto mode runs commands in agy's sandbox and has its reviewer
 //     approve, with no prompt, the re-run of one the sandbox refused: a socket, the network, a write outside the
-//     workspace; docs/research/agy-probes.md P11), obor's hooks (hook.go) guarding every call;
+//     workspace; docs/research/agy-probes.md P11), obor's hooks (hook.go) guarding every call; a trimmed start's
+//     override names the mode it wants instead, and a lead's never applies (so a lead is always auto);
 //   - permissions, its allow list gaining MCPRule and CommandRule;
 //   - trustedWorkspaces gaining dir, only when root is in the user's saved trustedWorkspaces (the owner trusted the
 //     project in its main checkout; its lanes follow): else the key is left to the saved value, and agy asks.
@@ -69,6 +70,9 @@ func Settings(user, over map[string]any, lead bool, dir, root string) map[string
 		}
 	}
 	out["agentMode"] = "auto"
+	if mode := over["agentMode"]; !lead && mode != nil {
+		out["agentMode"] = mode
+	}
 	perms, _ := merged["permissions"].(map[string]any)
 	perms = maps.Clone(perms)
 	if perms == nil {

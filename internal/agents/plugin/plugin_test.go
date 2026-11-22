@@ -176,6 +176,20 @@ func TestCalls(t *testing.T) {
 	}
 }
 
+// A start's warnings are notes on a start it made anyway, not a failure: each goes to Log as one line naming the kind
+// and the call, and the start's argv is still the reply's.
+func TestStartLogsItsWarnings(t *testing.T) {
+	k, _ := kind(t, reply(`{"version":1,"args":["--x"],"warnings":["WARN no model list: the ref is unchecked"]}`))
+	log := logged(t)
+	l, err := k.StartWhole(agents.Start{Args: []string{"--a"}})
+	if err != nil || !slices.Equal(l.Args, []string{"--x"}) {
+		t.Errorf("StartWhole = %q, %v; want the reply's argv", l.Args, err)
+	}
+	if want := "obor: kind stub: start: WARN no model list: the ref is unchecked\n"; log.String() != want {
+		t.Errorf("Log = %q, want %q", log.String(), want)
+	}
+}
+
 // a kind cannot install to the user config, so install's reply may not name a user config entry or a plugin link
 // under ~/; a kind that does is refused with an error naming the rule.
 func TestInstallRefusesAUserConfigPath(t *testing.T) {
