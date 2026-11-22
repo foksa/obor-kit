@@ -10,34 +10,35 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"obor/internal/testkit"
 )
 
 // conformance-live (commands.conformance_live, the nightly's non-gating line): agy updates itself, so its live
 // conformance tier runs only when `agy --version` differs from the version its last live run recorded, and prints the
 // one line the nightly shows. The live tier is never run here: make is a stub that logs its argv and prints a
-// conformance summary, and agy is a fake that prints a version.
+// conformance summary, agy is a fake that prints a version, and git is a stub that answers the common-dir lookup.
 //
-// conformanceLiveFixture is a kit checkout for `make conformance-live`: the tree's Makefile and
-// scripts/conformance-live in a fixture repo (the record lives in the project's .obor/state, which the script finds
-// through git), a stub make (a live-fail file in Base makes it fail) and a stub dir where a test writes its agy.
+// conformanceLiveFixture is a plain project dir (no git) for `make conformance-live`: the tree's Makefile and
+// scripts/conformance-live in it, its record under .obor/state (which the script finds through git), a stub make (a
+// live-fail file in Base makes it fail), a stub dir where a test writes its agy, and the stub git that answers the
+// common-dir path.
 type conformanceLiveFixture struct {
-	*testkit.Project
+	Base    string // the test's temp dir
+	Root    string // the plain project dir, <Base>/proj
 	stub    string // the stub dir: first on PATH
 	makeLog string // the stub make's argv, one line per call
 }
 
 func newConformanceLiveFixture(t *testing.T) *conformanceLiveFixture {
 	t.Helper()
-	p := testkit.New(t)
-	writeFile(t, p.Path("Makefile"), string(treeFile(t, "Makefile")))
-	writeFile(t, p.Path("VERSION"), "1.2.3\n")
-	writeExec(t, p.Path("scripts/conformance-live"), string(treeFile(t, "scripts/conformance-live")))
-	f := &conformanceLiveFixture{Project: p, stub: filepath.Join(p.Base, "stub"), makeLog: filepath.Join(p.Base, "make.log")}
+	base := t.TempDir()
+	f := &conformanceLiveFixture{Base: base, Root: filepath.Join(base, "proj"), stub: filepath.Join(base, "stub"), makeLog: filepath.Join(base, "make.log")}
+	writeFile(t, f.Path("Makefile"), string(treeFile(t, "Makefile")))
+	writeFile(t, f.Path("VERSION"), "1.2.3\n")
+	writeExec(t, f.Path("scripts/conformance-live"), string(treeFile(t, "scripts/conformance-live")))
+	f.git(t, ".git")
 	writeExec(t, filepath.Join(f.stub, "make"), `#!/bin/sh
 echo "$*" >> "`+f.makeLog+`"
-if [ -f "`+filepath.Join(p.Base, "live-fail")+`" ]; then
+if [ -f "`+filepath.Join(f.Base, "live-fail")+`" ]; then
   echo "conformance: 9 pass, 1 fail, 0 skip, 0 warn"
   echo "make: *** [conformance] Error 1" >&2
   exit 1
@@ -45,6 +46,36 @@ fi
 echo "conformance: 9 pass, 0 fail, 0 skip, 0 warn"
 `)
 	return f
+}
+
+// git writes the fixture's stub git, which answers `rev-parse --git-common-dir` with common: `.git` for the plain
+// project dir, as a main checkout answers it, or the main checkout's absolute .git path for a lane worktree.
+func (f *conformanceLiveFixture) git(t *testing.T, common string) {
+	t.Helper()
+	writeExec(t, filepath.Join(f.stub, "git"), `#!/bin/sh
+[ "$*" = "rev-parse --git-common-dir" ] || { echo "stub git: $*" >&2; exit 1; }
+echo '`+common+`'
+`)
+}
+
+// Path is rel in the fixture's project dir (an absolute rel as it is).
+func (f *conformanceLiveFixture) Path(rel string) string {
+	if filepath.IsAbs(rel) {
+		return rel
+	}
+	return filepath.Join(f.Root, rel)
+}
+
+// Read is the fixture file rel, "" when it does not exist.
+func (f *conformanceLiveFixture) Read(rel string) string {
+	b, _ := os.ReadFile(f.Path(rel))
+	return string(b)
+}
+
+// Exists reports whether the fixture file rel exists.
+func (f *conformanceLiveFixture) Exists(rel string) bool {
+	_, err := os.Lstat(f.Path(rel))
+	return err == nil
 }
 
 // agy writes the fixture's agy, whose --version prints line.
@@ -144,8 +175,8 @@ func TestOborKitConformanceLive(t *testing.T) {
 		if failed {
 			t.Fatalf("make conformance-live failed:\n%s", out)
 		}
-		if got := strings.TrimSpace(readFileOr(f.makeLog)); got != "conformance TIER=live KIND=agy" {
-			t.Errorf("the live tier ran as make %q, want conformance TIER=live KIND=agy", got)
+		if got := strings.TrimSpace(readFileOr(f.makeLog)); got != "conformance TIER=live KIND=agy TURN=1" {
+			t.Errorf("the live tier ran as make %q, want conformance TIER=live KIND=agy TURN=1", got)
 		}
 		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.15\n" {
 			t.Errorf("the record is %q after the run, want the version it ran at", got)
@@ -167,8 +198,8 @@ func TestOborKitConformanceLive(t *testing.T) {
 		if failed {
 			t.Fatalf("make conformance-live failed with no recorded version:\n%s", out)
 		}
-		if got := strings.TrimSpace(readFileOr(f.makeLog)); got != "conformance TIER=live KIND=agy" {
-			t.Errorf("the live tier ran as make %q, want conformance TIER=live KIND=agy", got)
+		if got := strings.TrimSpace(readFileOr(f.makeLog)); got != "conformance TIER=live KIND=agy TURN=1" {
+			t.Errorf("the live tier ran as make %q, want conformance TIER=live KIND=agy TURN=1", got)
 		}
 		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.15\n" {
 			t.Errorf("the record is %q after the run, want the version it ran at", got)
@@ -223,7 +254,16 @@ func TestOborKitConformanceLive(t *testing.T) {
 		t.Parallel()
 		f := newConformanceLiveFixture(t)
 		f.agy(t, "1.5.15")
-		lane := f.Lane("L-01", "") // obor nightly runs the command in its own worktree
+		// obor nightly runs the command in its own worktree: a plain lane dir whose git common dir is the main
+		// checkout's, so the record goes there.
+		lane := filepath.Join(f.Base, "proj-wt", "L-01")
+		if err := os.MkdirAll(lane, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f.git(t, f.Path(".git"))
+		if f.Exists(".obor/state/agy-live-version") {
+			t.Fatal("precondition: the main checkout has no recorded version")
+		}
 		cmd := exec.Command("sh", f.Path("scripts/conformance-live"))
 		cmd.Dir, cmd.Env = lane, f.env(t)
 		if out, err := cmd.CombinedOutput(); err != nil {
