@@ -179,7 +179,7 @@ func describe() map[string]any {
 // effort: --model <the slug without its effort word> --effort <effort>; without: the slug alone, or the args' own
 // --effort), --add-dir per write dir, then --conversation <id> for a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
-// from the request's HOME), the project's override file (a trimmed start only) and the start. An effort with no model
+// from the request's HOME), the project's override file and the start. An effort with no model
 // is the start's error: agy's --effort selects a variant of a model named by its base.
 func start(in request, read func(string) ([]byte, error), models func() ([]byte, error)) map[string]any {
 	rest, model, argEffort := splitModel(in.Args)
@@ -200,7 +200,7 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 		}
 	}
 	var over map[string]any
-	if doc, ok := in.Overrides[OverrideFile]; ok && in.TrimUser {
+	if doc, ok := in.Overrides[OverrideFile]; ok {
 		var err error
 		if over, err = agents.ParseOverride(OverrideFile, doc); err != nil {
 			return map[string]any{"error": OverrideFile + ": does not parse: " + err.Error()}

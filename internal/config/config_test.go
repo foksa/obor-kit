@@ -353,8 +353,8 @@ func TestLaunchArgs(t *testing.T) {
 
 // The project's override files of a kind are the files its kind names that the project's root has in .obor/<kind>/,
 // each document as written; a file of another name there, another kind's and a kind with none are not in them, and a
-// file that does not parse is an error naming it. Launch hands them to the kind on every start but a lead's: a
-// worker's Claude settings file holds the override's env key beside obor's own, a lead's start writes none.
+// file that does not parse is an error naming it. Launch hands them to the kind on every start: a worker's Claude
+// settings file holds the override's env key beside obor's own, a Claude lead's start writes none.
 func TestOverrides(t *testing.T) {
 	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{`+models+`}}`, "")
 	write := func(rel, text string) {

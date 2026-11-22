@@ -103,13 +103,14 @@ type Start struct {
 	// TrimUser is every agent but a lead starting: the kind switches off its default part of the user's own
 	// settings (claude: the user's plugins, in Prepare's merged settings file; codex: -c features.plugins,
 	// features.apps and skills.bundled.enabled false, skills.config with enabled false per skill of the user's skills
-	// dir; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills),
-	// then applies Overrides. Every other user setting applies, and so do the project's own config and obor's
-	// wiring. false: the user's settings as they are (a lead).
+	// dir; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills).
+	// Every other user setting applies, and so do the project's own config and obor's wiring. false: the user's own
+	// settings are not trimmed (a lead).
 	TrimUser bool
 	// Overrides are the project's override files of this kind (OverrideDir: the names its Overridable lists), file
 	// name → document as written, each merged over the user's file of the same kind (MergePatch) after the kind's
-	// default; a file the project lacks has no entry. Read only on a TrimUser start.
+	// default; a file the project lacks has no entry. Handed to every start: agy applies them on every start (lead
+	// included), claude, codex and opencode on a TrimUser start only.
 	Overrides map[string]string
 	// Root is the project's root (the main checkout), for a kind that reads what the user keeps per project
 	// (claude: the MCP servers ~/.claude.json holds for it); "": none is named.

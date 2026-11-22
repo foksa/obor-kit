@@ -174,11 +174,11 @@ the lanes instead (each `{name, keep_agent}`). There are no caps. A key obor doe
 an object of typed lanes) is dropped with a WARN by every command and serve (its setting does not apply);
 `obor config validate` alone fails, naming the key: delete it from the file it names.
 
-Per-kind defaults live in the plugin. A lead starts on the user's own settings as they are. Every other agent's start
-is trimmed (`agents.Start.TrimUser`: the kind's default below switches off the user's plugins and skills) and carries
-the project's override files of its kind (`agents.Start.Overrides`, file name → document as written): files in the
-CLI's own format in `.obor/<kind>/` at the project's root, each merged over the user's file of the same kind after
-the default.
+Per-kind defaults live in the plugin. A lead keeps the user's own settings untrimmed; every other agent's start
+is trimmed (`agents.Start.TrimUser`: the kind's default below switches off the user's plugins and skills). Every start
+carries the project's override files of its kind (`agents.Start.Overrides`, file name → document as written): files in
+the CLI's own format in `.obor/<kind>/` at the project's root, each merged over the user's file of the same kind after
+the default (for agy on every start, lead included; for Claude, Codex and OpenCode on a trimmed start only).
 
 | File | Merged over |
 |---|---|
@@ -234,7 +234,7 @@ is obor's entries alone. OpenCode still reads the user's own config below it, so
 `"plugins": ["-<id>"]`, and an MCP server with `"disabled": true` (the merge makes `{"disabled": true}` the user's
 whole definition, which OpenCode needs). agy: the start's `--settings` file (`.obor/state/agy-settings-<lead|trimmed>-<dir
 hash>.json`, one per kind of start and start dir), which agy lays over the user's saved settings by top-level key: each
-key it names is the user's saved value with `settings_override.json` merged over it (a trimmed start only), then
+key it names is the user's saved value with `settings_override.json` merged over it (every start, a lead included), then
 obor's entries: `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands with no prompt, and
 its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)`, and `trustedWorkspaces` gains the start dir
 when the project's root is in the user's saved list (a lane follows the main checkout's trust). agy has no switch for
@@ -1001,7 +1001,8 @@ the `obor` on `PATH` is not the running kit's. A lane worktree has the files thr
 too, runs in auto mode: a command runs in agy's sandbox (no writes outside the workspace, temp dirs and caches, no
 unix socket, no network), and one the sandbox refuses is re-run outside it once agy's reviewer approves (a socket, the
 network, a write outside the workspace: no prompt; a destructive one asks); obor's guard checks each attempt.
-`toolPermission: "always-proceed"` is a project's override (`.obor/agy/settings_override.json`) only. The
+`toolPermission: "always-proceed"` is a project's override (`.obor/agy/settings_override.json`), merged into every agy
+start's settings file, lead included (the lead keeps the user's own settings untrimmed). The
 session record is the SessionStart hook's (a new conversation, again after `/clear`; a resume fires none and needs
 none): a restart without `--fresh` resumes it after the agent exited or its pane is gone, and a recorded session of
 another kind (the agent ran one before) is never resumed: herdr's live agy session of the pane, else a new one. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id

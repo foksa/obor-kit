@@ -342,10 +342,10 @@ func (c *Config) OverridesOf(k agents.Kind) (map[string]string, error) {
 // writer), with the model's args, the settings and a lane's strictness. The args with effort: the kind sets it
 // the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
 // MCP server alone). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
-// (only the lead on the phone, and only the lead keeps auto memory), trimmed (agents.Start.TrimUser: the kind's
-// default part of the user's own settings off) and with overrides, the project's override files of the kind
-// (Config.Overrides; none: the kind's defaults alone); a lead's start carries neither (the user's settings as they
-// are). role is the agent's
+// (only the lead on the phone, and only the lead keeps auto memory) and trimmed (agents.Start.TrimUser: the kind's
+// default part of the user's own settings off); a lead's start keeps the user's own settings untrimmed. overrides
+// (Config.Overrides; none: the kind's defaults alone) are handed to every start, and each kind decides whether a lead's
+// start applies them (agy applies them; claude, codex and opencode apply them only when TrimUser). role is the agent's
 // (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the
 // start unsets (agents.Kinds.StartVars): an earlier OpenCode start's model never carries into another kind's.
 // An error: the start cannot carry the effort, or a kind's start failed.
@@ -360,10 +360,9 @@ func (m Model) Launch(role string, overrides map[string]string, in agents.Start)
 // LaunchOf is Launch as the kind k builds it, k the model's kind as the start has it (agents.AsNow), not the
 // config's.
 func (m Model) LaunchOf(k agents.Kind, role string, overrides map[string]string, in agents.Start) (agents.Launch, error) {
-	in.Args, in.Settings, in.StrictMCP, in.TrimUser, in.Overrides = m.Args, nil, roles.LaneBound(role), role != "lead", nil
+	in.Args, in.Settings, in.StrictMCP, in.TrimUser, in.Overrides = m.Args, nil, roles.LaneBound(role), role != "lead", overrides
 	if in.TrimUser {
 		in.Settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
-		in.Overrides = overrides
 	}
 	return agents.StartOf(k, in)
 }
