@@ -215,22 +215,21 @@ func (l *lab) agyStart(k agents.Kind, pane string, in agents.Start, mode string)
 	return s, true
 }
 
-// agyWrongModel is AG-L7: a start of a model agy does not know runs (agy starts its default model) and its start
-// screen shows the notice the manifest's not_ready matches, which fails obor's start.
+// agyWrongModel is AG-L7: a start of a model agy does not know is the start's error (the kind checks the model against
+// `agy models` before agy runs), so nothing of agy's comes up in the pane.
 func (l *lab) agyWrongModel(k agents.Kind, pane string) {
-	where := at(agyGo, "const NotReadyPattern")
-	_, _, _, screen, err := l.agyUp(k, pane, "agy-bogus", agents.Start{})
-	switch why := k.NotReady(screen); {
-	case err != nil:
-		report("FAIL", "AG-L7", "the start: "+err.Error(), where)
-	case why != "":
-		report("PASS", "AG-L7", fmt.Sprintf("--model gemini-9-bogus: the start screen's notice is not ready (on the screen when herdr reported the agent ready: %v): %s",
-			k.NotReady(l.atReady) != "", why), where)
+	where := at(agyGo, "func start(")
+	_, _, launch, screen, err := l.agyUp(k, pane, "agy-bogus", agents.Start{})
+	switch {
+	case err == nil:
+		report("FAIL", "AG-L7", "--model gemini-9-bogus: the start was built: "+strings.Join(launch.Args, " ")+"; screen: "+tail(screen, 5), where)
+		if code, err := l.quit(pane, k.Stop()); err != nil || code != 0 {
+			l.stopAgent(pane)
+		}
+	case !strings.Contains(err.Error(), "gemini-9-bogus") || !strings.Contains(err.Error(), "agy models"):
+		report("FAIL", "AG-L7", "--model gemini-9-bogus: the start's error names neither the model nor agy models: "+firstLine(err.Error()), where)
 	default:
-		report("FAIL", "AG-L7", "--model gemini-9-bogus: no notice the manifest's not_ready matches: "+tail(screen, 5), where)
-	}
-	if code, err := l.quit(pane, k.Stop()); err != nil || code != 0 {
-		l.stopAgent(pane)
+		report("PASS", "AG-L7", "--model gemini-9-bogus: the start refuses it, no agy started: "+firstLine(err.Error()), where)
 	}
 }
 
@@ -266,7 +265,6 @@ func (l *lab) agyUp(k agents.Kind, pane, model string, in agents.Start) (started
 	t0 := time.Now()
 	s := l.start("conf-agy", "agy", pane, launch.Args, 60*time.Second)
 	ready := l.readyAfter(s, t0, "idle", "done")
-	l.atReady = l.visible(pane)
 	time.Sleep(3 * time.Second) // the model resolves after sign-in: its notice comes a moment after the input shows
 	return s, ready, launch, l.visible(pane), nil
 }

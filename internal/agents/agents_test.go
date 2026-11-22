@@ -2,6 +2,8 @@ package agents_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -197,6 +199,13 @@ func TestVarsRegistry(t *testing.T) {
 	if !slices.IsSorted(vars) || len(slices.Compact(slices.Clone(vars))) != len(vars) {
 		t.Errorf("Vars %q: want sorted, each once", vars)
 	}
+	// agy's start reads its model list from `agy models`: a stub on PATH lists a model with the effort every kind
+	// starts with here.
+	stub := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stub, "agy"), []byte("#!/bin/sh\nprintf 'p/m-high\\tP/M (High)\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 	write := func(name string, _ []byte) (string, error) { return "/state/" + name, nil }
 	for _, name := range kinds.Names() {
 		k, _ := kinds.Lookup(name)

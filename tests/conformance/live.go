@@ -137,7 +137,6 @@ type lab struct {
 	real      string     // root/real: a kit whose bin/obor is the repository's own obor (realKit)
 	realErr   error      // why realKit failed (nil until it is asked)
 	app       *stubServe // the app socket's stub serve (startStubServe)
-	atReady   string     // agy's visible screen when herdr last reported it ready (live_agy.go)
 	session   string     // obor-conf-<kind>
 	sock      string
 	env       []string  // the server's clean environment

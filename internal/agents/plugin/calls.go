@@ -212,13 +212,15 @@ func (k *Kind) StartWhole(in agents.Start) (agents.Launch, error) {
 }
 
 // CheckEffort (agents.ArgsChecker) is why args cannot carry effort: a start of the args and effort alone, its reply's
-// error (an effort that needs an arg the args lack: OpenCode's model id); its files are not written.
+// error (an effort that needs an arg the args lack: OpenCode's model id); its files are not written. check tells the
+// kind this start is no launch, so a kind that reads its CLI's live data (agy's `agy models`) answers without running
+// it.
 func (k *Kind) CheckEffort(args []string, effort string) error {
 	if _, err := k.manifest(); err != nil {
 		return err
 	}
 	var r startReply
-	return k.run("start", map[string]any{"args": args, "effort": effort}, &r)
+	return k.run("start", map[string]any{"args": args, "effort": effort, "check": true}, &r)
 }
 
 // ProjectWarnings (agents.ProjectChecker) runs project-warnings {dir} for a manifest with project_warnings (the kind

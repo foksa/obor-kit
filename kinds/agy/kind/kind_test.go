@@ -2,6 +2,7 @@ package kind_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,9 +17,11 @@ import (
 )
 
 // agy is the kind as obor's plugin package runs it (agents.Kind from the protocol's replies), answered in process by
-// Handle: the same requests and replies as the binary's, without the exec. stateDir: where a start's files go.
+// Handle: the same requests and replies as the binary's, without the exec, and a stub `agy` on PATH (stubAGY: a start
+// reads its model list). stateDir: where a start's files go.
 func agy(t *testing.T, stateDir string) agents.Kind {
 	t.Helper()
+	stubAGY(t, stubList, 0)
 	plugin.Local[kind.Name] = kind.Handle
 	t.Cleanup(func() { delete(plugin.Local, kind.Name) })
 	k := agents.Plugins.Kind(kind.Name, "obor-kind-agy", stateDir)
@@ -26,6 +29,37 @@ func agy(t *testing.T, stateDir string) agents.Kind {
 		t.Fatalf("precondition: the kind describes itself: %s %+v", k.Name(), k.Caps())
 	}
 	return k
+}
+
+// stubList is what the test's stub `agy models` answers: agy's own shape, one slug, a tab and its label per line.
+const stubList = "gemini-4-neon-high\tGemini 4 Neon (High)\n" +
+	"gemini-4-neon-medium\tGemini 4 Neon (Medium)\n" +
+	"gemini-4-neon-low\tGemini 4 Neon (Low)\n" +
+	"gemini-pro-orchestrator-neon\tOrchestrator (Neon)\n" +
+	"gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n" +
+	"gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n" +
+	"gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"
+
+// stubAGY puts an `agy` on PATH whose `models` prints out (code 0) or fails with exit code and an error line on stderr,
+// and reports whether it ran: a marker file it appends to on every run.
+func stubAGY(t *testing.T, out string, code int) (ran func() bool) {
+	t.Helper()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	body := "#!/bin/sh\nprintf x >> " + marker + "\n"
+	if code == 0 {
+		body += "cat <<'EOF'\n" + out + "EOF\n"
+	} else {
+		body += "echo 'Error: timed out waiting for available models' >&2\nexit " + fmt.Sprint(code) + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, kind.Name), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/usr/bin:/bin")
+	return func() bool {
+		b, err := os.ReadFile(marker)
+		return err == nil && len(b) > 0
+	}
 }
 
 // The manifest: no hooks, a resume, no named session and no session read, the model as an id, the terminal's status,
@@ -159,6 +193,62 @@ func TestStartArgs(t *testing.T) {
 	}
 	if err := agents.CheckEffortOf(k, []string{"--model", "gemini-4-neon-high"}, "high"); err != nil {
 		t.Errorf("the args check with a model: %v", err)
+	}
+}
+
+// The start checks its model and effort against `agy models` (a stub on PATH; the list is agy's own, never a table in
+// the kind): a listed slug, a listed model's effort, a base alias and a label start with the model args they name; an
+// unknown model, an effort the model lacks and a model that takes no effort are the start's error, naming agy's list; a
+// failing `agy models` is too, with its own failure. The effort check (obor config validate, a dispatch) runs no `agy`.
+func TestStartModels(t *testing.T) {
+	k := agy(t, t.TempDir())
+	env := home(t, "")
+	for _, c := range []struct {
+		name string
+		in   agents.Start
+		want []string // nil: the start is refused with err
+		err  string
+	}{
+		{"a listed slug", agents.Start{Args: []string{"--model", "gemini-4-neon-high"}},
+			[]string{"--settings", "{settings}", "--model", "gemini-4-neon-high"}, ""},
+		{"a listed model's effort", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}, Effort: "high"},
+			[]string{"--settings", "{settings}", "--model", "gemini-3.8-flash", "--effort", "high"}, ""},
+		{"a slug's effort word and another effort of the model: the base and the effort",
+			agents.Start{Args: []string{"--model", "gemini-4-neon-low"}, Effort: "high"},
+			[]string{"--settings", "{settings}", "--model", "gemini-4-neon", "--effort", "high"}, ""},
+		{"a label", agents.Start{Args: []string{"--model", "Gemini 3.8 Flash (Low)"}},
+			[]string{"--settings", "{settings}", "--model", "Gemini 3.8 Flash (Low)"}, ""},
+		{"a base with variants: agy's alias", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}},
+			[]string{"--settings", "{settings}", "--model", "gemini-3.8-flash"}, ""},
+		{"an unknown model", agents.Start{Args: []string{"--model", "gemini-9-bogus"}}, nil,
+			"model gemini-9-bogus is not in agy models (models.<name>.id names a slug the list shows)"},
+		{"an effort the model lacks", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}, Effort: "xhigh"}, nil,
+			`gemini-3.8-flash has no "xhigh" effort (agy models: high, medium, low)`},
+		{"a model that takes no effort", agents.Start{Args: []string{"--model", "gemini-pro-orchestrator-neon"}, Effort: "high"},
+			nil, `gemini-pro-orchestrator-neon takes no "high" effort (agy models names it with no effort)`},
+		{"an unknown model's effort", agents.Start{Args: []string{"--model", "gemini-9-bogus"}, Effort: "low"}, nil,
+			"model gemini-9-bogus is not in agy models"},
+	} {
+		c.in.Env = func(v string) string { return env[v] }
+		got, _, err := started(t, k, c.in)
+		switch {
+		case c.want == nil && (err == nil || !strings.Contains(err.Error(), c.err)):
+			t.Errorf("%s: start = %v, %v; want the refusal %q", c.name, got, err, c.err)
+		case c.want != nil && (err != nil || !slices.Equal(got, c.want)):
+			t.Errorf("%s: start = %q, %v; want %q", c.name, got, err, c.want)
+		}
+	}
+	failed := stubAGY(t, "", 1)
+	if _, _, err := started(t, k, agents.Start{Args: []string{"--model", "gemini-4-neon-high"}}); err == nil ||
+		!strings.Contains(err.Error(), "agy models: exit 1: Error: timed out waiting for available models") {
+		t.Errorf("a failing agy models: %v, want the start's error naming its failure", err)
+	}
+	if !failed() {
+		t.Error("precondition: the stub agy ran")
+	}
+	ran := stubAGY(t, "", 1)
+	if err := agents.CheckEffortOf(k, []string{"--model", "gemini-4-neon-high"}, "high"); err != nil || ran() {
+		t.Errorf("the effort check: %v, ran %v; want no error and no agy run", err, ran())
 	}
 }
 

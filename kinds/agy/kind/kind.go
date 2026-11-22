@@ -1,21 +1,24 @@
 // Package kind is the Antigravity CLI (agy) as obor's kind protocol answers it (docs/agents/kind-protocol.md), built as
 // the binary obor-kind-agy (kinds/agy). A start is `agy --settings <file> [args] --model … [--effort …] -i <prompt>`
-// (a resume: --conversation <id>), the settings file the user's saved settings with the project's override file and
-// obor's entries laid over them (settings.go); obor's MCP server through the project's committed
-// .agents/mcp_config.json (install's where: project); /exit with one Enter; `agy acp`, -p/--print and --prompt denied;
-// prompts typed; the context read from the conversation's transcript.jsonl. Handle is one request; the binary runs it
-// on its stdin, a test binary in process (testkit).
+// (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first, the settings file
+// the user's saved settings with the project's override file and obor's entries laid over them (settings.go); obor's
+// MCP server through the project's committed .agents/mcp_config.json (install's where: project); /exit with one
+// Enter; `agy acp`, -p/--print and --prompt denied; prompts typed; the context read from the conversation's
+// transcript.jsonl. Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
 package kind
 
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -30,9 +33,8 @@ const Version = 1
 // Name is the kind's name (models.<name>.kind, kinds.<name>) and its CLI's executable.
 const Name = "agy"
 
-// efforts are agy's --effort values (agy --help: low|medium|high|xhigh|max). Which a model has is agy's (`agy models`
-// lists slugs ending in their effort); a start with one the model lacks runs another model, with a notice NotReady
-// matches.
+// efforts are agy's --effort values (agy --help: low|medium|high|xhigh|max). Which of them a model has is agy's (its
+// `agy models` lists a slug per model and effort); start refuses one the model lacks.
 var efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // MCPFile is the project file that registers obor's MCP server for every agy session started in the project (or a
@@ -57,6 +59,7 @@ type request struct {
 	WriteDirs []string          `json:"write_dirs"`
 	Dir       string            `json:"dir"`
 	Root      string            `json:"root"`
+	Check     bool              `json:"check"` // the start is the effort check, not a launch: no CLI runs
 	What      string            `json:"what"`
 	Tail      string            `json:"tail"`
 	Error     string            `json:"error"`
@@ -100,7 +103,7 @@ func Handle(call string, req []byte) ([]byte, error) {
 	case "describe":
 		reply = describe()
 	case "start":
-		reply = start(in, os.ReadFile)
+		reply = start(in, os.ReadFile, agyModels)
 	case "install":
 		reply = map[string]any{"mcp": map[string]any{"where": "project", "path": MCPFile,
 			"key": []string{"mcpServers", "obor"}, "entry": MCPEntry}}
@@ -117,7 +120,8 @@ func Handle(call string, req []byte) ([]byte, error) {
 
 // NotReadyPattern matches agy's notice that it runs another model than the start asked for: an unknown model, an
 // effort the model lacks, or a slug that names an effort beside --effort (agy 1.5.14 starts anyway, on its default
-// model; docs/research/agy-probes.md P5). Words may wrap across screen lines.
+// model; docs/research/agy-probes.md P5). start refuses those refs against `agy models` before agy runs; the notice is
+// what a start shows for a ref the list still let through. Words may wrap across screen lines.
 const NotReadyPattern = `Using\s+"[^"]*"\s+instead|is\s+not\s+recognized\s+as\s+a\s+known\s+model|has\s+no\s+"[^"]*"\s+effort|` +
 	`conflicts\s+with\s+--effort`
 
@@ -149,13 +153,14 @@ func describe() map[string]any {
 	}
 }
 
-// start: --settings <the start's settings file>, the type's args but their --model and --effort, the model (with the
-// ref's effort: --model <the slug without its effort word> --effort <effort>; without: the slug alone, or the args'
-// own --effort), --add-dir per write dir, then --conversation <id> for a resume, else -i <prompt> for a first prompt.
+// start: the model and effort checked against `agy models` (checkModel; not for the effort check, in.Check), then
+// --settings <the start's settings file>, the type's args but their --model and --effort, the model (with the ref's
+// effort: --model <the slug without its effort word> --effort <effort>; without: the slug alone, or the args' own
+// --effort), --add-dir per write dir, then --conversation <id> for a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file (a trimmed start only) and the start. An effort with no model
 // is the start's error: agy's --effort selects a variant of a model named by its base.
-func start(in request, read func(string) ([]byte, error)) map[string]any {
+func start(in request, read func(string) ([]byte, error), models func() ([]byte, error)) map[string]any {
 	rest, model, argEffort := splitModel(in.Args)
 	effort := in.Effort
 	if effort == "" {
@@ -163,6 +168,15 @@ func start(in request, read func(string) ([]byte, error)) map[string]any {
 	}
 	if effort != "" && model == "" {
 		return map[string]any{"error": fmt.Sprintf("effort %s needs a model id (models.<name>.id, a slug of agy models)", effort)}
+	}
+	if model != "" && !in.Check {
+		out, err := models()
+		if err != nil {
+			return map[string]any{"error": "agy models: " + err.Error()}
+		}
+		if why := checkModel(parseModels(out), model, effort); why != "" {
+			return map[string]any{"error": why}
+		}
 	}
 	var over map[string]any
 	if doc, ok := in.Overrides[OverrideFile]; ok && in.TrimUser {
@@ -201,6 +215,99 @@ func Base(slug string) string {
 		return slug[:i]
 	}
 	return slug
+}
+
+// model is one entry of `agy models`: its slug (the id a start's ref names) and the label agy shows for it.
+type model struct{ slug, label string }
+
+// modelsLimit bounds `agy models`: about 1.5 s with the network, over 10 s when it cannot reach it, so it is capped
+// under the start call's own 5 s (docs/agents/kind-protocol.md) and a slow list is the start's error, not a start with
+// no reply.
+const modelsLimit = 4 * time.Second
+
+// agyModels is `agy models` on the agent's PATH: its list, or an error naming the failure (a non-zero exit with its
+// stderr's last line, its own timeout, no `agy` on PATH).
+func agyModels() ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), modelsLimit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, Name, "models")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	var ee *exec.ExitError
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return nil, fmt.Errorf("no reply within %s", modelsLimit)
+	case errors.As(err, &ee):
+		why := lastLine(stderr.String())
+		if why == "" {
+			why = "no stderr"
+		}
+		return nil, fmt.Errorf("exit %d: %s", ee.ExitCode(), why)
+	case err != nil:
+		return nil, err
+	}
+	return stdout.Bytes(), nil
+}
+
+// lastLine is text's last non-blank line, trimmed ("" none): agy prints `Fetching available models...` before the line
+// that says what failed.
+func lastLine(text string) string {
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(lines[i]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// parseModels is `agy models`'s output as the models it lists: one slug, a tab and its label per line (a line without a
+// tab is a slug alone).
+func parseModels(out []byte) []model {
+	var list []model
+	for _, line := range strings.Split(string(out), "\n") {
+		slug, label, _ := strings.Cut(strings.TrimSpace(line), "\t")
+		if slug = strings.TrimSpace(slug); slug != "" {
+			list = append(list, model{slug: slug, label: strings.TrimSpace(label)})
+		}
+	}
+	return list
+}
+
+// variants are the efforts agy models lists for base: the slugs base-<effort>.
+func variants(list []model, base string) []string {
+	var out []string
+	for _, m := range list {
+		if e, ok := strings.CutPrefix(m.slug, base+"-"); ok && slices.Contains(efforts, e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// checkModel is why a start cannot name model (with effort: model's base and that effort): agy runs another model for
+// an unknown one or one without the effort, so the start refuses it before agy does. "" : the ref is in list. A ref may
+// be a slug, a label (agy resolves labels) or a base with variants (an alias, agy resolves it to one of them).
+func checkModel(list []model, ref, effort string) string {
+	base := Base(ref)
+	has := variants(list, base)
+	if effort == "" {
+		if len(has) > 0 || slices.ContainsFunc(list, func(m model) bool { return m.slug == ref || m.label == ref }) {
+			return ""
+		}
+		return fmt.Sprintf("model %s is not in agy models (models.<name>.id names a slug the list shows)", ref)
+	}
+	if slices.Contains(has, effort) {
+		return ""
+	}
+	if len(has) == 0 {
+		if slices.ContainsFunc(list, func(m model) bool { return m.slug == base || m.label == base }) {
+			return fmt.Sprintf("%s takes no %q effort (agy models names it with no effort)", base, effort)
+		}
+		return fmt.Sprintf("model %s is not in agy models (models.<name>.id names a slug the list shows)", base)
+	}
+	return fmt.Sprintf("%s has no %q effort (agy models: %s)", base, effort, strings.Join(has, ", "))
 }
 
 // SettingsFile is the name of a start's settings file in the state dir: a lead's (untrimmed) or another agent's, per
