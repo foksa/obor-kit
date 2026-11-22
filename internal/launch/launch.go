@@ -581,6 +581,12 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
+	// The agent's workspace, prepared before its start is built: a missing role worktree added (roleWorktree), so the
+	// kind's start reads the tree the agent starts in (agy's hooks check reads that tree's hooks file). Before the
+	// stop: a start the kind refuses leaves a running agent running.
+	if err := l.roleWorktree(ctx, t); err != nil {
+		return port.Started{}, err
+	}
 	// The start, built once before anything is stopped: its argv and its env from one complete start.
 	args, err := l.build(t, effort, sid, first.prompt)
 	if err != nil {
@@ -615,7 +621,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		Resume: sid, Record: resumed.record, Session: t.session, Prompt: first.prompt, Again: req.Again, Fresh: req.Fresh,
 		Lane: t.info.Lane, Shell: l.shellWait(),
 		Await: t.entry.Agent != "" || placing,
-		Env:   func(ctx context.Context) error { return l.setEnv(ctx, t) },
+		Env:   func(ctx context.Context) error { return l.startEnv(ctx, t) },
 		Whose: AgentEnv{Agent: t.agent, Role: t.info.Role, Lane: t.info.Lane, Cwd: t.info.Cwd, Vars: t.env}}
 	seen, err := l.start(ctx, st)
 	if seen.ID != "" && seen.ID != t.pane { // the terminal ran the agent in another pane: it runs there
@@ -1022,7 +1028,8 @@ func transcriptElsewhere(wild string) (bool, error) {
 // AgentEnv is port.AgentEnv.
 type AgentEnv = port.AgentEnv
 
-// setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
+// setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell,
+// into the role worktree a role agent's cwd is, prepared first (roleWorktree). A NoAgent launch's (panesOnly).
 func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.otherProgram(ctx, t.pane); err != nil {
 		return err
@@ -1030,6 +1037,20 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.roleWorktree(ctx, t); err != nil {
 		return err
 	}
+	return l.typeEnv(ctx, t)
+}
+
+// startEnv is a start's Env step: setEnv, its workspace already prepared (Launch prepares it before it builds the
+// start).
+func (l *Launcher) startEnv(ctx context.Context, t *target) error {
+	if err := l.otherProgram(ctx, t.pane); err != nil {
+		return err
+	}
+	return l.typeEnv(ctx, t)
+}
+
+// typeEnv types t's env line at its pane's shell; nothing started when it does not finish.
+func (l *Launcher) typeEnv(ctx context.Context, t *target) error {
 	// The line's own success word or failure word says how it ended (project.RunEnvLine).
 	res, err := project.RunEnvLine(ctx, l.H, t.pane, envLine(l.Cfg.Kinds(), t), l.poll(), l.wait())
 	switch {
@@ -1067,9 +1088,10 @@ func (l *Launcher) envOrOS() project.Env {
 }
 
 // roleWorktree adds the role worktree a role agent's cwd is when it is missing (the reviewer's, the deep
-// dive's, the integrator's <lanes.dir>/<role>), detached at merge.target_branch, so the env line's cd finds it: serve's
-// starts and obor restart of a project whose role worktree is absent. The worktree, added now or there before, gets
-// the links it lacks (project.WorktreeLinks, project.LinkInto): a settings file its checkout lacks (git does not track
+// dive's, the integrator's <lanes.dir>/<role>), detached at merge.target_branch, so the kind's start reads its files
+// (Launch prepares it before the start is built: agy's hooks check) and the env line's cd finds it: serve's starts and
+// obor restart of a project whose role worktree is absent. The worktree, added now or there before, gets the links it
+// lacks (project.WorktreeLinks, project.LinkInto): a settings file its checkout lacks (git does not track
 // it, or the worktree sits behind the commit that did) reaches it only as a link, listed in lanes.links or not, and with
 // it obor's plugin. Any other cwd: nothing.
 func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
