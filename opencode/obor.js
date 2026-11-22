@@ -10,6 +10,7 @@
 //	                                     model (OBOR_OPENCODE_MODEL, below)
 //	session.execution.succeeded       → stop; its block's reason becomes the session's next prompt (a new turn)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
+//	session.execution.interrupted     → no hook; like every turn's end, it ends the session's stop loop
 //	session.step.ended                → one line in the session's token file (turn what: context), no hook
 //	the session's inbox socket        → a line obor serve posts becomes the session's prompt (below)
 //
@@ -307,15 +308,19 @@ export function stopBlock(stdout) {
 }
 
 // The opencode events the plugin reads (a session's first event or hook names it; a turn's start runs no hook: the
-// prompt hook reports the user's prompt, its answer included).
+// prompt hook reports the user's prompt, its answer included, and a turn's end only ends its stop loop).
 const EVENT_TYPES = [
   "session.created",
   "session.inbox.enqueued",
-  "session.execution.started",
   "session.execution.succeeded",
   "session.execution.failed",
+  "session.execution.interrupted",
   "session.step.ended",
 ];
+
+// TURN_ENDS are opencode's turn endings: each ends any stop loop the session has, whatever the outcome (a continuation
+// that failed or was interrupted leaves no loop, so the next independent turn's stop is a new one).
+const TURN_ENDS = new Set(["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
 
 // sessionHooks is the state of one location's sessions (which are its, the turn a stop's block began) and turns each
 // opencode event into the Claude hook calls it means: [{name, event}], appending a root session's step to its token file
@@ -353,10 +358,13 @@ export function sessionHooks(cwd, transcriptOf) {
     if (e.type === "session.created" && d.parentID) children.add(id);
     if (e.location?.directory) mine.set(id, path.resolve(e.location.directory) === cwd);
     if (!isMine(id)) return [];
+    // A stop loop's state ends with its turn, in one place and on every outcome: only a succeeded turn's stop reports
+    // the loop it ends; a failure or an interruption leaves none for the next independent turn.
+    const looping = TURN_ENDS.has(e.type) && stopping.delete(id);
     const calls = [];
     switch (e.type) {
       case "session.execution.succeeded":
-        calls.push({ name: "stop", event: { ...base("Stop", id), stop_hook_active: stopping.delete(id) } });
+        calls.push({ name: "stop", event: { ...base("Stop", id), stop_hook_active: looping } });
         break;
       case "session.execution.failed":
         calls.push({ name: "stop-failure", event: { ...base("StopFailure", id), error: claudeError(d.error), error_details: errorDetails(d.error, e.created) } });

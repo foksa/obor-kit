@@ -198,7 +198,7 @@ test("setup: the guard, the context, the prompt and the session events through i
   assert.deepEqual(hooked["event:subscribe"].types.sort(), [
     "session.created",
     "session.execution.failed",
-    "session.execution.started",
+    "session.execution.interrupted",
     "session.execution.succeeded",
     "session.inbox.enqueued",
     "session.step.ended",
@@ -596,6 +596,22 @@ test("stop: a block prompts the session with its reason, and the loop's next sto
   await emit(...turn(dir, "s1", "next"), oc("session.execution.succeeded", { sessionID: "s1" }));
   assert.deepEqual(stops(), [false, true, false], "a turn after the loop is a new one");
   assert.equal(prompted.length, 2, "and its block is a new stop loop");
+});
+
+// A stop loop's state ends with its turn, whatever the turn's outcome: a continuation that failed or was interrupted
+// leaves no loop, so the next independent turn's stop is a new one and obor's decisions run again (RV-241 #1).
+test("stop: a continuation that failed or was interrupted ends the stop loop", async (t) => {
+  for (const end of ["session.execution.failed", "session.execution.interrupted"]) {
+    const { emit, hooked, calls, event, dir } = await stubPlugin(t, { mode: "block" });
+    const stops = () => calls().map(event).filter((e) => e.hook_event_name === "Stop").map((e) => e.stop_hook_active);
+    await promptOf(hooked, "s1", wake);
+    await emit(...turn(dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }));
+    assert.deepEqual(stops(), [false], `${end}: precondition, the block began a stop loop`);
+    await emit(...turn(dir, "s1", "obor (worker L-01): not done yet"), oc(end, { sessionID: "s1", error: rateLimit, reason: "user" }));
+    await promptOf(hooked, "s1", "next");
+    await emit(...turn(dir, "s1", "next"), oc("session.execution.succeeded", { sessionID: "s1" }));
+    assert.deepEqual(stops(), [false, false], `${end}: the next independent turn's stop is no stop loop's`);
+  }
 });
 
 test("stop: no block (or a failure) prompts nothing and the next stop is a new loop", async (t) => {
