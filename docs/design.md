@@ -953,6 +953,7 @@ a lane's guard, as Codex's is. A start: `agy --settings <file> [args] --model <i
 without its effort word> --effort <effort>`; the first prompt as `-i`, a resume as `--conversation <id>` (herdr's
 session id). A start checks its model and effort against `agy models` (agy's own list, read at the start: about 1.5 s,
 and it needs the network) and fails for an unknown model, an effort the model lacks or a failing `agy models` before
-agy runs; the effort check (`obor config validate`, a dispatch) reads the manifest only, no CLI. The manifest's
+agy runs; the effort check (`obor config validate`, a dispatch) reads the manifest only, no CLI. One limit: a custom
+model from agy's settings (`customModels`) that `agy models` leaves out is refused at the start. The manifest's
 `not_ready` matches the notice agy shows when it still runs another model. Stop: `/exit`. The context size is the
 conversation's `transcript.jsonl` (`~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`).
