@@ -128,7 +128,8 @@ per feature; then accept the rest with `obor review close --accept` (they go to 
 names its fix cost. Serve stops the reviewer once the review is closed
 (`RV-<n> closed`) and the integrator after its last verdict. A deep dive whose verify approves:
 `obor restart <deep-dive> --stop`; the next one starts clean on its brief (`obor brief <deep-dive> "<text>"`, and
-`--fresh` stops a running one first). `obor brief` is the one way to brief a role agent.
+`--fresh` stops a running one first). Then delete its files from the reviews dir (gitignored: no copy survives);
+anything worth keeping goes to `docs/research/` first. `obor brief` is the one way to brief a role agent.
 Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <name> "<text>"` (the names
 `obor projects` lists; a path into the project works too). A line you receive names its sender, so the reply is one
 command: `obor send <that name> "<text>"`. Workers and

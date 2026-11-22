@@ -4,6 +4,7 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-22 (owner): **A deep dive's files are deleted once its fix wave is verified**, as a review's are at its close; anything worth keeping goes to `docs/research/` first (`docs/reviews/` is gitignored, so no copy survives). The 22 old deep dives and one-off reviews were deleted the same day; their decisions live here and in `docs/accepted.md`.
 - 2026-11-22 (owner, after probe P12): **agy's own allow rules where they work**: every agy start allows `command(obor)` (T-1482); an agy lead runs plain auto mode with the project's rules and never takes the override's `toolPermission` (T-1483; ~11-36 s per obor call, no prompts); obor-kit's agy workers keep `always-proceed` + hooks, since rules cannot fix their sandboxed first attempts (git in a linked worktree, socket tests fail and the model does not retry).
 - 2026-11-22 (owner, after the agy lead acceptance): **a project's `.obor/agy/settings_override.json` applies to an agy lead too** (T-1480); the lead keeps the user's own settings untrimmed, the override is laid over them as for the other agents.
 - 2026-11-22 (owner, after the first agy lane T-1472 stopped twice on agy's auto-mode permission dialog): **obor-kit's agy agents run `toolPermission: "always-proceed"`** (`.obor/agy/settings_override.json`), allowed by D1 now that agy runs obor's hooks (T-1463): obor's guard, whose deny is final, stays the boundary, as for Claude lanes.
