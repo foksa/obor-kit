@@ -20,11 +20,14 @@ import (
 //     down: the session is not recorded, said on the hook's log line);
 //   - Codex: launch, after a fresh start, reads the rollout the started agent's process holds open (its first
 //     line's session_meta) and reports it (in serve after the start returned: its own goroutine);
-//   - OpenCode: none yet; the session request is kind-neutral, and its plugin is to send it.
+//   - OpenCode: none yet; the session request is kind-neutral, and its plugin is to send it;
+//   - every kind: launch, after a resumed start, the session it resumed or adopted (herdr's live one), with the start's
+//     kind and pane: an adopted one becomes the agent's current session (agy fires no SessionStart on a resume).
 //
 // herdr's agent_session is a cross-check only: the identity (registry.go, package identity) and launch's resume read the recorded
-// session first, and a herdr value that differs is logged, not adopted; a kind whose sessions obor names itself never
-// adopts it, not even with no record.
+// session first, and a herdr value that differs from a record of the start's kind is logged, not adopted; launch
+// adopts herdr's only with no record of the start's kind, and a kind whose sessions obor names itself never adopts it,
+// not even with no record.
 
 // refusedMark is in the error of a session request serve refused because another agent holds the session.
 const refusedMark = "session already held by "

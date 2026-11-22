@@ -46,26 +46,28 @@ func (l *Launcher) StartSeen(ctx context.Context, s Start) (port.Pane, error) { 
 
 // Target is a launch's target as its steps read it (the external tests of sessionOf, firstPrompt and outcome): the
 // agent, its pane, kind and config facts, its recorded session (Sid, SidKind, Transcript), the session and kind the
-// terminal reports for its pane (Live, LiveKind), and whether its type is a dispatch's.
+// terminal reports for its pane (Live, LiveKind), and whether its pane was just placed.
 type Target struct {
 	Agent, Pane, Kind, Role, Lane, Type string
 	Sid, SidKind, Transcript            string
 	Live, LiveKind                      string
-	Dispatched, Placed                  bool
+	Placed                              bool
 }
 
 func (x Target) target() *target {
 	t := &target{agent: x.Agent, known: true, pane: x.Pane, kind: x.Kind, sid: x.Sid, sidKind: x.SidKind,
-		transcript: x.Transcript, dispatched: x.Dispatched}
+		transcript: x.Transcript}
 	t.info.Role, t.info.Lane, t.info.Type = x.Role, x.Lane, x.Type
 	t.entry = port.Pane{ID: x.Pane, Session: x.Live, Agent: x.LiveKind}
 	t.placed = x.Placed
 	return t
 }
 
-// SessionOf is the launch's session step for x.
-func (l *Launcher) SessionOf(x Target, req Request) (sid, src string, err error) {
-	return l.sessionOf(x.target(), req)
+// SessionOf is the launch's session step for x: the session resumed ("": fresh), its source, and whether the start
+// records it.
+func (l *Launcher) SessionOf(x Target, req Request) (sid, src string, record bool, err error) {
+	r, err := l.sessionOf(x.target(), req)
+	return r.sid, r.src, r.record, err
 }
 
 // FirstPrompt is the launch's first prompt step for x, resuming sid ("": fresh): the prompt in the start's argv, the

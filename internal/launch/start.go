@@ -24,6 +24,9 @@ type Start struct {
 	Label             string   // the pane's label now: renamed to Agent when it differs
 	Args              []string // the argv after the binary (startBuilt.Args): started as it is
 	Resume            string   // the session id to resume; "" for a new one
+	// Record: the start records Resume, with Kind, as the agent's session once the agent runs (the session decision's
+	// record, sessionOf: every session a launch resumes or adopts); false: nothing recorded of it.
+	Record bool
 	// Session is the session id obor chose for a fresh start (startBuilt.Session; Args name it): recorded for the agent
 	// before it runs; "" for none.
 	Session string
@@ -189,20 +192,22 @@ func (l *Launcher) agentStart(s Start) port.AgentStart {
 
 // done is a start's success path, the one for Start and restart: it records the start (recordStart: the restore's
 // proof that obor started the agent in the pane), reports the confirmed start (serve ends the agent's skew entry),
-// then, for a start of a kind whose sessions its transcript names, the session the agent runs (report): a resume
-// reports the session it resumed, a fresh start searches for its own (searchRollout: the transcript its process holds
-// open).
+// then the session the agent runs: a resume records the session it resumed when the decision says so (s.Record,
+// reportResume; every kind: one whose sessions no transcript names, or whose resume fires no start hook, included),
+// a fresh start of a kind whose sessions its transcript names searches for its own (searchRollout: the transcript its
+// process holds open).
 func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
 	l.recordStart(ctx, s, s.Pane)
 	l.reportStarted(ctx, s)
-	if k, ok := l.Cfg.Kind(s.Kind); !ok || !k.Caps().Sessions {
-		return a
-	}
 	if s.Resume != "" {
-		l.reportResume(ctx, s)
+		if s.Record {
+			l.reportResume(ctx, s)
+		}
 		return a
 	}
-	l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane, s.Prompt != "")
+	if k, ok := l.Cfg.Kind(s.Kind); ok && k.Caps().Sessions {
+		l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane, s.Prompt != "")
+	}
 	return a
 }
 
