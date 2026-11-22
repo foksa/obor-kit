@@ -1,5 +1,8 @@
 # Config shape: `.obor/config.json` grouped by what it is about (advisor, 2026-11-09)
 
+Cited here but no longer in the tree: `docs/research/undecided-behaviour-audit.md`. Git keeps them: `git show
+v0.44.0:<path>`.
+
 Question: owner 11-09, after `undecided-behaviour-audit.md`: "config looks all over the place, like stuff was added
 to the json as it came, without structure. Reorganize it so it is readable for humans and structured, so I know
 what is related to what. E.g. what is slots, is it related to lanes; lanes_dir and lanes (the count) are in two

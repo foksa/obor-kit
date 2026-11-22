@@ -1,5 +1,8 @@
 # DD-agent-driver: how obor drives Claude Code, Codex, opencode and herdr
 
+Cited here but no longer in the tree: `docs/research/herdr-core.md`, `docs/research/opencode-model-selection.md`. Git
+keeps them: `git show v0.44.0:<path>`.
+
 Deep dive (ob-deep-dive, role pane, main checkout at 9a5346cb), 2026-11-04. The brief asked for
 `docs/research/agent-driver-deep-dive.md`. The deep_dive write profile allows only `docs/reviews/`, so the guard
 denied that path and the note is here. The lead can move it.

@@ -1,5 +1,8 @@
 # Test suite rework: a minute per merge, a few minutes for the full suite, and a size that holds
 
+Cited here but no longer in the tree: `docs/plan/merge-flow-rework.md`, `docs/research/gate-time.md`,
+`docs/research/test-audit-external.md`. Git keeps them: `git show v0.44.0:<path>`.
+
 Plan (advisor, 2026-11-07 23:00, for the lead). Owner's brief: "a full and proper fix of the tests; stop all tasks if
 needed; we went in circles for 5 hours and tests take longer and longer." Everything is stopped (dispatch paused,
 promotion off, in-flight work in `keep/T-957`, `keep/T-982`, `keep/T-988`, `keep/T-991`). Agent-neutral: nothing here

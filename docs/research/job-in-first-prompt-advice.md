@@ -1,5 +1,7 @@
 # Job in the first prompt: advice
 
+Cited here but no longer in the tree: `docs/research/chatter-census.md`. Git keeps them: `git show v0.44.0:<path>`.
+
 Advisor answer, 2026-11-07, to the lead's question (BACKLOG.md:32): can serve put the job itself into a fresh
 session's first prompt, for every agent kind, and still have what the fetch gives today. Read only; cites
 `file:line` at commit ebef4182, herdr 0.9.5 on this machine, the event log `.obor/state/obor.db` (read-only).

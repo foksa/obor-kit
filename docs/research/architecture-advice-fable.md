@@ -1,5 +1,7 @@
 # Architecture advice: why every change adds code, and what to change
 
+Cited here but no longer in the tree: `docs/research/test-pruning.md`. Git keeps them: `git show v0.44.0:<path>`.
+
 Advisor: ob-fable (Claude Fable), 2026-11-05, at main b3300cf4 (v0.27.1). First pass, from my own reading of `cmd/`,
 `internal/`, `docs/design.md`, `docs/state-model.md`, the top of `docs/decisions.md` and BACKLOG "Concerns". The deep
 dive's inventory (`docs/reviews/DD-architecture.md`) is not read yet; a second pass follows when it arrives.

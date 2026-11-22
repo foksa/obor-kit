@@ -1,5 +1,8 @@
 # Terminal port: herdr, rex, or both (advisor, 2026-11-11)
 
+Cited here but no longer in the tree: `docs/research/herdr-core.md`, `docs/research/herdr-usage-deep-dive.md`,
+`docs/research/improve-architecture.md`. Git keeps them: `git show v0.44.0:<path>`.
+
 Question (lead, for the owner): plan the terminal architecture so obor can run on herdr, on rex, or on both.
 Investigation and plan only. The step plan is `docs/plan/terminal-adapters.md`.
 
