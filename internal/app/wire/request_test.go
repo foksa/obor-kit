@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/store"
 )
@@ -260,6 +261,22 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 		if !methods[m] {
 			t.Errorf("no golden row for %s", m)
 		}
+	}
+}
+
+// A lead_lines request's deadline is the call's "until_ms", epoch milliseconds (serve reads it: past it the lines
+// stay queued).
+func TestLeadLinesDeadlineKey(t *testing.T) {
+	t.Parallel()
+	r := &LeadLinesReq{Envelope: env}
+	r.SetDeadline(time.UnixMilli(1700000000123))
+	call, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, _ := json.Marshal(Request{Method: r.Method(), Call: call})
+	if got := string(callObject(t, r.Method(), string(line))["until_ms"]); got != "1700000000123" {
+		t.Errorf("until_ms = %s, want 1700000000123", got)
 	}
 }
 

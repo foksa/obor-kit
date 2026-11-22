@@ -748,6 +748,10 @@ func TestLeadLinesHooks(t *testing.T) {
 		if c.Agent != "pj-lead" || c.Role != "lead" || c.Root != p.Root || c.CallID == "" {
 			t.Errorf("request %+v, want the lead's with a call id", c)
 		}
+		until := time.UnixMilli(c.UntilMS)
+		if now := time.Now(); c.UntilMS == 0 || until.Before(now) || until.After(now.Add(5*time.Second)) {
+			t.Errorf("request %+v: until_ms %d, want the instant its call ends, ahead of now", c, c.UntilMS)
+		}
 	}
 	p.Config(testkit.Set("agents.roles.integrator", ""), testkit.Set("agents.roles.lead", "deepseek"))
 	// A hook's config reads a plugin kind's manifest from the state dir's cache (obor setup agents writes it).

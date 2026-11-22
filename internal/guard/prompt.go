@@ -16,12 +16,14 @@ import (
 	"obor/internal/store"
 )
 
-// UserPromptSubmit has two jobs, by role. Lead: the lines queued for it when no live inbox takes them (hookLines, asked
-// through lines), then the handoff reminder (handoffReminder) on every prompt while the session's context is above
-// handoff_tokens, both in one context. Worker: the wrong-tab guard (design "Wrong-tab guard"): a prompt a
-// person typed (not tagged `[obor `, nor a slash command, nor one of Claude Code's own envelopes or
-// auto-continuations) gets context telling the agent to ask "I am worker <agent> on <task>. Did you mean to type
-// here?" first. Anything else → no output.
+// UserPromptSubmit has two jobs, by role. Lead: the handoff reminder (handoffReminder) on every prompt while the
+// session's context is above handoff_tokens, and the lines queued for it when no live inbox takes them (hookLines,
+// asked through lines), both in one context, the lines first. The context read is computed before the ask for the
+// lines, which is the hook's last step: serve hands the lines only while the hook still waits for them (the request
+// carries its deadline, wire.LeadLinesReq.UntilMS), so a slow or huge transcript cannot cost them. Worker: the
+// wrong-tab guard (design "Wrong-tab guard"): a prompt a person typed (not tagged `[obor `, nor a slash command, nor
+// one of Claude Code's own envelopes or auto-continuations) gets context telling the agent to ask "I am worker
+// <agent> on <task>. Did you mean to type here?" first. Anything else → no output.
 func UserPromptSubmit(input []byte, env project.Env, out io.Writer, lines LeadLines) {
 	var ev struct {
 		Cwd            string `json:"cwd"`
@@ -48,13 +50,14 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer, lines LeadLi
 	switch role.Role {
 	case "lead":
 		agent := project.SelfAgent(cfg, role)
+		reminder := handoffReminder(cfg, env, agent, ev.SessionID, ev.TranscriptPath)
 		var parts []string
 		if l := hookLines(cfg, agent, ev.Cwd, lines); l != "" {
 			parts = append(parts, "obor (lead): lines for you that arrived since your last turn (no live inbox of your "+
 				"session takes them: they come with your next prompt or at a turn's end), one per row:\n"+l)
 		}
-		if ctx := handoffReminder(cfg, env, agent, ev.SessionID, ev.TranscriptPath); ctx != "" {
-			parts = append(parts, ctx)
+		if reminder != "" {
+			parts = append(parts, reminder)
 		}
 		if len(parts) > 0 {
 			promptContext(out, strings.Join(parts, "\n\n"))

@@ -38,9 +38,12 @@ func hookLeadRig(t *testing.T, opts ...rigOpt) *loopRig {
 	return leadKindRig(t, "hooky", testkit.HookKindName, opts...)
 }
 
-// leadLines is the lead's hook asking for its lines under callID.
-func (r *loopRig) leadLines(callID string) (string, error) {
-	return r.line(callID, &wire.LeadLinesReq{})
+// leadLines is the lead's hook asking for its lines under callID, its request naming no deadline (an older binary).
+func (r *loopRig) leadLines(callID string) (string, error) { return r.leadLinesUntil(callID, 0) }
+
+// leadLinesUntil is leadLines with the request's deadline (epoch milliseconds): the instant its call ends.
+func (r *loopRig) leadLinesUntil(callID string, untilMS int64) (string, error) {
+	return r.line(callID, &wire.LeadLinesReq{UntilMS: untilMS})
 }
 
 // hookIntents is the delivery intents of the project's lines that went to the lead's hook (via hook): their members.
@@ -106,6 +109,49 @@ func TestLeadLinesHandedByTheHookOnce(t *testing.T) {
 		}
 		if n := r.inbox.tries("pj-lead", line) + r.typedTo("pj-lead", line); n != 0 {
 			t.Errorf("posted or typed %d times besides the hook's", n)
+		}
+	})
+}
+
+// A hook's ask that serve reads after its call ended hands nothing: the lines are not claimed or recorded as handed,
+// and they stay queued — the pass neither posts nor types them — until the next prompt's ask, in time, hands them
+// once.
+func TestLeadLinesLateAskLeavesThemQueued(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := hookLeadRig(t)
+		r.start()
+		line := sentLine("other", "hello")
+		if _, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
+			t.Fatal(err)
+		}
+		r.passes()
+		if w := r.waiting(); len(w) != 1 || w[0].Line != line {
+			t.Fatalf("precondition: the line waiting for the hooks, %+v", w)
+		}
+		late := r.clock.Now().Add(-time.Millisecond).UnixMilli()
+		if got, err := r.leadLinesUntil("h1", late); err != nil || got != "" {
+			t.Fatalf("an ask past its call's end: %q, %v; want nothing handed", got, err)
+		}
+		if res, in := r.lineResults(), r.hookIntents(); len(res) != 0 || len(in) != 0 {
+			t.Errorf("delivery results %q, hook intents %v; want none recorded", res, in)
+		}
+		r.passes()
+		if w := r.waiting(); len(w) != 1 || w[0].Line != line {
+			t.Errorf("waiting %+v; want the line still queued", w)
+		}
+		if n := r.inbox.tries("pj-lead", line) + r.typedTo("pj-lead", line); n != 0 {
+			t.Errorf("posted or typed %d times; want the line queued for the hooks", n)
+		}
+		next := r.clock.Now().Add(time.Second).UnixMilli()
+		if got, err := r.leadLinesUntil("h2", next); err != nil || got != line {
+			t.Fatalf("the next prompt's ask in time: %q, %v; want %q", got, err, line)
+		}
+		if res, in := r.lineResults(), r.hookIntents(); len(res) != 1 || res[0] != "sent" || len(in) != 1 || len(in[0]) != 1 {
+			t.Errorf("delivery results %q, hook intents %v; want one sent of one line via hook", res, in)
+		}
+		if w := r.waiting(); len(w) != 0 {
+			t.Errorf("waiting %+v; want the line handed", w)
 		}
 	})
 }
