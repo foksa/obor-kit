@@ -11,8 +11,8 @@ changes (`docs/plan/architecture-target.md` §2a).
 (`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor` into `~/.obor/bin` with obor's). `opencode/obor.js` stays
 its hook transport. A test binary answers it in process (`plugin.Local`, testkit), with the handler the binary runs.
 The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, built and shipped the same way as
-`obor-kind-agy`: obor's MCP server through the project's `.agents/mcp_config.json` (`install`'s `where: project`),
-no hooks yet.
+`obor-kind-agy`: obor's MCP server and hooks through the project's `.agents/mcp_config.json` and `.agents/hooks.json`
+(`install`'s `where: project`); its binary's `hook` call is agy's hook transport (`obor kind agy hook`).
 
 ## Register one
 
@@ -60,7 +60,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
 | `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `overrides`, `session`, `write_dirs`, `dir`, `root` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
-| `install` | `kit`, `root`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
+| `install` | `kit`, `root`, `env` | `mcp: {where, path, key, entry, unpinned}`; optional `hooks: {where, path, key, entry}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: context` + `tail`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; context: `ok`, `context: {tokens, at, ttl}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Context`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, the handoff reminder and a keep lane's handoff rule, a stop on an error |
 | `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
 | `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself) |
@@ -76,6 +76,8 @@ of the kind, and adds the file's path to `rules.protected_files`; the lead commi
 entry and, since such an entry names `obor` by `PATH`, warns when the `obor` on `PATH` is not the running kit's.
 agy's: `{"where": "project", "path": ".agents/mcp_config.json", "key": ["mcpServers", "obor"], "entry": {"command":
 "obor", "args": ["mcp"]}}`. With no `root` (outside a project) the path stays as the reply names it.
+`hooks` is a kind's hooks entry in a file of the project, `where: project` only (any other `where` is refused), written
+and protected by `obor setup agents` as `mcp`'s is; agy's: `.agents/hooks.json`, key `["obor"]`, its named hook.
 
 Times are RFC 3339 strings ("" none).
 
@@ -170,17 +172,28 @@ nothing yet: herdr's agent detection still gives every pane its status. The comp
 
 A kind's hooks reach obor as `obor hook <name>`: `hooks: native` is the CLI's own hooks file running it (Claude
 Code's plugin `hooks/hooks.json`), `hooks: plugin` is obor's plugin for the CLI, which maps the CLI's events to the
-same calls (`opencode/obor.js`). A transport reads its CLI's event, runs `bin/obor hook <name>` with the event's JSON
+same calls (`opencode/obor.js`; agy's kind binary, `obor-kind-agy hook`, which the project's `.agents/hooks.json` runs as `obor kind
+agy hook`: `obor kind <name>` execs the kit's binary of that kind with the obor's own executable in `OBOR_EXE`, which
+the transport runs `hook <name>` on). A transport reads its CLI's event, runs `obor hook <name>` with the event's JSON
 on stdin and reads the answer; a transport that only rewrites events holds none of obor's rules. The hooks read the
 agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane's `HERDR_PANE_ID`), so a transport
 passes it through.
 
 Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unreadable event allows.
 
+- **An allow is no opinion**, never an approval: a transport maps it to its CLI's fall-through, which leaves the call
+  to the CLI's own permission check (agy's `{"decision": "ask"}`, never `allow`).
+- **When `obor hook` fails or is too slow** (not found, a non-zero exit but `pre-tool-use`'s 2, no answer within the
+  transport's bound), the transport still answers, per hook: `pre-tool-use` a deny naming the failure (obor cannot
+  guard the call); every other hook nothing (no context, no block). Outside an obor project a transport runs no hook
+  and answers nothing (a tool call: the fall-through).
+- **`session-start` runs once per conversation the CLI starts**, again after a clear (a new conversation), and not
+  for a resume: the session record comes from it, and a resumed conversation already has its context.
+
 | `obor hook` | The event fields it reads | The answer |
 |---|---|---|
 | `pre-tool-use` | `tool_name` (`Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`; any other allows), `cwd`, `session_id`, `tool_input.command`, `tool_input.file_path` (or `notebook_path`), `tool_input.run_in_background`, `tool_input.description` | exit 0: allow, no output (one line on stderr after a recovered panic, which also allows), an allowed background Bash call recorded for the `stop` hook; exit 2: deny, one line `obor: <reason>` on stderr |
-| `session-start` | `cwd`, `session_id`, `transcript_path` | obor's context lines on stdout (role, lane, task, the spec's protected files, the hooks line, the role text; a `WARN` line for unknown config keys, or the one line of a config that does not load), nothing else; with a session id, the session is recorded and reported to serve with its transcript, its inbox record written and a plugin kind's marker |
+| `session-start` | `cwd`, `session_id`, `transcript_path`, `agent_kind` (a kind's transport names its kind: the session's kind when the config knows it, else the kind the agent runs as) | obor's context lines on stdout (role, lane, task, the spec's protected files, the hooks line, the role text; a `WARN` line for unknown config keys, or the one line of a config that does not load), nothing else; with a session id, the session is recorded and reported to serve with its transcript, its inbox record written and a plugin kind's marker |
 | `user-prompt-submit` | `cwd`, `session_id`, `transcript_path`, `prompt`, the origin fields `origin` (a string or `{"kind": …}`), `turn_origin`/`turnOrigin`, `prompt_source`/`promptSource` | one UserPromptSubmit context object on stdout, `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":…}}`: the lead's queued lines when its kind has no inbox and `hook_answers` (asked from serve, which records them as delivered) and its handoff reminder, or a worker's wrong-tab guard; nothing when neither applies; a worker's or role agent's turn is reported to serve as begun |
 | `stop` | `cwd`, `session_id`, `transcript_path`, `stop_hook_active` (only `true` counts), `background_tasks`, each with its `status` (`running` counts) | `{"decision":"block","reason":…}` on stdout (a background run this session started still running, a worker before its `task_done`, or the lead's queued lines when its kind has no inbox and `hook_answers`, not within an active stop loop: asked from serve, which records them as delivered), or nothing; a worker's or role agent's turn is reported to serve as ended |
 | `stop-failure` | `cwd`, `error`, `error_details` (both raw JSON, logged as written) | nothing: the event is logged under the project's state dir and, with an agent's name, its error reported to serve |

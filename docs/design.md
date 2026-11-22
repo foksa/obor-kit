@@ -20,8 +20,8 @@ read in place from the kit (projects keep only short `docs/agents/<role>.md` stu
 - **Hooks:** no-op when the project has no `.obor/config.json`; **no herdr calls, no network**; fast (< 200 ms
   typical; a timed-out PreToolUse hook does *not* block, so speed is part of correctness). They find the project via
   stdin `cwd` → `git rev-parse --git-common-dir`, never `CLAUDE_PROJECT_DIR` (stays at the session-start dir).
-- Hooks cover Claude Code panes and OpenCode lanes (through its plugin, "opencode lanes" below); Codex and agy lanes
-  have none yet and rely on their sandbox + the worker prompt; the integrator's
+- Hooks cover Claude Code panes, OpenCode lanes (through its plugin, "opencode lanes" below) and agy panes (through
+  the kind's transport, "agy lanes" below); Codex lanes have none and rely on their sandbox + the worker prompt; the integrator's
   review at accept (placement against `docs/module-map.md`) is the real control for every lane. The Edit/Write guard is
   a backstop, not a sandbox.
 - No `git push`, ever, from any obor script (agents: only leads listed in `rules.may_push`).
@@ -235,8 +235,8 @@ is obor's entries alone. OpenCode still reads the user's own config below it, so
 whole definition, which OpenCode needs). agy: the start's `--settings` file (`.obor/state/agy-settings-<lead|trimmed>-<dir
 hash>.json`, one per kind of start and start dir), which agy lays over the user's saved settings by top-level key: each
 key it names is the user's saved value with `settings_override.json` merged over it (a trimmed start only), then
-obor's entries: `agentMode: "auto"` for every agent but a lead (agy's sandbox runs its commands with no prompt),
-`permissions.allow` gains `mcp(obor/*)` (a lead's also `command(obor)`), and `trustedWorkspaces` gains the start dir
+obor's entries: `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands with no prompt, and
+its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)`, and `trustedWorkspaces` gains the start dir
 when the project's root is in the user's saved list (a lane follows the main checkout's trust). agy has no switch for
 the user's own plugins, skills, hooks and MCP servers: they stay. The trim is best
 effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user config, plugins,
@@ -944,14 +944,24 @@ switch on `session.created` loses). opencode runs on the owner's own state and c
 ## agy lanes
 agy (Antigravity CLI) is a kit kind, `kinds/agy` (`obor-kind-agy`), wired by files the project commits, never by
 anything user-level: `.agents/mcp_config.json` holds `mcpServers.obor` = `obor mcp`, the `obor` on the agent's
-`PATH` (the server inherits the agent's role, lane and pane). `obor setup agents` writes the entry when the config
-has an agy model (the file's other servers kept) and adds the file to `rules.protected_files`; the lead commits both;
-`obor setup mcp` checks the entry and warns when the `obor` on `PATH` is not the running kit's. A lane worktree has
-the file through git. agy runs no obor hooks yet: auto mode's sandbox (no writes outside the workspace, temp dirs and
-caches, no unix socket, even for a command an allow rule names; no network unless a `read_url` allow rule opens it) is
-a lane's guard, as Codex's is. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id
-without its effort word> --effort <effort>`; the first prompt as `-i`, a resume as `--conversation <id>` (herdr's
-session id). With a wrong model or effort agy starts its default model and says so on its start screen; the
+`PATH` (the server inherits the agent's role, lane and pane), and `.agents/hooks.json` the named hook `obor`, whose
+handlers (SessionStart, PreInvocation, Stop, and PreToolUse for `run_command`, `write_file`, `edit_file`) run `obor
+kind agy hook`: that obor execs the kit's `obor-kind-agy hook`, which rewrites agy's event as Claude Code's, runs
+`obor hook <name>` on the same obor and rewrites the answer (`kinds/agy/kind/hook.go`; no rule lives there). obor's
+allow is agy's `ask` (agy's own check decides: in auto mode, none), a deny is final; agy denies a tool call whose hook
+fails, so the transport always answers, and a failing `obor hook pre-tool-use` is a deny naming the failure.
+`obor setup agents` writes both entries when the config has an agy model (each file's other entries kept) and adds
+both files to `rules.protected_files`; the lead commits them; `obor setup mcp` checks the MCP entry and warns when
+the `obor` on `PATH` is not the running kit's. A lane worktree has the files through git. Every agy agent, a lead
+too, runs in auto mode: a command runs in agy's sandbox (no writes outside the workspace, temp dirs and caches, no
+unix socket, no network), and one the sandbox refuses is re-run outside it once agy's reviewer approves (a socket, the
+network, a write outside the workspace: no prompt; a destructive one asks); obor's guard checks each attempt.
+`toolPermission: "always-proceed"` is a project's override (`.obor/agy/settings_override.json`) only. The
+session record is the SessionStart hook's (a new conversation, again after `/clear`; a resume fires none and needs
+none): a restart without `--fresh` resumes it after the agent exited or its pane is gone, and a recorded session of
+another kind (the agent ran one before) is never resumed: herdr's live agy session of the pane, else a new one. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id
+without its effort word> --effort <effort>`; the first prompt as `-i`, a resume as `--conversation <id>` (the
+recorded session id). With a wrong model or effort agy starts its default model and says so on its start screen; the
 manifest's `not_ready` matches that notice, which launch reads only when the terminal's start fails (agy's comes up
 ready). Stop: `/exit`. The context size is the conversation's `transcript.jsonl`
 (`~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`).

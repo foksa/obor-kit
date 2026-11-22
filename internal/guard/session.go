@@ -16,7 +16,8 @@ import (
 	"obor/internal/store"
 )
 
-// SessionStart is the SessionStart hook: this session's obor context on out (role, lane, task, the protected files
+// SessionStart is the SessionStart hook (its session's kind the event's agent_kind, a kind transport's own word, when
+// the config knows it; else the kind the agent runs as, sessionKind): this session's obor context on out (role, lane, task, the protected files
 // the task's spec unlocks, the role's hook summary, the role text to read, a lost-identity warning). No
 // project → nothing; unknown config keys → a WARN line first; a config that does not load → only that line (the
 // session's records are still written). Records the session id for obor restart (a kind that resumes) and its inbox
@@ -28,6 +29,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		Cwd            string `json:"cwd"`
 		SessionID      string `json:"session_id"`
 		TranscriptPath string `json:"transcript_path"`
+		AgentKind      string `json:"agent_kind"` // the kind whose transport ran the hook ("": the CLI's own hooks)
 	}
 	if json.Unmarshal(input, &ev) != nil {
 		return Began{}, false
@@ -41,6 +43,9 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	}
 	agent := project.Self(repo, cfg, env) // derived, never OBOR_AGENT
 	kind := sessionKind(cfg, agent, ev.Cwd)
+	if _, known := cfg.Kind(ev.AgentKind); known { // the CLI that runs the session says which it is
+		kind = ev.AgentKind
+	}
 	if err != nil { // say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
 		record(repo.Root, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env, cfg.Kinds())

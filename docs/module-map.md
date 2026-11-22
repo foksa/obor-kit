@@ -105,8 +105,9 @@ reset; no turn, session or context read), `project-warnings`. It imports `agents
 registers its handler in process (`plugin.Local`). `kinds/agy` (`obor-kind-agy`), the same shape: package
 `kinds/agy/kind` is the manifest, `start` (`--settings` with the start's settings file, `settings.go`: the user's saved
 agy settings, the project's `settings_override.json` and obor's entries; the model and `--effort`; `-i` or
-`--conversation`), `install` (`where: project`, `.agents/mcp_config.json`), `turn` (`context` from `transcript.jsonl`,
-a limit's reset).
+`--conversation`), `install` (`where: project`, `.agents/mcp_config.json` and `.agents/hooks.json`), `turn` (`context`
+from `transcript.jsonl`, a limit's reset), and the hook transport (`hook.go`: the binary's `hook` call, which `obor kind
+agy hook` execs; agy's event → `obor hook <name>` → agy's answer).
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

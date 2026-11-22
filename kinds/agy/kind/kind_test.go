@@ -28,13 +28,14 @@ func agy(t *testing.T, stateDir string) agents.Kind {
 	return k
 }
 
-// The manifest: no hooks, a resume, no named session and no session read, the model as an id, the terminal's status,
+// The manifest: obor's hooks through its transport, acting on their answers, a resume, no named session and no session read, the model as an id, the terminal's status,
 // the efforts agy takes, /exit with one Enter and Ctrl+U, -p/--print, --prompt and `agy acp` headless, the
 // conversation's transcript.jsonl under HOME, typed delivery, the override file, and the not-ready pattern that fails a
 // start on agy's wrong-model notice (each notice of probes P5) and on no ready screen.
 func TestManifest(t *testing.T) {
 	k := agy(t, t.TempDir())
-	if c := k.Caps(); c != (agents.Caps{Resume: true, ModelArg: true, Transcript: true, Status: agents.StatusTerminal}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, HookAnswers: true, Resume: true, ModelArg: true,
+		Transcript: true, Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
 	if got := k.Efforts(); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {
@@ -163,7 +164,7 @@ func TestStartArgs(t *testing.T) {
 }
 
 // A lead's start (untrimmed) and another agent's (trimmed) write their settings to different files, per start dir:
-// the lead's has no agentMode (its own mode) and allows obor's commands beside its MCP tools, and the project's
+// both are auto mode (a lead's too: no toolPermission, no command rule, P11) with obor's MCP rule, and the project's
 // override file reaches only the trimmed start, as OpenCode's does.
 func TestStartSettingsLeadAndWorker(t *testing.T) {
 	k := agy(t, t.TempDir())
@@ -178,7 +179,7 @@ func TestStartSettingsLeadAndWorker(t *testing.T) {
 		return s
 	}
 	lead := start(false)
-	if want := (map[string]any{"permissions": map[string]any{"allow": []any{"command(git status)", kind.MCPRule, kind.LeadRule},
+	if want := (map[string]any{"agentMode": "auto", "permissions": map[string]any{"allow": []any{"command(git status)", kind.MCPRule},
 		"deny": []any{"command(rm)"}}}); !reflect.DeepEqual(lead, want) {
 		t.Errorf("a lead's settings = %v, want %v", lead, want)
 	}
@@ -206,7 +207,7 @@ func TestSettingsMerge(t *testing.T) {
 		"permissions": map[string]any{"allow": []any{"command(ls)"}, "ask": []any{"read_url(*)"}}}
 	over := map[string]any{"model": nil, "toolPermission": "request-review", "agentMode": "plan",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", "mcp(obor/*)"}, "ask": nil}}
-	got := kind.Settings(user, over, false, "", "")
+	got := kind.Settings(user, over, "", "")
 	want := map[string]any{"toolPermission": "request-review", "agentMode": "auto",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", "mcp(obor/*)"}}}
 	if !reflect.DeepEqual(got, want) {
@@ -215,7 +216,7 @@ func TestSettingsMerge(t *testing.T) {
 	if user["model"] != "gemini-4-neon-high" || len(user["permissions"].(map[string]any)["allow"].([]any)) != 1 {
 		t.Errorf("Settings changed the user's settings: %v", user)
 	}
-	if got := kind.Settings(nil, nil, false, "", ""); !reflect.DeepEqual(got, map[string]any{"agentMode": "auto",
+	if got := kind.Settings(nil, nil, "", ""); !reflect.DeepEqual(got, map[string]any{"agentMode": "auto",
 		"permissions": map[string]any{"allow": []any{kind.MCPRule}}}) {
 		t.Errorf("Settings with no user file and no override = %v", got)
 	}
@@ -226,11 +227,11 @@ func TestSettingsMerge(t *testing.T) {
 // override's own trusted folders are not the owner's trust of the project.
 func TestSettingsTrust(t *testing.T) {
 	saved := map[string]any{"trustedWorkspaces": []any{"/home/me", "/p/"}}
-	got := kind.Settings(saved, nil, false, "/p/wt/L-01", "/p")
+	got := kind.Settings(saved, nil, "/p/wt/L-01", "/p")
 	if want := []any{"/home/me", "/p/", "/p/wt/L-01"}; !reflect.DeepEqual(got["trustedWorkspaces"], want) {
 		t.Errorf("root saved: trustedWorkspaces = %v, want %v", got["trustedWorkspaces"], want)
 	}
-	if got := kind.Settings(saved, nil, true, "/p", "/p"); !reflect.DeepEqual(got["trustedWorkspaces"], []any{"/home/me", "/p/", "/p"}) {
+	if got := kind.Settings(saved, nil, "/p", "/p"); !reflect.DeepEqual(got["trustedWorkspaces"], []any{"/home/me", "/p/", "/p"}) {
 		t.Errorf("a lead in the root: trustedWorkspaces = %v, want the saved list and the root", got["trustedWorkspaces"])
 	}
 	for name, c := range map[string]struct {
@@ -241,7 +242,7 @@ func TestSettingsTrust(t *testing.T) {
 		"root only in the override":   {nil, map[string]any{"trustedWorkspaces": []any{"/p"}}},
 		"a parent of the root, saved": {map[string]any{"trustedWorkspaces": []any{"/"}}, nil},
 	} {
-		got := kind.Settings(c.user, c.over, false, "/p/wt/L-01", "/p")
+		got := kind.Settings(c.user, c.over, "/p/wt/L-01", "/p")
 		if tw, _ := got["trustedWorkspaces"].([]any); slices.Contains(tw, any("/p/wt/L-01")) {
 			t.Errorf("%s: trustedWorkspaces = %v, want the start dir not trusted", name, tw)
 		}
@@ -282,7 +283,7 @@ func TestContext(t *testing.T) {
 
 // Install registers obor's server through the project's committed .agents/mcp_config.json (where project): the file
 // under the request's root, the mcpServers.obor entry naming obor on PATH, nothing user-global; the lane's start is
-// served by that file (static).
+// served by that file (static). Its hooks the same way: .agents/hooks.json, the named hook obor (HooksEntry).
 func TestInstall(t *testing.T) {
 	k := agy(t, t.TempDir())
 	in, err := agents.InstallOf(k, "/kit", "/p", nil)
@@ -294,6 +295,11 @@ func TestInstall(t *testing.T) {
 	}
 	if how, reg, static := m.Lane(nil, nil); !reg || !static || !strings.Contains(how, ".agents/mcp_config.json") {
 		t.Errorf("Lane = %q, %v, %v; want served by the project file", how, reg, static)
+	}
+	b, _ := json.Marshal(kind.HooksEntry())
+	if h := in.Hooks; h.Where != agents.Project || h.Path != "/p/.agents/hooks.json" || !slices.Equal(h.Key, []string{"obor"}) ||
+		mustJSON(h.Entry) != string(b) {
+		t.Errorf("Install's hooks = %+v, want obor's named hook in /p/.agents/hooks.json", h)
 	}
 }
 

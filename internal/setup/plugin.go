@@ -166,7 +166,8 @@ func (s *Setup) hooksLine(root string) string {
 // (kinds.<name>.command: the kit's OpenCode and agy) is described and its manifest cached in the state dir
 // (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
 // a failure is a FAIL. A kind installs nothing user-global; one that registers through a project file (agy's
-// .agents/mcp_config.json) has it written there when the config has a model of that kind (projectInstall).
+// .agents/mcp_config.json, and its hooks' .agents/hooks.json) has it written there when the config has a model of that
+// kind (projectInstall).
 func (s *Setup) agentsCmd(args []string) error {
 	if len(args) > 0 {
 		return errUsage
@@ -188,21 +189,28 @@ func (s *Setup) agentsCmd(args []string) error {
 		if err != nil {
 			return project.Failf("agents %s: %v", name, err)
 		}
-		if in.MCP.Where != agents.Project {
-			s.say("agents %s: nothing to install", name)
-			continue
+		var files []agents.MCPRegistration
+		for _, m := range []agents.MCPRegistration{in.MCP, in.Hooks} {
+			if m.Where == agents.Project {
+				files = append(files, m)
+			}
 		}
-		if err := s.projectInstall(name, in.MCP); err != nil {
-			return err
+		if len(files) == 0 {
+			s.say("agents %s: nothing to install", name)
+		}
+		for _, m := range files {
+			if err := s.projectInstall(name, m); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-// projectInstall writes kind name's registration m (where project) into the project: when the config has an
-// agents.models entry of the kind, m.Entry at m.Key of m.Path (the file's other entries kept; an absent file is made),
-// and the file's path, relative to the root, into rules.protected_files (no worker edits its own wiring); both
-// uncommitted, for the lead to commit. Outside a project, or with no model of the kind, nothing is written.
+// projectInstall writes kind name's registration m (where project: its MCP server's or its hooks') into the project:
+// when the config has an agents.models entry of the kind, m.Entry at m.Key of m.Path (the file's other entries kept; an
+// absent file is made), and the file's path, relative to the root, into rules.protected_files (no worker edits its own
+// wiring); both uncommitted, for the lead to commit. Outside a project, or with no model of the kind, nothing is written.
 func (s *Setup) projectInstall(name string, m agents.MCPRegistration) error {
 	if s.root == "" || !filepath.IsAbs(m.Path) {
 		s.say("agents %s: registered by each project's %s (obor setup agents in the project writes it)", name, m.Path)

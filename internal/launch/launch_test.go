@@ -2038,7 +2038,7 @@ func TestRestartRecordedSession(t *testing.T) {
 	t.Run("Codex's sessions are not obor's: not checked", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-rev", "cx-1")
+		recordSessions(t, x.p.Root, store.Session{Agent: "pj-rev", Kind: "codex", ID: "cx-1", Started: time.Now().Unix()})
 		x.shell("w1:p7", "pj-rev", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		if !ok {

@@ -83,6 +83,8 @@ var Commands = []Command{
 		"the project's app: dispatch, gate, merges (install: its launchd agent)", "setup"},
 	{"hook", "obor hook noop|pre-tool-use|stop|stop-failure|session-start|user-prompt-submit",
 		"the agents' hooks (Claude Code runs them)", "internals"},
+	{"kind", "obor kind <kit kind> [args…]",
+		"run the kit's binary of a plugin kind (agy's .agents/hooks.json runs obor kind agy hook)", "internals"},
 	{"mcp", "obor mcp [--check]", "the agents' MCP server of job tools (--check: one line on whether it answers)", "internals"},
 	{"has", "obor has <subcommand> [<sub-subcommand>]", "exit 0 when this binary implements it (the shim asks)", "internals"},
 }

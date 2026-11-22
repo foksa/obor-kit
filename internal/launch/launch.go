@@ -716,7 +716,8 @@ func carries(req Request) bool { return !req.Fresh && req.Prompt != "" }
 // always starts fresh: serve records its session, but there is nothing obor resumes. The recorded session wins:
 // herdr's live one for the pane is a cross-check, said when it differs. A kind whose sessions obor names itself
 // (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the recorded id, and a session with no record
-// is a new one.
+// is a new one. A recorded session of another kind than the start's never wins: herdr's live one of the start's kind,
+// else a new session.
 func (l *Launcher) sessionOf(t *target, req Request) (sid, src string, err error) {
 	sid, src = t.sid, "record"
 	if !l.Cfg.Kinds().Resumes(t.kind) {
@@ -724,6 +725,21 @@ func (l *Launcher) sessionOf(t *target, req Request) (sid, src string, err error
 			l.say("warning: no resume for kind %s: new session", t.kind)
 		}
 		return "", "", nil
+	}
+	// A recorded session of another kind (the agent ran another kind before) is not this kind's to resume: the
+	// terminal's live session of the pane when it is this kind's (and the kind's sessions are not obor's to name), else
+	// a new one.
+	if sid != "" && t.sidKind != "" && t.sidKind != t.kind {
+		if req.Fresh {
+			return "", src, nil
+		}
+		why := fmt.Sprintf("session %s is %s's, the type %s is %s's", sid, t.sidKind, t.info.Type, t.kind)
+		if live := t.entry.Session; live != "" && t.entry.Agent == t.kind && !l.Cfg.Kinds().NamedSession(t.kind) {
+			l.say("%s: resuming the terminal's %s", why, live)
+			return live, "herdr", nil
+		}
+		l.say("%s: new session", why)
+		return "", src, nil
 	}
 	if live := t.entry.Session; live != "" && !sameSid(live, sid) {
 		switch {
