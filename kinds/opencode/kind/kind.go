@@ -1,6 +1,6 @@
 // Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md): the
 // reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, a resume with --session,
-// /exit with its popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook
+// /exit with its popup's second Enter, `opencode run`/`acp`/`serve` denied, obor's MCP server and plugin (<kit>/opencode, its hook
 // transport, which acts on the hooks' answers, and its session inbox: InboxVar) in each start's generated config
 // (OPENCODE_CONFIG), on the user's own config with the project's override file laid over it (override.go), lines
 // posted to the session's inbox (deliver), the session's context size from the plugin's token file (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in
@@ -145,8 +145,8 @@ func Handle(call string, req []byte) ([]byte, error) {
 // event carries the version, so the marker takes OPENCODE_VERSION; status from the terminal's agent detection. Stop:
 // /exit, typed with Enter (live 2026-10-17); its slash-command popup takes that Enter, a second one runs it (once the
 // agent has exited it reaches the shell as an empty line). When it did not exit: Escape (the popup), then Ctrl+U, so
-// the next typed message does not follow the quit. Headless: `opencode run`, as the subcommand or a later word
-// (ValueOpts: opencode --help). Transcript: the plugin's per-session token file (TranscriptGlob), whose last line is a
+// the next typed message does not follow the quit. Headless: `opencode run` (as the subcommand or a later word),
+// `opencode acp` and `opencode serve` (ValueOpts: opencode --help). Transcript: the plugin's per-session token file (TranscriptGlob), whose last line is a
 // session's context size. Inbox: the plugin's per-session socket, recorded from InboxVar (inbox_record); lines are
 // posted there (deliver), not typed. MCP: nothing user-global: obor's server and plugin reach each start through its
 // generated config. Env: the variables that place the user's config dir, which a start with an
@@ -161,7 +161,7 @@ func describe() map[string]any {
 		"vars":    []string{ModelVar, ConfigVar, SkillsVar, ResumeVar},
 		"env":     []string{"HOME", "XDG_CONFIG_HOME"},
 		"stop":    map[string]any{"quit": "/exit", "second_enter": true, "clear_input": []string{"esc", "ctrl+u"}},
-		"headless": map[string]any{"subcommands": []string{"run"}, "anywhere": []string{"run"},
+		"headless": map[string]any{"subcommands": []string{"run", "acp", "serve"}, "anywhere": []string{"run"},
 			"value_opts": []string{"--server", "-s", "--session", "--prompt", "--completions", "--log-level"}},
 		"transcript":   TranscriptGlob,
 		"inbox_record": []string{InboxVar},

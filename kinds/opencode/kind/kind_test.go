@@ -33,7 +33,7 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 }
 
 // OpenCode's start argv (--prompt, a resume with --session, no registration on the command line), /exit with the
-// popup's second Enter and the clear keys, `opencode run`, registered per start (nothing user-global), the plugin's
+// popup's second Enter and the clear keys, `opencode run`/`acp`/`serve`, registered per start (nothing user-global), the plugin's
 // token file as its transcript, the plugin hook transport, which acts on the hooks' answers, and its inbox (TestDeliver).
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
@@ -70,7 +70,7 @@ func TestKind(t *testing.T) {
 		s.Dialog != nil {
 		t.Errorf("Stop = %+v", s)
 	}
-	if h := k.Headless(); h.PrintFlag || !slices.Equal(h.Subcommands, []string{"run"}) || !slices.Equal(h.Anywhere, []string{"run"}) ||
+	if h := k.Headless(); h.PrintFlag || !slices.Equal(h.Subcommands, []string{"run", "acp", "serve"}) || !slices.Equal(h.Anywhere, []string{"run"}) ||
 		!slices.Contains(h.ValueOpts, "--prompt") {
 		t.Errorf("Headless = %+v", h)
 	}

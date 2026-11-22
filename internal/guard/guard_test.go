@@ -210,7 +210,7 @@ func TestPkillKillallDeniedKillPIDAllowed(t *testing.T) {
 	})
 }
 
-// codex exec, claude -p / --print and opencode run are denied for every role (lead included), wrapped or
+// codex exec, claude -p / --print and opencode run / acp are denied for every role (lead included), wrapped or
 // nested too; the interactive forms and look-alikes are allowed.
 func TestHeadlessAgentRunsDenied(t *testing.T) {
 	t.Parallel()
@@ -230,6 +230,7 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 			bash(who, cwd, `claude --model opus --print "x"`, "claude --print "+why),
 			bash(who, cwd, `claude --print=json`, "claude --print"),
 			bash(who, cwd, `opencode run "x"`, "opencode run "+why),
+			bash(who, cwd, `opencode acp`, "opencode acp "+why),
 			bash(who, cwd, `/usr/local/bin/opencode run x`, "opencode run"),
 			bash(who, cwd, `timeout 600 codex exec x`, "codex exec"),
 			bash(who, cwd, `sh -c 'claude -p hi'`, "claude -p"),
