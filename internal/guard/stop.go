@@ -1,10 +1,10 @@
 package guard
 
 // The Stop, SessionStart and UserPromptSubmit hooks (`obor hook stop|session-start|user-prompt-submit`, run through
-// bin/obor): the worker's task_done, the session's obor context, the handoff reminder, the lead's lines when its
-// kind has no inbox, and the wrong-tab guard. The lead and the integrator stop when they like (no nudges, no ledger) —
+// bin/obor): the worker's task_done, the session's obor context, the handoff reminder, the lead's lines when no
+// live inbox takes them, and the wrong-tab guard. The lead and the integrator stop when they like (no nudges, no ledger) —
 // except for a background run they started, which blocks every agent's stop (background), and lines queued for a
-// lead with no inbox (leadLines).
+// lead with no live inbox (leadLines).
 
 import (
 	"context"
@@ -103,8 +103,8 @@ func runStop(input []byte, env project.Env, lines LeadLines) (reason string, err
 		return reason, nil
 	}
 
-	// The role's verdict: a block reason, or "" (allow). A worker's (its task_done), and the lead's lines when its
-	// kind has no inbox; no block for context size: the handoff reminder rides on each prompt (handoffReminder).
+	// The role's verdict: a block reason, or "" (allow). A worker's (its task_done), and the lead's lines when no
+	// live inbox takes them; no block for context size: the handoff reminder rides on each prompt (handoffReminder).
 	switch h.role.Role {
 	case "worker":
 		return h.workerDone()
@@ -114,7 +114,7 @@ func runStop(input []byte, env project.Env, lines LeadLines) (reason string, err
 	return "", nil
 }
 
-// leadLines: lines queued for a lead whose kind has no inbox block its stop, so a lead that just finished goes on with
+// leadLines: lines queued for a lead with no live inbox (hookLines) block its stop, so a lead that just finished goes on with
 // them (hookLines: asked only then, and recorded as delivered by serve). Once per stop loop: within an active loop
 // (stop_hook_active) nothing is asked and the stop is allowed; lines queued meanwhile come with the next prompt or
 // turn end.
@@ -126,7 +126,7 @@ func (h *stopHook) leadLines() string {
 	if l == "" {
 		return ""
 	}
-	return "obor (lead): lines for you arrived as your turn ended (your session has no inbox: they come with your " +
+	return "obor (lead): lines for you arrived as your turn ended (no live inbox of your session takes them: they come with your " +
 		"next prompt or at a turn's end); act on them, one per row:\n" + l
 }
 

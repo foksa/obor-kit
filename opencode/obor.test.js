@@ -8,7 +8,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock } from "./obor.js";
+import net from "node:net";
+import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, tool_name, tool_input });
@@ -101,7 +102,8 @@ function feed() {
 // bin/obor stub also logs its name (kit, main or lane) to <base>/who.
 // model sets OBOR_OPENCODE_MODEL for the setup call (setup reads it first, before any await), version opencode's
 // version, and switched collects the ctx.session.switchModel calls (none: the context has no switchModel). prompted
-// collects the ctx.session.prompt calls of a stop's block.
+// collects the ctx.session.prompt calls (a stop's block, an inbox line). inbox() is each hook call's OBOR_OPENCODE_INBOX
+// ("<hook> <path>", "" unset).
 async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -117,6 +119,7 @@ async function stubPlugin(t, { project = true, checkout = "", lane = false, mode
 event=$(cat)
 echo ${name} >> ${base}/who
 echo "$2 OBOR_NO_SELF_HOST=$OBOR_NO_SELF_HOST id=\${OBOR_AGENT-}/\${OBOR_ROLE-}/\${OBOR_LANE-}/\${HERDR_PANE_ID-} $event" >> ${log}
+echo "$2 \${OBOR_OPENCODE_INBOX-}" >> ${base}/inbox
 case "${mode}:$2" in
   deny:pre-tool-use) echo "obor: denied by the stub" >&2; exit 2 ;;
   answer:user-prompt-submit) echo '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"obor: the lead has lines"}}' ;;
@@ -178,13 +181,15 @@ esac
   const who = () => (fs.existsSync(path.join(base, "who")) ? fs.readFileSync(path.join(base, "who"), "utf8").trim().split("\n") : []);
   const names = () => calls().map((l) => l.split(" ")[0]);
   const token = (sid) => tokensPath(sid, { HOME: base });
-  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted };
+  const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
+  const sock = (sid) => inboxPath(sid, { HOME: base });
+  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted, inbox, sock };
 }
 
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "default", "errorDetails", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
 });
 
 test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
@@ -601,12 +606,97 @@ test("stop: no block (or a failure) prompts nothing and the next stop is a new l
   assert.deepEqual(calls().map(event).filter((e) => e.hook_event_name === "Stop").map((e) => e.stop_hook_active), [false, false]);
 });
 
-test("prompt: a prompt that carries metadata.obor is obor's own: no user-prompt-submit runs", async (t) => {
+test("prompt: a stop's reason (metadata.obor stop) is obor's own: no user-prompt-submit runs", async (t) => {
   const { hooked, names } = await stubPlugin(t, { mode: "answer" });
   const text = "obor (worker L-01): not done yet";
   const p = await promptOf(hooked, "s1", text, { obor: "stop" });
   assert.equal(p.prompt.text, text, "no context appended");
   assert.deepEqual(names(), [], "no hook, not even session-start");
+});
+
+// post writes lines to the unix socket at file as obor serve's poster does (the lines, a half-close) and resolves once
+// the plugin closes its end.
+const post = (file, lines) =>
+  new Promise((resolve, reject) => {
+    const c = net.connect(file, () => c.end(lines.join("\n") + "\n"));
+    c.on("error", reject);
+    c.on("data", () => {});
+    c.on("close", resolve);
+  });
+const line = (text) => JSON.stringify({ type: "user", text });
+
+test("inboxPath: a session's socket beside its token file; none without HOME or over a unix socket's 103 bytes", () => {
+  assert.equal(inboxPath("ses_a", { HOME: "/h" }), "/h/.obor/opencode/ses_a.sock");
+  assert.equal(inboxPath("s1", {}), "", "no HOME");
+  const home = "/" + "h".repeat(103 - "/.obor/opencode/s1.sock".length - 1);
+  assert.equal(Buffer.byteLength(inboxPath("s1", { HOME: home })), 103, "precondition: 103 bytes bind");
+  assert.equal(inboxPath("s1", { HOME: home + "x" }), "", "104 bytes: none");
+});
+
+test("inboxLines: one text per user line; a line that does not parse or names no text is none", () => {
+  assert.deepEqual(inboxLines(line("[obor a] one") + "\n" + line("two\nrows") + "\n"), ["[obor a] one", "two\nrows"]);
+  assert.deepEqual(inboxLines('not json\n{"type":"auth","token":"x"}\n{"type":"user"}\n{"type":"user","text":""}\n'), []);
+});
+
+// The session-start hook of each session runs with its own socket in OBOR_OPENCODE_INBOX (bound before the hook, so
+// the record names a live socket); a line posted there becomes exactly one prompt of that session, marked as obor's
+// line.
+test("inbox: a socket bound per session and named in its session-start's env; a line posted there is one prompt", async (t) => {
+  const { hooked, inbox, sock, prompted } = await stubPlugin(t);
+  await hooked["session:context"]({ sessionID: "s1", system: [] });
+  await hooked["session:context"]({ sessionID: "s2", system: [] });
+  await hooked["session:context"]({ sessionID: "s1", system: [] });
+  assert.deepEqual(inbox(), ["session-start " + sock("s1"), "session-start " + sock("s2")], "one session-start per session, each with its own socket");
+  for (const id of ["s1", "s2"]) assert.ok(fs.statSync(sock(id)).isSocket(), `${id}'s socket is bound`);
+  assert.deepEqual(prompted, [], "precondition: nothing prompted before a post");
+  await post(sock("s1"), [line("[obor other] hi\n[obor] needs-you T-1")]);
+  assert.deepEqual(prompted, [{ sessionID: "s1", text: "[obor other] hi\n[obor] needs-you T-1", metadata: { obor: "line" } }]);
+  await post(sock("s2"), [line("[obor job T-2/1/work] call the obor job_next tool"), "garbage"]);
+  assert.deepEqual(prompted.map((p) => [p.sessionID, p.text]), [
+    ["s1", "[obor other] hi\n[obor] needs-you T-1"],
+    ["s2", "[obor job T-2/1/work] call the obor job_next tool"],
+  ], "the second session's line to it alone; a line that does not parse is none");
+});
+
+// No socket: the hook runs without the variable (no inbox recorded: the lead's lines come through its hooks).
+test("bindInbox: none without a path or a prompt; a bind that fails warns once and binds none", async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-ib-"));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const warned = [];
+  const warn = (l) => warned.push(l);
+  assert.equal(await bindInbox("", "s1", async () => {}, warn), "");
+  assert.equal(await bindInbox(path.join(base, "a.sock"), "s1", undefined, warn), "");
+  assert.deepEqual(warned, [], "no path or no prompt: nothing to warn");
+  fs.writeFileSync(path.join(base, "file"), "");
+  assert.equal(await bindInbox(path.join(base, "file", "s1.sock"), "s1", async () => {}, warn), "");
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /^obor: session s1's inbox .* not bound \(.*\); its lines come through its hooks$/);
+  const ok = path.join(base, "s1.sock");
+  fs.writeFileSync(ok, "stale"); // a stale file at the path is replaced
+  assert.equal(await bindInbox(ok, "s1", async () => {}, warn), ok);
+  assert.ok(fs.statSync(ok).isSocket(), "precondition: bound over the stale file");
+});
+
+test("bindInbox: a prompt that fails warns and the next line still goes", async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-ib-"));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const warned = [], got = [];
+  const prompt = async (a) => {
+    if (a.text === "bad") throw new Error("busy");
+    got.push(a.text);
+  };
+  const file = await bindInbox(path.join(base, "s1.sock"), "s1", prompt, (l) => warned.push(l));
+  await post(file, [line("bad"), line("good")]);
+  assert.deepEqual(got, ["good"]);
+  assert.deepEqual(warned, ["obor: a line for session s1 was not prompted: busy"]);
+});
+
+test("prompt: an inbox line (metadata.obor line) runs user-prompt-submit as a typed prompt does", async (t) => {
+  const { hooked, names, calls, event } = await stubPlugin(t);
+  const text = "[obor other] hi";
+  await promptOf(hooked, "s1", text, { obor: "line" });
+  assert.deepEqual(names(), ["session-start", "user-prompt-submit"]);
+  assert.equal(calls().map(event).find((e) => e.hook_event_name === "UserPromptSubmit").prompt, text);
 });
 
 // The hanging guard waits out the plugin's 5 s timeout, so it starts when this file loads and runs beside the tests

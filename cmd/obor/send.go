@@ -136,8 +136,8 @@ func roleAgent(cfg *config.Config, agent string) bool {
 
 // poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster):
 // the session's inbox socket as its SessionStart hook recorded it in the project at root (the record of the agent's
-// slot), the kind's lines (agents.Kind.Deliver), the kind one of kinds (the pass's config's). Nothing is typed into a
-// pane.
+// slot), the kind's lines (agents.Kind.Deliver of that record, or of a plugin kind's own record kept in it), the kind
+// one of kinds (the pass's config's). Nothing is typed into a pane.
 type poster struct {
 	root  string
 	kinds agents.Kinds
@@ -162,6 +162,9 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 	rec, err := os.ReadFile(f)
 	if err != nil {
 		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
+	}
+	if in, err := project.ReadInbox(p.root, slot); err == nil && in.Record != "" {
+		rec = []byte(in.Record) // a plugin kind's deliver is given back its own record
 	}
 	d, ok := k.Deliver(line, rec)
 	if !ok || d.Typed {
@@ -203,19 +206,13 @@ func slotOf(root, agent string) (string, error) {
 	return slot, nil
 }
 
-// inboxed is app.Options.Inboxed for the project at root: agent's inbox record names a socket that is there (a session
-// that ended removed it; a crashed one's is refused at the dial and retried), and the session that wrote it.
+// inboxed is app.Options.Inboxed for the project at root (its config as it is now): project.InboxLive.
 func inboxed(root string) func(agent string) (string, bool) {
 	return func(agent string) (string, bool) {
-		slot, err := slotOf(root, agent)
+		cfg, err := config.Load(root)
 		if err != nil {
 			return "", false
 		}
-		in, err := project.ReadInbox(root, slot)
-		if err != nil {
-			return "", false
-		}
-		_, err = os.Stat(in.Socket)
-		return in.Session, err == nil
+		return project.InboxLive(cfg, agent)
 	}
 }

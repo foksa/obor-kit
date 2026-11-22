@@ -184,8 +184,8 @@ func retryWake(t *testing.T, kind string, recorded bool) *loopRig {
 	return r
 }
 
-// A worker's retry wake: posted to a Claude session with an inbox record (none typed, no keys); typed to a Claude
-// session with none (the fallback), and to Codex and OpenCode whatever an inbox record says.
+// A worker's retry wake: posted to a Claude or OpenCode session with an inbox record (none typed, no keys); typed to a
+// session of either with none (the fallback), and to Codex whatever an inbox record says.
 func TestWakeByKind(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -196,7 +196,8 @@ func TestWakeByKind(t *testing.T) {
 		{"claude", true, true},
 		{"claude", false, false},
 		{"codex", true, false},
-		{"opencode", true, false},
+		{"opencode", true, true},
+		{"opencode", false, false},
 	} {
 		name := c.kind
 		if !c.recorded {
@@ -298,9 +299,9 @@ func TestWakePostPartialNotRepeated(t *testing.T) {
 	})
 }
 
-// A brief to a Claude role agent is posted to its session (none typed); to Codex and OpenCode it is typed (none
-// posted); a Claude session with no inbox record gets it typed (as its job wakes are), nothing posted, nothing left
-// waiting; its work and idle end it.
+// A brief to a Claude or OpenCode role agent is posted to its session (none typed); to Codex it is typed (none posted);
+// a Claude session with no inbox record gets it typed (as its job wakes are), nothing posted, nothing left waiting;
+// its work and idle end it.
 func TestBriefByKind(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -334,7 +335,7 @@ func TestBriefByKind(t *testing.T) {
 				})
 				r.passes()
 				posted, typed := r.inbox.tries("pj-rev", line), r.typedTo("pj-rev", line)
-				post := c.kind == "claude" && c.recorded
+				post := c.kind != "codex" && c.recorded
 				if post && (posted != 1 || typed != 0) || !post && (posted != 0 || typed != 1) {
 					t.Errorf("%s: posted %d, typed %d", name, posted, typed)
 				}
@@ -407,8 +408,8 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 	})
 }
 
-// With no inbox record for the lead, its line stays queued (obor status lists it, nothing is tried) and the
-// reply says it is queued (the hint is TestRunningLeadHint's); across a restart it stays queued; once the record exists it is posted once, and
+// With no inbox record for the lead, its line stays queued for its hooks (obor status lists it, nothing is posted) and
+// the reply says it is queued (the hint is TestRunningLeadHint's); across a restart it stays queued; once the record exists it is posted once, and
 // a later restart posts it no more.
 func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 	t.Parallel()
@@ -417,7 +418,8 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 		r.inbox.unrecord("pj-lead")
 		r.start()
 		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
-		if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead;"; err != nil || !strings.HasPrefix(reply, want) {
+		if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead: its hooks hand it its lines at its " +
+			"next prompt or turn end;"; err != nil || !strings.HasPrefix(reply, want) {
 			t.Fatalf("send: %q, %v; want it to start %q", reply, err, want)
 		}
 		r.passes()
@@ -443,7 +445,7 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 	})
 }
 
-// A line waiting longer than 24 h (here: the lead has no inbox record) is the project's needs-you (a
+// A line waiting longer than 24 h (here: the lead has no inbox record, its lines held for its hooks) is the project's needs-you (a
 // notification, obor status's needs-you with no command to answer it); posted at last, it ends (resumed).
 func TestSendWaitingADayNeedsYou(t *testing.T) {
 	t.Parallel()
@@ -456,7 +458,7 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 		}
 		r.later(23 * time.Hour)
 		want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") +
-			" (undelivered: no inbox recorded for pj-lead: its SessionStart hook records one)}" // why it waits
+			" (undelivered: no inbox recorded for pj-lead: its hooks hand it its lines at its next prompt or turn end)}" // why it waits
 		if n := r.taskStep(event.MsgTask, want); n != 0 {
 			t.Fatalf("a needs-you before 24 h: %q", r.steps())
 		}

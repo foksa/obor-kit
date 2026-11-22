@@ -34,7 +34,7 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 
 // OpenCode's start argv (--prompt, a resume with --session, no registration on the command line), /exit with the
 // popup's second Enter and the clear keys, `opencode run`, registered per start (nothing user-global), the plugin's
-// token file as its transcript, typed delivery, the plugin hook transport, which acts on the hooks' answers.
+// token file as its transcript, the plugin hook transport, which acts on the hooks' answers, and its inbox (TestDeliver).
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	if got := agents.OverrideFiles(k); !slices.Equal(got, []string{"opencode_override.json"}) {
@@ -90,9 +90,6 @@ func TestKind(t *testing.T) {
 	if got := k.Transcript(env(map[string]string{}), "s1"); got != "" {
 		t.Errorf("Transcript with no HOME = %q, want none", got)
 	}
-	if d, ok := k.Deliver("hi", nil); !ok || !d.Typed {
-		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
-	}
 	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // its turns are not read (Caps.Status terminal below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
@@ -120,15 +117,37 @@ func TestKind(t *testing.T) {
 			t.Errorf("%s: Reset = %v, %v; want %v, %v", c.name, got, limited, c.want, c.limited)
 		}
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, HookAnswers: true, Resume: true, Transcript: true, ModelArg: true,
-		VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Inbox: true, HookAnswers: true, Resume: true, Transcript: true,
+		ModelArg: true, VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
-	}
-	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {
-		t.Errorf("InboxRecord = %s, want none", r)
 	}
 	if !slices.Equal(k.Vars(), []string{kind.ModelVar, kind.ConfigVar, kind.SkillsVar}) {
 		t.Errorf("Vars = %q", k.Vars())
+	}
+}
+
+// The session's inbox: the record is the plugin's socket (InboxVar, set in its session-start hook's env; Claude's
+// variables are none of it), and deliver posts one line there, {"type":"user","text"}, the text whole (a batched post's
+// rows in one line); a record naming no socket delivers nothing.
+func TestDeliver(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {
+		t.Errorf("InboxRecord of Claude's variables = %s, want none", r)
+	}
+	rec := k.InboxRecord(env(map[string]string{kind.InboxVar: "/h/.obor/opencode/s1.sock"}))
+	if string(rec) != `{"OBOR_OPENCODE_INBOX":"/h/.obor/opencode/s1.sock"}` {
+		t.Fatalf("InboxRecord = %s, want the plugin's socket", rec)
+	}
+	d, ok := k.Deliver("[obor other] hi\n[obor] needs-you T-1", rec)
+	if !ok || d.Typed || d.Socket != "/h/.obor/opencode/s1.sock" ||
+		!slices.Equal(d.Lines, []string{`{"text":"[obor other] hi\n[obor] needs-you T-1","type":"user"}`}) {
+		t.Errorf("Deliver = %+v, %v; want one user line to the record's socket", d, ok)
+	}
+	for _, bad := range []string{"", "{}", `{"socket":"/s"}`, "not json"} {
+		if d, ok := k.Deliver("hi", []byte(bad)); ok {
+			t.Errorf("Deliver with record %q = %+v, true; want none", bad, d)
+		}
 	}
 }
 

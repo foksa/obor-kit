@@ -39,7 +39,9 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 					if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review"}); err != nil {
 						t.Fatal(err)
 					}
-					r.waitFor("role brief posted", func() bool { return r.typedTo("pj-rev", "[obor pj-lead] review") == 1 })
+					r.waitFor("role brief delivered", func() bool {
+						return r.inbox.count("pj-rev", "[obor pj-lead] review")+r.typedTo("pj-rev", "[obor pj-lead] review") == 1
+					})
 					r.agentIs("w1:p6", "pj-rev", "working")
 					r.passes()
 				} else {

@@ -1,9 +1,9 @@
 // Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md): the
 // reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, a resume with --session,
 // /exit with its popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook
-// transport, which acts on the hooks' answers) in each start's generated config (OPENCODE_CONFIG), on the user's own
-// config with the project's override file laid over it (override.go), prompts typed, the session's context size from
-// the plugin's token file (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in
+// transport, which acts on the hooks' answers, and its session inbox: InboxVar) in each start's generated config
+// (OPENCODE_CONFIG), on the user's own config with the project's override file laid over it (override.go), lines
+// posted to the session's inbox (deliver), the session's context size from the plugin's token file (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in
 // process (testkit).
 package kind
 
@@ -30,6 +30,11 @@ const Name = "opencode"
 // ModelVar is the variable obor's plugin (opencode/obor.js) reads the start's model and effort from,
 // provider/model[#variant]: it switches each new root session of the start to it.
 const ModelVar = "OBOR_OPENCODE_MODEL"
+
+// InboxVar is the variable obor's plugin (opencode/obor.js) puts in the env of the session-start hook it runs: the
+// session's inbox socket, which it binds per session. The manifest's inbox_record names it, so the hook records it as
+// the session's inbox, and deliver posts there.
+const InboxVar = "OBOR_OPENCODE_INBOX"
 
 // ConfigVar is the variable that names a start's generated config: a path, so the typed env line stays short
 // (herdr refuses over-long lines).
@@ -74,6 +79,8 @@ type request struct {
 	Error     string            `json:"error"`
 	Details   string            `json:"details"`
 	At        string            `json:"at"`
+	Text      string            `json:"text"`
+	Record    string            `json:"record"`
 }
 
 // Main is the binary: call args[0] with the request on stdin, its reply on stdout; a request it cannot read, or an
@@ -118,7 +125,7 @@ func Handle(call string, req []byte) ([]byte, error) {
 	case "turn":
 		reply = turn(in)
 	case "deliver":
-		reply = map[string]any{"ok": true, "delivery": map[string]any{"typed": true}}
+		reply = deliver(in)
 	case "project-warnings":
 		reply = map[string]any{"warnings": ProjectWarnings(in.Dir, os.ReadFile)}
 	default:
@@ -135,27 +142,41 @@ func Handle(call string, req []byte) ([]byte, error) {
 // agent has exited it reaches the shell as an empty line). When it did not exit: Escape (the popup), then Ctrl+U, so
 // the next typed message does not follow the quit. Headless: `opencode run`, as the subcommand or a later word
 // (ValueOpts: opencode --help). Transcript: the plugin's per-session token file (TranscriptGlob), whose last line is a
-// session's context size. No inbox: prompts are typed. MCP: nothing user-global: obor's server and plugin reach each
-// start through its generated config. Env: the variables that place the user's config dir, which a start with an
+// session's context size. Inbox: the plugin's per-session socket, recorded from InboxVar (inbox_record); lines are
+// posted there (deliver), not typed. MCP: nothing user-global: obor's server and plugin reach each start through its
+// generated config. Env: the variables that place the user's config dir, which a start with an
 // override file reads. Override files: OverrideFile.
 func describe() map[string]any {
 	return map[string]any{
-		"name":    Name,
-		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "plugin", "hook_answers": true, "resume": true, "model_arg": true, "version_var": "OPENCODE_VERSION"},
+		"name":   Name,
+		"status": "terminal",
+		"caps": map[string]any{"hooks": "plugin", "inbox": true, "hook_answers": true, "resume": true, "model_arg": true,
+			"version_var": "OPENCODE_VERSION"},
 		"efforts": efforts,
 		"vars":    []string{ModelVar, ConfigVar, SkillsVar},
 		"env":     []string{"HOME", "XDG_CONFIG_HOME"},
 		"stop":    map[string]any{"quit": "/exit", "second_enter": true, "clear_input": []string{"esc", "ctrl+u"}},
 		"headless": map[string]any{"subcommands": []string{"run"}, "anywhere": []string{"run"},
 			"value_opts": []string{"--server", "-s", "--session", "--prompt", "--completions", "--log-level"}},
-		"transcript": TranscriptGlob,
-		"typed":      true,
+		"transcript":   TranscriptGlob,
+		"inbox_record": []string{InboxVar},
 		"mcp_lane": map[string]any{"registered": true, "how": ConfigVar + " (the start's generated config: " +
 			filepath.Join("{kit}", "bin", "obor") + " mcp, plugin " + filepath.Join("{kit}", Name) + ")"},
 		"project_warnings": true,
 		"override_files":   []string{OverrideFile},
 	}
+}
+
+// deliver posts text to the session's inbox as the record names it (InboxVar, the socket the plugin binds): one line,
+// {"type":"user","text":<text>}, which the plugin turns into the session's prompt (a turn when idle; when busy, read at
+// the next model step). ok false: the record names no socket.
+func deliver(in request) map[string]any {
+	var rec map[string]string
+	if json.Unmarshal([]byte(in.Record), &rec) != nil || rec[InboxVar] == "" {
+		return map[string]any{"ok": false}
+	}
+	line, _ := json.Marshal(map[string]string{"type": "user", "text": in.Text})
+	return map[string]any{"ok": true, "delivery": map[string]any{"socket": rec[InboxVar], "lines": []string{string(line)}}}
 }
 
 // FixedArgs are the flags every start of this kind carries: --auto (permissions granted) and --standalone (the TUI's own

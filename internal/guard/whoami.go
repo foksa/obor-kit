@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -17,26 +18,32 @@ type Who struct {
 	Lines     string         // a lead's line delivery (LinesInbox, LinesHooks, LinesStatus); "": not a lead
 }
 
-// How lines reach a lead (skills/lead/SKILL.md "Lines to you"), from its kind's caps: a posted message in its inbox,
-// the answers of its hooks, or only `obor status`.
+// How lines reach a lead (skills/lead/SKILL.md "Lines to you"): agents.LeadLines's values.
 const (
-	LinesInbox  = "inbox"
-	LinesHooks  = "hooks"
-	LinesStatus = "status"
+	LinesInbox  = agents.LinesInbox
+	LinesHooks  = agents.LinesHooks
+	LinesStatus = agents.LinesStatus
 )
 
-// leadLines is the delivery of the lines of a lead running as agent in cwd, its kind read as the session start reads
-// it (sessionKind; a plugin kind's cached manifest, none cached: not a kind it knows): an inbox kind's lines are
-// posted there; else a kind whose hooks act on the answers hands them at a prompt or a stop; else they wait.
+// leadLines is the delivery of the lines of a lead running as agent in cwd (agents.LeadLines, the rule serve's delivery
+// reads): its kind read as the session start reads it (sessionKind; a plugin kind's cached manifest, none cached: not
+// a kind it knows), and whether its inbox record in the project names a socket that is there (project.InboxLive).
+// Serve reads the lead's identified pane's kind; this reads the configured or recorded one.
 func leadLines(cfg *config.Config, agent, cwd string) string {
 	k, ok := cfg.Kind(sessionKind(cfg, agent, cwd))
-	switch {
-	case ok && k.Caps().Inbox:
-		return LinesInbox
-	case ok && k.Caps().HookAnswers:
-		return LinesHooks
+	if !ok {
+		return LinesStatus
 	}
-	return LinesStatus
+	return agents.LeadLines(k.Caps(), inboxLive(cfg, k, agent))
+}
+
+// inboxLive: k has an inbox and agent's inbox record names a socket that is there.
+func inboxLive(cfg *config.Config, k agents.Kind, agent string) bool {
+	if !k.Caps().Inbox {
+		return false
+	}
+	_, ok := project.InboxLive(cfg, agent)
+	return ok
 }
 
 // Whoami reads the role of repo's directory, its lane row and its task's spec (read-only); a lanes or specs table that

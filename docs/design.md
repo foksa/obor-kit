@@ -812,9 +812,9 @@ herdr plugin: serve restores its panes itself ("After a herdr restart" above).
   `hc` and `herdr-app` commands that create, end, type into or relabel terminals; reads stay allowed.
 
 ## Lines to the lead (2026-10-27 — owner decision)
-Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its Claude session (a lead of a kind
-with no inbox takes them through its hooks when they act on the answers), and delivers a brief to a role
-agent (posted to a Claude session, typed into another kind's pane); nothing is typed into the pane the owner
+Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its session's inbox (Claude,
+OpenCode; a lead with no live inbox takes them through its hooks when they act on the answers), and delivers a brief to
+a role agent (posted to a Claude or OpenCode session, typed into another kind's pane); nothing is typed into the pane the owner
 writes in, and nothing else goes to a chat agent but a job's wake. State in `docs/state-model.md` row 47.
 - **`obor send <project> "<text>"`** (a lead or the owner): `<project>` is a path into an obor project. One `obor serve`
   per project (owner decision 2026-10-28): it runs in the project and listens on
@@ -852,17 +852,30 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   that record names (the auth line, then a
   `user` message; `cmd/obor`'s `poster`): no pane lookup, no idle rule. An idle lead starts a new turn with it, a busy
   one reads it between tool calls; it arrives as a message from another session, and the owner's half-typed draft
-  stays in the box. No record → the line waits, untried; a refused dial (its socket gone) → fact `failed` with its
-  reason, shown in `obor status` and the needs-you, posted again at the next pass (a lead line is never typed). There
-  is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. A lead of
-  another kind has no inbox: its hooks take its lines when its transport acts on their answers (next bullet), else
+  stays in the box. **OpenCode's inbox** is its plugin's: `opencode/obor.js` binds a unix socket per session
+  (`${HOME}/.obor/opencode/<session>.sock`, beside its token file; none over a unix socket's 103 bytes) before the
+  session's `session-start` hook and puts its path in that hook's env (`OBOR_OPENCODE_INBOX`, the kind's
+  `inbox_record`), so the hook records it as the session's inbox: the socket the kind's `deliver` names, the kind's own
+  record kept beside it and handed back to `deliver`. `deliver` writes one JSON line `{"type":"user","text"}`; the
+  plugin turns each line into `ctx.session.prompt({sessionID, text, metadata: {obor: "line"}})`, delivery `steer`
+  (OpenCode's default): idle → a turn starts; busy → the line waits for the running model step or tool, nothing is
+  interrupted; the owner's draft stays. The socket is removed when it closes and when the process exits. No record, or
+  its socket gone → the lead's hooks take its lines when they act on the answers (next bullet), else the line waits,
+  untried; a refused dial (a socket file nobody listens on) → fact `failed` with its reason, shown in `obor status`
+  and the needs-you, posted again at the next pass while the record's socket is there (a lead line is never typed).
+  There is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. A lead of a kind with
+  no inbox (agy, Codex) takes its lines through its hooks when its transport acts on their answers (next bullet), else
   they wait.
-- **A lead whose kind has no inbox takes its lines through its hooks** (owner 2026-11-22: the lesser mode), when its
+- **A lead with no live inbox takes its lines through its hooks** (owner 2026-11-22: the lesser mode), when its
   kind's hook transport acts on the hooks' answers (`agents.Caps.HookAnswers`, the manifest's `caps.hook_answers`).
-  When the lead's kind (its identified pane's, else its configured one) has no inbox (`agents.Caps.Inbox`) and that
-  cap, the delivery pass holds its lines (`<lead>'s kind has no inbox: its hooks hand it its lines at its next prompt
-  or turn end`, in `obor status` and the 24 h needs-you; `obor send`'s reply says it queued them so), and its hooks
-  ask serve for them (`lead_lines`; the hook's kind, from the config, has no inbox and the cap):
+  One rule decides how a lead's lines go (`agents.LeadLines`): posted when its kind has an inbox (`agents.Caps.Inbox`)
+  and its inbox record names a socket that is there; else through its hooks when its kind has that cap; else they
+  wait. Serve reads it with the lead's identified pane's kind (else its configured one), the lead's hooks and `obor
+  whoami`'s `lines:` with the kind the session runs as; each reads the record. When it says hooks, the delivery pass
+  holds the lead's lines (`<lead>'s kind has no inbox: its hooks hand it its lines at its next prompt or turn end`, or
+  `no inbox recorded for <lead>: …` for a kind with an inbox, in `obor status` and the 24 h needs-you; `obor send`'s
+  reply says it queued them so, with the `obor restart` hint when no session is recorded), and its hooks ask serve for
+  them (`lead_lines`):
   `user-prompt-submit` adds them as the prompt's context, before the handoff reminder; `stop` blocks the stop with them,
   so a lead that just finished goes on with its lines. Within an active stop loop (`stop_hook_active`) the stop hook
   asks nothing and the stop goes through, and a background run of the lead's own blocks first (its lines wait). Serve
@@ -870,17 +883,19 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   and records it as a post's delivery (intent `deliver.<first seq>{to, lines, via: hook}`, result `sent`, each other
   member's own result): a line handed out is delivered, never handed out or posted again, and `obor status`, the 24 h
   needs-you and a needs-you line's repeat read that delivery. A repeated call id gets the same lines; there is no ack:
-  `sent` means handed to the hook. Any other lead is refused (an inbox kind's lines are posted there). An idle lead of
-  such a kind asks nothing: it is reached by `obor status` and the needs-you notice (the owner's herdr notification),
-  its lines waiting for its next prompt or turn end. A lead whose kind has neither an inbox nor the cap (Codex: no
-  hooks) gets nothing through its hooks: its lines wait, untried and never recorded as delivered (`no inbox recorded
-  for <lead>: …` in `obor status`), and the 24 h needs-you reaches the owner.
+  `sent` means handed to the hook. Any other lead is refused (a live inbox's lines are posted there). Once per line
+  across the two paths: a line posted through the inbox is delivered and never handed out by the hooks, and a line is
+  claimed by one path at a time (the pass posts no line a hook call is handing, a hook call hands no line a post is
+  sending). An idle lead whose lines go through its hooks asks nothing: it is reached by `obor status` and the
+  needs-you notice (the owner's herdr notification), its lines waiting for its next prompt or turn end. A lead with
+  neither a live inbox nor the cap (Codex: no hooks) gets nothing through its hooks: its lines wait, untried and never
+  recorded as delivered (`no inbox recorded for <lead>: …` in `obor status`), and the 24 h needs-you reaches the owner.
 - **Role agents' lines go as the pane's kind takes them** (`agents.Kind.Deliver`), only while that agent's pane
-  is idle or done (the rule of job delivery): a kind with an inbox (Claude) gets the line posted to its session when
-  its inbox record is the live session's in that pane, else typed into the pane as its job wakes are (a line
+  is idle or done (the rule of job delivery): a kind with an inbox (Claude, OpenCode) gets the line posted to its
+  session when its inbox record is the live session's in that pane, else typed into the pane as its job wakes are (a line
   to an idle identified agent never waits on a missing or mismatched record); a post refused before a byte went out
   (a dead socket: `os.Stat` passes, the dial refuses) makes the next attempt typed, the pane re-checked idle first.
-  Any other kind (Codex, OpenCode) is typed into its pane (`agent.prompt`, `herdr.Panes.Type`), no Escape,
+  Any other kind (Codex, agy) is typed into its pane (`agent.prompt`, `herdr.Panes.Type`), no Escape,
   no screen read, no clear. A typed line herdr refuses because the pane is blocked (`blocked`, `agent_blocked`) is a
   refusal before typing: fact `failed`, retried at a later pass. For Claude the inbox ends the dialog class (a typed
   line landing in a Claude Code dialog): a post cannot reach a dialog; a session behind an open permission dialog
@@ -894,9 +909,9 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   unblocked, dropped or rejected, a newer answer or resume comes: waiting, at once; sending, it is marked and
   stays until its outcome (it may have landed, as a brief's does): sent, or retired by a refusal before a byte,
   or by the next pass closing its open delivery unsent (result `retired: …`, a crash's cut delivery).
-- **Job wakes go the same way** (owner 2026-10-28): a worker's or the integrator's wake to a Claude session with
-  an inbox record is posted, `[obor job <id>] call the obor job_next tool` as typed (no `ctrl+u`, the same intent and
-  result, `docs/state-model.md` "Prompts": a wake is harmless twice). Another kind, a pane serve does not see, or a Claude
+- **Job wakes go the same way** (owner 2026-10-28): a worker's or the integrator's wake to a Claude or OpenCode
+  session with an inbox record is posted, `[obor job <id>] call the obor job_next tool` as typed (no `ctrl+u`, the same intent and
+  result, `docs/state-model.md` "Prompts": a wake is harmless twice). Another kind, a pane serve does not see, or a
   session with no inbox record (a session its SessionStart hook did not register) is typed as before: a refused wake
   would strand the worker until a restart, a typed one reaches it as it always did.
 - **Finding the pane**: one identity table per project, derived each pass
@@ -924,8 +939,10 @@ with `--session <id>`). The plugin acts on the hooks' answers (`caps.hook_answer
 session `prompt` hook, before admission, and its `additionalContext` is appended to the prompt's text (the model and
 the owner see it, and the session keeps it); a stop's `{"decision":"block","reason"}` becomes
 `ctx.session.prompt({sessionID, text: reason, metadata: {obor: …}})`, which starts the session's next turn, and the
-stop ending that turn carries `stop_hook_active: true`. A prompt that carries `metadata.obor` is obor's own line: the
-prompt hook runs no second `user-prompt-submit` for it. A failing hook leaves the prompt as typed. `obor hook` runs
+stop ending that turn carries `stop_hook_active: true`. A prompt that carries `metadata.obor` `stop` is that reason:
+the prompt hook runs no second `user-prompt-submit` for it (an inbox line, `metadata.obor` `line`, runs it as a typed
+prompt does). The plugin is also the session's inbox ("Lines to the lead": a socket per session, recorded through
+`session-start`'s env). A failing hook leaves the prompt as typed. `obor hook` runs
 without `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd (the same derivation), because a shared
 `opencode serve --service` carries whichever pane's env started it. opencode lanes
 run `opencode --auto --standalone` (own server with the pane's env). Installed user-global by `obor setup
