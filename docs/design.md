@@ -870,13 +870,15 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   address and token (`ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`) are only in the environment of the commands
   the agent runs, never its hooks', so **any `obor` command** (every one but `obor hook`, `obor kind` and `obor mcp`)
   run with a role and the kind's `inbox_record` variables in its env (the address, the token,
-  `ANTIGRAVITY_AGENTAPI_EXE`, `ANTIGRAVITY_CONVERSATION_ID`) writes the session's inbox record from that env
-  (`guard.CommandRecord`; the same file, 0600; the kind's own record kept whole, marked as one the kind sends with):
-  a lead's start checks (`obor whoami`, `obor status`) create it in its first turn, with no instruction to the model,
-  and every later command refreshes it (a new token after an agy restart, a refused mark cleared). A record that
-  names its socket itself (Claude's) is its SessionStart hook's alone; a SessionStart removes a record its env does not
-  carry (a new agy conversation's, until its next `obor` command). The kind's `deliver` sends the line itself (the
-  record's `agentapi send-message` with its address and token): the kind delivered it, no socket, no ack. A refused send
+  `ANTIGRAVITY_CONVERSATION_ID`; never agy's `ANTIGRAVITY_AGENTAPI_EXE`: the record is the agent's to write, so it
+  names no program) writes the session's inbox record from that env (`guard.CommandRecord`; the same file, 0600; the
+  kind's own record kept whole, marked as one the kind sends with): a lead's start checks (`obor whoami`, `obor
+  status`) create it in its first turn, with no instruction to the model, and every later command refreshes it (a new
+  token after an agy restart, a refused mark cleared). A record that names its socket itself (Claude's) is its
+  SessionStart hook's alone; a SessionStart removes a record its env does not carry (a new agy conversation's, until
+  its next `obor` command). The kind's `deliver` sends the line itself (`agy agentapi send-message`, agy from serve's
+  PATH, with the record's address and token, only to `localhost:<port>` or `127.0.0.1:<port>`: another address is no
+  inbox): the kind delivered it, no socket, no ack. A refused send
   (agentapi's non-zero exit: a stale token, one per agy start; the token's lifetime is unprobed) delivers nothing:
   fact `failed` with its reason, and the record is marked refused, so it is not live and the lead's lines go through
   its hooks until a command of the session records it again; a line goes once across the two paths (next bullet). A

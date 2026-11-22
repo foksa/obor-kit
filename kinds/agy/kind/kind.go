@@ -371,9 +371,13 @@ func splitModel(args []string) (rest []string, model, effort string) {
 	return rest, model, effort
 }
 
-// limitRE is an error text that names a usage or rate limit (no agy limit has been seen yet: the words any such
-// message would carry).
-var limitRE = regexp.MustCompile(`(?i)limit|quota|resource.?exhausted`)
+// limitRE is an error text that names a usage, quota or rate limit: agy's own texts (its binary's strings: "You have
+// exhausted your quota on this model.", "individual quota reached", "model … is out of quota until …", "Your AI credits
+// balance is too low to continue.", "Usage limit reached", and its swarm's QUOTA_RE: RESOURCE_EXHAUSTED, quota, 429,
+// "exhausted your capacity", rate limit). Another limit ("context window limit exceeded", a token or output limit) is
+// not one: a bare "limit" does not match.
+var limitRE = regexp.MustCompile(`(?i)quota|resource.?exhausted|\b429\b|exhausted your (quota|capacity)|` +
+	`credits balance is too low|usage.?limit|rate.?limit`)
 
 // turn: the context of a transcript's tail (Context); no turn and no session are read (status terminal, and the
 // transcript's first line names no session). Reset: an error or message naming a limit is limited, its reset the

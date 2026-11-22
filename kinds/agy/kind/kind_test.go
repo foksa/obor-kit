@@ -415,7 +415,8 @@ func TestInstall(t *testing.T) {
 	}
 }
 
-// Reset: an error naming a limit is limited, with the time the message names (none: unknown); any other is not.
+// Reset: an error naming a usage or quota limit is limited, with the time the message names (none: unknown); any other
+// is not, a non-quota limit ("context window limit exceeded") either.
 func TestReset(t *testing.T) {
 	k := agy(t, t.TempDir())
 	at := time.Date(2026, 11, 22, 9, 0, 0, 0, time.UTC)
@@ -428,5 +429,16 @@ func TestReset(t *testing.T) {
 	}
 	if _, limited := k.Reset("ERROR", "internal server error", at); limited {
 		t.Error("a server error read as a limit")
+	}
+	for _, quota := range []string{"You have exhausted your quota on this model.", "individual quota reached",
+		"Your AI credits balance is too low to continue.", "model gemini-3-flash is out of quota until 18:00"} {
+		if _, limited := k.Reset("ERROR", quota, at); !limited {
+			t.Errorf("agy's quota text %q not read as a limit", quota)
+		}
+	}
+	for _, other := range []string{"context window limit exceeded", "output token limit reached", "exceeds complexity limits"} {
+		if _, limited := k.Reset("ERROR", other, at); limited {
+			t.Errorf("%q (not a usage limit) read as a limit", other)
+		}
 	}
 }
