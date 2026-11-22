@@ -1,0 +1,50 @@
+#!/bin/sh
+# conformance-live: the nightly's live conformance tier for agy (commands.conformance_live, nightly.also_run). agy
+# updates itself, so "a live tier at each agy upgrade" is no event anyone sees: this runs `make conformance TIER=live
+# KIND=agy` only when `agy --version` differs from the version its last live run recorded
+# (.obor/state/agy-live-version), and records the version once that run ends. The summary line starts with the
+# command's name, which is the line the nightly shows (make appends its failed-recipe trailer after it). POSIX sh.
+set -eu
+
+# The record is the project's, not a worktree's: obor nightly runs this in its own worktree, and a lane typed into by
+# hand must read the same file. The main checkout is git's common dir's parent.
+root=$(git rev-parse --git-common-dir 2>/dev/null) || {
+  echo "FAIL not in a git checkout: there is no .obor/state to record agy's version in" >&2
+  exit 1
+}
+case $root in /*) ;; *) root=$(pwd)/$root ;; esac
+state=$(dirname "$root")/.obor/state
+record=$state/agy-live-version
+
+command -v agy > /dev/null 2>&1 || {
+  echo "conformance_live: agy not on PATH, live tier skipped"
+  exit 0
+}
+
+# The version is the first dotted number in the first line of `agy --version` ("1.5.14", "agy 1.5.14 (build 7)"); a
+# line with no number is the version as it is, so a format change re-runs the tier once rather than skipping it.
+line=$(agy --version 2>/dev/null | head -n 1 | tr -d '\r') || line=
+version=$(printf '%s\n' "$line" | sed -n 's/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\).*/\1/p')
+[ -n "$version" ] || version=$line
+[ -n "$version" ] || {
+  echo "FAIL agy --version printed no version: there is nothing to compare the live tier's last run with" >&2
+  exit 1
+}
+
+if [ -f "$record" ] && [ "$(cat "$record")" = "$version" ]; then
+  echo "conformance_live: agy $version unchanged, live tier skipped"
+  exit 0
+fi
+
+mkdir -p "$state"
+rc=0
+log=$(make conformance TIER=live KIND=agy 2>&1) || rc=$?
+if [ -n "$log" ]; then printf '%s\n' "$log"; fi
+printf '%s\n' "$version" > "$record"
+summary=$(printf '%s\n' "$log" | grep '^conformance: ' | tail -n 1) || summary=
+if [ -n "$summary" ]; then
+  echo "conformance_live: agy $version live tier: $summary"
+else
+  echo "conformance_live: agy $version live tier: make conformance TIER=live KIND=agy exited $rc"
+fi
+exit "$rc"

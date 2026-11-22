@@ -6,6 +6,7 @@
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release),
 # `make check-budget` → the nightly test budget (tests/budget),
 # `make check-race` → the nightly's non-gating race line (commands.race),
+# `make conformance-live` → the nightly's live agy tier when agy's version changed (commands.conformance_live),
 # `make trim-go-cache` → every entry of the Go build cache (commands.trim_go_cache, nightly),
 # `make vulncheck` → the nightly's pinned govulncheck (commands.check_milestone),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
@@ -47,7 +48,7 @@ GOARCH_LIST := arm64 amd64
 KINDS := agy opencode
 RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 
-.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-race check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance conformance-live trim-go-cache check check-affected check-compile check-retest check-race check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 # build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>; obor
 # runs a kit kind from the directory of its own executable, config.KitKind).
@@ -69,6 +70,13 @@ test:
 # (commands.conformance).
 conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" TERMINAL="$(TERMINAL)" $(GO) run -tags conformance ./tests/conformance
+
+# conformance-live (commands.conformance_live, the nightly's non-gating line): agy updates itself, so its live tier
+# runs only when `agy --version` differs from the version its last live run recorded (.obor/state/agy-live-version);
+# scripts/conformance-live ends in one line named for that command ("conformance_live: agy <v> unchanged, live tier
+# skipped", or the live run's conformance summary), so the nightly shows it and not make's failed-recipe trailer.
+conformance-live:
+	@sh scripts/conformance-live
 
 # trim-go-cache (commands.trim_go_cache) deletes every file in the Go build cache and prints
 # "go cache: freed <size>, <size> left". The owner's decision (2026-11-08): the nightly empties the cache, not by age —
