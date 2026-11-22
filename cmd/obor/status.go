@@ -28,9 +28,10 @@ import (
 	"obor/internal/web"
 )
 
-// status is `obor status [--facts] [--json] [--short]`. Serve down is a line, never a non-zero exit: the lanes are read
-// from the store alone. --facts adds the facts in force; --short prints only the serve line, the open review's line,
-// the running line and needs-you. --all is no flag (a serve holds one project, this one).
+// status is `obor status [--facts] [--json] [--short]`. Serve down (no listener) is a line, never a non-zero exit: the
+// lanes are read from the store alone; a dial refused for permission (EPERM/EACCES) exits 1 with the socket error.
+// --facts adds the facts in force; --short prints only the serve line, the open review's line, the running line and
+// needs-you. --all is no flag (a serve holds one project, this one).
 func status(args []string) int {
 	asJSON, facts, short := false, false, false
 	for _, a := range args {
@@ -57,6 +58,10 @@ func status(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
+	if wire.Permission(err) {
+		errf("obor status: %v", err)
+		return 1
+	}
 	// A terminal obor cannot build (an unknown project.terminal) shows no background processes: the rest of the
 	// read is the config's and serve's, which say what is wrong.
 	var info func(context.Context, string) (port.ProcessInfo, error)

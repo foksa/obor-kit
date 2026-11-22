@@ -164,3 +164,39 @@ func TestRetryClasses(t *testing.T) {
 		}
 	}
 }
+
+// A dial refused for permission (EPERM/EACCES) is classified as Permission and names the socket instead of claiming
+// serve is not running; no-listener dials (ENOENT, ECONNREFUSED) stay Absent and "obor serve is not running".
+func TestDialErr(t *testing.T) {
+	t.Parallel()
+	const sock = "/work/pj/.obor/state/serve.sock"
+	dial := func(err error) error {
+		return &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", err)}
+	}
+	for _, c := range []struct {
+		name              string
+		raw               error
+		wantPerm, wantAbs bool
+		wantPrefix        string
+	}{
+		{"EPERM", dial(syscall.EPERM), true, false, "serve socket " + sock + " could not be opened (permission): "},
+		{"EACCES", dial(syscall.EACCES), true, false, "serve socket " + sock + " could not be opened (permission): "},
+		{"ErrPermission", os.ErrPermission, true, false, "serve socket " + sock + " could not be opened (permission): "},
+		{"ENOENT", dial(syscall.ENOENT), false, true, "obor serve is not running ("},
+		{"ECONNREFUSED", dial(syscall.ECONNREFUSED), false, true, "obor serve is not running ("},
+	} {
+		err := dialErr(sock, c.raw)
+		if got := Permission(err); got != c.wantPerm {
+			t.Errorf("%s: Permission = %v, want %v (err: %v)", c.name, got, c.wantPerm, err)
+		}
+		if got := Absent(err); got != c.wantAbs {
+			t.Errorf("%s: Absent = %v, want %v (err: %v)", c.name, got, c.wantAbs, err)
+		}
+		if !strings.HasPrefix(err.Error(), c.wantPrefix) {
+			t.Errorf("%s: err = %q, want prefix %q", c.name, err, c.wantPrefix)
+		}
+		if c.wantPerm && strings.Contains(err.Error(), "not running") {
+			t.Errorf("%s: permission error claims serve is not running: %q", c.name, err)
+		}
+	}
+}
