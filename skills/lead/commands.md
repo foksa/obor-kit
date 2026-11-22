@@ -27,7 +27,7 @@ T-yy (make build, 12s)` (else `running: nothing`); a lane's state column is its 
 an undelivered line names why: `undelivered: <why>`. `obor status --short` is just that line, serve's and needs-you (a status bar).
 An empty pipeline shows `idle: <why>` once you acknowledged it, else `idle, not acknowledged since <time>`.
 A role agent's line ends with ` → obor restart <agent> --stop` once it has been done or idle for an hour with no open
-work, and serve posts you one line, `[obor] <agent> done <age>, no open work — obor restart <agent> --stop (the next
+work, and serve sends you one line, `[obor] <agent> done <age>, no open work — obor restart <agent> --stop (the next
 obor brief starts it fresh)`: once per done stretch, a reminder, not a stop — you may still want a follow-up in that
 session.
 
@@ -60,8 +60,8 @@ with `--note "<what to do>"`: the line that tells you Y happened also tells you 
 - `obor watch --rm <T-xx>` — ends one (a set by the same comma list): `UNWATCHED T-xx` (`NOT WATCHING T-xx`). A note
   goes with a watch, not with `--rm`.
 
-Lines to you, one per watch (the watch ends with it; it survives a serve restart and a lead handoff, like every line
-to you):
+Lines to you (they reach you as `SKILL.md` "Lines to you" says), one per watch (the watch ends with it; it survives a
+serve restart and a lead handoff, like every line to you):
 - `[obor] T-xx merged <sha7>` (`merged (outside obor serve)` for a merge by hand)
 - `[obor] T-xx dropped: <why>` (`rejected: <note>` for a task the integrator rejected)
 - a set, once every task merged: `[obor] T-a,T-b,T-c merged (<the last merge's sha7>)`; the first task dropped or
@@ -73,7 +73,7 @@ A task's needs-you reaches you as before (`[obor] needs-you …`), watched or no
 ## obor idle
 Serve tells you when the pipeline empties: no task dispatching, working, gating, under review or merging, no needs-you,
 no waiting dispatch, no reviewer or deep dive holding a brief. Once it has stayed empty for a minute (a verify or a
-review request that follows the last merge is work, not idle), it posts one line to you:
+review request that follows the last merge is work, not idle), it sends you one line:
 
     [obor] idle: nothing in flight (last: T-xx merged <sha7>) — dispatch next, or obor idle "<why nothing>"
 
