@@ -204,6 +204,7 @@
     },
     "also_run": [
       "conformance",
+      "conformance_live",
       "release_tests",
       "check_budget",
       "race",
@@ -245,6 +246,10 @@
     "conformance": {
       "cmd": "make -s conformance TIER=static",
       "timeout": 300
+    },
+    "conformance_live": {
+      "cmd": "make -s conformance-live",
+      "timeout": 1800
     },
     "trim_go_cache": {
       "cmd": "make -s trim-go-cache",
