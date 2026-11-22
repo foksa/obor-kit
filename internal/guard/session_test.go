@@ -743,3 +743,22 @@ func TestCommandRecordsASandboxedInbox(t *testing.T) {
 		t.Errorf("a record no file took: stderr %q, want %q", stderr.String(), want)
 	}
 }
+
+// An agy subagent's conversation fires SessionStart with its parent's environment and workspace: under the owner's
+// role-less session in the main checkout it derives no agent (recordable), so no session is recorded or reported; the
+// lead's same start (the precondition: the event records) begins one.
+func TestSessionRoleLessSubagentRecordsNone(t *testing.T) {
+	t.Parallel()
+	f, _ := sessionFx(t, true)
+	start := func(env ...string) (Began, bool) {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": f.Root, "session_id": "sid-sub",
+			"agent_kind": "agy"})
+		return SessionStart(b, f.Env(append([]string{"OBOR_STATE_HOME=" + f.Base + "/state"}, env...)...), io.Discard)
+	}
+	if began, ok := start("OBOR_ROLE=lead"); !ok || began.Agent == "" {
+		t.Fatalf("precondition: the lead's start began %+v, %v; want a session", began, ok)
+	}
+	if began, ok := start(); ok || began.Agent != "" {
+		t.Errorf("a role-less session's subagent in the main checkout: began %+v, %v; want none", began, ok)
+	}
+}
