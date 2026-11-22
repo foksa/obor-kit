@@ -2,8 +2,12 @@ package guard
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -36,7 +40,7 @@ func TestPromptLeadLinesNoInbox(t *testing.T) {
 	t.Parallel()
 	f := hookLeadFx(t)
 	a := &askLines{text: twoLines + "\n"}
-	want := "obor (lead): lines for you that arrived since your last turn (your session has no inbox: they come with " +
+	want := "obor (lead): lines for you that arrived since your last turn (no live inbox of your session takes them: they come with " +
 		"your next prompt or at a turn's end), one per row:\n" + twoLines
 	if c := f.promptLines(t, f.Root, "what next?", "", a.ask, "OBOR_ROLE=lead"); c != want {
 		t.Errorf("context %q, want %q", c, want)
@@ -63,27 +67,54 @@ func TestPromptLeadLinesWithHandoffReminder(t *testing.T) {
 	f.SessionOf("pj-lead", "claude", "s1", tr)
 	a := &askLines{text: "[obor other] hi"}
 	c := f.promptLines(t, f.Root, "go on", session("s1", tr), a.ask, "OBOR_ROLE=lead")
-	want := "obor (lead): lines for you that arrived since your last turn (your session has no inbox: they come with " +
+	want := "obor (lead): lines for you that arrived since your last turn (no live inbox of your session takes them: they come with " +
 		"your next prompt or at a turn's end), one per row:\n[obor other] hi\n\nobor (lead): context is 600k (> 500k). " + leadWhen
 	if c != want {
 		t.Errorf("context %q, want %q", c, want)
 	}
 }
 
-// A lead whose kind has an inbox (Claude, the default) gets its lines posted there: its hooks never ask, at a prompt
-// or at a stop; nor does a worker's.
-func TestLeadLinesInboxKindNotAsked(t *testing.T) {
+// liveInbox records root's lead slot an inbox whose socket is there (a plain file: the check is its existence).
+func liveInbox(t *testing.T, root string) {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "s.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.WriteInbox(root, "lead", project.Inbox{Socket: sock, Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A lead whose kind has an inbox (Claude, the default) and whose inbox record names a socket that is there gets its
+// lines posted there: its hooks never ask, at a prompt or at a stop; nor does a worker's. With no record, or its socket
+// gone, its lines go through its hooks (Claude's act on the answers): asked at a prompt and at a stop.
+func TestLeadLinesInboxKindAskedOnlyWithoutALiveInbox(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, true)
+	liveInbox(t, f.Root)
 	a := &askLines{text: twoLines}
 	if c := f.promptLines(t, f.Root, "what next?", "", a.ask, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("a Claude lead's prompt: context %q", c)
 	}
 	f.stopLines(t, "lead", f.Root, "", a.ask).allow("a Claude lead's stop")
-	f.Config(testkit.HookModel(), testkit.Set("agents.roles.lead", "hooky"))
 	f.promptLines(t, o1, "[obor pj-lead] go", "", a.ask)
 	if len(a.asks) != 0 {
 		t.Errorf("asks %q, want none", a.asks)
+	}
+	in, err := project.ReadInbox(f.Root, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(in.Socket); err != nil { // the session ended: its socket is gone
+		t.Fatal(err)
+	}
+	if c := f.promptLines(t, f.Root, "what next?", "", a.ask, "OBOR_ROLE=lead"); !strings.HasSuffix(c, twoLines) {
+		t.Errorf("a Claude lead's prompt with its socket gone: context %q, want the lines", c)
+	}
+	f.stopLines(t, "lead", f.Root, "", a.ask).block("lines queued, socket gone")
+	if len(a.asks) != 2 {
+		t.Errorf("asks %q, want one at the prompt and one at the stop", a.asks)
 	}
 }
 
@@ -110,7 +141,7 @@ func TestStopLeadLinesBlockOnce(t *testing.T) {
 	f := hookLeadFx(t)
 	a := &askLines{text: twoLines}
 	f.stopLines(t, "lead", f.Root, "", a.ask).block("lines queued").has("reason",
-		"obor (lead): lines for you arrived as your turn ended (your session has no inbox: they come with your next "+
+		"obor (lead): lines for you arrived as your turn ended (no live inbox of your session takes them: they come with your next "+
 			"prompt or at a turn's end); act on them, one per row:\n"+twoLines)
 	if len(a.asks) != 1 || a.asks[0] != f.Root+" pj-lead" {
 		t.Fatalf("asks %q, want one for pj-lead", a.asks)

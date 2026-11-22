@@ -191,7 +191,8 @@ func TestNeedsLineRepeatCountsFromTheHookDelivery(t *testing.T) {
 	})
 }
 
-// A lead whose kind has an inbox (Claude) gets its lines posted there: the hook's ask is refused and hands nothing;
+// A lead whose kind has an inbox (Claude) and whose inbox is live gets its lines posted there: the hook's ask is
+// refused and hands nothing;
 // so is an ask from another agent or with no call id.
 func TestLeadLinesRefusedForAnInboxLead(t *testing.T) {
 	t.Parallel()
@@ -204,7 +205,7 @@ func TestLeadLinesRefusedForAnInboxLead(t *testing.T) {
 		r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 })
 		got, err := r.leadLines("h1")
 		if err == nil || got != "" || !strings.Contains(err.Error(), "lead_lines: pj-lead takes no lines through its hooks "+
-			"(its kind has an inbox, or its hooks do not act on the answers)") {
+			"(its inbox is live, or its hooks do not act on the answers)") {
 			t.Errorf("a Claude lead's ask: %q, %v; want refused", got, err)
 		}
 		_, err = r.line("h2", &wire.LeadLinesReq{Envelope: wire.Envelope{Agent: "pj-l-01", Role: "worker"}})
@@ -244,6 +245,35 @@ func TestLeadLinesWaitWithoutHookAnswers(t *testing.T) {
 		r.passes()
 		if w, res, in := r.waiting(), r.lineResults(), r.hookIntents(); len(w) != 1 || len(res) != 0 || len(in) != 0 {
 			t.Errorf("waiting %+v, results %q, hook intents %v; want the line still queued, no delivery", w, res, in)
+		}
+	})
+}
+
+// An OpenCode lead (an inbox and hooks that act on the answers) with a live inbox gets its line posted there, once;
+// the hook's ask is refused meanwhile, and once its socket is gone (the record not live) the ask hands nothing: a line
+// delivered by inbox is never handed again by the hooks.
+func TestLeadLineByInboxNotHandedByHooks(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := leadKindRig(t, "deepseek", "opencode")
+		r.inbox.record("pj-lead")
+		r.start()
+		line := sentLine("other", "hello")
+		reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
+		if err != nil || reply != "SENT to pj-lead in proj (posted to its session)" {
+			t.Fatalf("send: %q, %v; want it posted", reply, err)
+		}
+		r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+		if _, err := r.leadLines("h1"); err == nil || !strings.Contains(err.Error(), "its inbox is live") {
+			t.Errorf("the hook's ask with a live inbox: %v; want refused", err)
+		}
+		r.inbox.unrecord("pj-lead") // the session ended: its socket is gone
+		if got, err := r.leadLines("h2"); err != nil || got != "" {
+			t.Errorf("the hook's ask after the post: %q, %v; want none (delivered already)", got, err)
+		}
+		r.passes()
+		if res, in := r.lineResults(), r.hookIntents(); len(res) != 1 || res[0] != "sent" || len(in) != 0 {
+			t.Errorf("delivery results %q, hook intents %v; want the post's alone", res, in)
 		}
 	})
 }

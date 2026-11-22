@@ -339,6 +339,50 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 	}
 }
 
+// An OpenCode session's record keeps the kind's own record (its plugin's socket under OBOR_OPENCODE_INBOX): the poster
+// hands that to the kind's deliver, dials the socket it names and writes its one line, {"type":"user","text"}.
+func TestPosterPostsAPluginKindsRecord(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	pj := testkit.NewPlain(t)
+	pj.Config()
+	sock := filepath.Join(dir, "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		b, _ := io.ReadAll(c)
+		c.Close()
+		got <- string(b)
+	}()
+	rec := `{"OBOR_OPENCODE_INBOX":"` + sock + `"}`
+	if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: sock, Session: "ses_1", Record: rec}); err != nil {
+		t.Fatal(err)
+	}
+	if began, err := (poster{pj.Root, testkit.Kinds()}).Post(context.Background(), "opencode", "pj-lead", "[obor other] hi"); !began || err != nil {
+		t.Fatalf("post: began %v, %v", began, err)
+	}
+	select {
+	case b := <-got:
+		if want := `{"text":"[obor other] hi","type":"user"}` + "\n"; b != want {
+			t.Errorf("the session read %q, want %q", b, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session read nothing")
+	}
+}
+
 // poster.Post posts with the kind it is given (the pane's), not the first kind with an inbox: the same record
 // is posted for a kind with an inbox, and refused before a byte (nothing dialled) for a kind without one or a kind
 // obor has no bridge for. The refusals name no kind's product ("no session recorded").

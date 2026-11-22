@@ -466,7 +466,7 @@ type Caps struct {
 	Hooks HookTransport
 	Inbox bool // Deliver posts over the session's inbox socket
 	// HookAnswers: its hook transport acts on the hooks' answers (user-prompt-submit's context, stop's block), so a
-	// lead with no inbox takes its lines through them
+	// lead with no live inbox takes its lines through them (LeadLines)
 	HookAnswers bool
 	Resume      bool // Start honours Resume
 	Skills      bool // a first prompt may be a plugin's slash command (/obor:lead)
@@ -486,6 +486,28 @@ type Caps struct {
 	// App is the name its agents give themselves in a terminal's status report (hc's OSC 7501 status.app); "": the
 	// kind's name.
 	App string
+}
+
+// How lines reach a lead (design "Lines to the lead"; LeadLines): posted to its session's inbox, handed by its hooks'
+// answers, or only shown by `obor status`.
+const (
+	LinesInbox  = "inbox"
+	LinesHooks  = "hooks"
+	LinesStatus = "status"
+)
+
+// LeadLines is how lines reach a lead of a kind with caps c, the one rule serve's delivery, the lead's hooks and obor
+// whoami read: inbox when the kind has one and live says the lead's inbox record names a socket that is there (posted);
+// else hooks when its hook transport acts on the hooks' answers (a kind with no inbox, or one whose session recorded
+// none or whose socket is gone: the hook path takes them); else status (they wait).
+func LeadLines(c Caps, live bool) string {
+	switch {
+	case c.Inbox && live:
+		return LinesInbox
+	case c.HookAnswers:
+		return LinesHooks
+	}
+	return LinesStatus
 }
 
 // Status is a kind's source of its agents' status (idle, working, done) and turns (Caps.Status).

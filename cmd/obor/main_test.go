@@ -632,8 +632,8 @@ func TestStopFailureHook(t *testing.T) {
 // a worker's UserPromptSubmit and Stop hooks each tell serve its next turn began or ended (one turn request
 // with the agent, its role and lane), which ends a stop in force; the hooks' own output is unchanged (the Stop hook
 // still blocks with no task_done). A role agent's hooks send the same (its brief's stop ends). Each says its
-// phase: the Stop hook's is the turn's end, UserPromptSubmit's its start. SessionStart and a lead's hooks send
-// none; serve down: exit 0 all the same.
+// phase: the Stop hook's is the turn's end, UserPromptSubmit's its start. SessionStart and the hooks of a lead with a
+// live inbox send none; serve down: exit 0 all the same.
 func TestTurnHooks(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
@@ -673,6 +673,13 @@ func TestTurnHooks(t *testing.T) {
 	}
 
 	shimRun(t, lane, event("SessionStart"), worker, oborBin, "hook", "session-start")
+	sock := filepath.Join(t.TempDir(), "s.sock") // the lead's live inbox (its existence is the check): no lead_lines
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.WriteInbox(p.Root, "lead", project.Inbox{Socket: sock}); err != nil {
+		t.Fatal(err)
+	}
 	lead := []string{"OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	shimRun(t, p.Root, event("UserPromptSubmit", p.Root), lead, oborBin, "hook", "user-prompt-submit")
 	shimRun(t, p.Root, event("Stop", p.Root), lead, oborBin, "hook", "stop")
@@ -701,7 +708,7 @@ const hookKindManifest = `{"version":1,"name":"hookk","status":"hooks","caps":{"
 // A lead's UserPromptSubmit and Stop hooks, its kind (a project plugin kind, its manifest cached) with no inbox and
 // acting on the hooks' answers, each ask serve for its lines (one lead_lines request, the lead's agent and role) and
 // hand what serve answers: as the prompt's context, as the stop's block. Serve down: exit 0, nothing. An OpenCode
-// lead's (no inbox, hook_answers too) ask the same, with nothing left to hand.
+// lead's with no inbox recorded (its kind has one, and hook_answers) ask the same, with nothing left to hand.
 func TestLeadLinesHooks(t *testing.T) {
 	t.Parallel()
 	bin := filepath.Join(t.TempDir(), "obor-kind-hookk")

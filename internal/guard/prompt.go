@@ -16,7 +16,7 @@ import (
 	"obor/internal/store"
 )
 
-// UserPromptSubmit has two jobs, by role. Lead: the lines queued for it when its kind has no inbox (hookLines, asked
+// UserPromptSubmit has two jobs, by role. Lead: the lines queued for it when no live inbox takes them (hookLines, asked
 // through lines), then the handoff reminder (handoffReminder) on every prompt while the session's context is above
 // handoff_tokens, both in one context. Worker: the wrong-tab guard (design "Wrong-tab guard"): a prompt a
 // person typed (not tagged `[obor `, nor a slash command, nor one of Claude Code's own envelopes or
@@ -50,8 +50,8 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer, lines LeadLi
 		agent := project.SelfAgent(cfg, role)
 		var parts []string
 		if l := hookLines(cfg, agent, ev.Cwd, lines); l != "" {
-			parts = append(parts, "obor (lead): lines for you that arrived since your last turn (your session has no "+
-				"inbox: they come with your next prompt or at a turn's end), one per row:\n"+l)
+			parts = append(parts, "obor (lead): lines for you that arrived since your last turn (no live inbox of your "+
+				"session takes them: they come with your next prompt or at a turn's end), one per row:\n"+l)
 		}
 		if ctx := handoffReminder(cfg, env, agent, ev.SessionID, ev.TranscriptPath); ctx != "" {
 			parts = append(parts, ctx)
@@ -104,15 +104,13 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer, lines LeadLi
 // delivered (cmd/obor: the lead_lines request): their text, one line per row ("": none). nil: nothing is asked.
 type LeadLines func(root, agent string) (string, error)
 
-// hookLines is the text of the lines the lead's hook hands over ("": none): asked through lines only when the kind
-// agent runs as (sessionKind) is known, has no inbox (a kind with one gets its lines posted there) and its transport
-// acts on the hooks' answers (agents.Caps.HookAnswers: else an answer would be lost, so nothing is asked and the
-// lines wait); a failed ask hands nothing (the lines wait, obor status lists them).
+// hookLines is the text of the lines the lead's hook hands over ("": none): asked through lines only when its lines
+// go through its hooks (leadLines: the kind agent runs as is known, its transport acts on the hooks' answers, and it
+// has no inbox or its inbox record names no socket that is there; a live inbox gets the lines posted, and without the
+// answers an answer would be lost, so nothing is asked and the lines wait); a failed ask hands nothing (the lines
+// wait, obor status lists them).
 func hookLines(cfg *config.Config, agent, cwd string, lines LeadLines) string {
-	if lines == nil || agent == "" {
-		return ""
-	}
-	if k, ok := cfg.Kind(sessionKind(cfg, agent, cwd)); !ok || k.Caps().Inbox || !k.Caps().HookAnswers {
+	if lines == nil || agent == "" || leadLines(cfg, agent, cwd) != LinesHooks {
 		return ""
 	}
 	text, err := lines(cfg.Root, agent)

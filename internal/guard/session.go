@@ -214,14 +214,30 @@ func record(root, agent, slot, sessionID string, env project.Env, kinds agents.K
 	}
 	for _, name := range kinds.Names() {
 		k, _ := kinds.Lookup(name)
-		var in project.Inbox
-		if b := k.InboxRecord(env.Get); b != nil && json.Unmarshal(b, &in) == nil && in.Socket != "" {
+		if in, ok := inboxOf(k, k.InboxRecord(env.Get)); ok {
 			in.Session = sessionID
 			_ = project.WriteInbox(root, slot, in)
 			return
 		}
 	}
 	_ = os.Remove(project.InboxFile(root, slot))
+}
+
+// inboxOf is the inbox record of kind k's record b (nil: none): Claude's names its socket (and token) itself; a plugin
+// kind's (its manifest's inbox_record variables) is kept whole as Record, its socket the one k's deliver of it names.
+// ok false: no record, or no socket either way.
+func inboxOf(k agents.Kind, b []byte) (project.Inbox, bool) {
+	var in project.Inbox
+	if b == nil || json.Unmarshal(b, &in) != nil {
+		return in, false
+	}
+	if in.Socket != "" {
+		return in, true
+	}
+	if d, ok := k.Deliver("", b); ok && !d.Typed && d.Socket != "" {
+		return project.Inbox{Socket: d.Socket, Record: string(b)}, true
+	}
+	return in, false
 }
 
 // recordable: agent is a name records are kept under (not empty, no path).

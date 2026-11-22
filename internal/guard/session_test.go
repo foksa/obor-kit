@@ -579,3 +579,23 @@ func TestSessionRecordsTheInbox(t *testing.T) {
 		}
 	}
 }
+
+// An OpenCode session's record is its plugin's socket (OBOR_OPENCODE_INBOX, the kind's inbox_record, in the hook's env):
+// the socket its deliver names, and the kind's own record kept whole for deliver; a later session without the variable
+// removes it.
+func TestSessionRecordsAPluginKindsInbox(t *testing.T) {
+	t.Parallel()
+	f, _ := sessionFx(t, true)
+	f.Config(testkit.Set("agents.roles.lead", "deepseek"))
+	f.session(t, f.Root, "ses_1", "OBOR_ROLE=lead", "OBOR_OPENCODE_INBOX=/h/.obor/opencode/ses_1.sock")
+	got, err := project.ReadInbox(f.Root, "lead")
+	want := project.Inbox{Socket: "/h/.obor/opencode/ses_1.sock", Session: "ses_1",
+		Record: `{"OBOR_OPENCODE_INBOX":"/h/.obor/opencode/ses_1.sock"}`}
+	if err != nil || got != want {
+		t.Fatalf("inbox %+v, %v; want %+v", got, err, want)
+	}
+	f.session(t, f.Root, "ses_2", "OBOR_ROLE=lead")
+	if f.Exists(project.InboxFile(f.Root, "lead")) {
+		t.Error("a session without the variable kept the record")
+	}
+}

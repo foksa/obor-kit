@@ -11,15 +11,27 @@
 //	session.execution.succeeded       → stop; its block's reason becomes the session's next prompt (a new turn)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
 //	session.step.ended                → one line in the session's token file (turn what: context), no hook
+//	the session's inbox socket        → a line obor serve posts becomes the session's prompt (below)
 //
 // The plugin acts on the hooks' answers (agents.Caps.HookAnswers: design "Lines to the lead"): the session prompt hook
 // runs `obor hook user-prompt-submit` before admission (the hook holds admission) and appends its additionalContext to
 // the prompt's text, where the model and the owner see it and the session keeps it; a stop's
-// {"decision":"block","reason"} becomes ctx.session.prompt of the reason, marked metadata.obor, so it starts the
+// {"decision":"block","reason"} becomes ctx.session.prompt of the reason, marked metadata.obor "stop", so it starts the
 // session's next turn, and the stop that ends that turn carries stop_hook_active: true (obor's stop hook then lets that
-// stop through, once per loop). A prompt that carries metadata.obor is obor's own line: the prompt hook runs no second
-// reminder, so the line starts no reminder loop. A failing hook leaves the prompt as typed, and a stop with no block
-// lets the turn end.
+// stop through, once per loop). A prompt marked "stop" is that reason: the prompt hook runs no second reminder, so it
+// starts no reminder loop (an inbox line, marked "line", is a prompt like a typed one). A failing hook leaves the
+// prompt as typed, and a stop with no block lets the turn end.
+//
+// The session's inbox (agents.Caps.Inbox: design "Lines to the lead"): before a session's session-start the plugin
+// binds a unix socket for it (inboxPath, beside its token file) and puts its path in that hook's env (INBOX_VAR), so
+// the hook records it as the session's inbox (the kind's inbox_record), and obor serve posts the session's lines there
+// (the kind's deliver: one JSON line {"type":"user","text"} per line). Each line read becomes
+// ctx.session.prompt({sessionID, text, metadata: {obor: "line"}}), delivery steer (opencode's default): an idle session
+// starts a turn, a busy one reads it at its next model step (a running step or tool is not interrupted), and the
+// owner's half-typed draft stays (a live probe, opencode 2.2.0). The prompt hook runs user-prompt-submit for it as for
+// any prompt. No socket (no HOME, a path over a unix socket's 103 bytes, a bind that fails, or no ctx.session.prompt):
+// the hook runs without the variable, no inbox is recorded, and the lead's lines come through its hooks. The socket is
+// removed when it closes and when the process exits, so a record naming it is no live inbox.
 //
 // The start's model and effort: obor's opencode kind exports OBOR_OPENCODE_MODEL=<provider>/<model>[#<variant>]
 // for the start (the type's --model, the effort as its variant). With it set, the session hook prompt switches each new
@@ -71,6 +83,7 @@
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -150,6 +163,100 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
 export function tokensPath(sid, env = process.env) {
   if (!env.HOME) return "";
   return path.join(env.HOME, ".obor", "opencode", sid + ".jsonl");
+}
+
+// INBOX_VAR names the session's inbox socket in the session-start hook's env (kinds/opencode/kind.InboxVar, the
+// manifest's inbox_record).
+const INBOX_VAR = "OBOR_OPENCODE_INBOX";
+
+// SOCKET_MAX is the longest unix socket path every platform binds (macOS's sun_path is 104 bytes, its NUL included).
+const SOCKET_MAX = 103;
+
+// inboxPath is a session's inbox socket, beside its token file: ${HOME}/.obor/opencode/<session>.sock. "" without HOME
+// or when the path is longer than SOCKET_MAX bytes: no socket to bind.
+export function inboxPath(sid, env = process.env) {
+  if (!env.HOME) return "";
+  const p = path.join(env.HOME, ".obor", "opencode", sid + ".sock");
+  return Buffer.byteLength(p) <= SOCKET_MAX ? p : "";
+}
+
+// inboxLines is the texts of an inbox connection's bytes: one JSON line {"type":"user","text"} each; a line that does
+// not parse, or names no text, is none.
+export function inboxLines(data) {
+  const out = [];
+  for (const line of String(data ?? "").split("\n")) {
+    try {
+      const o = JSON.parse(line);
+      if (o?.type === "user" && typeof o.text === "string" && o.text !== "") out.push(o.text);
+    } catch {}
+  }
+  return out;
+}
+
+// bound are the inbox sockets this process listens on, removed at its exit: one set and one exit handler for the
+// process, whichever copy of this module bound them.
+const BOUND = Symbol.for("obor.opencode.inboxes");
+const bound =
+  globalThis[BOUND] ??
+  (globalThis[BOUND] = (() => {
+    const set = new Set();
+    process.on("exit", () => {
+      for (const p of set) {
+        try {
+          fs.unlinkSync(p);
+        } catch {}
+      }
+    });
+    return set;
+  })());
+
+// bindInbox listens on file for session id's lines: each becomes prompt({sessionID, text, metadata: {obor: "line"}})
+// once the poster's connection ends, then the connection is closed (the poster waits for that). A stale file at the
+// path is removed first (a session's socket is its own: a resumed session binds its path again). Resolves to file once
+// listening, or "" (one line to warn) when it cannot bind; a socket that closes or fails later is removed. The server
+// keeps no process alive.
+export function bindInbox(file, id, prompt, warn = (line) => console.error(line)) {
+  if (!file || typeof prompt !== "function") return Promise.resolve("");
+  return new Promise((resolve) => {
+    const gone = () => {
+      bound.delete(file);
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+    };
+    const server = net.createServer((conn) => {
+      let data = "";
+      conn.on("data", (b) => (data += b));
+      conn.on("error", () => {});
+      conn.on("end", async () => {
+        for (const text of inboxLines(data)) {
+          try {
+            await prompt({ sessionID: id, text, metadata: { obor: "line" } });
+          } catch (e) {
+            warn(`obor: a line for session ${id} was not prompted: ${e?.message ?? e}`);
+          }
+        }
+        conn.end();
+      });
+    });
+    let listening = false;
+    server.on("error", (e) => {
+      if (listening) return gone();
+      warn(`obor: session ${id}'s inbox ${file} not bound (${e?.message ?? e}); its lines come through its hooks`);
+      resolve("");
+    });
+    server.on("close", gone);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.rmSync(file, { force: true });
+    } catch {}
+    server.listen(file, () => {
+      listening = true;
+      bound.add(file);
+      server.unref();
+      resolve(file);
+    });
+  });
 }
 
 // claudeError is Claude Code's StopFailure error for an opencode error (Session.StructuredError): rate_limit for a
@@ -316,13 +423,14 @@ export function modelSwitch(ctx, value, isChild = () => false, warn = (line) => 
 }
 
 // hookEnv is the plugin's env (the agent's, identity included: see the top), plus OBOR_NO_SELF_HOST (the kit's own
-// build runs).
-function hookEnv(env = process.env) {
-  return { ...env, OBOR_NO_SELF_HOST: "1" };
+// build runs) and a call's own variables (more: session-start's inbox).
+function hookEnv(more = {}, env = process.env) {
+  return { ...env, OBOR_NO_SELF_HOST: "1", ...more };
 }
 
-// runHook runs `bin/obor hook <name>` with the event on stdin: {code, stdout, stderr}, or {failed: why}.
-function runHook(kit, name, event, cwd) {
+// runHook runs `bin/obor hook <name>` with the event on stdin (more: variables added to its env): {code, stdout,
+// stderr}, or {failed: why}.
+function runHook(kit, name, event, cwd, more) {
   const bin = path.join(kit, "bin", "obor");
   if (!fs.existsSync(bin)) return Promise.resolve({ failed: `no ${bin}` });
   return new Promise((resolve) => {
@@ -334,7 +442,7 @@ function runHook(kit, name, event, cwd) {
         resolve(r);
       }
     };
-    const child = spawn("bash", [bin, "hook", name], { cwd, env: hookEnv(), detached: true });
+    const child = spawn("bash", [bin, "hook", name], { cwd, env: hookEnv(more), detached: true });
     const timer = setTimeout(() => {
       try {
         process.kill(-child.pid, "SIGKILL");
@@ -351,8 +459,8 @@ function runHook(kit, name, event, cwd) {
 }
 
 // setup is the opencode 2.x entry (its runtime context; the published 1.18 types do not describe it): the guard
-// (tool hook execute.before), the session context (session hook context), the prompt's answer and the start's model
-// (session hook prompt) and the session events (event.subscribe).
+// (tool hook execute.before), the session context and inbox (session hook context, session-start), the prompt's
+// answer and the start's model (session hook prompt) and the session events (event.subscribe).
 async function setup(ctx) {
   const model = process.env[MODEL_VAR];
   const env = { ...process.env };
@@ -362,11 +470,16 @@ async function setup(ctx) {
   const sessions = sessionHooks(path.resolve(cwd), (id) => tokensPath(id, env));
   const context = new Map(); // session → its session-start run: the context text
 
-  // started runs session-start once per session (its first event, context or prompt call), before any other hook of it.
+  // started runs session-start once per session (its first event, context or prompt call), before any other hook of it,
+  // with the session's inbox bound first and named in its env (none bound: no variable).
+  const prompt = typeof ctx.session?.prompt === "function" ? (a) => ctx.session.prompt(a) : null;
   const started = (id) => {
     if (!context.has(id)) {
       const s = sessions.start(id);
-      context.set(id, runHook(kit, s.name, s.event, cwd).then((r) => (r.failed || r.code !== 0 ? "" : r.stdout.trim())));
+      const run = bindInbox(inboxPath(id, env), id, prompt)
+        .then((sock) => runHook(kit, s.name, s.event, cwd, sock ? { [INBOX_VAR]: sock } : {}))
+        .then((r) => (r.failed || r.code !== 0 ? "" : r.stdout.trim()));
+      context.set(id, run);
     }
     return context.get(id);
   };
@@ -394,7 +507,7 @@ async function setup(ctx) {
   await ctx.session.hook("prompt", async (p) => {
     if (switchModel) await switchModel(p);
     const id = p?.sessionID;
-    if (!id || p.metadata?.obor) return; // obor's own line (a stop's reason): no second reminder
+    if (!id || p.metadata?.obor === "stop") return; // a stop's reason: no second reminder
     sessions.own(id);
     if (!sessions.isMine(id)) return;
     await started(id);

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
@@ -350,9 +351,12 @@ func (a *App) routeOf(p *proj, fx *Loop, q outbox.Line) (post, target, held stri
 	to := q.Msg().To
 	lead := q.IsLead() || to == p.out.Lead() // a lead line, or a brief whose agent has since become the lead
 	w := a.whereIs(p, to)
+	if lead {
+		if why := a.hookHeld(p); why != "" { // its hooks ask for its lines (leadLinesCall)
+			return "", "", why
+		}
+	}
 	switch {
-	case lead && a.hookLead(p): // its hooks ask for its lines (leadLinesCall)
-		return "", "", hookHeld(to)
 	case lead && (fx.Inbox == nil || !a.inboxed(to)):
 		return "", "", "no inbox recorded for " + to + ": its SessionStart hook records one"
 	case lead && w.State != Identified: // a lead line goes out whatever its pane: through the lead's configured kind
@@ -560,8 +564,10 @@ func (a *App) freshStop(ctx context.Context, p *proj, fx *Loop, q outbox.Line, k
 // byte, or cut by a crash; or its result kept unwritten in this process) goes again with exactly its members, or its
 // kept result is written without a transmit, before any new post of the target (a recovery that transmitted nothing
 // lets the rest go out in the same pass). A post refused before a byte went out: fact failed for each member, posted
-// again as one at the next pass. Once the post's result is in the log each other member gets its own delivery
-// result "sent" (the log's per-line record; its fold settles nothing more).
+// again as one at the next pass. Its members are claimed while it goes (claimLines): a hook call handing the lead's
+// lines meanwhile leaves them to it, and the post waits for a line such a call is handing. Once the post's result is
+// in the log each other member gets its own delivery result "sent" (the log's per-line record; its fold settles
+// nothing more).
 func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Line, post, target string) {
 	key := lineKey
 	for {
@@ -571,8 +577,9 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Li
 		}
 		a.mu.Lock()
 		waits := p.cutWaits(key(head))
+		claimed := !waits && claimLines(p, lines, true)
 		a.mu.Unlock()
-		if waits { // its last post was cut: posted again after the delay (uncounted)
+		if !claimed { // its last post was cut: posted again after the delay (uncounted); or a hook call hands them now
 			return
 		}
 		members := make([]int64, len(lines))
@@ -601,14 +608,33 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Li
 				}
 			}
 		}
-		if err != nil { // the post's result is not in the log: its members wait with it
-			return
+		if err == nil {
+			a.membersSent(ctx, p, lines, head)
 		}
-		a.membersSent(ctx, p, lines, head)
-		if !recovered {
+		a.mu.Lock()
+		claimLines(p, lines, false)
+		a.mu.Unlock()
+		if err != nil || !recovered { // the post's result is not in the log: its members wait with it
 			return
 		}
 	}
+}
+
+// claimLines claims lines for one delivery (on, under mu): none of them is being sent by another (a hook call handing
+// the lead's lines, leadLinesCall) and each is marked Sending; false, nothing marked, when one is. on false releases
+// them.
+func claimLines(p *proj, lines []outbox.Line, on bool) bool {
+	for _, q := range lines {
+		if m := p.out.Line(q.Seq()); on && m != nil && m.Sending {
+			return false
+		}
+	}
+	for _, q := range lines {
+		if m := p.out.Line(q.Seq()); m != nil {
+			m.Sending = on
+		}
+	}
+	return true
 }
 
 // lineKey is the delivery key of the line of fact seq (outbox.StepDeliver).
@@ -885,14 +911,19 @@ func (a *App) sendCall(c wire.SendReq) (string, error) {
 	m := event.Message{To: p.out.Lead(), Line: sendLine(c.From, c.Text), From: c.From, Call: c.CallID,
 		Reply: "SENT to " + p.out.Lead() + " in " + p.name + " (posted to its session)"}
 	a.mu.Lock()
-	hooked := a.hookLead(p)
+	mode, inbox := a.leadLines(p)
 	a.mu.Unlock()
 	switch {
-	case hooked:
-		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: " + hookHeld(p.out.Lead()) + ")"
+	case mode == agents.LinesHooks && !inbox:
+		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: " + p.out.Lead() + "'s kind has no inbox: " +
+			byHooks + ")"
 	case !a.inboxed(p.out.Lead()):
+		how := "" // a kind whose hooks act on the answers: they hand the line meanwhile
+		if mode == agents.LinesHooks {
+			how = ": " + byHooks
+		}
 		m.Reply = "SENT to " + p.out.Lead() + " in " + p.name + " (queued: no session recorded for " + p.out.Lead() +
-			"; `obor restart " + p.out.Lead() + "` once it is idle registers it, or quit it and run `obor lead`)"
+			how + "; `obor restart " + p.out.Lead() + "` once it is idle registers it, or quit it and run `obor lead`)"
 	}
 	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
 		return "", fmt.Errorf("send: the event log of %s refused it", p.name)

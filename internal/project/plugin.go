@@ -12,7 +12,7 @@ import (
 	"obor/internal/roles"
 )
 
-// InboxFile is where the SessionStart hook records the Claude session inbox of the session holding slot in the
+// InboxFile is where the SessionStart hook records the session inbox of the session holding slot in the
 // project at root: <root>/.obor/state/inbox/<slot>, its "/" a "." (L-03/drive →
 // L-03.drive), mode 0600 (it holds the session's messaging token). Keyed by the project and the slot, never by an agent
 // name: two projects with one prefix keep apart, and a rename leaves it where it is. obor serve posts there.
@@ -63,12 +63,30 @@ func AgentSlot(cfg *config.Config, agent string) string {
 	return ""
 }
 
-// Inbox is a Claude session's inbox record: its socket (CLAUDE_CODE_MESSAGING_SOCKET), token
-// (CLAUDE_CODE_MESSAGING_TOKEN) and session id.
+// Inbox is a session's inbox record: its socket (Claude's CLAUDE_CODE_MESSAGING_SOCKET; a plugin kind's, as its
+// deliver call names it), token (CLAUDE_CODE_MESSAGING_TOKEN) and session id, and a plugin kind's own record as its
+// JSON text (the object of its manifest's inbox_record variables), which its deliver call is given back.
 type Inbox struct {
 	Socket  string `json:"socket"`
 	Token   string `json:"token,omitempty"`
 	Session string `json:"session,omitempty"`
+	Record  string `json:"record,omitempty"`
+}
+
+// InboxLive is agent's inbox record in cfg's project when it names a socket that is there (a session that ended
+// removed it; a crashed one's is refused at the dial): the session that wrote it, ok. No slot, no record or no
+// socket: not ok.
+func InboxLive(cfg *config.Config, agent string) (session string, ok bool) {
+	slot := AgentSlot(cfg, agent)
+	if slot == "" {
+		return "", false
+	}
+	in, err := ReadInbox(cfg.Root, slot)
+	if err != nil {
+		return "", false
+	}
+	_, err = os.Stat(in.Socket)
+	return in.Session, err == nil
 }
 
 // ReadInbox is the inbox record of slot in root's project; an error when there is none or it names no socket.

@@ -97,7 +97,8 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	if !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\nlane row: none\n") {
 		t.Errorf("lead: %q", text)
 	}
-	if !strings.HasSuffix(text, "source: env\nlane row: none\nlines: inbox\n") { // the line comes last (a Claude lead)
+	// The line comes last (a Claude lead with no inbox recorded: its hooks take its lines).
+	if !strings.HasSuffix(text, "source: env\nlane row: none\nlines: hooks\n") {
 		t.Errorf("a lead's lines line: %q", text)
 	}
 	if strings.Contains(text, "\nlane: ") { // no empty `lane:` line for a role without a lane
