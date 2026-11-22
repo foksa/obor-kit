@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -597,5 +598,83 @@ func TestSessionRecordsAPluginKindsInbox(t *testing.T) {
 	f.session(t, f.Root, "ses_2", "OBOR_ROLE=lead")
 	if f.Exists(project.InboxFile(f.Root, "lead")) {
 		t.Error("a session without the variable kept the record")
+	}
+}
+
+// agyLead is the config edit making the lead an agy agent (model gem, of the kit's agy kind).
+func agyLead() func(map[string]any) {
+	return func(c map[string]any) {
+		testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"})(c)
+		testkit.Set("agents.roles.lead", "gem")(c)
+	}
+}
+
+// agyVars are the agentapi variables of a command an agy session runs (its inbox record), with token tok.
+func agyVars(tok string) []string {
+	return []string{"ANTIGRAVITY_LS_ADDRESS=localhost:5011", "ANTIGRAVITY_CSRF_TOKEN=" + tok,
+		"ANTIGRAVITY_AGENTAPI_EXE=/h/.gemini/antigravity-cli/bin/agentapi", "ANTIGRAVITY_CONVERSATION_ID=conv-1"}
+}
+
+// An obor command an agy lead runs records its inbox from the command's environment (agy's agentapi variables, which
+// its hooks never see): the kind's own record kept whole, the kind sending with it, mode 0600, live. A later command
+// refreshes it: a refused send's mark cleared, a new token (agy restarted) recorded. A command without the variables
+// leaves the record as it is; a Claude lead's command with its messaging socket writes none (its SessionStart hook's
+// record alone).
+func TestCommandRecordsTheInbox(t *testing.T) {
+	t.Parallel()
+	f, _ := sessionFx(t, true)
+	f.Config(agyLead())
+	inbox := project.InboxFile(f.Root, "lead")
+	if f.Exists(inbox) {
+		t.Fatal("precondition: a record before any command")
+	}
+	cfg, err := config.Load(f.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...))
+	rec := `{"ANTIGRAVITY_AGENTAPI_EXE":"/h/.gemini/antigravity-cli/bin/agentapi","ANTIGRAVITY_CONVERSATION_ID":"conv-1",` +
+		`"ANTIGRAVITY_CSRF_TOKEN":"tok-1","ANTIGRAVITY_LS_ADDRESS":"localhost:5011"}`
+	if got, err := project.ReadInbox(f.Root, "lead"); err != nil || got != (project.Inbox{Sends: true, Record: rec}) {
+		t.Fatalf("inbox %+v, %v; want the kind's record, sent by the kind", got, err)
+	}
+	if fi, err := os.Stat(inbox); err != nil {
+		t.Errorf("no inbox: %v", err)
+	} else if fi.Mode().Perm() != 0o600 {
+		t.Errorf("inbox mode %v; want 0600", fi.Mode())
+	}
+	if _, live := project.InboxLive(cfg, "pj-lead"); !live {
+		t.Error("the recorded inbox is not live")
+	}
+
+	if err := project.RefuseInbox(f.Root, "lead", rec, "agentapi send-message: exit 1: invalid CSRF token"); err != nil {
+		t.Fatal(err)
+	}
+	if _, live := project.InboxLive(cfg, "pj-lead"); live {
+		t.Fatal("precondition: a refused record is live")
+	}
+	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-1")...)...))
+	if got, _ := project.ReadInbox(f.Root, "lead"); got.Refused != "" {
+		t.Errorf("a later command kept the refused mark: %+v", got)
+	}
+	if _, live := project.InboxLive(cfg, "pj-lead"); !live {
+		t.Error("the refreshed inbox is not live")
+	}
+	CommandRecord(f.Root, f.Env(append([]string{"OBOR_ROLE=lead"}, agyVars("tok-2")...)...))
+	if got, _ := project.ReadInbox(f.Root, "lead"); !strings.Contains(got.Record, `"ANTIGRAVITY_CSRF_TOKEN":"tok-2"`) {
+		t.Errorf("a new token not recorded: %+v", got)
+	}
+
+	CommandRecord(f.Root, f.Env("OBOR_ROLE=lead"))
+	if got, _ := project.ReadInbox(f.Root, "lead"); !strings.Contains(got.Record, "tok-2") {
+		t.Errorf("a command without the variables changed the record: %+v", got)
+	}
+	f.Config()
+	if err := os.Remove(inbox); err != nil {
+		t.Fatal(err)
+	}
+	CommandRecord(f.Root, f.Env("OBOR_ROLE=lead", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=t"))
+	if f.Exists(inbox) {
+		t.Error("a Claude lead's command wrote a record")
 	}
 }

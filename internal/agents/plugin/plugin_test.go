@@ -126,10 +126,10 @@ var calls = []call{
 			return turn.ID + " " + turn.Error + " " + turn.Reset.UTC().Format(time.RFC3339), ""
 		}},
 	{"deliver", `{"version":1,"ok":true,"delivery":{"socket":"/s","lines":["a","b"]}}`,
-		func(k *plugin.Kind, log *bytes.Buffer) (string, string) {
+		func(k *plugin.Kind, _ *bytes.Buffer) (string, string) {
 			d, ok := k.Deliver("hi", []byte(`{"STUB_INBOX":"/s"}`))
-			if !ok {
-				return "", strings.TrimSpace(log.String())
+			if !ok { // the failed call's error is the delivery's Refused
+				return "", d.Refused
 			}
 			return d.Socket + " " + strings.Join(d.Lines, ","), ""
 		}},

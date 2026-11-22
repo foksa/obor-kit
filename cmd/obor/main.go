@@ -72,6 +72,10 @@ func main() {
 		exit(2)
 	}
 	sub, args := os.Args[1], os.Args[2:]
+	if recordsInbox(sub) {
+		cwd, _ := os.Getwd()
+		guard.CommandRecord(cwd, project.OSEnv)
+	}
 	switch sub {
 	case "help", "-h", "--help":
 		usage()
@@ -156,6 +160,13 @@ func main() {
 	}
 	errf("obor: unknown subcommand: %s", sub)
 	exit(2)
+}
+
+// recordsInbox: obor command sub records the inbox of the session it runs in before it runs (guard.CommandRecord):
+// every command but the hooks (the SessionStart hook keeps its own record), a kind's transport (obor kind) and the MCP
+// server.
+func recordsInbox(sub string) bool {
+	return sub != "hook" && sub != "kind" && sub != "mcp"
 }
 
 // load finds the project of the cwd and loads its effective config (config.Load: a key this obor does not know is a

@@ -21,8 +21,8 @@ import (
 // hook call is handing, and a hook call hands no line the pass is posting.
 
 // leadLines is how lines reach p's lead now (under mu; agents.LeadLines): its kind (its identified pane's, else its
-// configured one) and whether its inbox record names a socket that is there (Options.Inboxed); inbox: that kind has
-// an inbox. An unknown kind or no lead: status.
+// configured one) and whether its inbox record is live (Options.Inboxed, project.InboxLive); inbox: that kind has an
+// inbox. An unknown kind or no lead: status.
 func (a *App) leadLines(p *proj) (mode string, inbox bool) {
 	lead := p.out.Lead()
 	if p.kinds == nil || lead == "" {
@@ -42,7 +42,7 @@ func (a *App) leadLines(p *proj) (mode string, inbox bool) {
 
 // hookHeld is why a line to p's lead waits for its hooks (under mu; "": its lines do not go through them,
 // leadLines): its hook transport acts on the hooks' answers (agents.Caps.HookAnswers) and its kind has no inbox, or
-// its inbox record names no socket that is there. A kind with neither a live inbox nor the answers keeps its lead's
+// its inbox record is not live (none, its socket gone, or a refused send). A kind with neither a live inbox nor the answers keeps its lead's
 // lines waiting (obor status, the 24 h needs-you).
 func (a *App) hookHeld(p *proj) string {
 	mode, inbox := a.leadLines(p)

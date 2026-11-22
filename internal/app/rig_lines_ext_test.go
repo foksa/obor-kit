@@ -296,6 +296,7 @@ type rigInbox struct {
 	refused  bool
 	partial  bool
 	once     bool // refused and partial end after the next post (failOnce)
+	stale    bool // a refused post marks the agent's record not live, as the poster marks a refused agy record (staleOnRefuse)
 	cutting  bool // the next post waits for serve's ctx and fails with its error (cut)
 	cancels  int  // the next cancels posts fail at once as a cancellation, serve running
 }
@@ -332,6 +333,12 @@ func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, erro
 	case in.refused:
 		if in.once {
 			in.refused = false
+		}
+		if in.stale {
+			if in.none == nil {
+				in.none = map[string]bool{}
+			}
+			in.none[agent] = true
 		}
 		return false, errors.New("dial unix: connection refused")
 	}
@@ -373,7 +380,7 @@ func (in *rigInbox) record(agent string) {
 func (in *rigInbox) fail(partial bool) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	in.refused, in.partial, in.once = !partial, partial, false
+	in.refused, in.partial, in.once, in.stale = !partial, partial, false, false
 }
 
 // failOnce makes the next post alone fail (partial false before a byte went out, true after one): the posts after it
@@ -382,13 +389,13 @@ func (in *rigInbox) fail(partial bool) {
 func (in *rigInbox) failOnce(partial bool) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	in.refused, in.partial, in.once = !partial, partial, true
+	in.refused, in.partial, in.once, in.stale = !partial, partial, true, false
 }
 
 func (in *rigInbox) ok() {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	in.refused, in.partial, in.once = false, false, false
+	in.refused, in.partial, in.once, in.stale = false, false, false, false
 }
 
 // cut makes the next post alone wait for serve's ctx and fail with its error before a byte went out: a delivery serve's
@@ -947,4 +954,12 @@ func (in *rigInbox) posted() []string {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	return append([]string(nil), in.posts...)
+}
+
+// staleOnRefuse makes the next post alone refused before a byte went out, the agent's record then not live: the
+// poster's mark of a record the kind sends with (an agy record whose token went stale, project.RefuseInbox).
+func (in *rigInbox) staleOnRefuse() {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	in.refused, in.partial, in.once, in.stale = true, false, true, true
 }

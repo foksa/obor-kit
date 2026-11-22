@@ -106,7 +106,7 @@ type LeadLines func(root, agent string) (string, error)
 
 // hookLines is the text of the lines the lead's hook hands over ("": none): asked through lines only when its lines
 // go through its hooks (leadLines: the kind agent runs as is known, its transport acts on the hooks' answers, and it
-// has no inbox or its inbox record names no socket that is there; a live inbox gets the lines posted, and without the
+// has no inbox or its inbox record is not live, project.InboxLive; a live inbox gets the lines posted, and without the
 // answers an answer would be lost, so nothing is asked and the lines wait); a failed ask hands nothing (the lines
 // wait, obor status lists them).
 func hookLines(cfg *config.Config, agent, cwd string, lines LeadLines) string {

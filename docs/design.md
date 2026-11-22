@@ -813,8 +813,8 @@ herdr plugin: serve restores its panes itself ("After a herdr restart" above).
 
 ## Lines to the lead (2026-10-27 — owner decision)
 Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its session's inbox (Claude,
-OpenCode; a lead with no live inbox takes them through its hooks when they act on the answers), and delivers a brief to
-a role agent (posted to a Claude or OpenCode session, typed into another kind's pane); nothing is typed into the pane the owner
+OpenCode, agy; a lead with no live inbox takes them through its hooks when they act on the answers), and delivers a
+brief to a role agent (posted to a Claude, OpenCode or agy session, typed into another kind's pane); nothing is typed into the pane the owner
 writes in, and nothing else goes to a chat agent but a job's wake. State in `docs/state-model.md` row 47.
 - **`obor send <project> "<text>"`** (a lead or the owner): `<project>` is a path into an obor project. One `obor serve`
   per project (owner decision 2026-10-28): it runs in the project and listens on
@@ -863,15 +863,31 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   its socket gone → the lead's hooks take its lines when they act on the answers (next bullet), else the line waits,
   untried; a refused dial (a socket file nobody listens on) → fact `failed` with its reason, shown in `obor status`
   and the needs-you, posted again at the next pass while the record's socket is there (a lead line is never typed).
-  There is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. A lead of a kind with
-  no inbox (agy, Codex) takes its lines through its hooks when its transport acts on their answers (next bullet), else
-  they wait.
+  There is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. **agy's inbox** is its
+  language server's: `agentapi send-message <conversationId> <text>` (agy's own `agentapi`) starts a turn in an idle
+  session and reaches a busy one at its next model call, the owner's draft kept; it arrives as a system message. Its
+  address and token (`ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`) are only in the environment of the commands
+  the agent runs, never its hooks', so **any `obor` command** (every one but `obor hook`, `obor kind` and `obor mcp`)
+  run with a role and the kind's `inbox_record` variables in its env (the address, the token,
+  `ANTIGRAVITY_AGENTAPI_EXE`, `ANTIGRAVITY_CONVERSATION_ID`) writes the session's inbox record from that env
+  (`guard.CommandRecord`; the same file, 0600; the kind's own record kept whole, marked as one the kind sends with):
+  a lead's start checks (`obor whoami`, `obor status`) create it in its first turn, with no instruction to the model,
+  and every later command refreshes it (a new token after an agy restart, a refused mark cleared). A record that
+  names its socket itself (Claude's) is its SessionStart hook's alone; a SessionStart removes a record its env does not
+  carry (a new agy conversation's, until its next `obor` command). The kind's `deliver` sends the line itself (the
+  record's `agentapi send-message` with its address and token): the kind delivered it, no socket, no ack. A refused send
+  (agentapi's non-zero exit: a stale token, one per agy start; the token's lifetime is unprobed) delivers nothing:
+  fact `failed` with its reason, and the record is marked refused, so it is not live and the lead's lines go through
+  its hooks until a command of the session records it again; a line goes once across the two paths (next bullet). A
+  lead of a kind with no inbox (Codex) takes its lines through its hooks when its transport acts on their answers (next
+  bullet), else they wait.
 - **A lead with no live inbox takes its lines through its hooks** (owner 2026-11-22: the lesser mode), when its
   kind's hook transport acts on the hooks' answers (`agents.Caps.HookAnswers`, the manifest's `caps.hook_answers`).
   One rule decides how a lead's lines go (`agents.LeadLines`): posted when its kind has an inbox (`agents.Caps.Inbox`)
-  and its inbox record names a socket that is there; else through its hooks when its kind has that cap; else they
-  wait. Serve reads it with the lead's identified pane's kind (else its configured one), the lead's hooks and `obor
-  whoami`'s `lines:` with the kind the session runs as; each reads the record. When it says hooks, the delivery pass
+  and its inbox record is live (`project.InboxLive`: it names a socket that is there, or the kind sends with it and no
+  send with it was refused); else through its hooks when its kind has that cap; else they wait. Serve reads it with
+  the lead's identified pane's kind (else its configured one), the lead's hooks and `obor whoami`'s `lines:` with the
+  kind the session runs as; each reads the record. When it says hooks, the delivery pass
   holds the lead's lines (`<lead>'s kind has no inbox: its hooks hand it its lines at its next prompt or turn end`, or
   `no inbox recorded for <lead>: …` for a kind with an inbox, in `obor status` and the 24 h needs-you; `obor send`'s
   reply says it queued them so, with the `obor restart` hint when no session is recorded), and its hooks ask serve for
@@ -891,11 +907,11 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   neither a live inbox nor the cap (Codex: no hooks) gets nothing through its hooks: its lines wait, untried and never
   recorded as delivered (`no inbox recorded for <lead>: …` in `obor status`), and the 24 h needs-you reaches the owner.
 - **Role agents' lines go as the pane's kind takes them** (`agents.Kind.Deliver`), only while that agent's pane
-  is idle or done (the rule of job delivery): a kind with an inbox (Claude, OpenCode) gets the line posted to its
+  is idle or done (the rule of job delivery): a kind with an inbox (Claude, OpenCode, agy) gets the line posted to its
   session when its inbox record is the live session's in that pane, else typed into the pane as its job wakes are (a line
   to an idle identified agent never waits on a missing or mismatched record); a post refused before a byte went out
-  (a dead socket: `os.Stat` passes, the dial refuses) makes the next attempt typed, the pane re-checked idle first.
-  Any other kind (Codex, agy) is typed into its pane (`agent.prompt`, `herdr.Panes.Type`), no Escape,
+  (a dead socket: `os.Stat` passes, the dial refuses; agy's refused send) makes the next attempt typed, the pane
+  re-checked idle first. Any other kind (Codex) is typed into its pane (`agent.prompt`, `herdr.Panes.Type`), no Escape,
   no screen read, no clear. A typed line herdr refuses because the pane is blocked (`blocked`, `agent_blocked`) is a
   refusal before typing: fact `failed`, retried at a later pass. For Claude the inbox ends the dialog class (a typed
   line landing in a Claude Code dialog): a post cannot reach a dialog; a session behind an open permission dialog
@@ -909,8 +925,8 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   unblocked, dropped or rejected, a newer answer or resume comes: waiting, at once; sending, it is marked and
   stays until its outcome (it may have landed, as a brief's does): sent, or retired by a refusal before a byte,
   or by the next pass closing its open delivery unsent (result `retired: …`, a crash's cut delivery).
-- **Job wakes go the same way** (owner 2026-10-28): a worker's or the integrator's wake to a Claude or OpenCode
-  session with an inbox record is posted, `[obor job <id>] call the obor job_next tool` as typed (no `ctrl+u`, the same intent and
+- **Job wakes go the same way** (owner 2026-10-28): a worker's or the integrator's wake to a Claude, OpenCode or
+  agy session with an inbox record is posted, `[obor job <id>] call the obor job_next tool` as typed (no `ctrl+u`, the same intent and
   result, `docs/state-model.md` "Prompts": a wake is harmless twice). Another kind, a pane serve does not see, or a
   session with no inbox record (a session its SessionStart hook did not register) is typed as before: a refused wake
   would strand the worker until a restart, a typed one reaches it as it always did.

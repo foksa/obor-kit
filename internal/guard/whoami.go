@@ -27,7 +27,7 @@ const (
 
 // leadLines is the delivery of the lines of a lead running as agent in cwd (agents.LeadLines, the rule serve's delivery
 // reads): its kind read as the session start reads it (sessionKind; a plugin kind's cached manifest, none cached: not
-// a kind it knows), and whether its inbox record in the project names a socket that is there (project.InboxLive).
+// a kind it knows), and whether its inbox record in the project is live (project.InboxLive).
 // Serve reads the lead's identified pane's kind; this reads the configured or recorded one.
 func leadLines(cfg *config.Config, agent, cwd string) string {
 	k, ok := cfg.Kind(sessionKind(cfg, agent, cwd))
@@ -37,7 +37,7 @@ func leadLines(cfg *config.Config, agent, cwd string) string {
 	return agents.LeadLines(k.Caps(), inboxLive(cfg, k, agent))
 }
 
-// inboxLive: k has an inbox and agent's inbox record names a socket that is there.
+// inboxLive: k has an inbox and agent's inbox record is live (project.InboxLive).
 func inboxLive(cfg *config.Config, k agents.Kind, agent string) bool {
 	if !k.Caps().Inbox {
 		return false

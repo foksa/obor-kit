@@ -147,8 +147,10 @@ type poster struct {
 const postWait = 3 * time.Second
 
 // Post posts line to agent's session as kind posts it (the pane's kind): the record read, the kind's
-// lines from it, one dial, the lines written, then close. began: a byte of it went out (a refusal before is safe to
-// retry). No ack comes back.
+// lines from it, one dial, the lines written, then close; or, for a record the kind sends with itself (agy's), its
+// deliver sends it (began once it says sent). A send the kind refused marks that record refused
+// (project.RefuseInbox): not live, the lead's lines go through its hooks until an obor command of the session records it
+// again. began: a byte of it went out (a refusal before is safe to retry). No ack comes back.
 func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool, err error) {
 	k, ok := p.kinds.Lookup(kind)
 	if !ok || !k.Caps().Inbox {
@@ -163,11 +165,22 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 	if err != nil {
 		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
 	}
-	if in, err := project.ReadInbox(p.root, slot); err == nil && in.Record != "" {
+	in, err := project.ReadInbox(p.root, slot)
+	if err == nil && in.Record != "" {
 		rec = []byte(in.Record) // a plugin kind's deliver is given back its own record
 	}
 	d, ok := k.Deliver(line, rec)
-	if !ok || d.Typed {
+	switch {
+	case ok && d.Sent: // the kind sent it itself (agy's agentapi): no socket, no ack
+		return true, nil
+	case in.Sends && !ok: // its record goes stale (a new token per start): not live until recorded again
+		why := d.Refused
+		if why == "" {
+			why = "its deliver sends nothing with the record"
+		}
+		_ = project.RefuseInbox(p.root, slot, in.Record, why)
+		return false, fmt.Errorf("%s refused the send: %s", agent, why)
+	case !ok || d.Typed || d.Socket == "":
 		return false, fmt.Errorf("no session recorded for %s: %s names no socket", agent, f)
 	}
 	ctx, cancel := context.WithTimeout(ctx, postWait)

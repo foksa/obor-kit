@@ -67,11 +67,13 @@ type Kind interface {
 	// message says it does (zero: it names no time).
 	Reset(errText, details string, at time.Time) (reset time.Time, limited bool)
 
-	// Deliver is how text reaches a running session of this kind: Typed (herdr agent.prompt), or an inbox post built
-	// from the session's SessionStart record (ok false: the record names no inbox; keep the line queued).
+	// Deliver is how text reaches a running session of this kind: Typed (herdr agent.prompt), an inbox post built from
+	// the session's inbox record, or Sent: the kind sent it itself (agy's agentapi send-message). ok false: the record
+	// names no inbox, or the kind's own send was refused (Refused: why); keep the line queued. An empty text is the
+	// record's check: nothing is sent.
 	Deliver(text string, record []byte) (Delivery, bool)
-	// InboxRecord is the inbox record of the session the SessionStart hook runs in, from that session's environment
-	// (env), in the format Deliver reads; nil: the session has no inbox of this kind.
+	// InboxRecord is the inbox record of a session from an environment of it (env: its SessionStart hook's, or a
+	// command's the agent runs), in the format Deliver reads; nil: env holds no inbox of this kind.
 	InboxRecord(env func(string) string) []byte
 
 	Caps() Caps
@@ -450,6 +452,11 @@ type Delivery struct {
 	Typed  bool     // herdr agent.prompt with the text as it is
 	Socket string   // inbox: the unix socket to dial
 	Lines  []string // inbox: the JSON lines to write, in order
+	// Sent: the kind delivered the text itself, no socket (its CLI's own send); for an empty text (the record's check)
+	// nothing is sent: the record names the kind's own send
+	Sent bool
+	// Refused is why the kind's own send, or its deliver call, failed (ok false): nothing was delivered
+	Refused string
 }
 
 // HookTransport is how a kind runs obor's hooks.
@@ -464,7 +471,7 @@ const (
 // Caps are a kind's capabilities.
 type Caps struct {
 	Hooks HookTransport
-	Inbox bool // Deliver posts over the session's inbox socket
+	Inbox bool // Deliver posts over the session's inbox socket, or the kind sends the text itself (Delivery.Sent)
 	// HookAnswers: its hook transport acts on the hooks' answers (user-prompt-submit's context, stop's block), so a
 	// lead with no live inbox takes its lines through them (LeadLines)
 	HookAnswers bool
@@ -497,9 +504,10 @@ const (
 )
 
 // LeadLines is how lines reach a lead of a kind with caps c, the one rule serve's delivery, the lead's hooks and obor
-// whoami read: inbox when the kind has one and live says the lead's inbox record names a socket that is there (posted);
-// else hooks when its hook transport acts on the hooks' answers (a kind with no inbox, or one whose session recorded
-// none or whose socket is gone: the hook path takes them); else status (they wait).
+// whoami read: inbox when the kind has one and live says the lead's inbox record is live (project.InboxLive: a socket
+// that is there, or a record the kind sends with that no send refused: posted); else hooks when its hook transport acts
+// on the hooks' answers (a kind with no inbox, or one whose session recorded none, whose socket is gone or whose send
+// was refused: the hook path takes them); else status (they wait).
 func LeadLines(c Caps, live bool) string {
 	switch {
 	case c.Inbox && live:

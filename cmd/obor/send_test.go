@@ -383,22 +383,78 @@ func TestPosterPostsAPluginKindsRecord(t *testing.T) {
 	}
 }
 
+// An agy session's record (its agentapi variables, from an obor command it ran) is one the kind sends with: the poster
+// hands it to the kind's deliver, which runs the record's agentapi (began, no socket). A refused send (agentapi's
+// non-zero exit: a stale token) delivers nothing and marks the record refused, so it is not live (its lines go through
+// the lead's hooks) until a command records it again.
+func TestPosterSendsWithAnAgyRecord(t *testing.T) {
+	t.Parallel()
+	pj := testkit.NewPlain(t)
+	pj.Config(testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"}),
+		testkit.Set("agents.roles.lead", "gem"))
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	write := func(name string, code int) string {
+		exe := filepath.Join(dir, name)
+		body := "#!/bin/sh\nprintf '%s|' \"$@\" \"$ANTIGRAVITY_CSRF_TOKEN\" > " + ran + "\n" +
+			"echo 'rpc error: code = Unauthenticated desc = invalid CSRF token'\nexit " + strconv.Itoa(code) + "\n"
+		if err := os.WriteFile(exe, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return exe
+	}
+	record := func(exe string) string {
+		b, _ := json.Marshal(map[string]string{"ANTIGRAVITY_LS_ADDRESS": "localhost:5011", "ANTIGRAVITY_CSRF_TOKEN": "tok-1",
+			"ANTIGRAVITY_AGENTAPI_EXE": exe, "ANTIGRAVITY_CONVERSATION_ID": "conv-1"})
+		if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Sends: true, Record: string(b)}); err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	cfg, err := config.Load(pj.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := poster{pj.Root, testkit.Kinds()}
+	record(write("agentapi", 0))
+	if began, err := p.Post(context.Background(), "agy", "pj-lead", "[obor other] hi"); !began || err != nil {
+		t.Fatalf("post: began %v, %v; want sent", began, err)
+	}
+	if b, err := os.ReadFile(ran); err != nil || string(b) != "send-message|conv-1|[obor other] hi|tok-1|" {
+		t.Errorf("agentapi ran with %q, %v", b, err)
+	}
+
+	rec := record(write("stale", 1))
+	if _, live := project.InboxLive(cfg, "pj-lead"); !live {
+		t.Fatal("precondition: the record is not live before the send")
+	}
+	began, err := p.Post(context.Background(), "agy", "pj-lead", "[obor other] again")
+	want := "pj-lead refused the send: kind agy: deliver: agentapi send-message: exit 1: rpc error: code = Unauthenticated desc = invalid CSRF token"
+	if began || err == nil || err.Error() != want {
+		t.Errorf("a refused send: began %v, %v; want not begun, %q", began, err, want)
+	}
+	in, err := project.ReadInbox(pj.Root, "lead")
+	if err != nil || in.Record != rec || !strings.HasPrefix(in.Refused, "kind agy: deliver: agentapi send-message: exit 1") {
+		t.Errorf("the record after the refusal: %+v, %v; want it marked refused", in, err)
+	}
+	if _, live := project.InboxLive(cfg, "pj-lead"); live {
+		t.Error("a refused record is live")
+	}
+}
+
 // poster.Post posts with the kind it is given (the pane's), not the first kind with an inbox: the same record
 // is posted for a kind with an inbox, and refused before a byte (nothing dialled) for a kind without one or a kind
 // obor has no bridge for. The refusals name no kind's product ("no session recorded").
 func TestPosterUsesTheGivenKind(t *testing.T) {
 	t.Parallel()
-	var withInbox, without string
+	withInbox, without := agents.Default, "" // Claude's record names its socket itself
 	kinds := testkit.Kinds()
 	for _, name := range kinds.Names() {
-		k, _ := kinds.Lookup(name)
-		if k.Caps().Inbox && withInbox == "" {
-			withInbox = name
-		} else if !k.Caps().Inbox && without == "" {
+		if k, _ := kinds.Lookup(name); !k.Caps().Inbox && without == "" {
 			without = name
 		}
 	}
-	if withInbox == "" || without == "" {
+	if k, _ := kinds.Lookup(withInbox); !k.Caps().Inbox || without == "" {
 		t.Fatalf("kinds %v: want one with an inbox and one without", kinds.Names())
 	}
 	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited

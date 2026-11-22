@@ -4,8 +4,9 @@
 // the user's saved settings with the project's override file and obor's entries laid over them (settings.go); obor's
 // MCP server and hooks through the project's committed .agents/mcp_config.json and .agents/hooks.json (install's where:
 // project; the hooks' transport is hook.go); /exit with one Enter; `agy acp`, -p/--print and --prompt denied; prompts
-// typed; the context read from the conversation's transcript.jsonl. Handle is one request; the binary runs it on its
-// stdin, a test binary in process (testkit).
+// typed, lines sent with agentapi to a session an obor command recorded (deliver.go); the context read from the
+// conversation's transcript.jsonl. Handle is one request; the binary runs it on its stdin, a test binary in process
+// (testkit).
 package kind
 
 import (
@@ -66,6 +67,8 @@ type request struct {
 	Error     string            `json:"error"`
 	Details   string            `json:"details"`
 	At        string            `json:"at"`
+	Text      string            `json:"text"`   // deliver: the text to send ("": the record's check)
+	Record    string            `json:"record"` // deliver: the session's inbox record (InboxRecord's variables)
 }
 
 // Main is the binary: call args[0] with the request on stdin, its reply on stdout; a request it cannot read, or an
@@ -125,7 +128,7 @@ func handle(call string, req []byte, models func() ([]byte, error)) ([]byte, err
 	case "turn":
 		reply = turn(in)
 	case "deliver":
-		reply = map[string]any{"ok": true, "delivery": map[string]any{"typed": true}}
+		reply = deliver(in)
 	default:
 		return nil, fmt.Errorf("no call %q", call)
 	}
@@ -145,13 +148,15 @@ const NotReadyPattern = `Using\s+"[^"]*"\s+instead|is\s+not\s+recognized\s+as\s+
 // records (no caller-chosen id: named_session false), no session read from a transcript (its first line names none),
 // the model as an id. Status from the terminal's agent detection. Stop: /exit, whose
 // popup's Enter runs it; Ctrl+U clears the input. Headless: -p/--print, its alias --prompt, `agy acp` (ValueOpts: agy
-// --help). The transcript is the conversation's transcript.jsonl (turn what: context reads it). Prompts typed. MCP: the
-// project's committed MCPFile, which obor setup agents writes and obor setup mcp checks.
+// --help). The transcript is the conversation's transcript.jsonl (turn what: context reads it). Inbox: InboxRecord, the
+// agentapi variables of the commands the agent runs, which deliver sends with (agy's agentapi send-message); a session
+// with no record has its prompts typed. MCP: the project's committed MCPFile, which obor setup agents writes and obor
+// setup mcp checks.
 func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
 		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "plugin", "hook_answers": true, "resume": true, "model_arg": true},
+		"caps":    map[string]any{"hooks": "plugin", "inbox": true, "hook_answers": true, "resume": true, "model_arg": true},
 		"efforts": efforts,
 		"env":     []string{"HOME"},
 		"stop":    map[string]any{"quit": "/exit", "clear_input": []string{"ctrl+u"}},
@@ -162,7 +167,7 @@ func describe() map[string]any {
 		"transcript": "${HOME}/.gemini/antigravity-cli/brain/{sid}/.system_generated/logs/transcript.jsonl",
 		"not_ready": map[string]any{"pattern": NotReadyPattern,
 			"why": "runs another model than the start asked for (agy's notice on its start screen: check the model's id and effort against `agy models`)"},
-		"typed": true,
+		"inbox_record": InboxRecord,
 		"mcp_lane": map[string]any{"registered": true, "static": true,
 			"how": MCPFile + " (the project's committed workspace config: obor mcp on the agent's PATH)"},
 		"override_files": []string{OverrideFile},
