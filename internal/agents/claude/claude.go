@@ -37,7 +37,7 @@ const StrictFlag = "--strict-mcp-config"
 func MCPConfig(kit string) string { return mcpConfig(agents.Start{Kit: kit}) }
 
 // mcpConfig is a strict start's --mcp-config JSON: the servers of the start dir's .mcp.json the project's settings
-// approve, then this kit's obor server (obor's entry replaces a project one of that name).
+// approve and does not reject, then this kit's obor server (obor's entry replaces a project one of that name).
 func mcpConfig(in agents.Start) string {
 	servers := approvedServers(in)
 	if in.Kit != "" {
@@ -47,9 +47,9 @@ func mcpConfig(in agents.Start) string {
 	return string(b)
 }
 
-// approvedServers are the servers of the start dir's .mcp.json that the project's settings approve
-// (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names), by name as written; none without a start
-// dir, a file or an approval.
+// approvedServers are the servers of the start dir's .mcp.json that the project's settings approve and do not reject
+// (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names; a disabledMcpjsonServers name never joins),
+// by name as written; none without a start dir, a file or an approval.
 func approvedServers(in agents.Start) map[string]any {
 	out := map[string]any{}
 	if in.Dir == "" {
@@ -160,8 +160,13 @@ func (s settings) approvesAll() bool {
 	return json.Unmarshal(s["enableAllProjectMcpServers"], &all) == nil && all
 }
 
-// approves: the project approves its .mcp.json server name (approvesAll, or enabledMcpjsonServers names it).
+// approves: the project approves its .mcp.json server name (approvesAll, or enabledMcpjsonServers names it), unless
+// disabledMcpjsonServers rejects it: a rejection beats both approvals (Claude Code's own precedence).
 func (s settings) approves(name string) bool {
+	var disabled []string
+	if json.Unmarshal(s["disabledMcpjsonServers"], &disabled) == nil && slices.Contains(disabled, name) {
+		return false
+	}
 	var names []string
 	return s.approvesAll() || json.Unmarshal(s["enabledMcpjsonServers"], &names) == nil && slices.Contains(names, name)
 }
@@ -273,11 +278,12 @@ func merged(in agents.Start) map[string]any {
 
 // servers are the MCP servers of a start whose MCPOverride names mcpServers (patch), by name. A lane's start
 // (in.StrictMCP) builds them from the servers of in.Dir's .mcp.json the project's settings approve
-// (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names), with patch laid over them
-// (agents.MergePatch: a null removes a server). A role agent's start builds them from the user's own (the top-level
-// mcpServers of the user's .claude.json, then those it holds for the project's root, in.Root) with patch laid over
-// them, then the approved project servers. Either way obor's own comes last (with a kit), so an entry named obor of
-// the user's or the override's does not replace it. The start is strict, so these are all it loads.
+// (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names; a disabledMcpjsonServers name never
+// joins), with patch laid over them (agents.MergePatch: a null removes a server). A role agent's start builds them
+// from the user's own (the top-level mcpServers of the user's .claude.json, then those it holds for the project's
+// root, in.Root) with patch laid over them, then the approved project servers. Either way obor's own comes last
+// (with a kit), so an entry named obor of the user's or the override's does not replace it. The start is strict, so
+// these are all it loads.
 func servers(in agents.Start, patch map[string]any) map[string]any {
 	if in.StrictMCP {
 		out := agents.MergePatch(approvedServers(in), patch)

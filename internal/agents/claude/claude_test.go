@@ -688,9 +688,10 @@ func TestStartProjectSettings(t *testing.T) {
 }
 
 // A lane's strict start names the start dir's .mcp.json servers the project's settings approve, beside obor's: the
-// ones enabledMcpjsonServers lists, all of them with enableAllProjectMcpServers true; an unapproved server stays
-// out, and the user's own servers are never read. Without an approval or a .mcp.json the start is strict with obor's
-// server alone, and a lead's start reads none of it.
+// ones enabledMcpjsonServers lists, all of them with enableAllProjectMcpServers true, except a name
+// disabledMcpjsonServers rejects (which beats both approvals); an unapproved server stays out, and the user's own
+// servers are never read. Without an approval or a .mcp.json the start is strict with obor's server alone, and a
+// lead's start reads none of it.
 func TestStartLaneProjectMCP(t *testing.T) {
 	k := kind(t)
 	const proj = `{"mcpServers":{"blender":{"command":"/opt/blender"},"other":{"command":"/bin/other"}}}`
@@ -734,6 +735,14 @@ func TestStartLaneProjectMCP(t *testing.T) {
 			[]string{"blender", "obor", "other"}},
 		{"an unapproved server stays out", map[string]string{settingsFile: `{"enabledMcpjsonServers":["other"]}`, mcpFile: proj},
 			[]string{"obor", "other"}},
+		{"a disabled server stays out with enableAllProjectMcpServers",
+			map[string]string{settingsFile: `{"enableAllProjectMcpServers":true,"disabledMcpjsonServers":["blender"]}`, mcpFile: proj},
+			[]string{"obor", "other"}},
+		{"a disabled server stays out though enabledMcpjsonServers names it",
+			map[string]string{settingsFile: `{"enabledMcpjsonServers":["blender"],"disabledMcpjsonServers":["blender"]}`, mcpFile: proj},
+			[]string{"obor"}},
+		{"disabled only: nothing joins",
+			map[string]string{settingsFile: `{"disabledMcpjsonServers":["blender"]}`, mcpFile: proj}, []string{"obor"}},
 		{"an empty enabledMcpjsonServers approves none",
 			map[string]string{settingsFile: `{"enabledMcpjsonServers":[]}`, mcpFile: proj}, []string{"obor"}},
 		{"no approval key", map[string]string{settingsFile: `{"model":"opus"}`, mcpFile: proj}, []string{"obor"}},

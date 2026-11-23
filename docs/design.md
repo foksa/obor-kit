@@ -209,8 +209,9 @@ and permissions apply, the user's plugins are off unless the project or the over
 the start is `--mcp-config <file> --strict-mcp-config`, the file `.obor/state/mcp/<agent>.json`: for the lead and a
 role agent, the user's servers (the top-level `mcpServers` of the user's `.claude.json`, then those under its `projects` entry of the project's
 root) with the override's `mcpServers` merged over them, then the servers of the start dir's `.mcp.json` the
-project's settings approve (`enableAllProjectMcpServers`, or named in `enabledMcpjsonServers`), then obor's own; for a
-lane agent, those approved project servers with the override's `mcpServers` merged over them, then obor's own (no user
+project's settings approve and do not reject (`enableAllProjectMcpServers`, or named in `enabledMcpjsonServers`; a
+name `disabledMcpjsonServers` lists never joins), then obor's own; for a lane agent, those approved project servers
+with the override's `mcpServers` merged over them, then obor's own (no user
 server). The start is strict whatever its role, so the file's servers are all it loads (other plugins' MCP servers and claude.ai
 connectors are hidden). Codex: `-c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false` and
 `-c skills.config=[{name="<skill>",enabled=false},…]` for each skill of the user's skills dir (`$CODEX_HOME` or
@@ -246,8 +247,8 @@ effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user
 Codex; OpenCode keeps the project's `.agents/skills` and `.opencode/skills`, not its `.claude/skills`. MCP servers of a lane's agent
 (a worker, the owner's drive agent; owner 2026-11-22): the project's declared servers plus obor's, none of the user's,
 each kind by its CLI's own switch. Claude starts strict: `--strict-mcp-config` with one `--mcp-config` holding the start
-dir's `.mcp.json` servers the project's settings approve (`enableAllProjectMcpServers`, or named in
-`enabledMcpjsonServers`), then obor's. Codex gets `-c mcp_servers.<name>.enabled=false` for each server of the user's
+dir's `.mcp.json` servers the project's settings approve and do not reject (`enableAllProjectMcpServers`, or named in
+`enabledMcpjsonServers`; a name `disabledMcpjsonServers` lists never joins), then obor's. Codex gets `-c mcp_servers.<name>.enabled=false` for each server of the user's
 `config.toml` that the project's `.codex/config.toml` does not define (obor's and a name `config_override.toml` sets are
 left alone). OpenCode's generated config makes `{"disabled": true}` each server of the user's `opencode.json(c)` that the
 project's does not define (obor's and an override's entry are left alone). Claude, Codex and OpenCode read the lane's own copy of the project file at its start; agy's rule reads the main
