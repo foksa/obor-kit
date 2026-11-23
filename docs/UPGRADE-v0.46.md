@@ -23,9 +23,9 @@ itself.
 a key under `mcp_servers`, also written `-ckey=value`): FAIL when a worker difficulty level names the model, WARN
 when only a role does. Move such keys to the project's committed config for that CLI.
 
-**OpenCode: a lane's agent starts without `OPENCODE_CONFIG_CONTENT`**, so inline config from your shell no longer
-reaches workers or drive agents. The pane's shell keeps it; the lead and role agents keep it. Put what a lane needs in
-`.obor/opencode/opencode_override.json` or the project's `opencode.json`.
+**OpenCode: a lane's start unsets `OPENCODE_CONFIG_CONTENT`**, so inline config from your shell no longer reaches
+workers or drive agents (the lane pane's shell loses it too). The lead and role agents keep it. Put what a lane needs
+in `.obor/opencode/opencode_override.json` or the project's `opencode.json`.
 
 **agy:** only `slug<TAB>label` lines of `agy models` count as models. A start that checks the cached list says so,
 unless the live call timed out, and a refused model names the list it was checked against.
