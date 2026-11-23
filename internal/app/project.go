@@ -38,7 +38,8 @@ func (a *App) load(root string) (*proj, error) {
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		tests: map[string]event.Key{}, testCmd: map[string]string{},
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, cuts: map[event.Key]*cutWait{},
-		reg: identity.New(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
+		reg: identity.New(), folded: newFolded(),
+		wtAgents: wtAgents(cfg), briefAgents: briefAgents(cfg)} // the last good sets (wtAgentsNow, briefAgentsNow)
 	p.kinds = a.opt.Kinds
 	if p.kinds == nil { // no serve to follow: the kinds of the config at load
 		kinds := cfg.Kinds()

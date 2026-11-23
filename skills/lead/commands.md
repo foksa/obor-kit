@@ -72,15 +72,15 @@ A task's needs-you reaches you as before (`[obor] needs-you …`), watched or no
 
 ## obor idle
 Serve tells you when the pipeline empties: no task dispatching, working, gating, under review or merging, no needs-you,
-no waiting dispatch, no reviewer or deep dive holding a brief. Once it has stayed empty for a minute (a verify or a
+no waiting dispatch, no role agent holding a brief. Once it has stayed empty for a minute (a verify or a
 review request that follows the last merge is work, not idle), it sends you one line:
 
     [obor] idle: nothing in flight (last: T-xx merged <sha7>) — dispatch next, or obor idle "<why nothing>"
 
 (also `last: T-xx dropped: <why>`). A watch on the same merge comes first, then this line.
 
-- The state belongs to the newest record that ended work the pipeline waited on — a merge, a drop, a finished review
-  or deep-dive brief, a verify's end, the last after-merge step, a review request's end: one line per such record, and
+- The state belongs to the newest record that ended work the pipeline waited on — a merge, a drop, a finished role
+  agent's brief, a verify's end, the last after-merge step, a review request's end: one line per such record, and
   the minute and the age count from it. A dispatch or a review request ends it; a long verify or brief after a merge is
   its own state, so the merge's acknowledgement does not cover it. `last:` still names the last merge or drop.
 - `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why for that end record
