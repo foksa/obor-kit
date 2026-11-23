@@ -284,10 +284,14 @@ kind_event() {
 }
 
 # running_project [<dir>]: dir (default: cwd) is in an obor project that is running: a .obor/config.json at it or
-# above, and no .obor/state/stopped at that root.
+# above, and no .obor/state/stopped at that root. A linked worktree answers as its main checkout (obor stop writes
+# the marker there, and the config may be only there; the kind's Go transport resolves it the same way); a git call
+# that fails (no repo, odd layout) decides from dir as it stands.
 running_project() {
-  local dir
+  local dir root
   dir=$(cd "${1:-.}" 2> /dev/null && pwd -P) || return 1
+  root=$(main_checkout "$dir") || root=
+  [ -z "$root" ] || dir=$root
   while :; do
     if [ -f "$dir/.obor/config.json" ]; then
       [ ! -f "$dir/.obor/state/stopped" ] || return 1

@@ -33,6 +33,18 @@ func newKindFixture(t *testing.T) *kindFixture {
 	return &kindFixture{shimFixture: f, curlLog: log}
 }
 
+// newKindGitFixture is newKindFixture on newShimFixture's git project: the main checkout at Root and its lane L-01,
+// each without a dev build, and a fake curl that records each call and fails (a hook never fetches).
+func newKindGitFixture(t *testing.T) *kindFixture {
+	t.Helper()
+	f := newShimFixture(t)
+	os.Remove(filepath.Join(f.Root, "dist", "obor"))
+	os.Remove(filepath.Join(f.lane, "dist", "obor"))
+	log := filepath.Join(f.Base, "curl.log")
+	writeExec(t, filepath.Join(f.Base, "bin", "curl"), "#!/bin/bash\necho \"$*\" >> '"+log+"'\nexit 22\n")
+	return &kindFixture{shimFixture: f, curlLog: log}
+}
+
 // run runs the kit's bin/obor with args from Base (not a checkout), with env added and the fake curl on PATH.
 func (k *kindFixture) run(t *testing.T, env []string, args ...string) (int, string, string) {
 	t.Helper()
@@ -202,6 +214,90 @@ func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A linked worktree answers as its main checkout, the same rows as the Go transport's own worktree cases
+// (kinds/agy/kind/hook_test.go's TestInProject): a lane with a config of its own is still its main checkout's
+// project, and a lane whose config lives only in the main checkout is still in the project. The stop marker is the
+// main checkout's, where obor stop writes it. Beside TestShimKindHookNoBinaryByEvent's stop-marker rows, so a change
+// to either side of that contract shows the mismatch.
+func TestShimKindHookNoBinaryWorktree(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		setup func(t *testing.T, k *kindFixture) string // the dir the hook runs in
+		stop  bool                                      // obor stop's marker in the main checkout
+		deny  bool
+	}{
+		{
+			name: "a lane's committed config, the main checkout stopped",
+			setup: func(t *testing.T, k *kindFixture) string {
+				writeFile(t, filepath.Join(k.Root, ".obor", "config.json"), "{}\n")
+				k.Git(k.Root, "add", ".obor/config.json")
+				k.Git(k.Root, "commit", "-q", "-m", "config")
+				lane := k.Lane("L-02", "task/T-2")
+				os.Remove(filepath.Join(lane, "dist", "obor"))
+				if !k.Exists(filepath.Join(lane, ".obor", "config.json")) {
+					t.Fatal("precondition: the lane tracks a config of its own")
+				}
+				return lane
+			},
+			stop: true,
+		},
+		{
+			name: "a lane with the config only in the main checkout, running",
+			setup: func(t *testing.T, k *kindFixture) string {
+				writeFile(t, filepath.Join(k.Root, ".obor", "config.json"), "{}\n")
+				if k.Exists(filepath.Join(k.lane, ".obor", "config.json")) {
+					t.Fatal("precondition: the lane has no config of its own")
+				}
+				return k.lane
+			},
+			deny: true,
+		},
+		{
+			name: "the main checkout running",
+			setup: func(t *testing.T, k *kindFixture) string {
+				writeFile(t, filepath.Join(k.Root, ".obor", "config.json"), "{}\n")
+				return k.Root
+			},
+			deny: true,
+		},
+		{
+			name: "the main checkout stopped",
+			setup: func(t *testing.T, k *kindFixture) string {
+				writeFile(t, filepath.Join(k.Root, ".obor", "config.json"), "{}\n")
+				return k.Root
+			},
+			stop: true,
+		},
+		{
+			// no .obor/config.json at the plain repo or above it: the git call answers, the project check does not.
+			name:  "outside a project",
+			setup: func(t *testing.T, k *kindFixture) string { return k.other },
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			k := newKindGitFixture(t)
+			dir := c.setup(t, k)
+			if c.stop {
+				writeFile(t, filepath.Join(k.Root, ".obor", "state", "stopped"), "stopped\n")
+			}
+			want := askJSON
+			if c.deny {
+				want = denyJSON(k.Root)
+			}
+			rc, stdout, stderr := k.hook(t, dir, k.Root, nil, "PreToolUse")
+			if rc != 0 || stdout != want || stderr != "" {
+				t.Errorf("obor kind agy hook PreToolUse in %q: exit %d, stdout %q, stderr %q; want 0, %q, nothing",
+					dir, rc, stdout, stderr, want)
+			}
+			if k.fetched(t) {
+				t.Errorf("a hook fetched: curl %q", readFile(t, k.curlLog))
+			}
+		})
 	}
 }
 
