@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/help"
@@ -44,9 +43,7 @@ func init() {
 }
 
 // kindCmd is `obor kind <name> [args…]`: kit kind name's Main (kitKinds) in process with args. agy's hook transport
-// is answered by agyHook instead: one obor start per tool call after the shim, no second obor. Other calls get this
-// obor's executable in agents.ExeVar (the kind binary's own hook transport runs obor hook on it; an inherited value is
-// replaced). An unknown name: exit 2.
+// is answered by agyHook instead: one obor start per tool call after the shim, no second obor. An unknown name: exit 2.
 func kindCmd(args []string) int {
 	if len(args) == 0 {
 		errf("%s", help.Usage("kind"))
@@ -59,15 +56,6 @@ func kindCmd(args []string) int {
 	}
 	if args[0] == agykind.Name && len(args) == 2 && args[1] == "hook" {
 		return agyHook(os.Stdin, os.Stdout, os.Stderr)
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		errf("obor kind %s: this obor's executable: %v", args[0], err)
-		return 2
-	}
-	if err := os.Setenv(agents.ExeVar, exe); err != nil {
-		errf("obor kind %s: %s: %v", args[0], agents.ExeVar, err)
-		return 2
 	}
 	return k.main(args[1:], os.Stdin, os.Stdout, os.Stderr)
 }

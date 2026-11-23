@@ -13,9 +13,9 @@ requests and replies, no process, no manifest cache. `make build` writes one bin
 kind; no `obor-kind-*` binary is built, shipped or fetched. `opencode/obor.js` stays its hook transport.
 The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, linked and answered the same way
 (`obor-kind-agy`): obor's MCP server and hooks through the project's `.agents/mcp_config.json` and `.agents/hooks.json`
-(`install`'s `where: project`); its `hook` call is agy's hook transport (`obor kind agy hook`); its inbox is the
-agentapi variables of the commands the agent runs (`inbox_record`, recorded by the agent's `obor` commands), which its
-`deliver` sends with (`sent`).
+(`install`'s `where: project`); its hook transport is `obor kind agy hook`, which runs obor's hook in process; its
+inbox is the agentapi variables of the commands the agent runs (`inbox_record`, recorded by the agent's `obor`
+commands), which its `deliver` sends with (`sent`).
 
 ## Register one
 
@@ -185,12 +185,12 @@ nothing yet: herdr's agent detection still gives every pane its status. The comp
 
 A kind's hooks reach obor as `obor hook <name>`: `hooks: native` is the CLI's own hooks file running it (Claude
 Code's plugin `hooks/hooks.json`), `hooks: plugin` is obor's plugin for the CLI, which maps the CLI's events to the
-same calls (`opencode/obor.js`; agy's `hook` call, which the project's `.agents/hooks.json` runs as `obor kind agy
-hook`: `obor kind <name>` runs that kit kind's call in process, and agy's transport runs obor's hook in process too, so
-a tool call starts obor once after the shim). A transport reads its CLI's event, runs
-`obor hook <name>` with the event's JSON on stdin and reads the answer; a transport that only rewrites events holds
-none of obor's rules. The hooks read the agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the
-pane's `HERDR_PANE_ID`), so a transport passes it through.
+same calls (`opencode/obor.js`; agy's transport, which the project's `.agents/hooks.json` runs as `obor kind agy
+hook`: that command answers in process, and agy's transport runs obor's hook in process too, so a tool call starts
+obor once after the shim). A transport reads its CLI's event, runs `obor hook <name>` with the event's JSON on stdin
+and reads the answer; a transport that only rewrites events holds none of obor's rules. The hooks read the agent from
+its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane's `HERDR_PANE_ID`), so a transport passes it
+through.
 
 `bin/obor` runs both of those on its hook path: it never fetches a binary there, runs the first one that has the
 command (`hook <name>`, or `kind` for `obor kind <name> hook`), and
