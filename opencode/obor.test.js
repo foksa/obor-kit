@@ -18,6 +18,7 @@ const cases = [
   ["bash", "bash", { command: "git commit -m x" }, [ev("Bash", { command: "git commit -m x" })]],
   ["shell (opencode 2)", "shell", { command: "ls" }, [ev("Bash", { command: "ls" })]],
   ["bash with workdir", "bash", { command: "git status", workdir: "/o'x" }, [ev("Bash", { command: "cd '/o'\\''x' && git status" })]],
+  ["shell with workdir and no command: an empty command, not a bare cd", "shell", { workdir: "/o'x" }, [ev("Bash", { command: "" })]],
   ["edit filePath", "edit", { filePath: "/w/lane/a.go", oldString: "a", newString: "b" }, [ev("Edit", { file_path: "/w/lane/a.go" })]],
   ["edit path (opencode 2), relative", "edit", { path: "b/c.go" }, [ev("Edit", { file_path: "/w/lane/b/c.go" })]],
   ["write", "write", { filePath: "/w/lane/x.md", content: "" }, [ev("Write", { file_path: "/w/lane/x.md" })]],
@@ -33,6 +34,7 @@ const cases = [
     ],
   ],
   ["apply_patch", "apply_patch", { patchText: "*** Update File: a.go" }, [ev("Edit", { file_path: "/w/lane/a.go" })]],
+  ["patch with no text: a write naming no file", "patch", {}, [ev("Edit", { file_path: "" })]],
   ["webfetch: no Claude twin (the guard passes it by name)", "webfetch", { url: "x" }, []],
 ];
 
