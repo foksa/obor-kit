@@ -34,8 +34,9 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 }
 
 // OpenCode's start argv (--prompt, a resume with --session, no registration on the command line), /exit with the
-// popup's second Enter and the clear keys, `opencode run`/`acp`/`serve`, registered per start (nothing user-global), the plugin's
-// token file as its transcript, the plugin hook transport, which acts on the hooks' answers, and its inbox (TestDeliver).
+// popup's second Enter and the clear keys, `opencode run`/`acp`/`serve`/`api`, registered per start (nothing
+// user-global), the plugin's token file as its transcript, the plugin hook transport, which acts on the hooks'
+// answers, and its inbox (TestDeliver).
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	if got := agents.OverrideFiles(k); !slices.Equal(got, []string{"opencode_override.json"}) {
@@ -71,7 +72,7 @@ func TestKind(t *testing.T) {
 		s.Dialog != nil {
 		t.Errorf("Stop = %+v", s)
 	}
-	if h := k.Headless(); h.PrintFlag || !slices.Equal(h.Subcommands, []string{"run", "acp", "serve"}) || !slices.Equal(h.Anywhere, []string{"run"}) ||
+	if h := k.Headless(); h.PrintFlag || !slices.Equal(h.Subcommands, []string{"run", "acp", "serve", "api"}) || !slices.Equal(h.Anywhere, []string{"run"}) ||
 		!slices.Contains(h.ValueOpts, "--prompt") {
 		t.Errorf("Headless = %+v", h)
 	}
@@ -645,9 +646,10 @@ func TestLeadStartConfigIsUnchanged(t *testing.T) {
 
 // A lane's agent (a worker, the owner's drive agent) keeps the user's own MCP servers out of its context: the
 // generated config holds each server of the user's that the project's own opencode.json(c) in the start dir does not
-// define and the override file does not name as the user's whole definition with disabled true (OpenCode ignores a bare
-// one), obor's own server and plugin stay, and a user server named obor is obor's. A lead's start and a role agent's
-// (trimmed, no lane) leave the user's servers to load.
+// define and the override file does not declare as the user's whole definition with disabled true (OpenCode ignores a
+// bare one; a null there deletes the key and the user's file still loads, so the lane disables it), obor's own server
+// and plugin stay, and a user server named obor is obor's. A lead's start and a role agent's (trimmed, no lane) leave
+// the user's servers to load.
 func TestLaneStartDisablesTheUsersServers(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	xdg := t.TempDir()
@@ -709,6 +711,19 @@ func TestLaneStartDisablesTheUsersServers(t *testing.T) {
 	_, disabled := a["disabled"]
 	if disabled || !reflect.DeepEqual(a["command"], []any{"/p/a"}) || a["environment"] == nil {
 		t.Errorf("an override naming a: mcp.servers.a = %v, want the override's command, the lane's trim no word on it", a)
+	}
+	// An override's null deletes the key (the merge) and OpenCode still loads the user's file: a lane disables a as if
+	// the override declared nothing, and the project's own b stays on.
+	doc, _ = start(agents.Start{TrimUser: true, StrictMCP: true, Overrides: map[string]string{kind.OverrideFile: `{"mcp": {"servers": {
+		"a": null}}}}`}})
+	s = serversOf(doc)
+	a, _ = s["a"].(map[string]any)
+	if want := map[string]any{"type": "local", "command": []any{"/u/a", "mcp"},
+		"environment": map[string]any{"A": "1"}, "disabled": true}; !reflect.DeepEqual(a, want) {
+		t.Errorf("an override's null for a: mcp.servers.a = %v, want the user's whole definition with disabled: true: %v", a, want)
+	}
+	if b, _ := s["b"].(map[string]any); b["disabled"] != nil {
+		t.Errorf("an override's null for a: mcp.servers.b = %v, want the project's own on (no disabled)", b)
 	}
 	if _, b := start(agents.Start{}); !bytes.Equal(b, kind.Config("/kit")) {
 		t.Errorf("a lead's config:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))

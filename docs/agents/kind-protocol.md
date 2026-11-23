@@ -61,7 +61,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | Call | Request fields | Reply | Replaces (`agents.Kind`) | When |
 |---|---|---|---|---|
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
-| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `overrides`, `session`, `write_dirs`, `dir`, `root`, `check` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]`, `warnings` (lines obor logs, a start's notes on what it could not check: no failure) | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also the effort check (`check: true` with `args` and `effort` alone, its files not written: `agents.ArgsChecker`; a kind that reads its CLI's live data answers it without a process) |
+| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `overrides`, `session`, `write_dirs`, `dir`, `root`, `check` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]`, `warnings` (lines obor logs, a start's notes on what it could not check: no failure) | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also the effort check (`check: true` with `args` and `effort` alone: `agents.ArgsChecker`) and `obor setup mcp --model`'s start check (`check: true` with the whole start: `agents.Start.Check`), each writing no file and answered without a process by a kind that reads its CLI's live data |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `root`, `env` | `mcp: {where, path, key, entry, unpinned}`; optional `hooks: {where, path, key, entry}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: context` + `tail`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; context: `ok`, `context: {tokens, at, ttl}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Context`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, the handoff reminder and a keep lane's handoff rule, a stop on an error |
@@ -229,8 +229,11 @@ only `obor`. A lead's and a role agent's call: no opinion.
 A CLI's tool call that obor cannot guard is `tool_name` `unguarded`, with the CLI's tool in `tool_input.tool` and why
 obor cannot guard it in `tool_input.why`: a transport sends it for a tool whose effects no hook sees (agy's
 `run_workflow` and `swarm`, a Python script run with no hook) or whose session cannot be told from the agent's (agy's
-`invoke_subagent`), and for a tool it has no row for ("obor has no rule for agy tool <X>: update obor"). Which tools
-those are and why are the CLI's facts, so they stay in the transport; the decision is the guard's: a deny with
+`invoke_subagent`), and for a tool it has no row for ("obor has no rule for agy tool <X>: update obor"). OpenCode's
+plugin sends it for a name it knows nothing about ("obor has no rule for OpenCode tool <X>: update obor"), and allows
+`execute` (Code Mode, the carrier of every MCP tool), whose inner calls reach the hook as `<namespace>_<tool>` ids it
+judges through `ctx.tool.list()`'s namespaces (obor's, another MCP server's, opencode's own), never by prefix. Which
+tools those are and why are the CLI's facts, so they stay in the transport; the decision is the guard's: a deny with
 `tool_input.why` for every session but a role-less one in the main checkout (the owner's own agent), which has no
 opinion. In a stopped project (`obor stop`) no hook loads: a transport runs none (agy's reads `.obor/state/stopped`).
 

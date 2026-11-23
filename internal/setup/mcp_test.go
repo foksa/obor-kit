@@ -394,14 +394,63 @@ func TestSetupMCPChecksAgysProjectFile(t *testing.T) {
 	if rc == 0 {
 		t.Errorf("missing hooks file (--model): exit 0\n%s", out)
 	}
-	// A lane's agy start itself refuses a project without its hooks file (kinds/agy/kind's start), naming the fix.
-	has(t, out, "WARN mcp model neon (agy): kind agy: start: agy's hooks: no "+hfile+": run obor setup agents in the project, then commit .agents/hooks.json", "missing hooks reported by --model")
+	// The doctor's check start answers without the kind reading its hooks file: both files are its own checks.
+	has(t, out, "mcp model neon (agy): registered by the project's file ("+file+")", "mcp still reported by --model")
+	has(t, out, "WARN hooks model neon (agy): not registered: no current obor in "+hfile+" (run obor setup agents in the project, then commit the file)", "missing hooks reported by --model")
+	hasNot(t, out, "kind agy: start:", "the start does not refuse it")
 
 	x.ok(t, "agents")
 	other := filepath.Join(x.Base, "other-kit")
 	writeFakeObor(t, filepath.Join(bin, "obor"), "printf 'plugin root: %s\\n' '"+other+"'\n")
 	out, _ = x.run(t, "mcp")
 	has(t, out, "WARN mcp agy: the obor on PATH ("+filepath.Join(bin, "obor")+", kit "+other+") is not this kit (", "another obor")
+}
+
+// obor setup mcp --model <name> builds a lane's start as a check: its kind's start runs no CLI and obor writes none of
+// the files it names, so the project's state dir stays as it was and the doctor reports an agy start's two project
+// files, its MCP config and its hooks. A stale hooks file is that file's finding with its fix, never the start's
+// refusal, and the doctor's exit is as for any other finding.
+// Not parallel: the config load registers its plugin kinds in the process registry.
+func TestSetupMCPLaneChecksTheStart(t *testing.T) {
+	x := newFx(t, testkit.AddModels(`{"gemini": {"kind": "agy", "id": "gemini-4-neon-high"}}`))
+	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
+	x.ok(t, "agents") // writes agy's two project files
+	file := filepath.Join(x.Root, ".agents", "mcp_config.json")
+	hfile := filepath.Join(x.Root, ".agents", "hooks.json")
+	state := filepath.Join(x.Root, ".obor", "state")
+	names := func(t *testing.T) []string {
+		t.Helper()
+		entries, err := os.ReadDir(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, len(entries))
+		for i, e := range entries {
+			out[i] = e.Name()
+		}
+		return out
+	}
+	before := names(t)
+	out := x.ok(t, "mcp", "--model", "gemini")
+	has(t, out, "mcp model gemini (agy): registered by the project's file ("+file+")", "the MCP config is reported")
+	has(t, out, "hooks model gemini (agy): registered by the project's file ("+hfile+")", "the hooks file is reported")
+	if last(out) != "OK mcp model gemini" {
+		t.Errorf("result %q", last(out))
+	}
+	if after := names(t); !slices.Equal(before, after) {
+		t.Errorf("the check wrote the state dir: %v, want %v", after, before)
+	}
+
+	// A stale hooks entry: the hooks file's finding, its fix named, the same exit as any finding; the MCP config
+	// stays reported and the start does not refuse it.
+	x.Write(".agents/hooks.json", `{"obor": {"PreToolUse": [{"command": "obor kind agy hook"}]}}`)
+	out, rc := x.run(t, "mcp", "--model", "gemini")
+	if rc != 1 || last(out) != "FAIL mcp model gemini" {
+		t.Errorf("stale hooks: exit %d, last %q\n%s", rc, last(out), out)
+	}
+	has(t, out, "mcp model gemini (agy): registered by the project's file ("+file+")", "the MCP config is still reported")
+	has(t, out, "WARN hooks model gemini (agy): not registered: no current obor in "+hfile+" (run obor setup agents in the project, then commit the file)", "the stale hooks file is the finding")
+	hasNot(t, out, "kind agy: start:", "the start does not refuse it")
 }
 
 // agy's project files name obor by PATH: `obor setup mcp --model <agy model>` and `obor setup agents`, which writes

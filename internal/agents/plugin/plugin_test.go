@@ -330,8 +330,8 @@ func TestContextTimeout(t *testing.T) {
 	}
 }
 
-// TestStartRequest: start's request carries the version, the call, every field of the complete start (trim_user and
-// the project's override files as the start holds them, name → document; a lead's start: false and none) and the
+// TestStartRequest: start's request carries the version, the call, every field of the complete start (check, trim_user
+// and the project's override files as the start holds them, name → document; a lead's start: false and none) and the
 // manifest's env snapshot (closure 1 as data: the dir the plugin reads itself), in one call whose argv and env both
 // have the file's path substituted; an env var the manifest's vars do not name is an error.
 func TestStartRequest(t *testing.T) {
@@ -340,7 +340,7 @@ func TestStartRequest(t *testing.T) {
 	over := map[string]string{"stub_override.json": `{"k": null}`, "stub_override.toml": "k = 1\n"}
 	l, err := k.StartWhole(agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Prompt: "go", Effort: "high",
 		StrictMCP: true, Dir: "/lane", Env: env, Settings: map[string]any{"a": false}, Session: "s-1",
-		WriteDirs: []string{"/reviews"}, TrimUser: true, Overrides: over, Root: "/main"})
+		WriteDirs: []string{"/reviews"}, TrimUser: true, Check: true, Overrides: over, Root: "/main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,6 +361,7 @@ func TestStartRequest(t *testing.T) {
 		Effort    string            `json:"effort"`
 		StrictMCP bool              `json:"strict_mcp"`
 		TrimUser  bool              `json:"trim_user"`
+		Check     bool              `json:"check"`
 		Overrides map[string]string `json:"overrides"`
 		Dir       string            `json:"dir"`
 		Root      string            `json:"root"`
@@ -373,7 +374,7 @@ func TestStartRequest(t *testing.T) {
 		t.Fatalf("request %s: %v", b, err)
 	}
 	if req.Version != 1 || req.Call != "start" || req.Kit != "/kit" || strings.Join(req.Args, " ") != "-m x" ||
-		req.Prompt != "go" || req.Effort != "high" || !req.StrictMCP || !req.TrimUser || req.Dir != "/lane" || req.Root != "/main" || req.Settings["a"] != false ||
+		req.Prompt != "go" || req.Effort != "high" || !req.StrictMCP || !req.TrimUser || !req.Check || req.Dir != "/lane" || req.Root != "/main" || req.Settings["a"] != false ||
 		req.Session != "s-1" || strings.Join(req.WriteDirs, " ") != "/reviews" {
 		t.Errorf("request %s", b)
 	}

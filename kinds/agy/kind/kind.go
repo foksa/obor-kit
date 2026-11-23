@@ -67,7 +67,7 @@ type request struct {
 	WriteDirs []string          `json:"write_dirs"`
 	Dir       string            `json:"dir"`
 	Root      string            `json:"root"`
-	Check     bool              `json:"check"` // the start is the effort check, not a launch: no CLI runs
+	Check     bool              `json:"check"` // the start checks its wiring, not a launch: no CLI runs
 	What      string            `json:"what"`
 	Tail      string            `json:"tail"`
 	Error     string            `json:"error"`
@@ -103,8 +103,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 // Handle is call's reply to req, as JSON; an error for a request that does not parse or names another version, or a
-// call this kind does not answer. A start that cannot be built is a reply with error, not an error. A start's check
-// runs `agy models` live and keeps its answer as the cached list.
+// call this kind does not answer. A start that cannot be built is a reply with error, not an error. A start's model
+// check runs `agy models` live and keeps its answer as the cached list.
 func Handle(call string, req []byte) ([]byte, error) { return handle(call, req, agyModels, true) }
 
 // HandleModels is Handle with models as agy's model list in place of `agy models` (the start's check reads it, and
@@ -182,17 +182,17 @@ func describe() map[string]any {
 	}
 }
 
-// start: the model and effort checked against agy's list (modelList and checkModel: not for the effort check, in.Check,
-// nor a resume, which runs the conversation's model), then --settings <the start's settings file>, the type's args but
+// start: the model and effort checked against agy's list (modelList and checkModel: not in a check, in.Check, nor a
+// resume, which runs the conversation's model), then --settings <the start's settings file>, the type's args but
 // their --model and --effort, the model (with the ref's effort: --model <the slug without its effort word> --effort
 // <effort>; without: the slug alone, or the args' own --effort), --add-dir per write dir, then --conversation <id> for
 // a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file and the start. An effort with no model
-// is the start's error: agy's --effort selects a variant of a model named by its base. A check with neither a live nor
-// a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked. In an obor project (root) whose
-// start dir's HooksFile, the one agy runs (in.Dir's, root's when in.Dir is empty or the root), does not hold this kit's
-// entry (hooksStale; not for the effort check), an agent's start is refused and a lead's goes on with a reply's
+// is the start's error: agy's --effort selects a variant of a model named by its base. A model check with neither a
+// live nor a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked. In an obor project
+// (root) whose start dir's HooksFile, the one agy runs (in.Dir's, root's when in.Dir is empty or the root), does not
+// hold this kit's entry (hooksStale; not in a check), an agent's start is refused and a lead's goes on with a reply's
 // warning: obor logs it as `obor: kind agy: start: WARN …`.
 func start(in request, read func(string) ([]byte, error), models func() ([]byte, error), store bool) map[string]any {
 	rest, model, argEffort := splitModel(in.Args)

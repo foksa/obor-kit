@@ -55,7 +55,7 @@ func EnvVarsTOML() string {
 // A file that does not parse is read as setting nothing: obor's flags then apply as if it were absent, no key is
 // guessed, and config validate warns with the file and the parse error.
 func (kind) Start(in agents.Start) []string {
-	top, _ := projectKeys(in)
+	top, declared, _ := projectKeys(in)
 	args := in.Args
 	if top[sandboxKey] {
 		args = withoutSandbox(args)
@@ -73,9 +73,8 @@ func (kind) Start(in agents.Start) []string {
 		config := in.Override(ConfigOverride)
 		given = settingKeys(config)
 		left := func(k string) bool { return argSets(in.Args, k) || sets(top, k) || sets(given, k) }
-		tables, dotted := serversOff(in, config, top)
-		out = append(out, tables...)
-		out = append(out, configArgs(in, config, top)...)
+		off, dotted := serversOff(in, config, declared)
+		out = append(out, configArgs(in, config, top, off)...)
 		out = append(out, dotted...)
 		for _, k := range trimKeys {
 			if !left(k) {
@@ -171,33 +170,35 @@ const (
 	oborMCP       = "obor"
 )
 
-// serversOff are the -c options that switch off the user's MCP servers on a lane's start (in.StrictMCP: a worker, the
-// owner's drive agent), each by Codex's own key `enabled = false`: every server of the user's config.toml (userDir)
-// the project does not declare and that is not obor's. The project declares a server by name in its ConfigFile, in
-// ConfigOverride, or in the type's args. tables is one inline table at mcpServersKey for the names that need quotes,
-// for the start to pass before every dotted key (-c honors no quoted part of a dotted key); dotted are the rest, for
-// the start to pass after configArgs' options (an inline table replaces what earlier -c options set under its key).
-func serversOff(in agents.Start, config map[string]any, top map[string]bool) (tables, dotted []string) {
+// serversOff are the switches, on a lane's start (in.StrictMCP: a worker, the owner's drive agent), of the user's MCP
+// servers: each server of the user's config.toml (userDir) that the project does not declare and that is not obor's, by
+// Codex's own key `enabled = false`. The project declares a server by the name the config stores - in its ConfigFile
+// (declared, configKeys) or in ConfigOverride - a quoted name (one with a space or a dot) too. off are the entries of
+// one inline table at mcpServersKey for the names that need quotes: the start passes them in the same table as the
+// override's own entries (configArgs; -c honors no quoted part of a dotted key). dotted are the rest, for the start to
+// pass after configArgs' options (an inline table replaces what earlier -c options set under its key). off is nil when
+// the type's args set a key under mcpServersKey (argSetsUnder: the inline table would cancel them).
+func serversOff(in agents.Start, config map[string]any, declared map[string]bool) (off map[string]any, dotted []string) {
 	if !in.StrictMCP {
 		return nil, nil
 	}
-	declared := tableNames(config, mcpServersKey)
-	var quoted []string
+	override := tableNames(config, mcpServersKey)
+	quoted := map[string]any{}
 	for _, name := range userServers(in) {
 		key := mcpServersKey + "." + name
-		if name == oborMCP || slices.Contains(declared, name) || sets(top, key) || argSetsUnder(in.Args, key) {
+		if name == oborMCP || declared[name] || slices.Contains(override, name) || argSetsUnder(in.Args, key) {
 			continue
 		}
 		if bareKey.MatchString(name) {
 			dotted = append(dotted, "-c", key+".enabled=false")
 			continue
 		}
-		quoted = append(quoted, tomlKeyPart(name)+"={enabled=false}")
+		quoted[name] = map[string]any{"enabled": false}
 	}
 	if len(quoted) > 0 && !argSetsUnder(in.Args, mcpServersKey) {
-		tables = []string{"-c", mcpServersKey + "={" + strings.Join(quoted, ",") + "}"}
+		off = quoted
 	}
-	return tables, dotted
+	return off, dotted
 }
 
 // userServers are the names of the MCP servers of the user's config.toml (userDir), sorted; nil: no user dir, no
@@ -227,16 +228,20 @@ func tableNames(tree map[string]any, key string) []string {
 // A table Codex's -c is given inline replaces what earlier -c options set under its key (a dotted key after it
 // stays, and the user's config still merges in key by key), and -c does not honor a quoted part of a dotted key. So
 // an inline table is passed only where a key part needs quotes, never for a key the type's args set a key under
-// (argSetsUnder), and before every dotted key obor passes: serversOff's table, configArgs' tables, then its dotted
-// keys and serversOff's switches, then the trim.
+// (argSetsUnder), and before every dotted key obor passes: configArgs' tables (the one at mcpServersKey first: the
+// lane's switches of the user's quoted servers and the override's entries are its entries), then its dotted keys and
+// serversOff's switches, then the trim.
 
 // configArgs are the -c options of ConfigOverride's tree (config): each entry as -c <dotted key>=<value>, sorted, a
-// table entry by entry down to its leaves, the value as TOML (tomlValue); the entries of a table whose key needs
-// quotes as one inline table at the table's key, those tables first. Codex lays each over the user's config key by
-// key. Without each entry the project's config sets (unset) and without the effort key when the start names an
-// effort.
-func configArgs(in agents.Start, config map[string]any, top map[string]bool) []string {
-	var tables, leaves []string
+// table entry by entry down to its leaves, the value as TOML (tomlValue). The entries of a table whose key needs
+// quotes are one inline table at the table's key, those tables first, and off's entries (serversOff: the user's
+// quoted servers a lane's start switches off) are entries of the one at mcpServersKey, so a lane passes one table
+// there. Codex lays each over the user's config key by key. Without each entry the project's config sets (unset) and
+// without the effort key when the start names an effort. A table under a key the type's args set is not passed
+// (argSetsUnder).
+func configArgs(in agents.Start, config map[string]any, top map[string]bool, off map[string]any) []string {
+	tables := map[string]string{} // a table's path → its inline table
+	var leaves []string
 	var walk func(path string, v any)
 	walk = func(path string, v any) {
 		m, ok := v.(map[string]any)
@@ -252,8 +257,11 @@ func configArgs(in agents.Start, config map[string]any, top map[string]bool) []s
 				quoted[k] = m[k]
 			}
 		}
+		if path == mcpServersKey {
+			maps.Copy(quoted, off) // the lane's switches and the override's entries: one table at mcp_servers
+		}
 		if len(quoted) > 0 && !argSetsUnder(in.Args, path) {
-			tables = append(tables, path+"="+tomlValue(quoted))
+			tables[path] = tomlValue(quoted)
 		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(config)) {
@@ -264,9 +272,19 @@ func configArgs(in agents.Start, config map[string]any, top map[string]bool) []s
 			walk(k, v)
 		}
 	}
+	if len(off) > 0 && tables[mcpServersKey] == "" {
+		tables[mcpServersKey] = tomlValue(off) // no override entry at mcp_servers: the lane's switches alone
+	}
 	var out []string
-	for _, o := range slices.Concat(tables, leaves) {
-		out = append(out, "-c", o)
+	if t := tables[mcpServersKey]; t != "" {
+		out = append(out, "-c", mcpServersKey+"="+t) // before the tables under it, which it would replace
+		delete(tables, mcpServersKey)
+	}
+	for _, path := range slices.Sorted(maps.Keys(tables)) {
+		out = append(out, "-c", path+"="+tables[path])
+	}
+	for _, l := range leaves {
+		out = append(out, "-c", l)
 	}
 	return out
 }
@@ -454,18 +472,19 @@ func tomlValue(v any) string {
 	return fmt.Sprint(v) // a whole number, a bool
 }
 
-// projectKeys are the keys the start dir's ConfigFile sets (nil: no file, or one that does not parse). An error names
-// the file and the read or parse error; a start then treats the file as setting nothing (config validate warns with it).
-func projectKeys(in agents.Start) (map[string]bool, error) {
+// projectKeys are the keys the start dir's ConfigFile sets and the MCP servers it declares, each by the key part that
+// names it (nil: no file, or one that does not parse). An error names the file and the read or parse error; a start
+// then treats the file as setting nothing (config validate warns with it).
+func projectKeys(in agents.Start) (keys, servers map[string]bool, err error) {
 	b, found, err := agents.ProjectFile(in, ConfigFile)
 	if !found || err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	keys, err := configKeys(string(b))
+	keys, servers, err = configKeys(string(b))
 	if err != nil {
-		return nil, fmt.Errorf("%s: does not parse: %w", ConfigFile, err)
+		return nil, nil, fmt.Errorf("%s: does not parse: %w", ConfigFile, err)
 	}
-	return keys, nil
+	return keys, servers, nil
 }
 
 // sets: keys (configKeys) set key, or a key below it (`[features]` then `plugins = …` sets features.plugins, and so
@@ -491,7 +510,7 @@ func sets(keys map[string]bool, key string) bool {
 // ProjectWarnings: a config file that does not parse, the line naming the file and the parse error (obor's start flags
 // then apply as if it were absent).
 func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
-	if _, err := projectKeys(agents.Start{Dir: dir, Read: read}); err != nil {
+	if _, _, err := projectKeys(agents.Start{Dir: dir, Read: read}); err != nil {
 		return []string{err.Error() + ": obor's start flags apply as if it were absent"}
 	}
 	return nil
@@ -566,21 +585,29 @@ func (kind) StartRefusal(h agents.InstallHost) string {
 
 // configKeys are the keys a TOML document sets, each as its full dotted path: `a = 1` sets "a", `a.b = 1` and `[a]`
 // then `b = 1` both set "a.b". A table's own header sets nothing; its entries do, and so do the entries of a table
-// assigned whole (`features = { plugins = true }` sets "features.plugins"). An error: the document does not parse.
-func configKeys(doc string) (map[string]bool, error) {
+// assigned whole (`features = { plugins = true }` sets "features.plugins"). servers are the MCP servers the document
+// declares, each by the second part of a key under mcp_servers: parsed parts, so a quoted name (one with a space or
+// a dot) matches as the document stores it. An error: the document does not parse.
+func configKeys(doc string) (keys, servers map[string]bool, err error) {
 	var tree map[string]any
 	md, err := toml.Decode(doc, &tree)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	keys := make(map[string]bool, len(md.Keys()))
+	keys = make(map[string]bool, len(md.Keys()))
 	for _, k := range md.Keys() {
+		if len(k) > 1 && k[0] == mcpServersKey {
+			if servers == nil {
+				servers = map[string]bool{}
+			}
+			servers[k[1]] = true
+		}
 		if t := md.Type(k...); t == "Hash" || t == "ArrayHash" {
 			continue // a table (a header, or one assigned whole): its entries are the keys
 		}
 		keys[k.String()] = true
 	}
-	return keys, nil
+	return keys, servers, nil
 }
 
 // effortKey is Codex's reasoning effort setting.
