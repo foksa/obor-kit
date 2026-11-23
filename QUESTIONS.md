@@ -8,3 +8,6 @@
   `.mcp.json` servers added after; only the lane rule was added later (~253). Should the row and the paragraph say a
   lane starts from the approved project servers with obor's own last, while a role agent's start is unchanged?
   README.md carries the split.
+- T-1529: `docs/design.md`'s opencode paragraph (~975-981) says an `execute` inner call passes when `ctx.tool.list()`
+  gives it the namespace of an MCP server the start's configs name; the plugin reads the runtime's connected servers
+  now (`ctx.mcp.list()`), so no config layer is mirrored. Should that paragraph name the runtime source?

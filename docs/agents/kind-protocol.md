@@ -232,8 +232,8 @@ obor cannot guard it in `tool_input.why`: a transport sends it for a tool whose 
 `invoke_subagent`), and for a tool it has no row for ("obor has no rule for agy tool <X>: update obor"). OpenCode's
 plugin sends it for a name it knows nothing about ("obor has no rule for OpenCode tool <X>: update obor"), and allows
 `execute` (Code Mode, the carrier of every MCP tool), whose inner calls reach the hook as `<namespace>_<tool>` ids: one
-passes only when `ctx.tool.list()` gives it the namespace of an MCP server the start's configs name (obor's own, or one
-of the generated config's `mcp.servers`, the project's `opencode.json(c)` and the user's), and never by prefix.
+passes only when `ctx.tool.list()` gives it the namespace of an MCP server the runtime reports connected
+(`ctx.mcp.list()`; obor's own always), and never by prefix.
 OpenCode's own tools (`opencode_*`) are classified one by one: its worktree create and remove go as the guard's `Bash`
 event for the git command they run, its read tools pass, and any other is unguarded until obor has a row for it (the
 catalog is re-probed on an OpenCode upgrade). Which tools those are and why are the CLI's facts, so they stay in the

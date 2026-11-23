@@ -5,7 +5,7 @@
 //
 //	tool hook execute.before          → pre-tool-use (a deny throws with obor's line, which aborts the tool); opencode's
 //	                                     own tools are classified one by one, a namespaced tool passes when its
-//	                                     namespace is an MCP server the start's configs name, and a tool neither
+//	                                     namespace is an MCP server the runtime reports connected, and a tool neither
 //	                                     knows goes as unguarded, which the guard decides
 //	a session's first event           → session-start (its context lines, appended to the system prompt by the
 //	                                     session hook context)
@@ -118,9 +118,6 @@ const PASS = new Set(["execute", "read", "glob", "grep", "list", "skill", "quest
 // docs/research/opencode-tool-names.md).
 const OPENCODE_PASS = new Set(["opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource"]);
 
-// PROJECT_FILES are the config files a start's dir may hold (kinds/opencode/kind.ProjectFiles), relative to it.
-const PROJECT_FILES = ["opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"];
-
 // The kit: this file's real path, two levels up.
 function kitRoot() {
   return path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))));
@@ -184,66 +181,12 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
   return [];
 }
 
-// plainJSON is JSONC as JSON: its // and /* */ comments and the commas before a closing bracket or brace dropped,
-// strings as they are (the kind's plainJSON, kinds/opencode).
-function plainJSON(text) {
-  const s = String(text ?? "");
-  let out = "", comma = -1, i = 0;
-  while (i < s.length) {
-    const c = s[i];
-    if (c === '"') {
-      let j = i + 1;
-      while (j < s.length && s[j] !== '"') j += s[j] === "\\" ? 2 : 1;
-      out += s.slice(i, j + 1);
-      i = j + 1;
-      comma = -1;
-    } else if (c === "/" && s[i + 1] === "/") {
-      while (i < s.length && s[i] !== "\n") i++;
-    } else if (c === "/" && s[i + 1] === "*") {
-      const end = s.indexOf("*/", i + 2);
-      if (end < 0) return out; // an open comment: what is left is no JSON
-      i = end + 2;
-    } else if (c === ",") {
-      comma = out.length;
-      out += c;
-      i++;
-    } else if (c === "}" || c === "]") {
-      if (comma >= 0) out = out.slice(0, comma) + out.slice(comma + 1);
-      comma = -1;
-      out += c;
-      i++;
-    } else {
-      if (c !== " " && c !== "\t" && c !== "\n" && c !== "\r") comma = -1;
-      out += c;
-      i++;
-    }
-  }
-  return out;
-}
-
-// configServers are the MCP servers the OpenCode configs a start reads name, by their config names: obor's own, and
-// each file's mcp.servers — the user's ($XDG_CONFIG_HOME/opencode, else $HOME/.config/opencode; an untrimmed start
-// keeps them), the generated config the kind writes (OPENCODE_CONFIG, which a lane's start writes the user's own
-// servers into as "disabled": true), and the project's own files in the start dir, in that order, which is OpenCode's
-// (the later layer's word on a server wins). A file that is absent or does not parse names none, as OpenCode drops it.
-export function configServers(env = process.env, dir = process.cwd()) {
-  const user = env.XDG_CONFIG_HOME ? path.join(env.XDG_CONFIG_HOME, "opencode") : env.HOME ? path.join(env.HOME, ".config", "opencode") : "";
-  const files = [...(user ? ["opencode.json", "opencode.jsonc"].map((f) => path.join(user, f)) : []), env.OPENCODE_CONFIG, ...PROJECT_FILES.map((f) => path.join(dir, f))];
-  const named = new Map(); // server → the latest layer's word: it is available, or "disabled": true
-  for (const f of files) {
-    if (!f) continue;
-    let doc;
-    try {
-      doc = JSON.parse(plainJSON(fs.readFileSync(f, "utf8")));
-    } catch {
-      continue;
-    }
-    const list = doc?.mcp?.servers;
-    if (!list || typeof list !== "object") continue;
-    for (const [name, entry] of Object.entries(list)) named.set(name, entry?.disabled !== true);
-  }
-  const out = new Set(["obor"]);
-  for (const [name, on] of named) if (on) out.add(name);
+// connectedServers are the MCP servers a runtime's ctx.mcp.list() reports connected, by their names: the one source of
+// which namespaces are MCP servers, so a server any config layer names (the start's inline OPENCODE_CONFIG_CONTENT
+// included) needs no second reader. A server that is disabled, failed, pending or needs auth offers no tool to call.
+export function connectedServers(list) {
+  const out = new Set();
+  for (const s of Array.isArray(list) ? list : []) if (s?.name && s.status?.status === "connected") out.add(s.name);
   return out;
 }
 
@@ -271,8 +214,8 @@ function opencodeEvents(tool, args, cwd, sessionID) {
 
 // toolEvents is one opencode tool call as the events obor checks: [] for a tool that needs no event (PASS, opencode's
 // own read tools), toClaudeEvents' mapping for a tool it maps, opencodeEvents for opencode's own tools, and [] for a
-// namespaced tool the isMCPServer lookup counts as an MCP server's (obor's or a server the start's configs name,
-// configServers). The hook gives an inner call of execute an id and never its namespace, and a prefix says nothing
+// namespaced tool the isMCPServer lookup counts as an MCP server's (obor's own, or one the runtime reports connected,
+// connectedServers). The hook gives an inner call of execute an id and never its namespace, and a prefix says nothing
 // (obor_foo_bar is obor's foo_bar or a server obor_foo's bar), so the lookup is exact. Any other name goes to the
 // guard as unguarded, so an opencode update that adds a tool shows as a named deny for obor's agents, never a silent
 // bypass.
@@ -678,12 +621,13 @@ async function setup(ctx) {
     return verdicts.get(id).then((root) => root && sessions.isMine(id));
   };
 
-  // servers are the MCP servers this start's configs name (configServers; obor's own is among them), and isMCPServer
-  // says whether id is a tool one of their namespaces names: ctx.tool.list() gives each id its namespace, so the
-  // lookup is exact. Both are read once, on the first name the mapping does not know, because the hook names an inner
-  // call of execute by id alone; a list that cannot be read names none, and the next call asks it again.
-  const servers = configServers(env, cwd);
+  // names is ctx.tool.list()'s id → namespace (exact: a prefix says nothing) and servers is ctx.mcp.list()'s connected
+  // names (connectedServers), the runtime's one word on which namespaces are MCP servers. Both are read once, on the
+  // first name the mapping does not know, because the hook names an inner call of execute by id alone. obor's own
+  // namespace is always a server's, whatever the list says; a list that cannot be read names no other, and the next
+  // call asks it again.
   let names = null;
+  let servers = null;
   const isMCPServer = async (id) => {
     if (!names) {
       try {
@@ -693,7 +637,20 @@ async function setup(ctx) {
         return false;
       }
     }
-    return servers.has(names.get(id));
+    const ns = names.get(id);
+    if (ns === "obor") return true;
+    if (ns === undefined) return false;
+    if (!servers) {
+      try {
+        if (typeof ctx.mcp?.list !== "function") throw new Error("the plugin context has no mcp.list");
+        const { data } = (await ctx.mcp.list()) ?? {};
+        servers = connectedServers(data);
+      } catch (e) {
+        console.error(`obor: OpenCode's MCP servers not read (${e?.message ?? e}); ${id} goes to the guard as unguarded`);
+        return false;
+      }
+    }
+    return servers.has(ns);
   };
 
   // guard throws obor's line when obor denies one of the call's events: only exit 0 allows.
