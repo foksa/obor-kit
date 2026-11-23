@@ -444,7 +444,8 @@ func opencodeStatic() {
 	ocS2(ids["OC-S2"])
 }
 
-// ocS1: the TUI's flags obor uses, still no --model (the driver's StartEnv path for the model), and `run` (the guard).
+// ocS1: the TUI's flags obor uses, still no --model (the driver's StartEnv path for the model), and the subcommands
+// the guard denies as headless (kinds/opencode/kind.go describe's headless: run, acp, serve, api).
 func ocS1(help, where string) {
 	flags, _, _ := strings.Cut(help, "GLOBAL FLAGS") // the TUI command's own flags
 	var gone []string
@@ -453,13 +454,15 @@ func ocS1(help, where string) {
 			gone = append(gone, f)
 		}
 	}
-	if !hasSubcommand(help, "run") {
-		gone = append(gone, "subcommand run")
+	for _, sub := range []string{"run", "acp", "serve", "api"} {
+		if !hasSubcommand(help, sub) {
+			gone = append(gone, "subcommand "+sub)
+		}
 	}
 	if len(gone) > 0 {
 		report("FAIL", "OC-S1", "opencode --help no longer lists "+strings.Join(gone, ", "), where)
 	} else {
-		report("PASS", "OC-S1", "opencode --help lists --standalone, --auto, --prompt, --session and run", where)
+		report("PASS", "OC-S1", "opencode --help lists --standalone, --auto, --prompt, --session and the subcommands the guard denies as headless (run, acp, serve, api)", where)
 	}
 	where = at(opencodeGo, "func start(") + ", CAP §4.1"
 	if hasOption(flags, "--model") || hasOption(flags, "-m") {

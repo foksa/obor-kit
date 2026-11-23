@@ -72,9 +72,10 @@ conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" TERMINAL="$(TERMINAL)" $(GO) run -tags conformance ./tests/conformance
 
 # conformance-live (commands.conformance_live, the nightly's non-gating line): agy updates itself, so its live tier
-# runs only when `agy --version` differs from the version its last live run recorded (.obor/state/agy-live-version);
-# scripts/conformance-live ends in one line named for that command ("conformance_live: agy <v> unchanged, live tier
-# skipped", or the live run's conformance summary), so the nightly shows it and not make's failed-recipe trailer.
+# runs only when `agy --version` differs from the version its last green live run recorded
+# (.obor/state/agy-live-version; a red run records nothing, so it runs again); scripts/conformance-live ends in one
+# line named for that command ("conformance_live: agy <v> unchanged, live tier skipped", or the live run's conformance
+# summary), so the nightly shows it and not make's failed-recipe trailer.
 conformance-live:
 	@sh scripts/conformance-live
 

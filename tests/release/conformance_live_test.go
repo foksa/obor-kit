@@ -13,9 +13,10 @@ import (
 )
 
 // conformance-live (commands.conformance_live, the nightly's non-gating line): agy updates itself, so its live
-// conformance tier runs only when `agy --version` differs from the version its last live run recorded, and prints the
-// one line the nightly shows. The live tier is never run here: make is a stub that logs its argv and prints a
-// conformance summary, agy is a fake that prints a version, and git is a stub that answers the common-dir lookup.
+// conformance tier runs only when `agy --version` differs from the version its last green live run recorded, and
+// prints the one line the nightly shows. The live tier is never run here: make is a stub that logs its argv and
+// prints a conformance summary, agy is a fake that prints a version, and git is a stub that answers the common-dir
+// lookup.
 //
 // conformanceLiveFixture is a plain project dir (no git) for `make conformance-live`: the tree's Makefile and
 // scripts/conformance-live in it, its record under .obor/state (which the script finds through git), a stub make (a
@@ -229,10 +230,11 @@ func TestOborKitConformanceLive(t *testing.T) {
 			t.Errorf("no agy was recorded: %q", f.Read(".obor/state/agy-live-version"))
 		}
 	})
-	t.Run("a failed live run: the nightly's WARN line is the summary, the version recorded", func(t *testing.T) {
+	t.Run("a failed live run: the nightly's WARN line is the summary, the record unchanged", func(t *testing.T) {
 		t.Parallel()
 		f := newConformanceLiveFixture(t)
 		f.agy(t, "1.5.15")
+		writeFile(t, f.Path(".obor/state/agy-live-version"), "1.5.14\n")
 		writeFile(t, filepath.Join(f.Base, "live-fail"), "")
 		out, failed := f.live(t, f.env(t))
 		if !failed {
@@ -246,8 +248,25 @@ func TestOborKitConformanceLive(t *testing.T) {
 		if last := lastLine(out); !makeErrorLine.MatchString(last) {
 			t.Errorf("last line %q is not make's failed-recipe trailer:\n%s", last, out)
 		}
-		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.15\n" {
-			t.Errorf("the record is %q after the run, want the version it ran at", got)
+		// A red run records nothing: the tier runs again at the next nightly, at the same version.
+		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.14\n" {
+			t.Errorf("the record is %q after a failed run at 1.5.15, want the version it held", got)
+		}
+	})
+	t.Run("a failed first run: no record", func(t *testing.T) {
+		t.Parallel()
+		f := newConformanceLiveFixture(t)
+		f.agy(t, "1.5.15")
+		writeFile(t, filepath.Join(f.Base, "live-fail"), "")
+		if f.Exists(".obor/state/agy-live-version") {
+			t.Fatal("precondition: the fixture has no recorded version")
+		}
+		out, failed := f.live(t, f.env(t))
+		if !failed {
+			t.Fatalf("a failed live run must fail the line:\n%s", out)
+		}
+		if f.Exists(".obor/state/agy-live-version") {
+			t.Errorf("a failed first run recorded %q, want no record", f.Read(".obor/state/agy-live-version"))
 		}
 	})
 	t.Run("run in a lane worktree: the record is the main checkout's", func(t *testing.T) {
