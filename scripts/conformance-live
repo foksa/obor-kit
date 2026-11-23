@@ -4,8 +4,10 @@
 # KIND=agy TURN=1` (one model call, so the session hooks, MCP and inbox checks run) only when `agy --version` differs
 # from the version its last green live run recorded (.obor/state/agy-live-version), and records the version only when
 # that run has a passing row and no fail or skip, so a red tier or an all-skip one (herdr missing) runs again at the
-# next nightly. The summary line starts with the command's name, which is the line the nightly shows (make appends its
-# failed-recipe trailer after it). POSIX sh.
+# next nightly. The tier's WARN lines (each tool agy offers that the transport's table has no row for) are its
+# classify-me list: they are listed and counted, and neither block the record nor gate the nightly. The summary line
+# starts with the command's name, which is the line the nightly shows (make appends its failed-recipe trailer after it).
+# POSIX sh.
 set -eu
 
 # The record is the project's, not a worktree's: obor nightly runs this in its own worktree, and a lane typed into by

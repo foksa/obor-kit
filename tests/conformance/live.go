@@ -45,8 +45,8 @@ var liveIDs = map[string][]string{
 	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8", "H-L9", "H-L12", "H-L13", "H-L14"},
 	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7", "CC-L8", "CC-L9"},
 	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11", "H-L14"},
-	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6", "H-L14"},
-	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "AG-L10", "AG-L11", "AG-L12", "AG-L13", "P10", "P10-control"},
+	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6", "OC-L7", "H-L14"},
+	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "AG-L10", "AG-L11", "AG-L12", "AG-L13", "AG-L14", "P10", "P10-control"},
 }
 
 func live(kinds []string, turn bool) {
@@ -195,7 +195,8 @@ func newLab(kind, herdrBin string) (*lab, error) {
 // makeKit builds the stub into root/kit/bin as obor-stub behind a bin/obor wrapper (obor.js runs `bash bin/obor`, so
 // it is a script; exec keeps the pid) and copies the opencode plugin package beside it, as a kit holds it: package.json
 // as shipped, obor.js with its setup wrapped to append {pid, url, dir} to out/plugin-marker.jsonl first (OC-L4 counts
-// the setups).
+// the setups) and to record the tool list ctx.tool.list() gives the plugin (OC-L7's drift row: the tools OpenCode
+// offers).
 func (l *lab) makeKit() error {
 	bin := filepath.Join(l.kit, "bin")
 	for _, d := range []string{bin, filepath.Join(l.kit, "out"), filepath.Join(l.kit, "opencode")} {
@@ -225,12 +226,30 @@ func (l *lab) makeKit() error {
 	if !strings.HasSuffix(string(js), entry) {
 		return fmt.Errorf("opencode/obor.js does not end with its export's setup: the setup marker cannot wrap it")
 	}
-	marked := strings.TrimSuffix(string(js), entry) + "\n  setup: (ctx) => (confMarker(ctx), setup(ctx)),\n};\n" + fmt.Sprintf(`
-// obor conformance (the lab's makeKit): records each setup of this plugin.
+	marked := strings.TrimSuffix(string(js), entry) + "\n  setup: (ctx) => (confMarker(ctx), setup(ctx).then((r) => (confTools(ctx).catch(() => {}), r))),\n};\n" + fmt.Sprintf(`
+// obor conformance (the lab's makeKit): records each setup of this plugin, and the tool list the plugin's
+// ctx.tool.list() gives it (ids and namespaces only: an entry carries functions).
 function confMarker(ctx) {
   fs.appendFileSync(%q, JSON.stringify({ pid: process.pid, url: import.meta.url, dir: ctx?.location?.directory ?? "" }) + "\n");
 }
-`, filepath.Join(l.kit, "out", "plugin-marker.jsonl"))
+
+// confTools writes the tool list to %q, one {id, namespace} per line, asking again for a moment while the list is
+// still empty (the session's servers connect after setup); a list it cannot read is one {error} line. The live tier's
+// OC-L7 reads it and asks the plugin's own table which of the ids it has no row for.
+async function confTools(ctx) {
+  const write = (tools) => fs.writeFileSync(%q, tools.map((t) => JSON.stringify({ id: t?.id ?? t?.name ?? "", namespace: t?.options?.namespace ?? "" })).join("\n") + "\n");
+  for (let i = 0; i < 10; i++) {
+    try {
+      const tools = (await ctx.tool.list()) ?? [];
+      if (tools.length > 0 || i === 9) return write(tools);
+    } catch (e) {
+      if (i === 9) return fs.writeFileSync(%q, JSON.stringify({ error: String(e?.message ?? e) }) + "\n");
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+`, filepath.Join(l.kit, "out", "plugin-marker.jsonl"), filepath.Join(l.kit, "out", "plugin-tools.jsonl"),
+		filepath.Join(l.kit, "out", "plugin-tools.jsonl"), filepath.Join(l.kit, "out", "plugin-tools.jsonl"))
 	return os.WriteFile(filepath.Join(l.kit, "opencode", "obor.js"), []byte(marked), 0o644)
 }
 

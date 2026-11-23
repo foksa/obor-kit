@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,8 +31,9 @@ const (
 // opencodeLive: on scratch XDG dirs holding nothing of obor's (`obor setup agents` installs nothing global; an
 // old entry and link are removed by hand), one --standalone start in the lane with the env the kind's start (the
 // real kinds/opencode binary through obor's plugin package) gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
-// mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L5's quit.
-// With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
+// mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L7 (the
+// tools ctx.tool.list() gives the plugin, against the transport's table: one WARN per tool it has no row for), OC-L5's
+// quit. With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
 func opencodeLive(l *lab, turn bool) {
 	k := l.kindOf("opencode")
 	xdg := map[string]string{}
@@ -94,6 +97,7 @@ func opencodeLive(l *lab, turn bool) {
 		ocL1(l, pane, mcp)
 		ocL3(l.serverLabels(), where3)
 		ocL4(l, filepath.Join(xdg["XDG_CONFIG_HOME"], "opencode", "plugins", "obor.js"), where4)
+		ocL7(l)
 		if code, err := l.quit(pane, st); err != nil || code != 0 {
 			report("FAIL", "OC-L5", fmt.Sprintf("%s + a second Enter: exit status %d (%v)", st.Quit, code, orOK(err)), where5)
 			l.stopAgent(pane)
@@ -481,4 +485,100 @@ func opencodeParts(dir string) (string, error) {
 // opencodeLog is the scratch XDG_DATA_HOME's opencode log.
 func (l *lab) opencodeLog() string {
 	return filepath.Join(l.root, "xdg", "data", "opencode", "log", "opencode.log")
+}
+
+// ocL7 is the tool drift row: the tools OpenCode offers (the plugin's ctx.tool.list(), which the lab's plugin copy
+// records at setup) against the transport's table, each id driven through the plugin's own toolEvents
+// (opencode_events.mjs, as the shared transport row drives it): one WARN per id the table has no row for, which the
+// guard decides as unguarded (a deny) — a classify-me list, not a failure.
+func ocL7(l *lab) {
+	where := at("tests/conformance/live.go", "func (l *lab) makeKit") + ", " + at(opencodeJS, "const PASS") + ", " +
+		at(opencodeJS, "export async function toolEvents")
+	var tools []ocTool
+	var why string
+	poll(30*time.Second, func() bool {
+		tools, why = pluginTools(filepath.Join(l.kit, "out", "plugin-tools.jsonl"))
+		return why == ""
+	})
+	if why != "" {
+		report("SKIP", "OC-L7", why, where)
+		return
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		report("SKIP", "OC-L7", "node is not installed, so the plugin's table cannot be driven", where)
+		return
+	}
+	args, _ := json.Marshal(map[string]string{"patchText": ""}) // a patch with no text is a write naming no file, not a throw
+	var unknown, bad []string
+	for _, t := range tools {
+		o, err := runCmd(time.Minute, "", nil, "", node, "tests/conformance/opencode_events.mjs", t.ID, string(args),
+			strconv.FormatBool(t.Namespace != ""))
+		switch {
+		case err != nil:
+			bad = append(bad, t.ID+": "+err.Error())
+		case o.code != 0:
+			bad = append(bad, t.ID+": opencode_events.mjs exits "+strconv.Itoa(o.code)+": "+firstLine(o.stderr))
+		default:
+			var evs []struct {
+				ToolName string `json:"tool_name"`
+			}
+			if err := json.Unmarshal([]byte(o.stdout), &evs); err != nil {
+				bad = append(bad, t.ID+": opencode_events.mjs answered no events list: "+firstLine(o.stdout))
+			} else if len(evs) == 1 && evs[0].ToolName == "unguarded" {
+				unknown = append(unknown, t.ID)
+			}
+		}
+	}
+	if len(bad) > 0 {
+		report("FAIL", "OC-L7", "the plugin's table could not be driven: "+strings.Join(bad, " / "), where)
+		return
+	}
+	if len(unknown) == 0 {
+		report("PASS", "OC-L7", fmt.Sprintf("the plugin's ctx.tool.list() names %d tools, each with a row in the transport's table", len(tools)), where)
+		return
+	}
+	for _, id := range unknown {
+		report("WARN", "OC-L7", "OpenCode offers "+id+", which the transport's table has no row for: the guard decides a call of it as unguarded (a deny for obor's agents); classify it", where)
+	}
+}
+
+// ocTool is one entry of the tool list the lab's plugin copy records: its id, the namespace ctx.tool.list() gives it (an
+// MCP tool's), or the error that kept the list from being read.
+type ocTool struct {
+	ID        string `json:"id"`
+	Namespace string `json:"namespace"`
+	Error     string `json:"error"`
+}
+
+// pluginTools is the tool list the plugin recorded at path, each id once; why it is no list (no file, no entry, or the
+// error the plugin named) instead.
+func pluginTools(path string) ([]ocTool, string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "the plugin recorded no tool list (" + err.Error() + "): its setup did not run"
+	}
+	var tools []ocTool
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if line == "" {
+			continue
+		}
+		var t ocTool
+		if err := json.Unmarshal([]byte(line), &t); err != nil {
+			return nil, "the plugin's tool list is not JSON lines: " + firstLine(line)
+		}
+		if t.Error != "" {
+			return nil, "the plugin could not read ctx.tool.list(): " + t.Error
+		}
+		if t.ID == "" || seen[t.ID] {
+			continue
+		}
+		seen[t.ID] = true
+		tools = append(tools, t)
+	}
+	if len(tools) == 0 {
+		return nil, "the plugin's ctx.tool.list() named no tool: the transport's table cannot be compared"
+	}
+	return tools, ""
 }
