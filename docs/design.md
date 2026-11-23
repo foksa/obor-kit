@@ -436,7 +436,7 @@ allows silently.
      that cannot push cannot advance a milestone; entries are roles, `["lead"]`, a derived name `ob-lead` read as
      its slot; an accident guard, not a security boundary);
      `pkill`/`killall` by pattern (`pkill -f`, `pkill <name>`, `killall`); `git commit` with `-a`/`--all`/`-am` when cwd
-     is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run`/`acp`/`serve`, `agy -p`/`--print`/`--prompt`/`acp` — for every
+     is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run`/`acp`/`serve`/`api`, `agy -p`/`--print`/`--prompt`/`acp` — for every
      role, the lead included (owner 2026-10-27: agents run in herdr panes); a command the project's
      `rules.deny_commands` matches (regex on the resolved command; `alone`: also two matching at once via `&`,
      `xargs -P`, `parallel`, background units) — for every role (owner 2026-11-05; obor-kit's config carries

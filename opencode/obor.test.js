@@ -409,8 +409,9 @@ test("session steps: a root session's tokens append one line to its token file",
 
 // A turn's end dates its root session's token file to now, its content unchanged, whatever the outcome: obor reads the
 // agent's done time from that mtime, and a turn whose last step wrote nothing would otherwise look idle. A session with
-// no token file yet gets none (missing evidence never makes a false done), and a child's ending touches nothing.
-test("turn ends: each ending touches the root session's token file, content unchanged; no file stays none; a child untouched", async (t) => {
+// no token file yet gets one, empty (a first turn that failed before any model step still ended), and a child's
+// ending touches or creates nothing.
+test("turn ends: each ending touches the root session's token file, content unchanged; none yet gets an empty one; a child untouched", async (t) => {
   const { emit, dir, token } = await stubPlugin(t);
   const stepEvent = (id, tokens, created) => ({ id: "evt_step", type: "session.step.ended", created, data: { sessionID: id, tokens } });
   const old = new Date(2000, 0, 1);
@@ -430,8 +431,17 @@ test("turn ends: each ending touches the root session's token file, content unch
     assert.equal(fs.readFileSync(file, "utf8"), content, `${type}: the token lines are unchanged`);
   }
   await emit(oc("session.created", { sessionID: "s-nofile", slug: "x", version: "2.2.0" }, dir));
+  const nofile = token("s-nofile");
+  assert.equal(fs.existsSync(nofile), false, "precondition: no step wrote the session's token file");
+  const before = Date.now();
   await emit(oc("session.execution.succeeded", { sessionID: "s-nofile" }));
-  assert.equal(fs.existsSync(token("s-nofile")), false, "no step yet: the ending creates no token file");
+  const after = Date.now();
+  assert.equal(fs.readFileSync(nofile, "utf8"), "", "no step yet: the ending creates an empty token file");
+  const mt = fs.statSync(nofile).mtimeMs;
+  assert.ok(mt >= before - 1000 && mt <= after + 1000, `the created file's mtime ${new Date(mt).toISOString()} is the turn's end`);
+  await emit(oc("session.created", { sessionID: "c2", parentID: "s-nofile", slug: "x", version: "2.2.0" }, dir));
+  await emit(oc("session.execution.succeeded", { sessionID: "c2" }));
+  assert.equal(fs.existsSync(token("c2")), false, "a child's ending creates no token file");
   await emit(oc("session.created", { sessionID: "c1", parentID: "s-nofile", slug: "x", version: "2.2.0" }, dir));
   const childFile = token("c1");
   fs.mkdirSync(path.dirname(childFile), { recursive: true });

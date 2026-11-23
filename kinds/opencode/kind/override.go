@@ -48,8 +48,8 @@ func Config(kit string) []byte { return config{kit: kit}.bytes() }
 // (opencode 2.2.0: the OPENCODE_CONFIG file ranks above it, a project's config above the file), merges objects key by
 // key, replaces an MCP server whole and adds plugin lists up, so a key over deletes (null) still applies from the user's
 // file; its own syntax removes an entry: "plugins": ["-<id>"]. A lane's start also reads the user's config and writes
-// each server the project's own config (dir) does not define and over does not name as the user's whole definition with
-// "disabled": true (disabled), so a lane's agent reaches obor's server and the project's own, not the user's. On that
+// each server the project's own config (dir) does not define and over does not declare as the user's whole definition
+// with "disabled": true (disabled), so a lane's agent reaches obor's server and the project's own, not the user's. On that
 // base mcp.servers.obor is obor's own, and plugins is obor's plugin, then the base's list.
 func (c config) bytes() []byte {
 	doc := map[string]any{}
@@ -105,14 +105,15 @@ func (c config) userConfig() map[string]any {
 // "disabled": true (OpenCode ignores a bare {"disabled": true}; docs/research/user-settings-overrides.md, o2 and o3).
 // obor's own server stays obor's; a name the project's own opencode.json(c) in the start dir define loads from the
 // project's layer, above the generated config, so disabling it here would be no word of obor's; and one the override
-// file names is the override's word. A user entry that is no object stays the user's.
+// file declares (a null deletes the key, and OpenCode still loads the user's file) is the override's word. A user
+// entry that is no object stays the user's.
 func (c config) disabled(user map[string]any) map[string]any {
 	out := map[string]any{}
 	project, named := c.projectServers(), servers(c.over)
 	for name, def := range servers(user) {
 		entry, _ := def.(map[string]any)
 		_, projectOwn := project[name]
-		_, overOwn := named[name]
+		overOwn := named[name] != nil
 		if name == "obor" || projectOwn || overOwn || entry == nil {
 			continue
 		}
