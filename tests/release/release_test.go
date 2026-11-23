@@ -96,8 +96,7 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	}
 	writeFile(t, filepath.Join(dir, "bin", "checksums.txt"), catalog)
 	// A go that logs its argv and writes the -o path; `go test` fails while go-fail exists (a red make check), and a
-	// release build (-o dist/obor-<v>-… or a kind's dist/obor-kind-<kind>-<v>-…) while build-fail exists (a red make
-	// release in the scratch worktree).
+	// release build (-o dist/obor-<v>-…) while build-fail exists (a red make release in the scratch worktree).
 	writeExec(t, filepath.Join(dir, "stub", "go"), `#!/bin/bash
 echo "$*" >> "`+f.log+`"
 out=
@@ -110,7 +109,7 @@ if [ -n "$out" ]; then
   mkdir -p "$(dirname "$out")"
   printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 fi
-case $out in dist/obor-[0-9]*|dist/obor-kind-*-[0-9]*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
+case $out in dist/obor-[0-9]*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
 # go-fail-once: the first go test fails with the file's text as its output and removes the file (a flaky package);
 # go-fail: every go test fails with the file's text (a red package); go-vet-fail: go vet fails; upgrade-fail: the upgrade
 # check's go test (./tests/upgrade, make upgrade-check) fails with the file's text; check-release-fail: check-release's
@@ -666,7 +665,7 @@ func TestMakeReleaseDryRun(t *testing.T) {
 		t.Fatalf("the dry run failed:\n%s", out)
 	}
 	for _, want := range []string{"would: set VERSION", "would: make check", "would: git commit", "would: git worktree add",
-		"would: copy the 12 dist", "next (owner): make ship"} {
+		"would: copy the 4 dist", "next (owner): make ship"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the dry run does not print %q:\n%s", want, out)
 		}

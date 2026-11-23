@@ -1,8 +1,8 @@
 //go:build conformance
 
 // The static tier of the kind protocol (docs/agents/kind-protocol.md): obor's plugin package against a plugin
-// kind written as a shell script (kindplugin/obor-kind-shell), every call, and against a kit kind (agy) built as a
-// binary and named by its path, as a third-party kind runs. No CLI, no session.
+// kind written as a shell script (kindplugin/obor-kind-shell), every call, and against a kit kind (agy) as an external
+// command built from a test main, as a third-party kind runs. No CLI, no session.
 package main
 
 import (
@@ -23,7 +23,7 @@ const (
 
 // pluginStatic is the plugin kind's static tier: P-S1 describe and its cache, P-S2 start, P-S3 not-ready, P-S4
 // install, P-S5 turn, P-S6 deliver, P-S7 the cached manifest answering with the command gone (hook time), P-S8 a kit
-// kind built as a binary (obor answers it in process; named by a path it runs as a command).
+// kind as an external command built from a test main.
 func pluginStatic() {
 	where := func(needle string) string { return at(pluginGo, needle) + ", kind-protocol.md" }
 	check := func(id, fact string, ok bool, why string, w string) {
@@ -116,14 +116,15 @@ func pluginStatic() {
 	kitBinary(tmp)
 }
 
-// kitBinary is P-S8: kinds/agy built as a binary and named as a plugin path answers describe (its manifest cached)
-// and start (the settings file written, its path in the argv, the prompt), through obor's plugin package as any
-// project's own kind runs.
+// kitBinary is P-S8: the agy kind built from a test main, named as a plugin path, answers describe (its manifest
+// cached) and start (the settings file written, its path in the argv, the prompt), through obor's plugin package as any
+// project's own kind runs. The binary's name is no plugin.Local name, so it runs as a command.
 func kitBinary(tmp string) {
-	w := at(pluginGo, "func (k *Kind) run") + ", kinds/agy"
-	bin, state, home := filepath.Join(tmp, "agy-bin", "obor-kind-agy"), filepath.Join(tmp, "agy-state"), filepath.Join(tmp, "agy-home")
-	if o, err := output(3*time.Minute, "go", "build", "-o", bin, "./kinds/agy"); err != nil {
-		report("FAIL", "P-S8", "go build ./kinds/agy: "+err.Error()+": "+firstLine(o), w)
+	const main = "tests/conformance/kindmain/agy"
+	w := at(main+"/main.go", "func main(") + ", " + at(pluginGo, "func (k *Kind) run")
+	bin, state, home := filepath.Join(tmp, "agy-bin", "agy-plugin"), filepath.Join(tmp, "agy-state"), filepath.Join(tmp, "agy-home")
+	if o, err := output(3*time.Minute, "go", "build", "-tags", "conformance", "-o", bin, "obor/"+main); err != nil {
+		report("FAIL", "P-S8", "go build "+main+": "+err.Error()+": "+firstLine(o), w)
 		return
 	}
 	if plugin.InProcess(bin) {

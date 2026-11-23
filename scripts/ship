@@ -3,14 +3,14 @@
 # whatever branch that checkout has (staging when the loop merges there): release already fast-forwarded
 # refs/heads/main to the release commit, so no checkout of main is needed and this script never switches or resets the
 # checkout's branch or working tree. Before anything leaves this machine the tag must be this release's (scripts/publish
-# --check: its contents and the twelve dist files' bytes) and not predate code in the release (scripts/release-lib.sh).
+# --check: its contents and the four dist files' bytes) and not predate code in the release (scripts/release-lib.sh).
 # The release is the tag plus its `checksums: v<version>` commit on main (the newest with that subject on main's
 # first-parent line): ship pushes main up to that commit, never main's tip, so merges after `make release` wait
 # for the next release. Then three steps, each skipped when its done evidence holds and proven by it after it runs:
 #   push     done: origin has tag v<version> (the same object) and origin's main contains the checksums commit
 #            run: git push origin <checksums commit>:refs/heads/main and/or the tag, whichever origin lacks
 #            fail: stop
-#   publish  done: the GitHub release is not a draft and has its twelve assets (obor and the kit's kinds)
+#   publish  done: the GitHub release is not a draft and has its four assets (obor, per platform)
 #            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
 #            checks first)                                       fail: stop with the repair command
 #   install  done: `obor version` is v<version>     run: install.sh     fail: stop

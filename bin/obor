@@ -1,6 +1,6 @@
 #!/bin/bash
 # obor <subcommand> [args…] — the kit's one bash file: finds the obor Go binary (the dev build dist/obor, else the
-# pinned release in ~/.obor/bin, fetched and checksum-verified on first use with the kind binaries beside it) and execs
+# pinned release in ~/.obor/bin, fetched and checksum-verified on first use) and execs
 # it with the subcommand. Hooks (`obor hook <name>`, hooks/hooks.json) and a kind's hook transport (`obor kind <name>
 # hook`) never fetch: without a usable binary the no-binary rule below applies.
 set -euo pipefail
@@ -70,26 +70,15 @@ run() {
   OBOR_VERSION_SOURCE="$src" exec "$binary" "$@"
 }
 
-# kind_assets: the kind binaries the catalog lists for this version and platform (obor-kind-<name>-<ver>-<os>-<arch>:
-# obor runs them from beside its own binary), one per line.
-kind_assets() {
-  [ -f "$OBOR_PLUGIN_ROOT/bin/checksums.txt" ] || return 0
-  awk -v tail="-$ver-$os-$arch" '{ n = $2; sub(/^dist\//, "", n) }
-    index(n, "obor-kind-") == 1 && length(n) > length(tail) && substr(n, length(n) - length(tail) + 1) == tail { print n }' \
-    "$OBOR_PLUGIN_ROOT/bin/checksums.txt"
-}
-
-# fetched: the release binary and each kind binary of this platform are in ~/.obor/bin.
+# fetched: the release binary of this platform is in ~/.obor/bin.
 fetched() {
-  local kind
-  [ -x "$binary" ] || return 1
-  for kind in $(kind_assets); do [ -x "$(dirname "$binary")/$kind" ] || return 1; done
+  [ -x "$binary" ]
 }
 
-# fetch: the release binary for this platform, then each kind binary the catalog lists beside it, into ~/.obor/bin
-# (curl, then each one's line in bin/checksums.txt must match). One already there is kept.
+# fetch: the release binary for this platform into ~/.obor/bin (curl, then its line in bin/checksums.txt must match).
+# One already there is kept.
 fetch() {
-  local root=$OBOR_PLUGIN_ROOT url kind
+  local root=$OBOR_PLUGIN_ROOT url
   # OBOR_NO_FETCH=1 (git hooks: no network) turns a missing binary into a failure.
   [ -z "${OBOR_NO_FETCH:-}" ] || fail "no obor binary: make -C $root build"
   [ -f "$root/bin/release-url" ] || fail "missing release URL"
@@ -98,10 +87,6 @@ fetch() {
   url=$(sed -e "s/%VERSION%/$ver/g" -e "s/%OS%/$os/g" -e "s/%ARCH%/$arch/g" "$root/bin/release-url")
   mkdir -p "$(dirname "$binary")" || fail "cannot create binary directory"
   [ -x "$binary" ] || fetch_one "$asset" "$url" "$binary"
-  # a kind's asset sits in the same release directory as obor's
-  for kind in $(kind_assets); do
-    [ -x "$(dirname "$binary")/$kind" ] || fetch_one "$kind" "${url%/*}/$kind" "$(dirname "$binary")/$kind"
-  done
   prune_old
 }
 
@@ -132,7 +117,7 @@ versions_in() {
   ls -t "$dir"/obor-*-* 2> /dev/null | while IFS= read -r f; do
     [ -f "$f" ] || continue
     name=${f##*/}
-    case "$name" in obor-kind-*) continue ;; esac
+    case "$name" in obor-kind-*) continue ;; esac # an older release's kind binary, not a release version
     for pl in $release_platforms; do
       case "$name" in
         "obor-"*"-$pl") v=${name#obor-}; printf '%s\n' "${v%-$pl}"; break ;;
@@ -141,24 +126,24 @@ versions_in() {
   done
 }
 
-# binary_version <name> <versions…>: the version of a release or kind binary file name (obor-<v>-<os>-<arch>,
-# obor-kind-<kind>-<v>-<os>-<arch>) when it is one of <versions>; empty for any other name, so nothing else is removed.
+# binary_version <name> <versions…>: the version of a release file name (obor-<v>-<os>-<arch>) when it is one of
+# <versions>; empty for any other name, so nothing else is removed.
 binary_version() {
   local name=$1 pl v
   shift
   for pl in $release_platforms; do
     for v in "$@"; do
       case "$name" in
-        "obor-$v-$pl"|obor-kind-*-"$v-$pl") printf '%s\n' "$v"; return 0 ;;
+        "obor-$v-$pl") printf '%s\n' "$v"; return 0 ;;
       esac
     done
   done
   return 0
 }
 
-# prune_old: after a fetch, remove the release and kind binaries of every version but the kit's and the one fetched
+# prune_old: after a fetch, remove the release binaries of every version but the kit's and the one fetched
 # before it (the most recent other version's files: the previous kit, kept for a rollback). Best effort: a
-# failed remove never fails the command, and nothing that is not an obor release or kind binary is touched.
+# failed remove never fails the command, and nothing that is not an obor release binary is touched.
 prune_old() {
   local dir prev f name v versions
   dir=$(dirname "$binary")

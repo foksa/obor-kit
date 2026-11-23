@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	agyGo        = "kinds/agy/kind/kind.go"    // the agy kind's binary (a tool may not import a kind's package)
+	agyGo        = "kinds/agy/kind/kind.go"    // the agy kind's source
 	agyHookGo    = "kinds/agy/kind/hook.go"    // its hook transport
 	agyDeliverGo = "kinds/agy/kind/deliver.go" // its inbox: deliver through agentapi
 )
@@ -66,8 +66,8 @@ func agyStatic() {
 	report("PASS", "AG-S1", "agy --help lists --settings, --model, --effort, --conversation, --prompt-interactive, --print, --prompt, --add-dir and acp", where)
 }
 
-// agyLive: a worker of the lab's project started as obor's launch builds it (config.Model.Launch: the real kinds/agy
-// binary through obor's plugin package), in the lane, with the project's .agents/mcp_config.json and .agents/hooks.json
+// agyLive: a worker of the lab's project started as obor's launch builds it (config.Model.Launch: the agy kind obor
+// links into itself, through obor's plugin package), in the lane, with the project's .agents/mcp_config.json and .agents/hooks.json
 // as obor setup agents writes them and the repository's own obor (and its agy kind, the hook transport) first on PATH
 // (the files name obor by PATH), a stub serve on the project's socket. AG-L11..AG-L13: the calls agy's tool set can make
 // that the guard must refuse, each run through the project's hooks entry's command (a deny stops the tool and agy shows

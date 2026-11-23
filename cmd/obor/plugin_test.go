@@ -10,7 +10,7 @@ import (
 )
 
 // The opencode plugin: opencode/obor.js ships as a package dir and the kind's generated start config names it (the
-// kind, its own binary). Its event mapping and hooks are the tool's behaviour: `node --check` and `node --test` run
+// kind is linked into obor). Its event mapping and hooks are the tool's behaviour: `node --check` and `node --test` run
 // in conformance OC-S2, not here.
 func TestOpencodePlugin(t *testing.T) {
 	root := checkoutRoot(t)

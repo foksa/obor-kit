@@ -19,12 +19,12 @@
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
-#                 `make release` (the twelve binaries: obor and the kit's kinds per platform; and
+#                 `make release` (the four binaries: obor per platform; and
 #                 bin/checksums.txt, the shipped catalog's lines plus theirs), commit, tag     fail: remove the scratch
 #                 worktree; an existing tag is never touched
 #   copy-back     done: the branch's bin/checksums.txt has the tag's lines for the release and this checkout's dist
 #                 files match them
-#                 make: all twelve files checked against the tag's catalog first, then copied and the catalog committed
+#                 make: all four files checked against the tag's catalog first, then copied and the catalog committed
 #                 fail: bin/checksums.txt's index and tree back to HEAD
 #   main          done: refs/heads/main is the release's "checksums: v<version>" commit or past it
 #                 make: fast-forward refs/heads/main to that commit by git update-ref (the
