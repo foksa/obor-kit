@@ -11,7 +11,8 @@
 //	session.execution.succeeded       → stop; its block's reason becomes the session's next prompt (a new turn)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
 //	session.execution.interrupted     → no hook; like every turn's end, it ends the session's stop loop
-//	every turn's end                  → its session's token file dated to now (activity), content unchanged
+//	every turn's end                  → its root session's token file dated to now (activity), created empty when the
+//	                                     session has none, content unchanged
 //	session.step.ended                → one line in the session's token file (turn what: context), no hook
 //	the session's inbox socket        → a line obor serve posts becomes the session's prompt (below)
 //
@@ -368,13 +369,15 @@ export function sessionHooks(cwd, transcriptOf) {
     } catch {}
   }
 
-  // touch dates a root session's token file to now, its content unchanged: obor reads a role agent's done time from
-  // that file's mtime, and a turn's end is activity even when its last step wrote nothing (older, or none). A session
-  // with no token file yet gets none: missing evidence never makes a false done.
+  // touch dates a root session's token file to now, its content unchanged, and creates it empty when the session has
+  // none yet: obor reads a role agent's done time from that file's mtime, and a turn's end is activity even when its
+  // first turn failed before any model step (its last step wrote nothing, or there was none).
   function touch(id) {
     const file = transcriptOf(id);
-    if (!file || !fs.existsSync(file)) return;
+    if (!file) return;
     try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      if (!fs.existsSync(file)) fs.writeFileSync(file, "");
       const now = new Date();
       fs.utimesSync(file, now, now);
     } catch {}
