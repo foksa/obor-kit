@@ -78,17 +78,11 @@ type request struct {
 }
 
 // Main is the binary: call args[0] with the request on stdin, its reply on stdout; a request it cannot read, or an
-// unknown call, exits 2 with the reason on stderr. The call hook is the hook transport (RunHook): agy's event in, agy's
-// answer out.
+// unknown call, exits 2 with the reason on stderr.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, "usage: obor-kind-agy <call> < request.json (docs/agents/kind-protocol.md)")
 		return 2
-	}
-	if args[0] == "hook" { // the hook transport: agy's event, not a protocol request (hook.go)
-		// This binary is not obor: it execs the obor agents.ExeVar names, and has no project rule of its own (obor's
-		// hook stands down outside a project itself). obor answers obor kind agy hook in process instead.
-		return RunHook(stdin, stdout, stderr, Exec(os.Getenv(agents.ExeVar), HookTimeout), func(string) bool { return true })
 	}
 	req, err := io.ReadAll(stdin)
 	if err == nil {

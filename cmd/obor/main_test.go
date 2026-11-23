@@ -114,8 +114,8 @@ func TestExitCodes(t *testing.T) {
 }
 
 // `obor kind agy hook` runs agy's hook transport in this obor, no kind binary beside it: agy's event of a tool obor
-// cannot guard reaches obor hook pre-tool-use on this obor's executable (an inherited OBOR_EXE naming another is
-// replaced), whose guard denies it for an agent with a role, with the transport's reason. An unknown kind exits 2.
+// cannot guard reaches obor hook pre-tool-use in process, whose guard denies it for an agent with a role, with the
+// transport's reason. An unknown kind exits 2.
 func TestKindRunsTheKitKindInProcess(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -125,7 +125,7 @@ func TestKindRunsTheKitKindInProcess(t *testing.T) {
 	}
 	event := `{"hookEventName": "PreToolUse", "conversationId": "c1", "cwd": "` + p.Root + `", ` +
 		`"toolCall": {"name": "run_workflow", "args": {}}}` + "\n"
-	rc, stdout, stderr := runIn(t, p.Root, []string{"OBOR_EXE=/no/such/obor", "OBOR_ROLE=lead"}, event, "kind", "agy", "hook")
+	rc, stdout, stderr := runIn(t, p.Root, []string{"OBOR_ROLE=lead"}, event, "kind", "agy", "hook")
 	var got struct{ Decision, Reason string }
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || rc != 0 {
 		t.Fatalf("obor kind agy hook: exit %d, %q (%v), stderr %q", rc, stdout, err, stderr)

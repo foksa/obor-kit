@@ -2,23 +2,20 @@
 
 // The Hook transport contract (docs/agents/kind-protocol.md "Hook transport"), one row per transport: the guard a
 // transport runs ends at 0 (allow), 2 (its deny), 1, by a signal, too slowly or not at all, and the transport still
-// answers its CLI as the contract says. Static: a stub guard, no CLI, no session.
+// answers its CLI as the contract says. Static: a stub guard for the transports that run one as a process, the obor
+// built from this tree for agy's in-process one, no CLI, no session.
 package main
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"obor/internal/project"
-	"obor/kinds/agy/kind"
 )
 
 const (
@@ -165,9 +162,12 @@ func shimHookRow() {
 			"missing": "no usable Go binary"}}.row()
 }
 
-// agyHookRow is agy's row: the transport's mapping (kinds/agy/kind.Hook with a Runner, the guard a stub script named
-// by OBOR_EXE), the event's cwd this checkout (an obor project). obor kind agy hook runs obor's hook in process
-// (cmd/obor's agyHook); this row holds the answer mapping that path goes through.
+// agyHookRow is agy's row: agy's hooks file's command, `obor kind agy hook`, in an obor built from this tree, in a temp
+// obor project, agy's event on stdin and agy's answer on stdout. That route runs obor's hook in process (cmd/obor's
+// agyHook → inProcessHook → hookRun), so the row drives what a role's agy session meets: a call the guard allows comes
+// back agy's ask (agy's own check decides), one it denies comes back agy's deny with the guard's line. The transport's
+// answer to a hook that fails in process (a panic, no answer within HookTimeout) is kinds/agy/kind's hook_test.go, on a
+// Runner: no guard process is here to miss, kill or stall.
 func agyHookRow() {
 	dir, err := os.MkdirTemp("", "obor-conf-hook-agy")
 	if err != nil {
@@ -175,24 +175,18 @@ func agyHookRow() {
 		return
 	}
 	defer os.RemoveAll(dir)
-	mode, exe := filepath.Join(dir, "mode"), filepath.Join(dir, "obor")
-	if err := writeScript(exe, "#!/bin/bash\nm=$(cat "+shq(mode)+")\ncase \"$m\" in\n"+
-		"  deny) echo "+shq(guardDeny)+" >&2; exit 2 ;;\n"+
-		"  crash) echo 'obor: the stub crashed' >&2; exit 1 ;;\n"+
-		"  killed) kill -9 $$ ;;\n"+
-		"  slow) exec /bin/sleep 30 ;;\n"+
-		"esac\nexit 0\n", 0o755); err != nil {
-		report("FAIL", "HT-S2", "the stub guard: "+err.Error(), agyHookGo)
-		return
+	exe := filepath.Join(dir, "obor")
+	var buildErr error
+	if src := os.Getenv("CONF_OBOR_BIN"); src != "" {
+		var b []byte
+		if b, buildErr = os.ReadFile(src); buildErr == nil {
+			buildErr = os.WriteFile(exe, b, 0o755)
+		}
+	} else if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./cmd/obor"); err != nil {
+		buildErr = fmt.Errorf("%v: %s", err, firstLine(o))
 	}
-	if err := os.WriteFile(mode, []byte("allow\n"), 0o644); err != nil {
-		report("FAIL", "HT-S2", err.Error(), agyHookGo)
-		return
-	}
-	// warm the stub: a platform scans a new file before its first exec
-	o, err := runCmd(10*time.Second, dir, nil, "", exe)
-	if err != nil || o.code != 0 {
-		report("FAIL", "HT-S2", "the stub guard did not run: "+firstLine(o.stderr), agyHookGo)
+	if buildErr != nil {
+		report("FAIL", "HT-S2", "obor: "+buildErr.Error(), agyHookGo)
 		return
 	}
 	cwd, err := tempProject(dir)
@@ -200,23 +194,18 @@ func agyHookRow() {
 		report("FAIL", "HT-S2", "a project: "+err.Error(), agyHookGo)
 		return
 	}
-	event := `{"hookEventName":"PreToolUse","conversationId":"c1","cwd":` + strconv.Quote(cwd) +
-		`,"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
-	drive := func(m string) (hookAnswer, error) {
-		if err := os.WriteFile(mode, []byte(m+"\n"), 0o644); err != nil {
+	env := []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01", "HOME=" + filepath.Join(dir, "home")}
+	drive := func(event string) (hookAnswer, error) {
+		o, err := runCmd(time.Minute, cwd, env, event, exe, "kind", "agy", "hook")
+		if err != nil {
 			return hookAnswer{}, err
 		}
-		guard, bound := exe, 10*time.Second
-		switch m {
-		case "slow":
-			bound = 300 * time.Millisecond
-		case "missing":
-			guard = filepath.Join(dir, "no-such-obor")
+		if o.code != 0 {
+			return hookAnswer{}, fmt.Errorf("exit %d: %s", o.code, firstLine(o.stderr))
 		}
-		out := kind.Hook([]byte(event), dir, kind.Exec(guard, bound), project.InProject, io.Discard)
 		var a struct{ Decision, Reason string }
-		if err := json.Unmarshal(out, &a); err != nil {
-			return hookAnswer{}, fmt.Errorf("answer %q: %v", out, err)
+		if err := json.Unmarshal([]byte(o.stdout), &a); err != nil {
+			return hookAnswer{}, fmt.Errorf("answer %q: %v", firstLine(o.stdout), err)
 		}
 		switch a.Decision {
 		case "ask":
@@ -224,12 +213,30 @@ func agyHookRow() {
 		case "deny":
 			return hookAnswer{denied: true, reason: a.Reason}, nil
 		}
-		return hookAnswer{}, fmt.Errorf("answer %q: no decision", out)
+		return hookAnswer{}, fmt.Errorf("answer %q: no decision", firstLine(o.stdout))
 	}
-	hookTransport{id: "HT-S2", name: "obor kind agy hook", drive: drive,
-		where: at(agyHookGo, "func toolAnswer") + ", kind-protocol.md",
-		names: map[string]string{"crash": "obor hook pre-tool-use exited 1", "killed": "obor hook pre-tool-use exited -1",
-			"slow": "no answer within", "missing": "no such file"}}.row()
+	tool := func(name string) string {
+		return `{"hookEventName":"PreToolUse","conversationId":"c1","cwd":` + strconv.Quote(cwd) +
+			`,"toolCall":{"name":` + strconv.Quote(name) + `,"args":{"CommandLine":"ls"}}}`
+	}
+	var bad []string
+	if got, err := drive(tool("run_command")); err != nil {
+		bad = append(bad, "a call the guard allows: "+err.Error())
+	} else if got.denied {
+		bad = append(bad, "a call the guard allows: "+described(got)+"; want agy's ask")
+	}
+	const denyLine = "no rule for agy tool browser_click"
+	if got, err := drive(tool("browser_click")); err != nil {
+		bad = append(bad, "a call the guard denies: "+err.Error())
+	} else if !got.denied || !strings.Contains(got.reason, denyLine) {
+		bad = append(bad, "a call the guard denies: "+described(got)+"; want a deny naming "+strconv.Quote(denyLine))
+	}
+	if len(bad) > 0 {
+		report("FAIL", "HT-S2", "obor kind agy hook: "+strings.Join(bad, " / "), agyHookGo)
+		return
+	}
+	report("PASS", "HT-S2", "obor kind agy hook (the hook run in process): the guard's allow is agy's ask, its deny "+
+		"agy's deny with the guard's line", at(agyHookGo, "func toolAnswer")+", kind-protocol.md")
 }
 
 // opencodeHookRow is the OpenCode plugin's row: its guard call (opencode/obor.js, by node) against a stub kit's

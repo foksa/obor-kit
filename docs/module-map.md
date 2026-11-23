@@ -112,8 +112,8 @@ registers its handler in a test binary. `kinds/agy` (`obor-kind-agy`), the same 
 agy settings, the project's `settings_override.json` and obor's entries; the model and `--effort`; `-i` or
 `--conversation`), `install` (`where: project`, `.agents/mcp_config.json` and `.agents/hooks.json`), `turn` (`context`
 from `transcript.jsonl`, a limit's reset), `deliver` (`deliver.go`: agy's `agentapi send-message` with the record an
-agent's `obor` command wrote), and the hook transport (`hook.go`: the `hook` call, which `obor kind agy hook` runs in
-process with obor's hook in process; agy's event → `obor hook <name>` → agy's answer).
+agent's `obor` command wrote), and the hook transport (`hook.go`: `RunHook`, which `obor kind agy hook` runs with
+obor's hook in process; agy's event → `obor hook <name>` → agy's answer).
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

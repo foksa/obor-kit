@@ -1,25 +1,18 @@
 package kind
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
-
-	"obor/internal/agents"
 )
 
 // The hook transport (docs/agents/kind-protocol.md "Hook transport"): the project's committed HooksFile runs
-// `obor kind agy hook` for each of agy's events, which runs this kind's `hook` call in process with the event on stdin. It
-// rewrites agy's event as Claude Code's, runs `obor hook <name>` and rewrites the answer as agy's
+// `obor kind agy hook` for each of agy's events, and that command runs this transport in process with the event on
+// stdin. It rewrites agy's event as Claude Code's, runs `obor hook <name>` and rewrites the answer as agy's
 // (docs/research/agent-kinds-advice.md §1.6). No obor rule lives here: the table below holds agy's facts (which tool
 // the guard can check, which only reads, which obor cannot guard and why), and obor hook decides every call it does
 // not pass: the guard, the session record, the context and the stop are obor hook's.
@@ -334,43 +327,11 @@ func answer(v map[string]any) []byte {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// RunHook is the kind's hook call: agy's event on stdin, the answer on stdout, exit 0. run is obor's hook and
-// inProject the rule it stands down outside of: obor kind agy hook passes obor's own hook in process and
-// project.InProject (cmd/obor); the kind binary execs the obor agents.ExeVar names and has no rule of its own.
+// RunHook is the kind's hook transport: agy's event on stdin, the answer on stdout, exit 0. run is obor's hook, which
+// obor kind agy hook passes in process (cmd/obor), and inProject the rule it stands down outside of (project.InProject).
 func RunHook(stdin io.Reader, stdout, stderr io.Writer, run Runner, inProject func(string) bool) int {
 	in, _ := io.ReadAll(stdin)
 	dir, _ := os.Getwd()
 	stdout.Write(Hook(in, dir, run, inProject, stderr))
 	return 0
-}
-
-// Exec is the Runner of the obor at exe: `<exe> hook <name>` in its own process group, with this process's
-// environment (the agent's identity with it), killed with its children after timeout. The kind binary (obor-kind-agy,
-// which obor does not run) runs its hook call on it; obor kind agy hook runs the hook in process instead.
-func Exec(exe string, timeout time.Duration) Runner {
-	return func(name string, event []byte) ([]byte, []byte, int, error) {
-		if exe == "" {
-			return nil, nil, 0, errors.New(agents.ExeVar + " is not set (run this as " + HookCommand + ")")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, exe, "hook", name)
-		cmd.Stdin = bytes.NewReader(event)
-		var out, errOut bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &out, &errOut
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-		cmd.WaitDelay = time.Second
-		err := cmd.Run()
-		var exit *exec.ExitError
-		switch {
-		case ctx.Err() != nil:
-			return out.Bytes(), errOut.Bytes(), -1, fmt.Errorf("no answer within %s", timeout)
-		case errors.As(err, &exit):
-			return out.Bytes(), errOut.Bytes(), exit.ExitCode(), nil
-		case err != nil:
-			return out.Bytes(), errOut.Bytes(), -1, err
-		}
-		return out.Bytes(), errOut.Bytes(), 0, nil
-	}
 }

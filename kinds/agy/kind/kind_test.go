@@ -616,6 +616,16 @@ func TestInstall(t *testing.T) {
 	}
 }
 
+// The kind binary answers the protocol's calls, and agy's hook transport is no call of it: `hook` is obor's own
+// (`obor kind agy hook`, which runs it in process), so this binary answers it like any name it does not know.
+func TestMainHasNoHookCall(t *testing.T) {
+	var out, errs strings.Builder
+	if rc := kind.Main([]string{"hook"}, strings.NewReader(`{"version":1}`), &out, &errs); rc != 2 || out.Len() != 0 ||
+		!strings.Contains(errs.String(), `no call "hook"`) {
+		t.Errorf("obor-kind-agy hook: exit %d, stdout %q, stderr %q; want 2 and no call \"hook\"", rc, out.String(), errs.String())
+	}
+}
+
 // Reset: an error naming a usage or quota limit is limited, with the time the message names (none: unknown); any other
 // is not, a non-quota limit ("context window limit exceeded") either.
 func TestReset(t *testing.T) {
