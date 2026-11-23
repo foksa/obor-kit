@@ -868,6 +868,30 @@ func CheckEffortOf(k Kind, args []string, effort string) error {
 	return nil
 }
 
+// LaneRefusal is why a lane's start (a worker's or the drive agent's: Start.StrictMCP) of the kind named kind would
+// refuse args, "" when it takes them or there is no such kind: a Split kind's StartEnv, a Whole kind's start built to
+// check its wiring (Start.Check). A plugin kind in described (one obor config validate just described) answers in place
+// of s's, whose manifest may not be cached. obor config validate reports a model whose args its kind refuses there.
+func (s Kinds) LaneRefusal(kind string, args []string, described map[string]Kind) string {
+	k := s.lookup(kind)
+	if d := described[kind]; d != nil {
+		k = d
+	}
+	switch t := k.(type) {
+	case Split:
+		if _, err := t.StartEnv(Start{Args: args, StrictMCP: true}); err != nil {
+			return err.Error()
+		}
+	case Whole:
+		// a check start (Start.Check): no file it names is written, WriteState giving no path, and no live CLI check runs.
+		noWrite := func(string, []byte) (string, error) { return "", nil }
+		if _, err := t.StartWhole(Start{Args: args, StrictMCP: true, Check: true, WriteState: noWrite}); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
+}
+
 // ModelEditor is a kind that names its model in the args (config.Model): WithModel is args with model in place
 // of the model they name (appended when they name none; "" drops it), every other arg as it is.
 type ModelEditor interface {

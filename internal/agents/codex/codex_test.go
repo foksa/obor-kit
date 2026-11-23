@@ -269,6 +269,7 @@ func TestStartEffort(t *testing.T) {
 		{"-m", "luna", "--config", "model_reasoning_effort = high", "-s", "workspace-write"},
 		{"-m", "luna", "-c=model_reasoning_effort=high", "-s", "workspace-write"},
 		{"-m", "luna", "--config=model_reasoning_effort=high", "-s", "workspace-write"},
+		{"-m", "luna", "-cmodel_reasoning_effort=high", "-s", "workspace-write"},
 		{"-m", "luna", "-s", "workspace-write"},
 	} {
 		got := k.Start(agents.Start{Args: args, Effort: "xhigh"})
@@ -650,8 +651,8 @@ func mentions(argv []string, s string) bool {
 }
 
 // a lane's start whose args set a key under mcp_servers (another server than the user's quoted one; -c or --config,
-// with = or not, dotted or the whole table; the type's args or agents.kinds.codex.args, which follow them) is refused,
-// the error naming the key and the project's .codex/config.toml.
+// with = or not, attached or not, dotted or the whole table; the type's args or agents.kinds.codex.args, which follow
+// them) is refused, the error naming the key and the project's .codex/config.toml.
 func TestStartLaneArgsMCPRefused(t *testing.T) {
 	const user = "[mcp_servers.\"private.server\"]\ncommand = \"u\"\n"
 	if _, err := (keyCase{user: user, lane: true}).start(t); err != nil {
@@ -664,6 +665,7 @@ func TestStartLaneArgsMCPRefused(t *testing.T) {
 		{[]string{"-a", "never", "-c", `mcp_servers.project.command="project"`}, "mcp_servers.project.command"},
 		{[]string{"--config", `mcp_servers.project.args=["x"]`}, "mcp_servers.project.args"},
 		{[]string{"-c=mcp_servers.project.command=\"p\""}, "mcp_servers.project.command"},
+		{[]string{"-a", "never", "-cmcp_servers.project.command=\"p\""}, "mcp_servers.project.command"},
 		{[]string{"-a", "never", "--config=mcp_servers={project={command=\"p\"}}"}, "mcp_servers"},
 		{[]string{"-a", "never", "-m", "gpt-6", "-c", " mcp_servers.x.enabled = true"}, "mcp_servers.x.enabled"},
 	} {
