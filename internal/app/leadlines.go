@@ -22,8 +22,8 @@ import (
 // hook call is handing, and a hook call hands no line the pass is posting.
 //
 // The hook's request names the instant its call ends (wire.LeadLinesReq.UntilMS): lines are recorded as handed only
-// while serve answers before then, and a request read after it hands nothing, leaving the lines queued for the next
-// hook or the inbox.
+// while serve answers leadLinesMargin before then, and a request read after that hands nothing, leaving the lines
+// queued for the next hook or the inbox.
 
 // leadLines is how lines reach p's lead now (under mu; agents.LeadLines): its kind (its identified pane's, else its
 // configured one) and whether its inbox record is live (Options.Inboxed, project.InboxLive); inbox: that kind has an
@@ -74,10 +74,10 @@ const byHooks = "its hooks hand it its lines at its next prompt or turn end"
 // first). One post's worth: an open post's members (a crash cut its result: handed again, as a post is posted again),
 // else every line queued for the lead that no post is sending. Only while the lead takes its lines through its hooks
 // (hookHeld): any other lead is refused (its inbox is live, its lines posted there; or its hooks do not act on the
-// answers, its lines waiting). The request names the instant its call ends (UntilMS): past it nothing is recorded as
-// handed, and the lines stay queued for the next hook or the inbox. A repeated call id gets the stored reply (a reply
-// lost on the way is handed again; a restart forgets it). No ack: sent means handed to the hook, as a post's means
-// handed to the socket.
+// answers, its lines waiting). The request names the instant its call ends (UntilMS): within leadLinesMargin of it
+// nothing is recorded as handed, and the lines stay queued for the next hook or the inbox. A repeated call id gets
+// the stored reply (a reply lost on the way is handed again; a restart forgets it). No ack: sent means handed to the
+// hook, as a post's means handed to the socket.
 func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodLeadLines + ": a call id is required")
@@ -133,8 +133,8 @@ func (a *App) leadLinesCall(c wire.LeadLinesReq) (string, error) {
 
 // handLines records the delivery of the post leadPost makes of qs (the lead's lines, claimed) as the hook's: its
 // intent, its result sent, each other member's own result; its text, one line per row ("": none to hand). untilMS is
-// the instant the hook's call ends (epoch milliseconds, 0: no deadline): past it nothing is recorded as handed, and
-// qs stay queued for the next hook or the inbox.
+// the instant the hook's call ends (epoch milliseconds, 0: no deadline): within leadLinesMargin of it nothing is
+// recorded as handed, and qs stay queued for the next hook or the inbox.
 func (a *App) handLines(p *proj, qs []outbox.Line, untilMS int64) (string, error) {
 	if len(qs) == 0 || a.callEnded(untilMS) {
 		return "", nil
@@ -160,8 +160,13 @@ func (a *App) handLines(p *proj, qs []outbox.Line, untilMS int64) (string, error
 	return strings.Join(text, "\n"), nil
 }
 
-// callEnded is the hook's call ended at untilMS (epoch milliseconds; 0: no deadline, an older binary): the hook is
-// gone, so nothing it asked for may be recorded as handed.
+// leadLinesMargin is how long before its call's end a hook's ask stops handing lines: the delivery's log write and the
+// reply's trip must finish before the hook's own timeout closes the call.
+const leadLinesMargin = 250 * time.Millisecond
+
+// callEnded is the hook's call ended, or too near its end to answer, at untilMS (epoch milliseconds; 0: no deadline, an
+// older binary): within leadLinesMargin of it the hook would give up before the delivery was written and the reply
+// arrived, so nothing it asked for may be recorded as handed.
 func (a *App) callEnded(untilMS int64) bool {
-	return untilMS > 0 && !a.opt.Now().Before(time.UnixMilli(untilMS))
+	return untilMS > 0 && !a.opt.Now().Add(leadLinesMargin).Before(time.UnixMilli(untilMS))
 }
