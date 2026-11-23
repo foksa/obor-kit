@@ -3,8 +3,9 @@
 # updates itself, so "a live tier at each agy upgrade" is no event anyone sees: this runs `make conformance TIER=live
 # KIND=agy TURN=1` (one model call, so the session hooks, MCP and inbox checks run) only when `agy --version` differs
 # from the version its last green live run recorded (.obor/state/agy-live-version), and records the version only when
-# that run exits 0, so a red tier runs again at the next nightly. The summary line starts with the command's name,
-# which is the line the nightly shows (make appends its failed-recipe trailer after it). POSIX sh.
+# that run has a passing row and no fail or skip, so a red tier or an all-skip one (herdr missing) runs again at the
+# next nightly. The summary line starts with the command's name, which is the line the nightly shows (make appends its
+# failed-recipe trailer after it). POSIX sh.
 set -eu
 
 # The record is the project's, not a worktree's: obor nightly runs this in its own worktree, and a lane typed into by
@@ -41,13 +42,25 @@ mkdir -p "$state"
 rc=0
 log=$(make conformance TIER=live KIND=agy TURN=1 2>&1) || rc=$?
 if [ -n "$log" ]; then printf '%s\n' "$log"; fi
-if [ "$rc" -eq 0 ]; then
-  printf '%s\n' "$version" > "$record"
-fi
 summary=$(printf '%s\n' "$log" | grep '^conformance: ' | tail -n 1) || summary=
+# The run's counts (`conformance: N pass, N fail, N skip, N warn`) decide the record: an all-skip run exits 0 with no
+# pass, and recording it would skip the tier at that version until agy changes again.
+recorded=0
+counts=$(printf '%s\n' "$summary" | sed -n 's/^conformance: \([0-9][0-9]*\) pass, \([0-9][0-9]*\) fail, \([0-9][0-9]*\) skip, [0-9][0-9]* warn$/\1 \2 \3/p')
+if [ -n "$counts" ]; then
+  set -- $counts
+  if [ "$1" -ge 1 ] && [ "$2" -eq 0 ] && [ "$3" -eq 0 ]; then
+    printf '%s\n' "$version" > "$record"
+    recorded=1
+  fi
+fi
 if [ -n "$summary" ]; then
-  echo "conformance_live: agy $version live tier: $summary"
+  if [ "$recorded" -eq 1 ]; then
+    echo "conformance_live: agy $version live tier: $summary"
+  else
+    echo "conformance_live: agy $version live tier not recorded: $summary"
+  fi
 else
-  echo "conformance_live: agy $version live tier: make conformance TIER=live KIND=agy TURN=1 exited $rc"
+  echo "conformance_live: agy $version live tier not recorded: make conformance TIER=live KIND=agy TURN=1 exited $rc"
 fi
 exit "$rc"
