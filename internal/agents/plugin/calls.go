@@ -39,7 +39,8 @@ const replyMax = 4 << 20
 // run is one call: req (its fields beside version and call) as JSON on the command's stdin, call as its one argument,
 // its stdout one JSON reply decoded into reply. The command runs as its own process group under the call's timeout. An
 // error names the kind and the call: a timeout, a non-zero exit (with its stderr's first line), a reply that does not
-// parse, names another version, or carries error.
+// parse, names another version, or carries error. A kind answered in process (Local) gets the same request from its
+// handler, no process: its error, or a panic, is the call's.
 func (k *Kind) run(call string, req map[string]any, reply any) error {
 	return k.runWithin(call, Timeouts[call], req, reply)
 }
@@ -58,7 +59,7 @@ func (k *Kind) runWithin(call string, limit time.Duration, req map[string]any, r
 		return fail("request: %v", err)
 	}
 	if k.local != nil {
-		out, err := k.local(call, in)
+		out, err := callLocal(k.local, call, in)
 		if err != nil {
 			return fail("%v", err)
 		}
@@ -88,6 +89,17 @@ func (k *Kind) runWithin(call string, limit time.Duration, req map[string]any, r
 		return fail("a reply over %d bytes", replyMax)
 	}
 	return decode(stdout.Bytes(), reply, fail)
+}
+
+// callLocal is h's reply to call's request in; a panic in h is the call's error (a binary's non-zero exit), so a broken
+// handler fails its call, never the process that runs it.
+func callLocal(h Handler, call string, in []byte) (out []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return h(call, in)
 }
 
 // decode is the reply out into reply: an error (fail's) when it does not parse, names no or another version, or carries

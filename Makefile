@@ -51,7 +51,7 @@ RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 .PHONY: build test conformance conformance-live trim-go-cache check check-affected check-compile check-retest check-race check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 # build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>; obor
-# runs a kit kind from the directory of its own executable, config.KitKind).
+# itself answers its kit kinds in process and runs none of these binaries).
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o $(OUT) ./cmd/obor
 	@for k in $(KINDS); do \

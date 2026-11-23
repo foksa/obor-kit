@@ -1,7 +1,8 @@
 //go:build conformance
 
 // The static tier of the kind protocol (docs/agents/kind-protocol.md): obor's plugin package against a plugin
-// kind written as a shell script (kindplugin/obor-kind-shell), every call. No CLI, no session.
+// kind written as a shell script (kindplugin/obor-kind-shell), every call, and against a kit kind (agy) built as a
+// binary and named by its path, as a third-party kind runs. No CLI, no session.
 package main
 
 import (
@@ -21,7 +22,8 @@ const (
 )
 
 // pluginStatic is the plugin kind's static tier: P-S1 describe and its cache, P-S2 start, P-S3 not-ready, P-S4
-// install, P-S5 turn, P-S6 deliver, P-S7 the cached manifest answering with the command gone (hook time).
+// install, P-S5 turn, P-S6 deliver, P-S7 the cached manifest answering with the command gone (hook time), P-S8 a kit
+// kind built as a binary (obor answers it in process; named by a path it runs as a command).
 func pluginStatic() {
 	where := func(needle string) string { return at(pluginGo, needle) + ", kind-protocol.md" }
 	check := func(id, fact string, ok bool, why string, w string) {
@@ -110,4 +112,45 @@ func pluginStatic() {
 	check("P-S7", "a call that runs the command fails naming the kind and the call once the command is gone",
 		err != nil && strings.HasPrefix(err.Error(), "kind shell: describe: "), fmt.Sprint(err),
 		at("internal/agents/plugin/plugin.go", "func (k *Kind) manifest"))
+
+	kitBinary(tmp)
+}
+
+// kitBinary is P-S8: kinds/agy built as a binary and named as a plugin path answers describe (its manifest cached)
+// and start (the settings file written, its path in the argv, the prompt), through obor's plugin package as any
+// project's own kind runs.
+func kitBinary(tmp string) {
+	w := at(pluginGo, "func (k *Kind) run") + ", kinds/agy"
+	bin, state, home := filepath.Join(tmp, "agy-bin", "obor-kind-agy"), filepath.Join(tmp, "agy-state"), filepath.Join(tmp, "agy-home")
+	if o, err := output(3*time.Minute, "go", "build", "-o", bin, "./kinds/agy"); err != nil {
+		report("FAIL", "P-S8", "go build ./kinds/agy: "+err.Error()+": "+firstLine(o), w)
+		return
+	}
+	if plugin.InProcess(bin) {
+		report("FAIL", "P-S8", "precondition: the binary's path is answered in process", w)
+		return
+	}
+	k, err := plugin.Cache("agy", bin, state)
+	if err != nil {
+		report("FAIL", "P-S8", "describe: "+err.Error(), w)
+		return
+	}
+	_, cacheErr := os.Stat(plugin.CacheFile(state, "agy"))
+	if c := k.Caps(); c.Hooks != agents.HooksPlugin || !c.Resume || cacheErr != nil {
+		report("FAIL", "P-S8", fmt.Sprintf("describe: caps %+v, cache %v; want agy's (hooks plugin, resume), cached", c, cacheErr), w)
+		return
+	}
+	env := func(v string) string {
+		if v == "HOME" {
+			return home
+		}
+		return ""
+	}
+	l, err := agents.StartOf(k, agents.Start{Kit: "/kit", Prompt: "hello", Env: env, Dir: tmp, Root: tmp})
+	args := strings.Join(l.Args, " ")
+	if err != nil || !strings.HasPrefix(args, "--settings "+state+"/") || !strings.HasSuffix(args, " -i hello") {
+		report("FAIL", "P-S8", fmt.Sprintf("start: args %q, err %v; want --settings <its file in the state dir> … -i hello", l.Args, err), w)
+		return
+	}
+	report("PASS", "P-S8", "a kit kind (agy) built as a binary and named as a plugin path answers describe and start", w)
 }

@@ -397,8 +397,8 @@ type Headless struct {
 	Flags       []string // long flags that run it headless (`--prompt`, a print alias), either spelling, before `--`
 }
 
-// ExeVar is the variable obor kind sets, for the kit kind binary it execs, to its own executable: the obor a kind's
-// hook transport runs obor hook on.
+// ExeVar is the variable obor kind sets to its own executable before it runs a kit kind's call in process: the obor a
+// kind's hook transport runs obor hook on.
 const ExeVar = "OBOR_EXE"
 
 // ProjectMCPFile is the project file where a kind registers MCP servers beside the project's own (Install's Where

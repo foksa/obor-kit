@@ -18,7 +18,7 @@ import (
 )
 
 // The hook transport (docs/agents/kind-protocol.md "Hook transport"): the project's committed HooksFile runs
-// `obor kind agy hook` for each of agy's events, which execs this binary's `hook` call with the event on stdin. It
+// `obor kind agy hook` for each of agy's events, which runs this kind's `hook` call in process with the event on stdin. It
 // rewrites agy's event as Claude Code's, runs `obor hook <name>` and rewrites the answer as agy's
 // (docs/research/agent-kinds-advice.md §1.6). No obor rule lives here: the table below holds agy's facts (which tool
 // the guard can check, which only reads, which obor cannot guard and why), and obor hook decides every call it does
@@ -50,8 +50,8 @@ import (
 // it), relative to its root: agy's workspace hooks, loaded with no prompt in a trusted folder.
 const HooksFile = ".agents/hooks.json"
 
-// HookCommand is the command each of HooksEntry's handlers runs: the obor on the agent's PATH, which execs the kit's
-// kind binary (obor kind).
+// HookCommand is the command each of HooksEntry's handlers runs: the obor on the agent's PATH, which runs the
+// transport in process (obor kind).
 const HookCommand = "obor kind agy hook"
 
 // HookTimeout bounds obor hook: agy kills a hook after the entry's timeout (HookTimeoutSeconds), and the transport
@@ -326,8 +326,8 @@ func answer(v map[string]any) []byte {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// RunHook is the binary's hook call: agy's event on stdin, the answer on stdout, exit 0. obor is the executable
-// agents.ExeVar names ("": every run fails, naming the variable: the binary runs as obor kind agy hook).
+// RunHook is the kind's hook call: agy's event on stdin, the answer on stdout, exit 0. obor is the executable
+// agents.ExeVar names ("": every run fails, naming the variable: the call runs as obor kind agy hook).
 func RunHook(stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	in, _ := io.ReadAll(stdin)
 	dir, _ := os.Getwd()

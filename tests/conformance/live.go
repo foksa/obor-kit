@@ -297,8 +297,8 @@ func (l *lab) makeProject() error {
 	return nil
 }
 
-// kitKind builds the kit kind name's binary (kinds/<name>) into the scratch dir, as `make build` puts it beside
-// obor: the lab's kind is that plugin kind, run through obor's plugin package.
+// kitKind builds the kit kind name's binary (kinds/<name>) into the scratch dir: the lab's kind is that binary, named
+// by its path and run through obor's plugin package (the lab's obor answers the kit's own name in process).
 func (l *lab) kitKind(name string) (string, error) {
 	exe := filepath.Join(l.root, "bin", "obor-kind-"+name)
 	if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./kinds/"+name); err != nil {

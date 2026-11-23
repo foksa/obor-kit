@@ -9,20 +9,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"obor/internal/agents"
 	// the compiled agent kinds (agents.Kind): each registers itself
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	// the plugin kinds a config names (kinds.<name>.command), OpenCode's the kit's binary
+	// the plugin kinds a config names (kinds.<name>.plugin); the kit's own answer in process (kinds.go)
 	_ "obor/internal/agents/plugin"
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -307,42 +304,6 @@ func hook(args []string) int {
 	}
 	errf("%s", help.Usage("hook"))
 	return 2
-}
-
-// kindCmd is `obor kind <name> [args…]`: exec the kit's binary of plugin kind name (config.KitKinds, beside this obor:
-// config.KitKind) with args, this obor's executable in agents.ExeVar (agy's hook transport runs obor hook on it). agy's
-// .agents/hooks.json runs obor kind agy hook. An unknown name, or a binary that does not run: exit 2.
-func kindCmd(args []string) int {
-	if len(args) == 0 {
-		errf("%s", help.Usage("kind"))
-		return 2
-	}
-	bin, ok := config.KitKinds[args[0]]
-	if !ok {
-		errf("obor kind: %q is no kit kind (%s)", args[0], strings.Join(slices.Sorted(maps.Keys(config.KitKinds)), ", "))
-		return 2
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		errf("obor kind %s: this obor's executable: %v", args[0], err)
-		return 2
-	}
-	path := config.KitKind(bin)
-	err = syscall.Exec(path, append([]string{path}, args[1:]...), kindEnv(os.Environ(), exe))
-	errf("obor kind %s: %s: %v", args[0], path, err)
-	return 2
-}
-
-// kindEnv is environ with agents.ExeVar set to exe, the environment `obor kind` execs a kit kind with: an entry
-// environ inherited is replaced, never left beside this one (a reader takes the first match, the stale value).
-func kindEnv(environ []string, exe string) []string {
-	out := make([]string, 0, len(environ)+1)
-	for _, kv := range environ {
-		if !strings.HasPrefix(kv, agents.ExeVar+"=") {
-			out = append(out, kv)
-		}
-	}
-	return append(out, agents.ExeVar+"="+exe)
 }
 
 // stopFailure is the StopFailure hook: the log line (guard.StopFailure), then one request to the project's

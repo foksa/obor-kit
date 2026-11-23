@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
@@ -125,30 +124,23 @@ func initEnv(t *testing.T, more map[string]string) (env []string, log, home stri
 	return env, log, home
 }
 
-// obor init in a clean project with the kit binary (the real obor-kind-opencode and obor-kind-agy beside obor)
-// caches the kit kinds' manifests (OpenCode's checked here) before its panes; init in a project whose integrator is OpenCode's (its pane's start
-// built from the manifest) succeeds, obor setup mcp --model deepseek works there with no hand step, and so does the
+// obor init in a clean project answers the kit kinds in process: its kinds step caches nothing (no kind binary beside
+// obor, no manifest in the state dir); init in a project whose integrator is OpenCode's (its pane's start built from
+// the in-process manifest) succeeds, obor setup mcp --model deepseek works there with no hand step, and so does the
 // rerun.
-func TestInitCachesThePluginKinds(t *testing.T) {
+func TestInitAnswersTheKitKindsInProcess(t *testing.T) {
 	t.Parallel()
-	cacheOf := func(p *testkit.Project) string {
-		return filepath.Join(p.Root, ".obor", "state", "kinds", "opencode.json")
+	if _, err := os.Stat(filepath.Join(filepath.Dir(oborBin), "obor-kind-opencode")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: no kind binary beside obor (%v)", err)
 	}
 	initIn := func(p *testkit.Project, env []string, what string) {
 		t.Helper()
-		if _, err := os.Stat(cacheOf(p)); !os.IsNotExist(err) {
-			t.Fatalf("%s: precondition: no manifest cached (%v)", what, err)
-		}
 		rc, stdout, stderr := run(t, p.Root, env, "init")
-		// the config's own plugin kinds first, then the kit kinds it names none for (config.PluginKinds)
-		if rc != 0 || !strings.Contains(stdout, "  kinds      done     agy, opencode: manifest cached") &&
-			!strings.Contains(stdout, "  kinds      done     opencode, agy: manifest cached") {
+		if rc != 0 || !strings.Contains(stdout, "  kinds      skipped  no plugin kinds to cache") {
 			t.Fatalf("%s: exit %d\n%s%s", what, rc, stdout, stderr)
 		}
-		b, err := os.ReadFile(cacheOf(p))
-		var c struct{ Command string }
-		if err != nil || json.Unmarshal(b, &c) != nil || filepath.Base(c.Command) != "obor-kind-opencode" {
-			t.Fatalf("%s: cached %q (%v), want the kit's obor-kind-opencode", what, b, err)
+		if _, err := os.Stat(filepath.Join(p.Root, ".obor", "state", "kinds")); !os.IsNotExist(err) {
+			t.Errorf("%s: a manifest cached (%v); want none", what, err)
 		}
 	}
 
@@ -166,9 +158,6 @@ func TestInitCachesThePluginKinds(t *testing.T) {
 	}
 	if rc, stdout, stderr := run(t, oc.Root, env, "setup", "mcp", "--model", "deepseek"); rc != 0 {
 		t.Errorf("obor setup mcp --model deepseek: exit %d\n%s%s", rc, stdout, stderr)
-	}
-	if err := os.Remove(cacheOf(oc)); err != nil { // the rerun caches it again itself
-		t.Fatal(err)
 	}
 	initIn(oc, env, "its rerun")
 }

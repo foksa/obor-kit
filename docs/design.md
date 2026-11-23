@@ -1015,12 +1015,12 @@ what: context` reads the file's last line, so the handoff reminder and a keep la
 number. A child session's steps and another directory's sessions write none.
 
 ## agy lanes
-agy (Antigravity CLI) is a kit kind, `kinds/agy` (`obor-kind-agy`), wired by files the project commits, never by
-anything user-level: `.agents/mcp_config.json` holds `mcpServers.obor` = `obor mcp`, the `obor` on the agent's
-`PATH` (the server inherits the agent's role, lane and pane), and `.agents/hooks.json` the named hook `obor`, whose
-handlers (SessionStart, PreInvocation, Stop, and PreToolUse matching every tool) run `obor kind agy hook`: that obor
-execs the kit's `obor-kind-agy hook`, which rewrites agy's event as Claude Code's, runs `obor hook <name>` on the same
-obor and rewrites the answer (`kinds/agy/kind/hook.go`; no rule lives there). Its tool table maps `run_command`,
+agy (Antigravity CLI) is a kit kind, `kinds/agy`, linked into obor (answered in process), wired by files the project
+commits, never by anything user-level: `.agents/mcp_config.json` holds `mcpServers.obor` = `obor mcp`, the `obor` on
+the agent's `PATH` (the server inherits the agent's role, lane and pane), and `.agents/hooks.json` the named hook
+`obor`, whose handlers (SessionStart, PreInvocation, Stop, and PreToolUse matching every tool) run `obor kind agy hook`:
+that obor runs agy's hook transport in process, which rewrites agy's event as Claude Code's, runs `obor hook <name>`
+on the same obor and rewrites the answer (`kinds/agy/kind/hook.go`; no rule lives there). Its tool table maps `run_command`,
 `write_file`, `edit_file` to the guard's shell and write events and `call_mcp_tool`/`list_resources`/`read_resource` to
 `mcp`; the tools obor cannot guard (`run_workflow`: a script with no hook; `swarm`; `invoke_subagent`: a child's session
 cannot be told from the agent's) and any tool it does not know go to the guard as `unguarded` with agy's reason, and the

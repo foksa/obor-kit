@@ -522,6 +522,58 @@ func TestEnsure(t *testing.T) {
 	}
 }
 
+// A kind answered in process: the loader picks Local by the config's command, not the kind's name. The registered
+// command is answered by its handler (manifest from its describe, nothing cached; Ensure, Cache and Check run no
+// process and write nothing); another command for the same name runs (no handler call: a loaded kind with no cache
+// is uncached). A handler that panics fails its call with an error naming the kind and the call; the process lives.
+func TestLocalByCommand(t *testing.T) {
+	const local = "obor-kind-stub-linked"
+	var got []string
+	plugin.Local[local] = func(call string, req []byte) ([]byte, error) {
+		got = append(got, call)
+		if call == "start" {
+			panic("boom")
+		}
+		return []byte(manifest), nil
+	}
+	t.Cleanup(func() { delete(plugin.Local, local) })
+	state := t.TempDir()
+	if !plugin.InProcess(local) || plugin.InProcess(stubCmd) {
+		t.Fatalf("precondition: InProcess(%s) %v, InProcess(%s) %v", local, plugin.InProcess(local), stubCmd,
+			plugin.InProcess(stubCmd))
+	}
+
+	k := agents.Plugins.Kind("stub", local, state)
+	if c := k.Caps(); !c.Resume || c.Status != agents.StatusTranscript || !slices.Equal(got, []string{"describe"}) {
+		t.Errorf("in process: caps %+v, calls %q; want the handler's manifest from one describe", c, got)
+	}
+	if wrote, err := plugin.Ensure("stub", local, state); wrote || err != nil {
+		t.Errorf("Ensure in process: wrote %v, %v; want nothing", wrote, err)
+	}
+	if _, err := plugin.Cache("stub", local, state); err != nil {
+		t.Errorf("Cache in process: %v", err)
+	}
+	if _, err := agents.Plugins.Check("stub", local); err != nil {
+		t.Errorf("Check in process: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(state, "kinds")); !os.IsNotExist(err) {
+		t.Errorf("in process: something cached (%v); want nothing", err)
+	}
+
+	_, err := k.(agents.Whole).StartWhole(agents.Start{})
+	if err == nil || !strings.HasPrefix(err.Error(), "kind stub: start: panic: boom") {
+		t.Errorf("a handler that panics: %v; want the call's error naming the kind", err)
+	}
+
+	got = nil
+	stub(t, reply(manifest), reply(`{"version":1}`))
+	other := agents.Plugins.Kind("stub", stubCmd, state)
+	if err := other.(agents.Uncached).Uncached(); err == nil || len(got) != 0 {
+		t.Errorf("another command: Uncached %v, handler calls %q; want the command's kind (no cache), no handler call",
+			err, got)
+	}
+}
+
 // TestManifestChecks: describe's reply is refused when it names another kind, version or status, a bad pattern, or
 // an override file that is no file name.
 func TestManifestChecks(t *testing.T) {

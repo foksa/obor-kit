@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/spec"
@@ -114,7 +115,7 @@ func TestValidate(t *testing.T) {
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""})}},
 		// a kit kind's binary is the default (no FAIL for a missing plugin): a config that uses OpenCode (the
 		// default levels' deepseek) with no agents.kinds.opencode.plugin validates clean.
-		{name: "no agents.kinds.opencode.plugin, OpenCode used: the kit's binary, clean", edits: []edit{del("agents.kinds")}},
+		{name: "no agents.kinds.opencode.plugin, OpenCode used: answered in process, clean", edits: []edit{del("agents.kinds")}},
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
 			want: []string{"FAIL .agents.models.cur.kind: required (agy, claude, codex, opencode)"}},
 		// every entry names its kind, one obor init's starter list has too; a ref to it says the kind is missing.
@@ -619,6 +620,57 @@ func TestPluginKind(t *testing.T) {
 	}
 	if _, ok := without.Kind("mine"); ok {
 		t.Error("a config without kinds.mine has kind mine")
+	}
+}
+
+// A kit kind (agy, OpenCode) with no plugin, or one naming its kit binary, is answered in process: its kind has the
+// manifest with nothing cached, and serve's cache step (plugin.Ensure) runs nothing (an executable of that name at
+// the root is never run). A plugin naming another path runs that command.
+func TestKitKindInProcess(t *testing.T) {
+	for _, kind := range []string{"agy", "opencode"} {
+		bin := "obor-kind-" + kind
+		p := newProject(t)
+		log := filepath.Join(p.Root, "runs")
+		script := "#!/bin/sh\necho \"$1\" >>" + log + "\ncat >/dev/null\necho '{\"version\":1,\"name\":\"" + kind +
+			"\",\"status\":\"terminal\"}'\n"
+		for _, f := range []string{bin, "own-" + kind} {
+			if err := os.WriteFile(filepath.Join(p.Root, f), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, c := range []struct {
+			name, plugin string
+			linked       bool
+		}{{"no plugin", "", true}, {"the kit binary", bin, true}, {"another path", "own-" + kind, false}} {
+			os.Remove(log)
+			os.RemoveAll(filepath.Join(p.Root, ".obor", "state"))
+			if c.plugin == "" {
+				p.Config()
+			} else {
+				p.Config(set("agents.kinds."+kind, map[string]any{"plugin": c.plugin}))
+			}
+			cfg, err := config.Load(p.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			k, ok := cfg.Kind(kind)
+			if !ok || !cfg.Kinds().IsPlugin(kind) {
+				t.Fatalf("%s, %s: precondition: a plugin kind %s (%v)", kind, c.name, kind, ok)
+			}
+			wrote, err := plugin.Ensure(kind, cfg.KindCommand(kind), cfg.StateDir())
+			runs, _ := os.ReadFile(log)
+			_, cached := os.Stat(plugin.CacheFile(cfg.StateDir(), kind))
+			switch {
+			case c.linked && (k.(agents.Uncached).Uncached() != nil || k.Caps().Status == ""):
+				t.Errorf("%s, %s: the kind has no manifest: %v", kind, c.name, k.(agents.Uncached).Uncached())
+			case c.linked && (wrote || err != nil || len(runs) != 0 || cached == nil):
+				t.Errorf("%s, %s: Ensure wrote %v (%v), runs %q, cache %v; want in process: nothing run or cached",
+					kind, c.name, wrote, err, runs, cached)
+			case !c.linked && (!wrote || err != nil || string(runs) != "describe\n" || cached != nil):
+				t.Errorf("%s, %s: Ensure wrote %v (%v), runs %q, cache %v; want the command's describe, cached",
+					kind, c.name, wrote, err, runs, cached)
+			}
+		}
 	}
 }
 

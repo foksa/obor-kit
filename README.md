@@ -237,7 +237,7 @@ The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templ
 ```
 bin/obor           the CLI shim: finds or downloads the Go binary and runs it
 cmd/obor, internal Go source (make build → dist/obor; make check → the full suite: nightly, before a release)
-kinds/             the OpenCode kind plugin, its own Go binary (obor-kind-opencode)
+kinds/             the kit's plugin kinds (OpenCode, agy), linked into obor and answered in process
 opencode/          the OpenCode guard plugin
 skills/            Claude Code skills: lead, setup
 hooks/             Claude Code hook wiring (every hook is `obor hook <name>`)

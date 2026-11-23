@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -94,44 +93,23 @@ type KindEntry struct {
 // note.
 func (c *Config) KindEntry(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
 
-// KitKinds are the plugin kinds the kit ships, by name: the binary each runs as, beside obor's own (KitKind).
-// A config naming no agents.kinds.<name>.plugin for one runs the kit's binary; setting the line overrides it.
+// KitKinds are the plugin kinds the kit ships, by name: the name of the binary each also builds as, which obor
+// answers in process (plugin.Local). A config naming no agents.kinds.<name>.plugin for one, or that name, has the
+// kit's; any other plugin replaces it.
 var KitKinds = map[string]string{"agy": "obor-kind-agy", "opencode": "obor-kind-opencode"}
 
-// KindCommand is agents.kinds.<name>.plugin as a path ("": name is no plugin kind of this config): the name of a
-// binary the kit ships (a KitKinds value) is that binary (KitKind), any other relative path relative to the project
-// root. A kit kind with no plugin is the kit's (KitKinds).
+// KindCommand is agents.kinds.<name>.plugin as the command obor runs ("": name is no plugin kind of this config): a
+// kit kind with no plugin, or naming its kit binary, is that binary's name as it is (KitKinds: obor answers it in
+// process), any other relative path relative to the project root.
 func (c *Config) KindCommand(name string) string {
-	cmd := c.Data.Agents.Kinds.M[name].Plugin
-	if cmd == "" {
-		cmd = KitKinds[name]
-	}
-	switch {
-	case cmd == "" || filepath.IsAbs(cmd):
+	switch cmd := c.Data.Agents.Kinds.M[name].Plugin; {
+	case cmd == "" || cmd == KitKinds[name]:
+		return KitKinds[name]
+	case filepath.IsAbs(cmd):
 		return cmd
-	case slices.Contains(slices.Collect(maps.Values(KitKinds)), cmd):
-		return KitKind(cmd)
+	default:
+		return filepath.Join(c.Root, cmd)
 	}
-	return filepath.Join(c.Root, cmd)
-}
-
-// KitKind is the path of the kind binary name the kit ships beside this obor's executable: dist/obor's
-// dist/<name>, a release binary obor-<v>-<os>-<arch>'s <name>-<v>-<os>-<arch> in the same directory. An executable obor
-// cannot find leaves name as it is (the kind's describe then fails naming it).
-func KitKind(name string) string {
-	exe, err := os.Executable()
-	if err != nil {
-		return name
-	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
-	}
-	base := filepath.Base(exe)
-	suffix := ""
-	if strings.HasPrefix(base, "obor-") {
-		suffix = strings.TrimPrefix(base, "obor")
-	}
-	return filepath.Join(filepath.Dir(exe), name+suffix)
 }
 
 // PluginKinds are this config's plugin kinds: each agents.kinds.<name> with a plugin, in config order, then each kit

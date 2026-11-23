@@ -229,38 +229,24 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
 }
 
-// obor setup agents caches the kit kind's manifest as the command the config resolves to
-// (config.KindCommand: the kit's binary) and writes nothing to .obor/config.json — a shape-2 file
-// gets no unneeded uncommitted edit. A file holding a key this obor does not know keeps its bytes too.
-func TestSetupAgentsCachesTheKitKindWithoutWriting(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		doc  string
-	}{
-		{"shape 2", `{"version": 2, "project": {"name": "proj", "agent_prefix": "pj"},` +
-			` "branches": {"promote": "release"}}` + "\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			x := newFx(t)
-			path := filepath.Join(x.Root, ".obor", "config.json")
-			x.Write(".obor/config.json", tc.doc)
-			cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
-			if x.Exists(cache) {
-				t.Fatal("precondition: a manifest cached before setup agents")
-			}
-			out := x.ok(t, "agents")
-			has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
-			var c struct {
-				Command string `json:"command"`
-			}
-			want := config.KitKind(config.KitKinds["opencode"])
-			if b, err := os.ReadFile(cache); err != nil || json.Unmarshal(b, &c) != nil || c.Command != want {
-				t.Errorf("cache %s: %s, %v; want the kit's binary %s", cache, b, err, want)
-			}
-			if b, err := os.ReadFile(path); err != nil || string(b) != tc.doc {
-				t.Errorf("config after setup agents:\n%s, %v; want it unchanged", b, err)
-			}
-		})
+// obor setup agents caches nothing for a kit kind (obor answers it in process) and writes nothing to
+// .obor/config.json — a shape-2 file gets no unneeded uncommitted edit. A file holding a key this obor does not know
+// keeps its bytes too.
+func TestSetupAgentsCachesNoKitKind(t *testing.T) {
+	x := newFx(t)
+	doc := `{"version": 2, "project": {"name": "proj", "agent_prefix": "pj"}, "branches": {"promote": "release"}}` + "\n"
+	path := filepath.Join(x.Root, ".obor", "config.json")
+	x.Write(".obor/config.json", doc)
+	cache := filepath.Join(x.Root, ".obor", "state", "kinds")
+	if x.Exists(cache) {
+		t.Fatal("precondition: a manifest cached before setup agents")
+	}
+	out := x.ok(t, "agents")
+	if strings.Contains(out, "manifest of") || x.Exists(cache) {
+		t.Errorf("setup agents cached a kit kind:\n%s", out)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != doc {
+		t.Errorf("config after setup agents:\n%s, %v; want it unchanged", b, err)
 	}
 }
 
@@ -435,6 +421,9 @@ func TestSetupMCPLaneChecksTheStart(t *testing.T) {
 	names := func(t *testing.T) []string {
 		t.Helper()
 		entries, err := os.ReadDir(state)
+		if os.IsNotExist(err) { // nothing cached: the kit's kinds are answered in process
+			return nil
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

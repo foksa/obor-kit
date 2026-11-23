@@ -54,8 +54,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   the manifest obor serve, `obor init` or `obor setup agents` cached (`plugin.Ensure`, `plugin.Cache`,
   `.obor/state/kinds/<name>.json`): no process runs at load. The loaded config holds them (`cfg.Kinds()`,
   `cfg.Kind(name)`); a load changes no package state (boundary test).
-  Base, not bridge: it runs processes and writes the cache. `Local`: a kind answered in process by its own Go
-  handler instead of its command (testkit's OpenCode; empty in obor).
+  Base, not bridge: it runs processes and writes the cache. `Local`: the commands answered in process by a Go
+  handler instead of a process, by the command a config names (the kit's kinds under their binary's name, which
+  `cmd/obor`'s `kinds.go` registers; testkit's in a test binary); any other command runs.
 - `help`: the one list of obor commands (`help.Commands`: name, usage, description, group), printed by
   `obor help` and shown by obor web's Help page, and README's "Install" and "Set up a project" sections (`Sections`).
 - `selfexec`: a long-running obor process follows a new obor binary: `Candidate` (the binary the kit's shim
@@ -88,8 +89,8 @@ turns come from: `terminal`, `hooks`, `transcript`; `App`, the name its agents r
 `Start(Start) []string`, the fresh/resume argv, MCP registration and first prompt, `Start.Read` the adapter's file read;
 `StartEnv`, a start's own env) or `agents.Whole` (a plugin kind's one start call: its argv, env and files together;
 a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds alone, each registered from its init; a
-project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode's and agy's
-the kit's binaries, `kinds/opencode`, `kinds/agy`), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
+project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode and agy the
+kit's, `kinds/opencode`, `kinds/agy`, answered in process), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
 built once at the launch boundary from the complete `agents.Start` (`agents.StartOf`), and a plugin kind's start and
 install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A project's kinds:
@@ -97,18 +98,19 @@ take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODE
 `config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges and the kind binaries (boundary test).
 Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `kinds.<name>.command`.
 
-**kind binaries** — `kinds/opencode`: the OpenCode kind as the reference plugin kind, its own
-binary `obor-kind-opencode` (`main.go`: stdin → `kind.Handle` → stdout) beside obor's. Package `kinds/opencode/kind` is
+**kind binaries** — `kinds/opencode`: the OpenCode kind as the reference plugin kind, linked into obor (its
+`kind.Handle` in `plugin.Local`, its `kind.Main` as `obor kind opencode`: `cmd/obor/kinds.go`) and also built as its own
+binary `obor-kind-opencode` (`main.go`: stdin → `kind.Handle` → stdout), which obor does not run. Package `kinds/opencode/kind` is
 the kind: the manifest, `start` (the args without `--model`, `--prompt`; `OBOR_OPENCODE_MODEL` model#effort and
 `OPENCODE_CONFIG`, the generated config with obor's MCP server and plugin `<kit>/opencode`), `turn` (a `rate_limit`'s
 reset; no turn, session or context read), `project-warnings`. It imports `agents` only (`Pin`, `ResetIn`); testkit
-registers its handler in process (`plugin.Local`). `kinds/agy` (`obor-kind-agy`), the same shape: package
+registers its handler in a test binary. `kinds/agy` (`obor-kind-agy`), the same shape: package
 `kinds/agy/kind` is the manifest, `start` (`--settings` with the start's settings file, `settings.go`: the user's saved
 agy settings, the project's `settings_override.json` and obor's entries; the model and `--effort`; `-i` or
 `--conversation`), `install` (`where: project`, `.agents/mcp_config.json` and `.agents/hooks.json`), `turn` (`context`
 from `transcript.jsonl`, a limit's reset), `deliver` (`deliver.go`: agy's `agentapi send-message` with the record an
-agent's `obor` command wrote), and the hook transport (`hook.go`: the binary's `hook` call, which `obor kind
-agy hook` execs; agy's event → `obor hook <name>` → agy's answer).
+agent's `obor` command wrote), and the hook transport (`hook.go`: the `hook` call, which `obor kind agy hook` runs in
+process; agy's event → `obor hook <name>` → agy's answer).
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

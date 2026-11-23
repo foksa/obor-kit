@@ -5,7 +5,8 @@
 // manifest answers (caps, stop, headless forms, the transcript glob, the inbox record) is read from that cache, never by
 // running the command: hooks and the guard load the config, and hook time stays the binary's own; without a cache the
 // guard denies the kind's program outright. The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
-// the command changed (its mtime, or another path) since the cache was written.
+// the command changed (its mtime, or another path) since the cache was written. A command this binary links (Local: the
+// kit's own kinds, by their binary's name) is answered in process: no process runs and nothing is cached.
 package plugin
 
 import (
@@ -207,9 +208,13 @@ func New(name, command, stateDir string) *Kind {
 }
 
 // Cache runs kind name's describe, writes its manifest to stateDir's cache and returns the kind (obor setup agents,
-// obor init).
+// obor init). A command answered in process (Local) is described by its handler and caches nothing.
 func Cache(name, command, stateDir string) (*Kind, error) {
-	k := &Kind{name: name, command: command, stateDir: stateDir, local: Local[name]}
+	if h := Local[command]; h != nil {
+		k := local(name, stateDir, h)
+		return k, k.missing
+	}
+	k := &Kind{name: name, command: command, stateDir: stateDir}
 	if err := k.describe(); err != nil {
 		return nil, err
 	}
@@ -220,7 +225,7 @@ func Cache(name, command, stateDir string) (*Kind, error) {
 // command, another mtime: obor serve); wrote says it described. A kind answered in process (Local) caches
 // nothing: it needs no cache.
 func Ensure(name, command, stateDir string) (wrote bool, err error) {
-	if Local[name] != nil {
+	if Local[command] != nil {
 		return false, nil
 	}
 	if b, err := os.ReadFile(CacheFile(stateDir, name)); err == nil {
@@ -240,14 +245,11 @@ func Ensure(name, command, stateDir string) (wrote bool, err error) {
 
 // describe runs describe and makes its manifest k's and the cache's. Called with k.mu held, or before k is shared.
 func (k *Kind) describe() error {
-	var mtime time.Time // a Local kind's: none
-	if k.local == nil {
-		fi, err := executable(k.command)
-		if err != nil {
-			return fmt.Errorf("kind %s: describe: %v", k.name, err)
-		}
-		mtime = fi.ModTime()
+	fi, err := executable(k.command)
+	if err != nil {
+		return fmt.Errorf("kind %s: describe: %v", k.name, err)
 	}
+	mtime := fi.ModTime()
 	var raw json.RawMessage
 	if err := k.run("describe", nil, &raw); err != nil {
 		return err
@@ -318,9 +320,13 @@ func (k *Kind) cached() *manifest {
 // binary's non-zero exit).
 type Handler func(call string, req []byte) ([]byte, error)
 
-// Local are the kinds this binary answers in process, by name, in place of their command: a test binary has no built
-// kind binary, so testkit puts OpenCode's own handler here (kinds/opencode/kind.Handle). Empty in obor.
+// Local are the commands this binary answers in process, by the command a config names (config.KindCommand): a kind
+// whose command is one of them gets its handler, never a process. obor links the kit's kinds here by their binary's
+// name (cmd/obor's kitKinds); a test binary has testkit's (agy with a fixed model list). Any other command runs.
 var Local = map[string]Handler{}
+
+// InProcess: command is answered in process (Local), so it runs nothing and needs no cache.
+func InProcess(command string) bool { return Local[command] != nil }
 
 // local is kind name answered by h: its manifest from h's describe, nothing cached; a describe that fails leaves it
 // without a manifest (missing says why).
@@ -339,16 +345,16 @@ func local(name, stateDir string, h Handler) *Kind {
 type loader struct{}
 
 func (loader) Kind(name, command, stateDir string) agents.Kind {
-	if h := Local[name]; h != nil {
+	if h := Local[command]; h != nil {
 		return local(name, stateDir, h)
 	}
 	return New(name, command, stateDir)
 }
 
 // Check: command is executable and its describe answers with a manifest of kind name; the kind with that manifest
-// (nothing is cached: the cache stays setup's).
+// (nothing is cached: the cache stays setup's). A command answered in process (Local) is described by its handler.
 func (loader) Check(name, command string) (agents.Kind, error) {
-	if h := Local[name]; h != nil {
+	if h := Local[command]; h != nil {
 		k := local(name, "", h)
 		return k, k.missing
 	}
