@@ -506,9 +506,10 @@ func TestStartTrimUserSkills(t *testing.T) {
 // a lane's start (a worker, the owner's drive agent: StrictMCP) switches off each MCP server of the user's
 // config.toml ($CODEX_HOME or ~/.codex) that the project does not declare, each by Codex's own key `enabled = false`,
 // obor's own never; a lead's or a role agent's start switches off none. The project declares a server by name in its
-// .codex/config.toml, in config_override.toml or in the type's args, and a name the override sets is left to it. A
-// name that needs quotes is one inline table at mcp_servers, before the override's options and the trim (a dotted key
-// cannot carry a quoted part), and none is passed under mcp_servers when the type's args set a key there.
+// .codex/config.toml, in config_override.toml or in the type's args, a name with a space or a dot as the config stores
+// it, and a name the override sets is left to it. A name that needs quotes is one inline table at mcp_servers - the
+// override's quoted entries at mcp_servers are entries of the same one - before the override's options and the trim (a
+// dotted key cannot carry a quoted part), and none is passed under mcp_servers when the type's args set a key there.
 func TestStartLaneMCPServers(t *testing.T) {
 	k, _ := split()
 	base := []string{"-a", "never"}
@@ -557,6 +558,16 @@ func TestStartLaneMCPServers(t *testing.T) {
 			opts(`mcp_servers={"a b"={enabled=false}}`, `model_reasoning_summary="none"`, "mcp_servers.c.enabled=false")},
 		{"a key the type's args set under mcp_servers: no inline table", home,
 			"[mcp_servers.\"a b\"]\ncommand = \"x\"\n", "", "", append(slices.Clone(base), "-c", `mcp_servers.c.command="c"`), false, nil},
+		{"a quoted name in the user's config and the project's: left to it, as the config stores it", home,
+			"[mcp_servers.\"a b\"]\ncommand = \"u\"\n", "[mcp_servers.\"a b\"]\ncommand = \"p\"\n", "", nil, false, nil},
+		{"a quoted name in the user's config and another in the override: one table at mcp_servers, both", home,
+			"[mcp_servers.\"a b\"]\ncommand = \"u\"\n", "", "[mcp_servers.\"c d\"]\ncommand = \"o\"\n", nil, false,
+			opts(`mcp_servers={"a b"={enabled=false},"c d"={command="o"}}`)},
+		{"a dotted name in the user's config and the project's: left to it", home,
+			"[mcp_servers.\"a.b\"]\ncommand = \"u\"\n", "[mcp_servers.\"a.b\"]\ncommand = \"p\"\n", "", nil, false, nil},
+		{"a dotted name is not the project's [mcp_servers.a.b]: switched off", home,
+			"[mcp_servers.\"a.b\"]\ncommand = \"u\"\n", "[mcp_servers.a.b]\ncommand = \"p\"\n", "", nil, false,
+			opts(`mcp_servers={"a.b"={enabled=false}}`)},
 		{"a role agent's start: the user's servers stay", home, user, "", "", nil, true, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
