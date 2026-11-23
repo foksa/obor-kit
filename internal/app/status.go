@@ -142,6 +142,9 @@ func (a *App) Status() wire.Status {
 		}
 		ps.ReviewOpen = a.reviewOpen(p, cfg)
 		ps.Briefs = p.out.BriefStatus()
+		for i := range ps.Briefs {
+			ps.Briefs[i].Text = clip(ps.Briefs[i].Text, wire.BriefTextMax)
+		}
 		ps.Stopped = a.stoppedRoles(p, cfg)
 		for _, f := range ps.Facts {
 			if f.Step != event.StepNeedsYou {

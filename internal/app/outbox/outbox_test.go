@@ -321,7 +321,8 @@ func TestFoldOldOf(t *testing.T) {
 	}
 }
 
-// TestStatus: obor status' rows: a brief whose line is queued is not delivered; a line's age and why it waits.
+// TestStatus: obor status' rows: a brief whose line is queued is not delivered and carries its line (none: no line);
+// a line's age and why it waits.
 func TestStatus(t *testing.T) {
 	t.Parallel()
 	o := New("pj-lead", "")
@@ -330,7 +331,7 @@ func TestStatus(t *testing.T) {
 	o.Line(1).Held = "pj-rev is busy"
 	bs := o.BriefStatus()
 	want := []wire.BriefStatus{{To: "pj-deep", Since: t0.Add(2 * time.Second).Unix(), Delivered: true},
-		{To: "pj-rev", Since: t0.Add(time.Second).Unix()}}
+		{To: "pj-rev", Since: t0.Add(time.Second).Unix(), Text: "go"}}
 	if !reflect.DeepEqual(bs, want) {
 		t.Errorf("briefs %+v, want %+v", bs, want)
 	}

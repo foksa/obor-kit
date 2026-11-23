@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"obor/internal/app/event"
 	"obor/internal/app/outbox"
@@ -1384,8 +1385,8 @@ func TestRunningLeadHint(t *testing.T) {
 	}
 }
 
-// TestBriefStatus: the app's status lists a role agent's open brief: not delivered while its line is queued,
-// delivered once typed, worked on once its pane worked; none once it finished.
+// TestBriefStatus: the app's status lists a role agent's open brief with its line: not delivered while its line is
+// queued, delivered once typed, worked on once its pane worked; none once it finished.
 func TestBriefStatus(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -1397,8 +1398,9 @@ func TestBriefStatus(t *testing.T) {
 		To: "pj-rev", Text: "verify 1"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.Status().Project.Briefs; len(got) != 1 || got[0].To != "pj-rev" || got[0].Delivered || got[0].Since == 0 {
-		t.Errorf("briefed, its line queued: %+v; want pj-rev, not delivered, its time", got)
+	if got := a.Status().Project.Briefs; len(got) != 1 || got[0].To != "pj-rev" || got[0].Delivered || got[0].Since == 0 ||
+		!strings.HasSuffix(got[0].Text, "] verify 1") {
+		t.Errorf("briefed, its line queued: %+v; want pj-rev, not delivered, its time, its line", got)
 	}
 	l := &linerSpy{}
 	a.deliver(context.Background(), p, linerLoop(l))
@@ -1412,6 +1414,26 @@ func TestBriefStatus(t *testing.T) {
 	a.deliver(context.Background(), p, linerLoop(l))
 	if got := a.Status().Project.Briefs; len(got) != 1 || !got[0].Worked {
 		t.Errorf("its pane worked: %+v; want worked on", got)
+	}
+}
+
+// TestBriefStatusTextBounded: a long brief's status carries the head of its line, wire.BriefTextMax bytes cut at a rune
+// boundary, not the whole brief.
+func TestBriefStatusTextBounded(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	long := strings.Repeat("é", wire.BriefTextMax)
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: long}); err != nil {
+		t.Fatal(err)
+	}
+	got := a.Status().Project.Briefs
+	if len(got) != 1 {
+		t.Fatalf("precondition: one brief, got %+v", got)
+	}
+	if txt := got[0].Text; txt == "" || len(txt) > wire.BriefTextMax || !utf8.ValidString(txt) || !strings.HasPrefix(txt, "[obor ") {
+		t.Errorf("text %q (%d bytes): want its line's head, at most %d bytes, whole runes", txt, len(txt), wire.BriefTextMax)
 	}
 }
 

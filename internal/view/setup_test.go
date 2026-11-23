@@ -249,8 +249,8 @@ func TestCustomRolesListed(t *testing.T) {
 		return view, setup
 	}
 	view, setup := rows()
-	if r, ok := view["designer"]; !ok || r.Agent != "pj-designer" || r.Status != "idle" {
-		t.Errorf("view designer %+v, %v; want pj-designer idle", r, ok)
+	if r, ok := view["designer"]; !ok || r.Agent != "pj-designer" || r.Status != "idle" || r.Type != "opus:high" {
+		t.Errorf("view designer %+v, %v; want pj-designer idle, on opus:high as Setup names it", r, ok)
 	}
 	if r, ok := view["researcher"]; !ok || r.Agent != "pj-researcher" {
 		t.Errorf("view researcher %+v, %v; want pj-researcher", r, ok)

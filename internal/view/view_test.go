@@ -133,3 +133,31 @@ func TestNightlyNext(t *testing.T) {
 		t.Errorf("none configured: %+v, want nil", n)
 	}
 }
+
+// A role row carries its agent's open brief as serve sends it, its line's text with it; a role with no brief has none.
+func TestRoleBriefCarriesText(t *testing.T) {
+	p := testkit.NewPlain(t)
+	p.Config(testkit.Set("agents.roles.deep_dive", "opus:high"))
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deep, integ := cfg.AgentName("deep_dive", ""), cfg.AgentName("integrator", "")
+	if deep == "" || integ == "" {
+		t.Fatalf("precondition: the config names a deep dive and an integrator: %q %q", deep, integ)
+	}
+	text := "[obor pj-lead] Deep dive v0.45: read the plan"
+	ss := wire.Status{Project: &wire.ProjectStatus{Root: p.Root,
+		Briefs: []wire.BriefStatus{{To: deep, Since: 100, Delivered: true, Worked: true, Text: text}}}}
+	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now()})
+	got := map[string]Role{}
+	for _, r := range v.Roles {
+		got[r.Agent] = r
+	}
+	if r, ok := got[deep]; !ok || r.Brief == nil || r.Brief.Text != text || !r.Brief.Worked {
+		t.Errorf("deep dive row %+v (brief %+v), want its worked brief with text %q", r, r.Brief, text)
+	}
+	if r, ok := got[integ]; !ok || r.Brief != nil {
+		t.Errorf("integrator row %+v, %v: want the row, no brief", r, ok)
+	}
+}

@@ -1,7 +1,8 @@
 <script lang="ts">
   // The fleet, obor web's home: what runs now across every project (the busy lanes with their tasks, the agents at
-  // work — the lead and the role agents —, the steps running), the counts across them, a card per project (with the
-  // agents waiting for the owner's input), and their events together.
+  // work — the lead and the role agents —, the steps running), the counts across them, a card per project (its open
+  // review and the role agents at work on a brief, the agents waiting for the owner's input), and their events
+  // together.
   import { onDestroy } from "svelte";
   import { projects, holdProjects } from "../lib/projects.svelte";
   import Stale from "../ui/Stale.svelte";
@@ -11,6 +12,7 @@
   import { tick } from "../lib/clock.svelte";
   import { stageOf } from "../lib/stages";
   import { reviewBadge, reviewTone } from "../lib/review";
+  import { briefActive, briefBadge, briefCards } from "../lib/brief";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Stat from "../ui/Stat.svelte";
@@ -124,6 +126,7 @@
                 <span class="mono path ell" title={p.root}>{p.root}</span>
               </div>
               {#if p.review_open}<Pill tone={reviewTone(p.review_open.stage)} text={reviewBadge(p.review_open)} />{/if}
+              {#each briefCards(p.roles || []).filter(briefActive) as r (r.agent)}<Pill tone="ok" text={briefBadge(r)} />{/each}
               {#if p.needs_you}<Pill state="needs-you" text="{p.needs_you} needs you" />{/if}
               {#if p.error}<Pill state="fail" text="error" />
               {:else if p.paused}<Pill state="paused" text="paused" />
