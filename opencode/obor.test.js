@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import net from "node:net";
-import { toClaudeEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
+import { toClaudeEvents, toolEvents, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name, tool_input });
@@ -37,7 +37,7 @@ const cases = [
   ["glob", "glob", { pattern: "**/*.go" }, [ev("Glob", { pattern: "**/*.go", path: "" })]],
   ["grep", "grep", { pattern: "x", path: "internal" }, [ev("Grep", { pattern: "x", path: "internal" })]],
   ["list", "list", { path: "." }, [ev("LS", { path: "/w/lane" })]],
-  ["unknown tool", "webfetch", { url: "x" }, []],
+  ["webfetch: no Claude twin (the guard passes it by name)", "webfetch", { url: "x" }, []],
 ];
 
 for (const [name, tool, args, want] of cases) {
@@ -46,6 +46,26 @@ for (const [name, tool, args, want] of cases) {
 
 test("patchPaths ignores body lines", () => {
   assert.deepEqual(patchPaths("+*** Add File: no\n*** Add File: yes\n"), ["yes"]);
+});
+
+// ctx.tool.list()'s namespaced ids of an opencode 2.2 session with obor's MCP server, another server's and opencode's
+// own tools (docs/research/opencode-tool-names.md): the hook names an inner call of execute by its id.
+const namespacedIds = new Set(["obor_job_next", "obor_task_done", "probe-b_echo", "probe-plug_probe_code", "opencode_list_mcp_resources"]);
+const isNamespaced = (id) => namespacedIds.has(id);
+const unguarded = (tool, cwd) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name: "unguarded", tool_input: { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` } });
+
+test("toolEvents: execute, the tools with no guard rule and execute's inner ids need no event", async () => {
+  for (const tool of ["execute", "skill", "question", "webfetch", "websearch", "subagent", "obor_job_next", "probe-b_echo", "opencode_list_mcp_resources", "probe-plug_probe_code"]) {
+    assert.deepEqual(await toolEvents(tool, {}, cwd, "s1", isNamespaced), [], tool);
+  }
+});
+
+test("toolEvents: a name obor knows nothing about goes to the guard as unguarded, never by prefix", async () => {
+  assert.deepEqual(await toolEvents("nosuchtool", { x: 1 }, cwd, "s1", isNamespaced), [unguarded("nosuchtool", cwd)]);
+  // obor_foo_bar is obor's foo_bar or a server obor_foo's bar: a name the list does not give a namespace is unguarded.
+  assert.deepEqual(await toolEvents("obor_foo_bar", {}, cwd, "s1", isNamespaced), [unguarded("obor_foo_bar", cwd)]);
+  // A mapped tool keeps its guard event.
+  assert.deepEqual(await toolEvents("shell", { command: "ls" }, cwd, "s1", isNamespaced), [ev("Bash", { command: "ls" })]);
 });
 
 // The headers opencode 2.0.23 itself accepts (trimmed lines): a patch it applies must not slip past the guard.
@@ -106,8 +126,9 @@ function feed() {
 // store (ctx.session.get; absent: the context has none) and gets the sessions it was asked for, and switched collects
 // the ctx.session.switchModel calls (none: the context has no switchModel). prompted
 // collects the ctx.session.prompt calls (a stop's block, an inbox line). inbox() is each hook call's OBOR_OPENCODE_INBOX
-// ("<hook> <path>", "" unset).
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [] } = {}) {
+// ("<hook> <path>", "" unset). tools is ctx.tool.list()'s answer (the plugin asks it for a name its mapping does not
+// know; absent: the context has no list).
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [], tools } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -178,7 +199,7 @@ esac
   const done = mod.default.setup({
     location: { directory: dir },
     app: { name: "cli", version, channel: "latest" },
-    tool: { hook: async (name, fn) => (hooked["tool:" + name] = fn) },
+    tool: { hook: async (name, fn) => (hooked["tool:" + name] = fn), ...(tools ? { list: async () => tools } : {}) },
     session,
     event: { subscribe: (opts) => ((hooked["event:subscribe"] = opts), events.iterable) },
   });
@@ -203,7 +224,7 @@ esac
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath", "toolEvents"]);
 });
 
 test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
@@ -257,6 +278,35 @@ test("guard: an unreadable patch is denied without running obor", async (t) => {
   const { hooked, calls } = await stubPlugin(t);
   await assert.rejects(hooked["tool:execute.before"]({ tool: "apply_patch", sessionID: "s1", input: { patchText: "*** Begin Patch\n+x\n*** End Patch" } }), /cannot read the patch's files; denied/);
   assert.equal(calls().length, 0);
+});
+
+test("guard: execute, the tools with no guard rule and a listed namespace's inner id run no hook", async (t) => {
+  const tools = [
+    { id: "obor_job_next", options: { namespace: "obor", codemode: true } },
+    { id: "probe-b_echo", options: { namespace: "probe-b", codemode: true } },
+    { id: "opencode_list_mcp_resources", options: { namespace: "opencode", codemode: true } },
+  ];
+  const { hooked, calls } = await stubPlugin(t, { tools });
+  for (const tool of ["execute", "skill", "question", "webfetch", "websearch", "subagent", "obor_job_next", "probe-b_echo", "opencode_list_mcp_resources"]) {
+    await hooked["tool:execute.before"]({ tool, sessionID: "s1", input: {} });
+  }
+  assert.deepEqual(calls(), []);
+});
+
+test("guard: a tool obor knows nothing about goes to the guard as unguarded, its why naming it", async (t) => {
+  const { hooked, calls, event, dir } = await stubPlugin(t, { tools: [{ id: "probe_direct", options: {} }] });
+  await hooked["tool:execute.before"]({ tool: "nosuchtool", sessionID: "s1", input: { x: 1 } });
+  await hooked["tool:execute.before"]({ tool: "probe_direct", sessionID: "s1", input: { text: "d" } });
+  const c = calls();
+  assert.equal(c.length, 2, c.join("\n"));
+  assert.deepEqual(event(c[0]), unguarded("nosuchtool", dir));
+  assert.deepEqual(event(c[1]), unguarded("probe_direct", dir));
+});
+
+test("guard: the guard's answer to an unguarded call reaches opencode as a throw (deny)", async (t) => {
+  const { hooked, calls, event } = await stubPlugin(t, { mode: "deny" });
+  await assert.rejects(hooked["tool:execute.before"]({ tool: "nosuchtool", sessionID: "s1", input: {} }), /^Error: obor: denied by the stub$/);
+  assert.deepEqual(calls().map((l) => event(l).tool_name), ["unguarded"]);
 });
 
 test("session-start: context appended on every context call, obor run once per session, with its id and token file", async (t) => {

@@ -966,7 +966,13 @@ opencode runs no Claude Code hooks. The kit ships `opencode/obor.js`, an opencod
 `setup`; opencode 2.x's plugin runtime API is undocumented, found in the binary: a dispatch warning shows when it
 stops loading). It holds no obor rules: each hook maps opencode's event to the Claude Code hook event JSON and runs
 `obor hook <name>`, so the guard and the session context stay in the Go binary. `tool execute.before` →
-`pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
+`pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied). An OpenCode
+tool the plugin does not map goes to the guard as `unguarded` (`tool_input.tool` its name, `tool_input.why` "obor has
+no rule for OpenCode tool <X>: update obor"), so an opencode update that adds a tool shows as a named deny for obor's
+agents, never a silent bypass. `execute` (Code Mode, the carrier of every MCP tool) and the tools with no guard rule
+(`skill`, `question`, `webfetch`, `websearch`, `subagent`; a child's calls reach the hook under its own session) pass as
+they are; `execute`'s inner calls reach the hook as `<namespace>_<tool>` and are judged by `ctx.tool.list()`'s
+`options.namespace` (obor's, another MCP server's, opencode's own), never by prefix. The session context
 → `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
 with `--session <id>`; a resumed start runs it at plugin start, the id read from `OBOR_OPENCODE_RESUME` (the kind's start sets it on a resume and unsets it on a fresh start; the plugin's server process inherits the TUI's env, not its argv), so the session's
 inbox exists before its first turn). Only the agent's own session runs it: the plugin asks `ctx.session.get` once
