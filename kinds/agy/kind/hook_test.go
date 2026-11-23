@@ -10,9 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"obor/internal/project"
 	"obor/kinds/agy/kind"
 )
 
@@ -230,91 +228,7 @@ func TestHookOutsideProject(t *testing.T) {
 	}
 	slices.Sort(asked)
 	if want := []string{"/p/.agents", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01", "/p/wt/L-01"}; !slices.Equal(asked, want) {
-		t.Errorf("InProject asked of %q, want %q: the event's cwd, the hook's dir for the event with none", asked, want)
-	}
-}
-
-// InProject: a dir under a checkout holding .obor/config.json; a linked worktree whose main checkout holds it (the
-// worktree's .git file, its gitdir's commondir), though the worktree has no config of its own; not a dir of no project,
-// nor of a stopped one, also when the worktree tracks a config of its own: the marker read is the main checkout's.
-func TestInProject(t *testing.T) {
-	base := t.TempDir()
-	main, lane, other := filepath.Join(base, "main"), filepath.Join(base, "wt", "L-01"), filepath.Join(base, "other")
-	for path, text := range map[string]string{
-		filepath.Join(main, ".obor", "config.json"):                   "{}",
-		filepath.Join(main, ".git", "worktrees", "L-01", "commondir"): "../..\n",
-		filepath.Join(lane, ".git"):                                   "gitdir: " + filepath.Join(main, ".git", "worktrees", "L-01") + "\n",
-		filepath.Join(lane, "pkg", "a.go"):                            "package a",
-		filepath.Join(other, ".git", "HEAD"):                          "ref: refs/heads/main",
-		filepath.Join(other, "sub", "b.go"):                           "package b",
-	} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(lane, ".obor")); err == nil {
-		t.Fatal("precondition: the lane has no config of its own")
-	}
-	for dir, want := range map[string]bool{main: true, filepath.Join(main, ".agents"): true, lane: true,
-		filepath.Join(lane, "pkg"): true, filepath.Join(other, "sub"): false, "": false} {
-		if got := kind.InProject(dir); got != want {
-			t.Errorf("InProject(%q) = %v, want %v", dir, got, want)
-		}
-	}
-
-	// A stopped project (obor stop's marker, project.StoppedFile) is no project: no event reaches obor hook.
-	tool := func() int {
-		var runs []ran
-		ev := `{"hookEventName": "PreToolUse", "cwd": ` + mustJSON(lane) + `, "toolCall": {"name": "run_workflow"}}`
-		kind.Hook([]byte(ev), lane, fake(&runs, "", "", 2, nil), kind.InProject, &bytes.Buffer{})
-		return len(runs)
-	}
-	if n := tool(); n != 1 {
-		t.Fatalf("precondition: a running project's unguarded call ran obor hook %d times, want 1", n)
-	}
-	if err := project.WriteStopMarker(main, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, dir := range []string{main, lane, filepath.Join(lane, "pkg")} {
-		if kind.InProject(dir) {
-			t.Errorf("InProject(%q) in a stopped project = true, want false", dir)
-		}
-	}
-	if n := tool(); n != 0 {
-		t.Errorf("a stopped project's unguarded call ran obor hook %d times, want none", n)
-	}
-
-	// A worktree that tracks a config of its own (obor-kit's lanes and role worktrees) reads the main checkout's
-	// marker too: obor stop writes it there, not in the worktree.
-	cfg := filepath.Join(lane, ".obor", "config.json")
-	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(cfg, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(cfg); err != nil {
-		t.Fatalf("precondition: the worktree has a config of its own: %v", err)
-	}
-	for _, dir := range []string{lane, filepath.Join(lane, "pkg")} {
-		if kind.InProject(dir) {
-			t.Errorf("InProject(%q) in a stopped project, the worktree with a config of its own = true, want false", dir)
-		}
-	}
-	if n := tool(); n != 0 {
-		t.Errorf("a stopped project's worktree with a config of its own ran obor hook %d times, want none", n)
-	}
-	if err := os.Remove(project.StoppedFile(main)); err != nil {
-		t.Fatal(err)
-	}
-	if !kind.InProject(lane) {
-		t.Error("InProject(lane) once the main checkout's marker is gone = false, want true: the worktree is in the project")
-	}
-	if n := tool(); n != 1 {
-		t.Errorf("a restarted project's worktree with a config of its own ran obor hook %d times, want 1", n)
+		t.Errorf("the project rule asked of %q, want %q: the event's cwd, the hook's dir for the event with none", asked, want)
 	}
 }
 

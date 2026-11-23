@@ -41,10 +41,11 @@ import (
 //	Stop, terminationReason ERROR      → stop-failure (error → error)
 //
 // agy denies a tool call whose hook answers nothing, exits non-zero or takes its 30 s (docs/research/agy-probes.md
-// P3), so the transport always answers, exit 0: obor hook pre-tool-use failing (obor not found, a non-zero exit but
-// its denial, no answer within HookTimeout) is a deny with the reason; any other hook failing is no opinion ({}).
-// Outside an obor project, or in a stopped one (obor stop), every event is no opinion (a tool call: ask) and obor is
-// not run.
+// P3), so the transport always answers, exit 0: a run of obor hook pre-tool-use that fails (not found, a non-zero exit
+// but its denial, no answer within HookTimeout) is a deny with the reason; any other hook failing is no opinion ({}).
+// Outside an obor project, or in a stopped one (obor stop), every event is no opinion (a tool call: ask): the project
+// rule RunHook is given keeps obor's hook from running (project.InProject, cmd/obor), and obor's hook itself adds
+// nothing outside a running project.
 
 // HooksFile is the project file that runs obor's hooks for every agy session started in the project (or a worktree of
 // it), relative to its root: agy's workspace hooks, loaded with no prompt in a trusted folder.
@@ -130,7 +131,7 @@ func unguardedWhy(tool string) string {
 	return "obor has no rule for agy tool " + tool + ": update obor"
 }
 
-// Runner runs `obor hook <name>` with event on stdin: its stdout, its stderr and its exit code; err when it did not
+// Runner runs obor's hook <name> with event on stdin: its stdout, its stderr and its exit code; err when it did not
 // start or did not end within the transport's bound.
 type Runner func(name string, event []byte) (stdout, stderr []byte, code int, err error)
 
@@ -333,17 +334,19 @@ func answer(v map[string]any) []byte {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// RunHook is the kind's hook call: agy's event on stdin, the answer on stdout, exit 0. obor is the executable
-// agents.ExeVar names ("": every run fails, naming the variable: the call runs as obor kind agy hook).
-func RunHook(stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
+// RunHook is the kind's hook call: agy's event on stdin, the answer on stdout, exit 0. run is obor's hook and
+// inProject the rule it stands down outside of: obor kind agy hook passes obor's own hook in process and
+// project.InProject (cmd/obor); the kind binary execs the obor agents.ExeVar names and has no rule of its own.
+func RunHook(stdin io.Reader, stdout, stderr io.Writer, run Runner, inProject func(string) bool) int {
 	in, _ := io.ReadAll(stdin)
 	dir, _ := os.Getwd()
-	stdout.Write(Hook(in, dir, Exec(getenv(agents.ExeVar), HookTimeout), InProject, stderr))
+	stdout.Write(Hook(in, dir, run, inProject, stderr))
 	return 0
 }
 
 // Exec is the Runner of the obor at exe: `<exe> hook <name>` in its own process group, with this process's
-// environment (the agent's identity with it), killed with its children after timeout.
+// environment (the agent's identity with it), killed with its children after timeout. The kind binary (obor-kind-agy,
+// which obor does not run) runs its hook call on it; obor kind agy hook runs the hook in process instead.
 func Exec(exe string, timeout time.Duration) Runner {
 	return func(name string, event []byte) ([]byte, []byte, int, error) {
 		if exe == "" {
@@ -371,67 +374,3 @@ func Exec(exe string, timeout time.Duration) Runner {
 		return out.Bytes(), errOut.Bytes(), 0, nil
 	}
 }
-
-// InProject: dir is in an obor project that is not stopped: projectRoot finds one, and the dir that holds its stop
-// marker holds none (.obor/state/stopped, project.StoppedFile: obor stop's, under which every obor hook stands down).
-// A linked worktree reads its main checkout's marker, also when the worktree tracks a config of its own: obor stop
-// writes the marker to the main checkout.
-func InProject(dir string) bool {
-	root := projectRoot(dir)
-	if root == "" {
-		return false
-	}
-	if main := mainCheckout(root); main != "" {
-		root = main
-	}
-	return !fileExists(filepath.Join(root, ".obor", "state", "stopped"))
-}
-
-// projectRoot is the obor project dir is in ("": none): the directory at or above it that holds .obor/config.json, or,
-// in a linked worktree, its main checkout when that does (its .git file's gitdir, that dir's commondir).
-func projectRoot(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
-		if fileExists(filepath.Join(d, ".obor", "config.json")) {
-			return d
-		}
-		if main := mainCheckout(d); main != "" {
-			if fileExists(filepath.Join(main, ".obor", "config.json")) {
-				return main
-			}
-			return ""
-		}
-		if filepath.Dir(d) == d {
-			return ""
-		}
-	}
-}
-
-// mainCheckout is the main checkout of the linked worktree whose top is d ("": d holds no .git file naming one).
-func mainCheckout(d string) string {
-	b, err := os.ReadFile(filepath.Join(d, ".git"))
-	if err != nil {
-		return ""
-	}
-	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
-	if !ok {
-		return ""
-	}
-	gitdir = strings.TrimSpace(gitdir)
-	if !filepath.IsAbs(gitdir) {
-		gitdir = filepath.Join(d, gitdir)
-	}
-	common, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
-	if err != nil {
-		return ""
-	}
-	c := strings.TrimSpace(string(common))
-	if !filepath.IsAbs(c) {
-		c = filepath.Join(gitdir, c)
-	}
-	return filepath.Dir(filepath.Clean(c))
-}
-
-func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

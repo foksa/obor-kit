@@ -2,23 +2,20 @@ package guard
 
 import (
 	"errors"
-	"os"
 	"strings"
 
 	"obor/internal/config"
 	"obor/internal/project"
 )
 
-// loadAt loads the project of dir: nil repo when dir is no directory in a git repository; config.ErrNoConfig without
-// .obor/config.json. Keys this binary does not know are ignored and returned in unknown (config.LoadHook). A config
-// that exists but does not load is an error with config.Fallback as cfg: the hooks fail closed on it.
+// loadAt loads the project of dir: nil repo when dir is no dir in a running obor project (no repository, no
+// .obor/config.json in its main checkout, or a stopped one: project.Running). Keys this binary does not know are
+// ignored and returned in unknown (config.LoadHook). A config that exists but does not load is an error with
+// config.Fallback as cfg: the hooks fail closed on it.
 // A stopped project (obor stop) is no project here (nil repo): every hook allows and adds nothing.
 func loadAt(dir string) (repo *project.Repo, cfg *config.Config, unknown []string, err error) {
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return nil, nil, nil, nil
-	}
-	repo, err = project.Find(dir)
-	if err != nil || project.Stopped(repo.Root) {
+	repo = project.Running(dir)
+	if repo == nil {
 		return nil, nil, nil, nil
 	}
 	cfg, unknown, err = config.LoadHook(repo.Root)

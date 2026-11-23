@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/project"
 	"obor/kinds/agy/kind"
 )
 
@@ -164,8 +165,9 @@ func shimHookRow() {
 			"missing": "no usable Go binary"}}.row()
 }
 
-// agyHookRow is agy's row: `obor kind agy hook`'s transport (kinds/agy/kind.Hook with its Exec), the guard a stub
-// script named by OBOR_EXE, the event's cwd this checkout (an obor project).
+// agyHookRow is agy's row: the transport's mapping (kinds/agy/kind.Hook with a Runner, the guard a stub script named
+// by OBOR_EXE), the event's cwd this checkout (an obor project). obor kind agy hook runs obor's hook in process
+// (cmd/obor's agyHook); this row holds the answer mapping that path goes through.
 func agyHookRow() {
 	dir, err := os.MkdirTemp("", "obor-conf-hook-agy")
 	if err != nil {
@@ -211,7 +213,7 @@ func agyHookRow() {
 		case "missing":
 			guard = filepath.Join(dir, "no-such-obor")
 		}
-		out := kind.Hook([]byte(event), dir, kind.Exec(guard, bound), kind.InProject, io.Discard)
+		out := kind.Hook([]byte(event), dir, kind.Exec(guard, bound), project.InProject, io.Discard)
 		var a struct{ Decision, Reason string }
 		if err := json.Unmarshal(out, &a); err != nil {
 			return hookAnswer{}, fmt.Errorf("answer %q: %v", out, err)

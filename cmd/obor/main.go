@@ -86,7 +86,7 @@ func main() {
 	case "config":
 		exit(configCmd(args))
 	case "hook":
-		exit(hook(args))
+		exit(hookRun(args, os.Stdin, out, os.Stderr))
 	case "kind":
 		exit(kindCmd(args))
 	case "has":
@@ -274,46 +274,48 @@ func has(args []string) int {
 	return 1
 }
 
-func hook(args []string) int {
+// hookRun is `obor hook <name>` with the event on stdin: its answer on stdout, its diagnostics on stderr, its exit
+// code. kindCmd runs agy's hook transport on it in process (agyHook), with the event and the buffers there.
+func hookRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch {
 	case len(args) == 1 && args[0] == "noop":
 		return 0
 	case len(args) == 1 && args[0] == "pre-tool-use":
-		return preToolUse()
+		return preToolUse(stdin, stderr)
 	case len(args) == 1 && args[0] == "stop-failure":
-		input, _ := io.ReadAll(os.Stdin)
-		stopFailure(input, project.OSEnv)
+		input, _ := io.ReadAll(stdin)
+		stopFailure(input, project.OSEnv, stderr)
 		return 0
 	case len(args) == 1 && (args[0] == "stop" || args[0] == "session-start" || args[0] == "user-prompt-submit"):
 		// A hook never fails: an unreadable stdin is an empty event (each hook then allows).
-		input, _ := io.ReadAll(os.Stdin)
+		input, _ := io.ReadAll(stdin)
 		switch args[0] {
 		case "stop":
-			guard.Stop(input, project.OSEnv, out, os.Stderr, leadLines)
+			guard.Stop(input, project.OSEnv, stdout, stderr, leadLines)
 		case "session-start":
-			if b, ok := guard.SessionStart(input, project.OSEnv, out); ok {
-				sessionBegan(b, os.Stderr)
+			if b, ok := guard.SessionStart(input, project.OSEnv, stdout); ok {
+				sessionBegan(b, stderr)
 			}
 		default:
-			guard.UserPromptSubmit(input, project.OSEnv, out, leadLines)
+			guard.UserPromptSubmit(input, project.OSEnv, stdout, leadLines)
 		}
 		if args[0] != "session-start" {
 			turn(input, project.OSEnv, args[0] == "stop")
 		}
 		return 0
 	}
-	errf("%s", help.Usage("hook"))
+	fmt.Fprintf(stderr, "%s\n", help.Usage("hook"))
 	return 2
 }
 
 // stopFailure is the StopFailure hook: the log line (guard.StopFailure), then one request to the project's
 // serve (wire.MethodStopped) with the agent, its error and details, under the call's deadline (wire.Verdict's table:
 // 5 s, retried through a serve restart). Serve down, a refusal or a session with no agent name: a line on
-// stderr, nothing else; the hook always exits 0.
-func stopFailure(input []byte, env project.Env) {
+// log, nothing else; the hook always exits 0.
+func stopFailure(input []byte, env project.Env, log io.Writer) {
 	s, ok, err := guard.StopFailure(input, env, time.Now())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "obor stop-failure hook: log:", err)
+		fmt.Fprintln(log, "obor stop-failure hook: log:", err)
 	}
 	if !ok || s.Agent == "" {
 		return
@@ -321,7 +323,7 @@ func stopFailure(input []byte, env project.Env) {
 	c := &wire.StoppedReq{Envelope: wire.Envelope{Root: s.Root, Agent: s.Agent, Role: s.Role, CallID: wire.NewCallID()},
 		Lane: s.Lane, Error: s.Error, Details: s.Details}
 	if _, err := wire.Verdict(context.Background(), wire.SocketPath(s.Root), c); err != nil {
-		fmt.Fprintln(os.Stderr, "obor stop-failure hook: serve not told:", err)
+		fmt.Fprintln(log, "obor stop-failure hook: serve not told:", err)
 	}
 }
 
@@ -365,16 +367,16 @@ func sessionBegan(b guard.Began, log io.Writer) {
 }
 
 // preToolUse is the PreToolUse hook (bin/obor execs it): the hook JSON on stdin; allow = exit 0, no output (one line
-// on stderr after the guard's recovered panic); deny = exit 2, one line "obor: …" on stderr. Anything else
-// (unreadable stdin, an internal error) allows.
-func preToolUse() int {
-	input, err := io.ReadAll(os.Stdin)
+// on errw after the guard's recovered panic); deny = exit 2, one line "obor: …" on errw. Anything else (unreadable
+// stdin, an internal error) allows.
+func preToolUse(stdin io.Reader, errw io.Writer) int {
+	input, err := io.ReadAll(stdin)
 	if err != nil {
 		return 0
 	}
-	code, reason := guard.Run(input, project.OSEnv, os.Stderr)
+	code, reason := guard.Run(input, project.OSEnv, errw)
 	if code == 2 {
-		errf("obor: %s", reason)
+		fmt.Fprintf(errw, "obor: %s\n", reason)
 	}
 	return code
 }

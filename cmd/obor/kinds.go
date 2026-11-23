@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"maps"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"obor/internal/agents"
 	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/help"
+	"obor/internal/project"
 	agykind "obor/kinds/agy/kind"
 	ockind "obor/kinds/opencode/kind"
 )
@@ -39,9 +43,10 @@ func init() {
 	}
 }
 
-// kindCmd is `obor kind <name> [args…]`: kit kind name's Main (kitKinds) in process with args, this obor's executable in
-// agents.ExeVar (agy's hook transport runs obor hook on it; an inherited value is replaced). agy's .agents/hooks.json
-// runs obor kind agy hook. An unknown name: exit 2.
+// kindCmd is `obor kind <name> [args…]`: kit kind name's Main (kitKinds) in process with args. agy's hook transport
+// is answered by agyHook instead: one obor start per tool call after the shim, no second obor. Other calls get this
+// obor's executable in agents.ExeVar (the kind binary's own hook transport runs obor hook on it; an inherited value is
+// replaced). An unknown name: exit 2.
 func kindCmd(args []string) int {
 	if len(args) == 0 {
 		errf("%s", help.Usage("kind"))
@@ -51,6 +56,9 @@ func kindCmd(args []string) int {
 	if !ok {
 		errf("obor kind: %q is no kit kind (%s)", args[0], strings.Join(slices.Sorted(maps.Keys(kitKinds)), ", "))
 		return 2
+	}
+	if args[0] == agykind.Name && len(args) == 2 && args[1] == "hook" {
+		return agyHook(os.Stdin, os.Stdout, os.Stderr)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -62,4 +70,39 @@ func kindCmd(args []string) int {
 		return 2
 	}
 	return k.main(args[1:], os.Stdin, os.Stdout, os.Stderr)
+}
+
+// agyHook answers `obor kind agy hook` (agy's .agents/hooks.json runs it): agy's event on stdin, agy's answer on
+// stdout, exit 0. obor's hook runs in process (hookRun), and the project rule is the guard's (project.InProject), so a
+// repository nested in an obor project is its own.
+func agyHook(stdin io.Reader, stdout, stderr io.Writer) int {
+	run := func(name string, event []byte) ([]byte, []byte, int, error) {
+		return inProcessHook([]string{name}, event, agykind.HookTimeout)
+	}
+	return agykind.RunHook(stdin, stdout, stderr, run, project.InProject)
+}
+
+// inProcessHook is `obor hook args…` with event on stdin: its stdout, its stderr and its exit code; err when it did
+// not answer within timeout, the transport's deny naming it as a run that failed. A panic is that failed run too (a
+// process would exit non-zero), never the transport's own.
+func inProcessHook(args []string, event []byte, timeout time.Duration) (out, errOut []byte, code int, err error) {
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		code := 0
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(&stderr, "panic: %v\n", r)
+				code = 2
+			}
+			done <- code
+		}()
+		code = hookRun(args, bytes.NewReader(event), &stdout, &stderr)
+	}()
+	select {
+	case code = <-done:
+		return stdout.Bytes(), stderr.Bytes(), code, nil
+	case <-time.After(timeout):
+		return nil, nil, -1, fmt.Errorf("no answer within %s", timeout)
+	}
 }
