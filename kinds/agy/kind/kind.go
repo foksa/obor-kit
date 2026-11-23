@@ -86,7 +86,9 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if args[0] == "hook" { // the hook transport: agy's event, not a protocol request (hook.go)
-		return RunHook(stdin, stdout, stderr, os.Getenv)
+		// This binary is not obor: it execs the obor agents.ExeVar names, and has no project rule of its own (obor's
+		// hook stands down outside a project itself). obor answers obor kind agy hook in process instead.
+		return RunHook(stdin, stdout, stderr, Exec(os.Getenv(agents.ExeVar), HookTimeout), func(string) bool { return true })
 	}
 	req, err := io.ReadAll(stdin)
 	if err == nil {
@@ -274,11 +276,11 @@ func lead(in request) bool { return !in.TrimUser }
 // copy), so none counts as stale. The fix named is that workspace's: the main
 // checkout's obor setup agents and its commit; a lane's (its branch task/<task>) a rebase onto the integration branch
 // or the task redispatched; a role worktree's (detached) a move to the integration branch's head, then a start again;
-// a worktree's whose root file is stale too, the root's fix first. "": the entry is current, or root is no obor project
-// (none named). start refuses an agent's start for it and warns a lead's.
+// a worktree's whose root file is stale too, the root's fix first. "": the entry is current, or root holds no obor
+// project's config (none named). start refuses an agent's start for it and warns a lead's.
 func hooksStale(in request, read func(string) ([]byte, error)) string {
 	root := in.Root
-	if root == "" || projectRoot(root) == "" {
+	if root == "" || !configured(root) {
 		return ""
 	}
 	setup := "run obor setup agents in the project, then commit " + HooksFile
@@ -304,6 +306,13 @@ func hooksStale(in request, read func(string) ([]byte, error)) string {
 		fix = setup + ", then " + fix
 	}
 	return "agy's hooks: " + why + note + "): " + fix
+}
+
+// configured is whether root is an obor project's main checkout: it holds .obor/config.json. A start's root names the
+// main checkout; this binary's package reads no repository (a plugin kind imports its own tree and the bridge only).
+func configured(root string) bool {
+	_, err := os.Stat(filepath.Join(root, ".obor", "config.json"))
+	return err == nil
 }
 
 // hooksWhy is why the hooks file at path does not hold this kit's obor entry ("": it does).

@@ -300,8 +300,8 @@ func opencodeTransport(root string, deny func(map[string]any) (hookAnswer, error
 	return t
 }
 
-// agyTransport is agy's hook transport (kinds/agy/kind.Hook) with the guard as its `obor hook pre-tool-use` (the
-// transport runs the same guard through Exec as `obor kind agy hook`).
+// agyTransport is agy's hook transport (kinds/agy/kind.Hook) with the guard as its obor hook: the answer mapping
+// obor kind agy hook goes through, with its hook run in process (cmd/obor).
 func agyTransport(root string, guardRun func([]byte) (int, string, string)) guardTransport {
 	run := func(hook string, event []byte) ([]byte, []byte, int, error) {
 		if hook != "pre-tool-use" {

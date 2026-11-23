@@ -265,11 +265,11 @@ func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 	}
 }
 
-// A linked worktree answers as its main checkout, the same rows as the Go transport's own worktree cases
-// (kinds/agy/kind/hook_test.go's TestInProject): a lane with a config of its own is still its main checkout's
-// project, and a lane whose config lives only in the main checkout is still in the project. The stop marker is the
-// main checkout's, where obor stop writes it. Beside TestShimKindHookNoBinaryByEvent's stop-marker rows, so a change
-// to either side of that contract shows the mismatch.
+// A linked worktree answers as its main checkout, the same rows as the Go rule's own worktree cases
+// (internal/project/running_test.go's TestRunning, which obor kind agy hook asks): a lane with a config of its own is
+// still its main checkout's project, and a lane whose config lives only in the main checkout is still in the project.
+// The stop marker is the main checkout's, where obor stop writes it. Beside TestShimKindHookNoBinaryByEvent's
+// stop-marker rows, so a change to either side of that contract shows the mismatch.
 func TestShimKindHookNoBinaryWorktree(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

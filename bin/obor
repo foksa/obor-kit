@@ -269,9 +269,10 @@ kind_event() {
 }
 
 # running_project [<dir>]: dir (default: cwd) is in an obor project that is running: a .obor/config.json at it or
-# above, and no .obor/state/stopped at that root. A linked worktree answers as its main checkout (obor stop writes
-# the marker there, and the config may be only there; the kind's Go transport resolves it the same way); a git call
-# that fails (no repo, odd layout) decides from dir as it stands.
+# above, and no .obor/state/stopped at that root. A linked worktree answers as its main checkout (obor stop writes the
+# marker there, and the config may be only there). This sh copy answers only with no usable binary; with one, obor kind
+# agy hook asks project.InProject (the guard's rule: the nearest repository's main checkout), where a repository nested
+# in a project is its own. A git call that fails (no repo, odd layout) decides from dir as it stands.
 running_project() {
   local dir root
   dir=$(cd "${1:-.}" 2> /dev/null && pwd -P) || return 1

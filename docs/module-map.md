@@ -21,7 +21,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 ## Packages
 
 **base** — shared leaves, no obor state of their own.
-- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; `ShellQuote`, `EnvLine` and `RunEnvLine` (`shell.go`: one word of a shell command line, the env line, and the one handshake that types it at a pane's shell and awaits its mark, for launch and the hc adapter); the file lock (`lock.go`: `Lock`),
+- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the running
+  project a hook stands inside (`project.Running`, `project.InProject`: the nearest repository's main checkout holds an
+  obor config and no stop marker, a nested repository its own); `ShellQuote`, `EnvLine` and `RunEnvLine` (`shell.go`: one word of a shell command line, the env line, and the one handshake that types it at a pane's shell and awaits its mark, for launch and the hc adapter); the file lock (`lock.go`: `Lock`),
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`), the background Bash calls the PreToolUse hook records
   (`background.go`) and the Bash calls its parser rejects (`unparsed.go`), the caller's own pane (`pane.go`: `Pane`, the one resolver: `OBOR_PANE`, else the
   terminal's `HERDR_PANE_ID` for a pane obor did not start, else `ErrNoPane`; here, not in `herdr`, because adapters
@@ -111,7 +113,7 @@ agy settings, the project's `settings_override.json` and obor's entries; the mod
 `--conversation`), `install` (`where: project`, `.agents/mcp_config.json` and `.agents/hooks.json`), `turn` (`context`
 from `transcript.jsonl`, a limit's reset), `deliver` (`deliver.go`: agy's `agentapi send-message` with the record an
 agent's `obor` command wrote), and the hook transport (`hook.go`: the `hook` call, which `obor kind agy hook` runs in
-process; agy's event → `obor hook <name>` → agy's answer).
+process with obor's hook in process; agy's event → `obor hook <name>` → agy's answer).
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

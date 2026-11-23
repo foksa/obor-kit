@@ -112,6 +112,23 @@ func findFromGitFiles(dir string) (*Repo, error) {
 	}
 }
 
+// Running is dir's running obor project ("": none): the nearest repository's main checkout, when it holds an obor
+// config and no stop marker. A repository nested in an obor project is its own: Find stops at the nearest .git, so the
+// outer project's config is never read for it.
+func Running(dir string) *Repo {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return nil
+	}
+	repo, err := Find(dir)
+	if err != nil || Stopped(repo.Root) || !Configured(repo.Root) {
+		return nil
+	}
+	return repo
+}
+
+// InProject is whether dir is in a running obor project (Running): outside one a hook stands down.
+func InProject(dir string) bool { return Running(dir) != nil }
+
 // Physical is `cd p && pwd -P` (p unchanged when it does not resolve).
 func Physical(p string) string {
 	abs, err := filepath.Abs(p)

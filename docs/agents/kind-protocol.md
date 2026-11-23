@@ -186,11 +186,12 @@ nothing yet: herdr's agent detection still gives every pane its status. The comp
 A kind's hooks reach obor as `obor hook <name>`: `hooks: native` is the CLI's own hooks file running it (Claude
 Code's plugin `hooks/hooks.json`), `hooks: plugin` is obor's plugin for the CLI, which maps the CLI's events to the
 same calls (`opencode/obor.js`; agy's `hook` call, which the project's `.agents/hooks.json` runs as `obor kind agy
-hook`: `obor kind <name>` runs that kit kind's call in process with the obor's own executable in `OBOR_EXE`, which the
-transport runs `hook <name>` on). A transport reads its CLI's event, runs `obor hook <name>` with the event's JSON
-on stdin and reads the answer; a transport that only rewrites events holds none of obor's rules. The hooks read the
-agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane's `HERDR_PANE_ID`), so a transport
-passes it through.
+hook`: `obor kind <name>` runs that kit kind's call in process, and agy's transport runs obor's hook in process too, so
+a tool call starts obor once after the shim). The kit kind's own binary (`obor-kind-agy`, which obor does not run) has
+no obor in process: its hook call execs the executable `OBOR_EXE` names. A transport reads its CLI's event, runs
+`obor hook <name>` with the event's JSON on stdin and reads the answer; a transport that only rewrites events holds
+none of obor's rules. The hooks read the agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the
+pane's `HERDR_PANE_ID`), so a transport passes it through.
 
 `bin/obor` runs both of those on its hook path: it never fetches a binary there, runs the first one that has the
 command (`hook <name>`, or `kind` for `obor kind <name> hook`), and
