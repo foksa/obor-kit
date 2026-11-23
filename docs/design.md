@@ -973,9 +973,15 @@ stops loading). It holds no obor rules: each hook maps opencode's event to the C
 tool the plugin does not map goes to the guard as `unguarded` (`tool_input.tool` its name, `tool_input.why` "obor has
 no rule for OpenCode tool <X>: update obor"), so an opencode update that adds a tool shows as a named deny for obor's
 agents, never a silent bypass. `execute` (Code Mode, the carrier of every MCP tool) and the tools with no guard rule
-(`skill`, `question`, `webfetch`, `websearch`, `subagent`; a child's calls reach the hook under its own session) pass as
-they are; `execute`'s inner calls reach the hook as `<namespace>_<tool>` and are judged by `ctx.tool.list()`'s
-`options.namespace` (obor's, another MCP server's, opencode's own), never by prefix. The session context
+(`read`, `glob`, `grep`, `list`, `skill`, `question`, `webfetch`, `websearch`, `subagent`; a child's calls reach the hook
+under its own session) pass as they are; `execute`'s inner calls reach the hook as `<namespace>_<tool>`, and one passes
+only when `ctx.tool.list()` gives it the namespace of an MCP server the start's configs name (obor's own, the generated
+config's `mcp.servers`, the project's `opencode.json(c)` and the user's), never by prefix: a plugin's namespace is no
+server's and goes to the guard as unguarded. OpenCode's own tools (`opencode_*`) are classified one by one:
+`worktree_create` and `worktree_remove` go as the guard's `Bash` event for the git command they run (`git worktree
+add`, `git worktree remove [--force]`), its read tools (`worktree_list`, `models`, the MCP resource readers) pass, and
+any other is unguarded. OpenCode's tool catalog is re-probed on an upgrade
+(`docs/research/opencode-tool-names.md`). The session context
 → `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
 with `--session <id>`; a resumed start runs it at plugin start, the id read from `OBOR_OPENCODE_RESUME` (the kind's start sets it on a resume and unsets it on a fresh start; the plugin's server process inherits the TUI's env, not its argv), so the session's
 inbox exists before its first turn). Only the agent's own session runs it: the plugin asks `ctx.session.get` once

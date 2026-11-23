@@ -3,9 +3,10 @@
 // the guard, the session context, the hooks' verdicts and the limit logic stay in the Go binary; this file carries them
 // into opencode's prompt and events.
 //
-//	tool hook execute.before          → pre-tool-use (a deny throws with obor's line, which aborts the tool); a tool
-//	                                     name neither the mapping nor ctx.tool.list()'s namespaces know goes as
-//	                                     unguarded, and the guard decides it
+//	tool hook execute.before          → pre-tool-use (a deny throws with obor's line, which aborts the tool); opencode's
+//	                                     own tools are classified one by one, a namespaced tool passes when its
+//	                                     namespace is an MCP server the start's configs name, and a tool neither
+//	                                     knows goes as unguarded, which the guard decides
 //	a session's first event           → session-start (its context lines, appended to the system prompt by the
 //	                                     session hook context)
 //	session hook prompt               → user-prompt-submit (its context appended to the prompt's text) and the start's
@@ -104,14 +105,21 @@ import { fileURLToPath } from "node:url";
 const TIMEOUT_MS = 5000;
 // AGENT_KIND is this kind's name in every event's agent_kind (kinds/opencode/kind.Name).
 const AGENT_KIND = "opencode";
-// GUARDED are the tools hooks/hooks.json's PreToolUse matcher sends to the guard (Read, Glob, … map but are not run),
-// and a call no tool of the mapping covers (unguarded), which the guard decides.
-const GUARDED = new Set(["Bash", "Edit", "Write", "unguarded"]);
 // PASS are opencode's tools obor knows and needs no event for: they run as they are. execute is Code Mode, the one
-// tool the model calls to reach an MCP tool: its inner calls reach the hook by id and are judged there. question,
-// skill, webfetch and websearch only ask or read, and a subagent's calls reach the hook under the child's own session
-// (the plugin tells a child by parentID), so subagent is no session confusion as agy's invoke_subagent is.
-const PASS = new Set(["execute", "skill", "question", "webfetch", "websearch", "subagent"]);
+// tool the model calls to reach an MCP tool: its inner calls reach the hook by id and are judged there. read, glob,
+// grep and list only read; question, skill, webfetch and websearch only ask or read; a subagent's calls reach the hook
+// under the child's own session (the plugin tells a child by parentID), so subagent is no session confusion as agy's
+// invoke_subagent is.
+const PASS = new Set(["execute", "read", "glob", "grep", "list", "skill", "question", "webfetch", "websearch", "subagent"]);
+
+// OPENCODE_PASS are opencode's own tools (its ids opencode_*, a prefix opencode owns) that only read. Its other own
+// tools are classified too: the worktree ones are git writes (opencodeEvents), and a name neither has is unguarded, as
+// any other tool obor has no row for is (an opencode upgrade adds its tools here:
+// docs/research/opencode-tool-names.md).
+const OPENCODE_PASS = new Set(["opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource"]);
+
+// PROJECT_FILES are the config files a start's dir may hold (kinds/opencode/kind.ProjectFiles), relative to it.
+const PROJECT_FILES = ["opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"];
 
 // The kit: this file's real path, two levels up.
 function kitRoot() {
@@ -172,29 +180,108 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
     case "patch":
     case "apply_patch":
       return patchPaths(args.patchText ?? args.patch).map((p) => ev("Edit", { file_path: file(p) }));
-    case "read":
-      return [ev("Read", { file_path: file(args.filePath ?? args.path) })];
-    case "glob":
-      return [ev("Glob", { pattern: args.pattern ?? "", path: args.path ?? "" })];
-    case "grep":
-      return [ev("Grep", { pattern: args.pattern ?? "", path: args.path ?? "" })];
-    case "list":
-      return [ev("LS", { path: file(args.path) })];
   }
   return [];
 }
 
-// toolEvents is one opencode tool call as the events obor checks: toClaudeEvents' mapping for a tool it maps, [] for
-// one that needs no event (PASS), and the unguarded event for a name it does not map and ctx.tool.list() gives no
-// namespace (isNamespaced: obor's tools, another MCP server's, opencode's own opencode_*, a plugin's code-mode tools).
-// The hook gives an inner call of execute an id and never its namespace, and a prefix says nothing (obor_foo_bar is
-// obor's foo_bar or a server obor_foo's bar), so the lookup is exact. Any other name goes to the guard as unguarded, so
-// an opencode update that adds a tool shows as a named deny for obor's agents, never a silent bypass.
-export async function toolEvents(tool, args, cwd, sessionID, isNamespaced = () => false) {
+// plainJSON is JSONC as JSON: its // and /* */ comments and the commas before a closing bracket or brace dropped,
+// strings as they are (the kind's plainJSON, kinds/opencode).
+function plainJSON(text) {
+  const s = String(text ?? "");
+  let out = "", comma = -1, i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < s.length && s[j] !== '"') j += s[j] === "\\" ? 2 : 1;
+      out += s.slice(i, j + 1);
+      i = j + 1;
+      comma = -1;
+    } else if (c === "/" && s[i + 1] === "/") {
+      while (i < s.length && s[i] !== "\n") i++;
+    } else if (c === "/" && s[i + 1] === "*") {
+      const end = s.indexOf("*/", i + 2);
+      if (end < 0) return out; // an open comment: what is left is no JSON
+      i = end + 2;
+    } else if (c === ",") {
+      comma = out.length;
+      out += c;
+      i++;
+    } else if (c === "}" || c === "]") {
+      if (comma >= 0) out = out.slice(0, comma) + out.slice(comma + 1);
+      comma = -1;
+      out += c;
+      i++;
+    } else {
+      if (c !== " " && c !== "\t" && c !== "\n" && c !== "\r") comma = -1;
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+// configServers are the MCP servers the OpenCode configs a start reads name, by their config names: obor's own, and
+// each file's mcp.servers — the user's ($XDG_CONFIG_HOME/opencode, else $HOME/.config/opencode; an untrimmed start
+// keeps them), the generated config the kind writes (OPENCODE_CONFIG, which a lane's start writes the user's own
+// servers into as "disabled": true), and the project's own files in the start dir, in that order, which is OpenCode's
+// (the later layer's word on a server wins). A file that is absent or does not parse names none, as OpenCode drops it.
+export function configServers(env = process.env, dir = process.cwd()) {
+  const user = env.XDG_CONFIG_HOME ? path.join(env.XDG_CONFIG_HOME, "opencode") : env.HOME ? path.join(env.HOME, ".config", "opencode") : "";
+  const files = [...(user ? ["opencode.json", "opencode.jsonc"].map((f) => path.join(user, f)) : []), env.OPENCODE_CONFIG, ...PROJECT_FILES.map((f) => path.join(dir, f))];
+  const named = new Map(); // server → the latest layer's word: it is available, or "disabled": true
+  for (const f of files) {
+    if (!f) continue;
+    let doc;
+    try {
+      doc = JSON.parse(plainJSON(fs.readFileSync(f, "utf8")));
+    } catch {
+      continue;
+    }
+    const list = doc?.mcp?.servers;
+    if (!list || typeof list !== "object") continue;
+    for (const [name, entry] of Object.entries(list)) named.set(name, entry?.disabled !== true);
+  }
+  const out = new Set(["obor"]);
+  for (const [name, on] of named) if (on) out.add(name);
+  return out;
+}
+
+// unguarded is the event for a tool name obor has no row for: the guard decides it (a deny naming the tool for every
+// agent but the owner's own).
+function unguarded(tool, cwd, sessionID) {
+  return preToolUse("unguarded", { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` }, cwd, sessionID);
+}
+
+// opencodeEvents is one of opencode's own tools as the events obor checks: none for a tool that only reads; the guard's
+// shell event for the git command a worktree tool runs (worktree_create adds a worktree, worktree_remove removes one,
+// --force discarding its modified and untracked files; the target is path, or the argument the tool calls it — name for
+// a create, directory for a remove, opencode 2.2); and the unguarded event for a name the table lacks.
+function opencodeEvents(tool, args, cwd, sessionID) {
+  if (OPENCODE_PASS.has(tool)) return [];
+  const worktree = (target, verb) => preToolUse("Bash", { command: `git worktree ${verb} ${shellQuote(target)}` }, cwd, sessionID);
+  switch (tool) {
+    case "opencode_worktree_create":
+      return [worktree(args.path ?? args.name ?? "", "add")];
+    case "opencode_worktree_remove":
+      return [worktree(args.path ?? args.directory ?? "", args.force ? "remove --force" : "remove")];
+  }
+  return [unguarded(tool, cwd, sessionID)];
+}
+
+// toolEvents is one opencode tool call as the events obor checks: [] for a tool that needs no event (PASS, opencode's
+// own read tools), toClaudeEvents' mapping for a tool it maps, opencodeEvents for opencode's own tools, and [] for a
+// namespaced tool the isMCPServer lookup counts as an MCP server's (obor's or a server the start's configs name,
+// configServers). The hook gives an inner call of execute an id and never its namespace, and a prefix says nothing
+// (obor_foo_bar is obor's foo_bar or a server obor_foo's bar), so the lookup is exact. Any other name goes to the
+// guard as unguarded, so an opencode update that adds a tool shows as a named deny for obor's agents, never a silent
+// bypass.
+export async function toolEvents(tool, args, cwd, sessionID, isMCPServer = () => false) {
   if (PASS.has(tool)) return [];
+  if (String(tool ?? "").startsWith("opencode_")) return opencodeEvents(tool, args ?? {}, cwd, sessionID);
   const evs = toClaudeEvents(tool, args, cwd, sessionID);
-  if (evs.length > 0 || (await isNamespaced(tool))) return evs;
-  return [preToolUse("unguarded", { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` }, cwd, sessionID)];
+  if (evs.length > 0 || (await isMCPServer(tool))) return evs;
+  return [unguarded(tool, cwd, sessionID)];
 }
 
 // tokensPath is a session's token file, in the state dir the kind's manifest names (kinds/opencode/kind.TranscriptGlob):
@@ -591,25 +678,27 @@ async function setup(ctx) {
     return verdicts.get(id).then((root) => root && sessions.isMine(id));
   };
 
-  // isNamespaced: id is a tool ctx.tool.list() gives a namespace. It is read once, on the first name the mapping does
-  // not know, because the hook names an inner call of execute by id alone; a list that cannot be read names none, and
-  // the next call asks it again.
+  // servers are the MCP servers this start's configs name (configServers; obor's own is among them), and isMCPServer
+  // says whether id is a tool one of their namespaces names: ctx.tool.list() gives each id its namespace, so the
+  // lookup is exact. Both are read once, on the first name the mapping does not know, because the hook names an inner
+  // call of execute by id alone; a list that cannot be read names none, and the next call asks it again.
+  const servers = configServers(env, cwd);
   let names = null;
-  const isNamespaced = async (id) => {
-    if (names) return names.has(id);
-    try {
-      names = new Set(((await ctx.tool.list()) ?? []).filter((t) => t?.id && t.options?.namespace).map((t) => t.id));
-      return names.has(id);
-    } catch (e) {
-      console.error(`obor: OpenCode's tool list not read (${e?.message ?? e}); ${id} goes to the guard as unguarded`);
-      return false;
+  const isMCPServer = async (id) => {
+    if (!names) {
+      try {
+        names = new Map(((await ctx.tool.list()) ?? []).filter((t) => t?.id && t.options?.namespace).map((t) => [t.id, t.options.namespace]));
+      } catch (e) {
+        console.error(`obor: OpenCode's tool list not read (${e?.message ?? e}); ${id} goes to the guard as unguarded`);
+        return false;
+      }
     }
+    return servers.has(names.get(id));
   };
 
   // guard throws obor's line when obor denies one of the call's events: only exit 0 allows.
   await ctx.tool.hook("execute.before", async (call) => {
-    for (const ev of await toolEvents(call.tool, call.input, cwd, call.sessionID, isNamespaced)) {
-      if (!GUARDED.has(ev.tool_name)) continue;
+    for (const ev of await toolEvents(call.tool, call.input, cwd, call.sessionID, isMCPServer)) {
       const r = await runHook(kit, "pre-tool-use", ev, cwd);
       if (r.failed) throw new Error(`obor: guard unavailable (${r.failed}); denied — run: make -C ${kit} build`);
       if (r.code === 2) throw new Error(r.stderr.trim() || "obor: denied");
