@@ -2,7 +2,6 @@ package project
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -24,38 +23,9 @@ type BackgroundCall struct {
 	Command     string `json:"command"`
 }
 
-// The record file's bound: past backgroundMaxBytes an append rewrites it with its newest backgroundKeep lines.
-const (
-	backgroundMaxBytes = 64 << 10
-	backgroundKeep     = 100
-)
-
 // AppendBackground appends c to root's record file (a hook: never an error, never a wait); a file grown past its bound
 // keeps its newest lines.
-func AppendBackground(root string, c BackgroundCall) {
-	line, err := json.Marshal(c)
-	if err != nil {
-		return
-	}
-	path := BackgroundFile(root)
-	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
-		return
-	}
-	if fi, err := os.Stat(path); err == nil && fi.Size() > backgroundMaxBytes {
-		if b, err := os.ReadFile(path); err == nil {
-			lines := bytes.Split(bytes.TrimSuffix(b, []byte("\n")), []byte("\n"))
-			lines = append(lines[max(len(lines)-backgroundKeep, 0):], line)
-			_ = WriteAtomic(path, append(bytes.Join(lines, []byte("\n")), '\n'))
-			return
-		}
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(line, '\n'))
-}
+func AppendBackground(root string, c BackgroundCall) { appendRecord(BackgroundFile(root), c) }
 
 // BackgroundCalls is root's recorded background calls, oldest first (none: no file; a line that is no call is
 // skipped).

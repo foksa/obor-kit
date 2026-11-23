@@ -45,8 +45,9 @@ import (
 // git -c alias.<x>=…); scripts run from a file (they are not read: test scripts contain git commits of their
 // fixtures); variables set by a command's output or by an earlier Bash call; interpreters (python, node, …) and
 // other writers not listed above; commands the parser rejects (the statements before the syntax error are still
-// checked); commands fed on stdin (`echo git push | sh`, `echo git | xargs -I X X push`) and an unresolved command
-// word whose verb is itself unresolved or hidden in a substitution — the git pre-push hook is the backstop for pushes.
+// checked, and the rejection is recorded in `.obor/state/unparsed.jsonl`); commands fed on stdin
+// (`echo git push | sh`, `echo git | xargs -I X X push`) and an unresolved command word whose verb is itself
+// unresolved or hidden in a substitution — the git pre-push hook is the backstop for pushes.
 
 const maxDepth = 8
 
@@ -79,6 +80,7 @@ func (s *shell) run(src string) {
 	var stmts []*syntax.Stmt
 	for st, err := range p.StmtsSeq(strings.NewReader(src)) {
 		if err != nil {
+			s.g.recordUnparsed(err)
 			break
 		}
 		stmts = append(stmts, st)
