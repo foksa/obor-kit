@@ -1,4 +1,4 @@
-# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468; P12: T-1481; P13: T-1497)
+# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468; P12: T-1481; P13: T-1497; P14: v0.44.1 deep-dive probe)
 
 `docs/research/agent-kinds-advice.md` §1.1 lists nine questions (P1 to P9) the agy kind's design rests on, all
 answered from documents so far. This run started agy live and records what it did, with the command or screen that
@@ -964,8 +964,138 @@ Decides (W10):
   but obor's for a lane role. `permissions.deny` can do it only one server at a time (`mcp(*)` also refuses obor's), and
   rules naming a tool do nothing.
 
+## P14: what agy does with deny, ask, `{}` and a failing hook on SessionStart, PreInvocation and Stop
+
+Question (`docs/research/v0.44.1-deep-dives-advice.md` §3(b) P1; it decides W7): `bin/obor`'s `kind_hook` answers one
+generic `{"decision":"deny","reason":…}` to every agy event when no obor binary is usable, and reads neither the event
+nor the project (Opus F9). What does agy 1.5.14 do with that answer, and with `ask`, `{}` and a non-zero exit, on each of
+SessionStart, PreInvocation and Stop: does the session start, does the prompt run, does the turn end, and what does the
+user see?
+
+**Answer.** On SessionStart, PreInvocation and Stop none of the answers stops anything. `deny`, `ask`, `{}`, no output
+at all, and an exit of 1 or 2 each left the session started, the prompt run, the tool run and the turn ended, and the
+follow-up turn in the same conversation ran too. The user sees nothing on screen: the only trace is an `E…` line in
+`cli.log` (SessionStart and PreInvocation: the answer is read as that event's own message, so `decision` is an unknown
+field; a non-zero exit: `command failed: exit status N`). Only PreToolUse acts on `decision`: `deny` blocks the tool and
+the model relays the reason to the user, `{}` blocks it with an empty reason, a non-zero exit blocks it, `ask` leaves it
+to agy's own check, and an *empty* stdout with exit 0 lets it run (a PreToolUse `{}` and no output differ). So the shim's
+generic deny is harmless on SessionStart, PreInvocation and Stop (a no-op that costs a `cli.log` error line per model
+call) and is a total stop of the agent on PreToolUse: run as the committed hook of a repository that is no obor project,
+on a machine with no usable obor binary, it denied every tool and the model told the user to run the `make` line. For W7
+that means: outside a running project the PreToolUse answer has to be `ask` (agy's own check), any other event's
+answer is `{}` or nothing, and a deny belongs to PreToolUse inside a project; `{}` and a non-zero exit must never be
+sent to a PreToolUse.
+
+Ran (2026-11-23, agy 1.5.14, herdr 0.9.5, macOS, `gemini-3.8-flash-low`; no self-update ran, `agy --version` printed
+1.5.14 after). The method is P13's: a throwaway herdr session `probe-p14` (headless server under `env -i`, pane `w1:p1`),
+a scratch dir `<kit>` = `/Users/Shared/obor-agy-probe-P14` outside `$HOME` and the system temp dir, and `<kit>/repo` as
+agy's workspace, started `agy --model gemini-3.8-flash-low --settings <kit>/set-ap.json` (`start.sh`; the settings file
+trusts the repo and sets auto mode with `toolPermission: always-proceed`, an obor worker's). The repo is no obor
+project. Its `.agents/hooks.json` has one named hook `probe-log`: P3's `hook.py` on SessionStart, PreInvocation,
+PostInvocation, Stop, and PreToolUse / PostToolUse with matcher `*`. `hook.py` logs each event and answers from a control
+file per event: `ctrl/log-<Event>.reply` is the stdout, `.exit` the exit code, no file `{}`, and `ctrl/all-PreToolUse.reply`
+is `{"decision": "ask"}` so that tools run. One cell (`cell.sh <Event> <name> <stdout> [exit]`) is: `/clear` (a new
+conversation, so SessionStart fires), arm one event's answer, one prompt (`Run the shell command: echo P14-<name> >
+p14-<name>.txt   Then reply with exactly: DONE-<name>`), the screen and the hook log, then every control file removed
+and a follow-up prompt (`Reply with exactly: AFTER-<name>`) in the same conversation. Every other event answers `{}`.
+
+Footprint: `~/.gemini/config/{config,hooks,mcp_config}.json` and `~/.gemini/antigravity-cli/settings.json` had the same
+checksums before and after. No dialog or permission prompt appeared (auto mode, always-proceed), so nothing was
+answered and nothing saved. agy's run-time data grew (conversations under `brain/`, `cli.log`). The session was
+stopped and deleted, `<kit>` removed, no probe process left.
+
+Saw, the control cell: every answer `{}` (no files): the session started, the command ran, `DONE-base`, the follow-up
+ran. Events of the first turn, in order: SessionStart, PreInvocation 0, PreToolUse `run_command`, PostToolUse,
+PostInvocation 0, PreInvocation 1, PostInvocation 1, Stop (`NO_TOOL_CALL`, `fullyIdle: true`).
+
+Saw, the three events (each cell: the first turn ran the command and ended with `DONE-<name>`, `status: idle`, the
+file written, the same event list as the control, and the follow-up answered `AFTER-<name>`; the screen showed nothing
+but the prompt, the `Ran (…)` line and the reply):
+
+| Event | Answer | Session, prompt, turn | `cli.log` (E lines; the cell's hook failure, trimmed) |
+|---|---|---|---|
+| SessionStart | `{"decision":"deny","reason":"P14 deny reason XYZ"}` | started, ran, ended | `session start hook "jsonhook__probe-log_SessionStart_0_0" failed: failed to unmarshal result from hook … via protojson: {"decision":"deny",…}: proto: (line 1:2): unknown field "decision"` |
+| SessionStart | `{"decision":"ask"}` | same | the same, `{"decision":"ask"}`, unknown field "decision" |
+| SessionStart | no output, exit 0 | same | none |
+| SessionStart | `{}` and exit 1 | same | `… failed: JSON hook "…" failed: command failed: exit status 1, stderr: ` |
+| SessionStart | `{}` and exit 2 | same | the same, `exit status 2` |
+| PreInvocation | `{"decision":"deny",…}` | same; the hook ran before both model calls of the turn (invocationNum 0 and 1) | `pre-invocation hook "jsonhook__probe-log_PreInvocation_0_0" failed: failed to unmarshal result … unknown field "decision"`, one line per model call |
+| PreInvocation | `{"decision":"ask"}` | same | the same |
+| PreInvocation | no output, exit 0 | same | none |
+| PreInvocation | `{}` and exit 1 / exit 2 | same | `pre-invocation hook … failed: … command failed: exit status 1` (2), one per model call |
+| Stop | `{"decision":"deny",…}` | same; the turn ended at the first Stop (`executionNum` 0, no continuation) | none |
+| Stop | `{"decision":"ask"}` | same | none |
+| Stop | no output, exit 0 | same | none |
+| Stop | `{}` and exit 1 / exit 2 | same | `stop hook "jsonhook__probe-log_Stop_0_0" failed: JSON hook "…" failed: command failed: exit status 1` (2) |
+
+- SessionStart and PreInvocation take their answer as a protobuf message (`injectSteps`, `terminationBehavior`, P3), and
+  an unknown field fails the parse; the hook is then skipped and agy goes on. Stop's `decision` is a known field whose
+  only acting value is `continue` (P3), so `deny` and `ask` parse and do nothing.
+- A hook that fails in these three events is never a deny: no prompt, tool or turn was stopped by one of them.
+- Not armed in these cells: a hook that takes longer than its timeout (P3 saw it for PreToolUse only).
+
+Saw, the control on PreToolUse (same cells, `ctrl/log-PreToolUse.*`; `ctrl/all-PreToolUse.reply` removed by the cell, so
+the answer is the cell's only):
+
+| PreToolUse answer | The command | What the user and the model saw |
+|---|---|---|
+| `{"decision":"deny","reason":"P14 deny reason XYZ"}` | not run, file absent | `● Ran (echo …) failed (ctrl+o to expand)`, then the model's own words: `The tool call to run the shell command was denied by a pre-tool hook with the reason: P14 deny reason XYZ.` |
+| `{"decision":"ask"}` | ran | `● Ran (echo …)` |
+| `{}` | not run (and the model's `write_file` retry was blocked too: file absent) | `Ran (…) failed`, `Edited 1 file (…)` (the retry) |
+| no output, exit 0 | **ran** | `● Ran (echo …)` |
+| `{"decision":"ask"}` and exit 1 | not run, the `write_file` retry blocked | as `{}` |
+| `{"decision":"ask"}` and exit 2 | not run | `Ran (…) failed` |
+
+- In every PreToolUse cell the follow-up (no tool, neutral hooks) ran, so a block ends no session.
+- P3's table had `{}` denied and a non-zero exit failed; these rows add that *no output* is no opinion, and exit 2 is no
+  different from exit 1.
+
+Saw, the shim itself. `bin/obor` was copied to `<kit>/noobor/bin/obor` (so its plugin root has no `dist/`) and run with
+`HOME=<kit>/noobor/home` (no `~/.obor/bin`), from `<kit>/repo/.agents` (agy's hook cwd; from an obor checkout it
+self-hosts the main checkout's shim and answers `{}`): `bin/obor kind agy hook` on an event of each kind printed, with exit
+0, the same line for all four:
+
+```
+{"decision":"deny","reason":"obor: no usable Go binary in <kit>/noobor — run: make -C <kit>/noobor build"}
+```
+
+and as the repo's only hook (`probe-shim`, `shim.sh` on SessionStart, PreInvocation, Stop and PreToolUse `*`, logging
+each answer to `log/shim.log`), one cell (`shimcell.sh`) gave:
+
+```
+status: idle
+● Edited 1 file (p14-shim-all.txt) (ctrl+o to expand)
+  I encountered a tool execution denial from an active pre-tool hook (obor):
+    tool call denied by pre-tool hook: obor: no usable Go binary in <kit>/noobor — run:
+    make -C <kit>/noobor build
+  Because tool execution (both run_command and write_file) is intercepted and denied … Please run make -C <kit>/noobor build
+  in your environment to unblock tool execution.
+file: absent
+shim.log: SessionStart deny, PreInvocation deny, PreToolUse deny, PreInvocation deny, PreToolUse deny, PreInvocation deny, Stop deny
+```
+
+The session started and the turn ended with `idle` (the three non-tool events' denies were ignored, as above); every tool
+call was denied, with the reason shown to the user through the model. The deny of the `kind_hook` therefore stops a
+non-obor teammate's agy completely, and the owner's agy sessions in a project whose obor binary is missing.
+
+Decides (W7):
+
+- **Outside a running project (no `.obor/config.json`, or `.obor/state/stopped`):** PreToolUse `{"decision":"ask"}`
+  (agy's own check, what the Go transport answers: `kinds/agy/kind/hook.go` header); SessionStart, PreInvocation, Stop
+  `{}` (or nothing). Never `{}` or a non-zero exit for PreToolUse. The shim needs the event name to tell them apart: it
+  reads none today.
+- **In a running project with no usable binary:** the deny belongs to PreToolUse only (`reason` reaches the user). On the
+  other three events a deny is ignored by 1.5.14, so it protects nothing and, were an agy to honour it, would stop a
+  session at its start. `{}` is the harmless answer there.
+- The hook's own parse errors (`cli.log`) are the only place an owner can see that a SessionStart or PreInvocation answer
+  was not understood.
+
 ## Not verified
 
+- P14: a SessionStart, PreInvocation or Stop hook that outlives its timeout, a plugin's or `~/.gemini/config/hooks.json`'s
+  hook of these events (only the workspace hook was probed), `terminationBehavior` combined with a deny on PreInvocation,
+  and whether a later agy version starts to honour `decision` on those events. `jq` missing on the machine that runs the
+  shim (its `in_project` check uses it).
 - A Stop with `ERROR` and its `error` text, and what a usage limit looks like (nothing here forces them).
 - Whether auto mode approves edits in an `--add-dir` directory (P1's way to load the kit plugin) and whether the
   sandbox lets commands write there.
@@ -1996,4 +2126,169 @@ for d in "$@"; do
   herdr --session probe-p13 pane read w1:p1 --source visible 2>&1 | grep -v '^[[:space:]]*$' | grep -i -E "error|invalid|unknown|rule|warn" | head -4 | sed 's/^/screen: /'
   grep -E "CLI settings initialized|invalid|unknown rule|permission rule" "$HOME/.gemini/antigravity-cli/cli.log" | cut -c1-260 | sed 's/^/log: /' | head -4
 done
+```
+
+### P14: `setup.sh`, `start.sh`, `cell.sh`, `shim.sh`, `shimcell.sh`
+
+The session is started as in P13 (`herdr --session probe-p14 server` under `env -i`; `workspace create --cwd <kit>/repo`, pane
+`w1:p1`), then `start.sh`. `hook.py` is P3's and `hk.py` is P13's, both unchanged. `setup.sh` copies `*.py` and `*.sh` from
+its own dir to `<kit>/bin`; `shim.sh` and `shimcell.sh` were added to `<kit>/bin` for the last cell, whose `hooks.json` was
+written by:
+
+```sh
+python3 -I - "$KIT" <<'PY'
+import json, sys
+kit = sys.argv[1]
+cmd = {"type": "command", "command": "sh %s/bin/shim.sh" % kit}
+h = {"probe-shim": {ev: [cmd] for ev in ("SessionStart", "PreInvocation", "Stop")}}
+h["probe-shim"]["PreToolUse"] = [{"matcher": "*", "hooks": [cmd]}]
+json.dump(h, open(kit + "/repo/.agents/hooks.json", "w"), indent=2)
+PY
+```
+
+The cells ran as `sh cell.sh <Event> <name> [stdout|-] [exit]`: `SessionStart ss-deny '{"decision":"deny","reason":"P14 deny reason XYZ"}'`,
+`… ss-ask '{"decision":"ask"}'`, `… ss-none -`, `… ss-exit1 '{}' 1`, `… ss-exit2 '{}' 2`, and the same five for `PreInvocation`
+(`pi-…`), `Stop` (`st-…`) and `PreToolUse` (`pt-…`, plus `pt-empty '{}'`); the control was `cell.sh SessionStart base`. `hk.py` prints
+the hook rows after `<since-ns>`. The shim cell: `sh shimcell.sh shim-all`.
+
+`setup.sh`
+
+```sh
+#!/bin/sh
+# P14 fixture. KIT outside $HOME and the system temp dir (no trusted folder covers it):
+#   $KIT/bin   hook.py (P3's), hk.py (P13's), cell.sh, start.sh
+#   $KIT/repo  scratch git repo, agy's workspace: .agents/hooks.json = one named hook `probe-log`: every event
+#              (SessionStart, PreInvocation, PostInvocation, Stop; PreToolUse/PostToolUse matcher "*") runs hook.py log
+#   $KIT/set-ap.json  --settings: trusts the repo; auto mode, toolPermission always-proceed (an obor worker's)
+set -eu
+KIT=${KIT:-/Users/Shared/obor-agy-probe-P14}
+SRC=$(cd "$(dirname "$0")" && pwd)
+[ -e "$KIT" ] && { echo "exists: $KIT"; exit 1; }
+mkdir -p "$KIT/bin" "$KIT/log" "$KIT/ctrl" "$KIT/repo/.agents"
+cp "$SRC"/*.py "$SRC"/*.sh "$KIT/bin/"
+printf '{"decision": "ask"}\n' > "$KIT/ctrl/all-PreToolUse.reply"
+python3 -I - "$KIT" <<'PY'
+import json, sys
+kit = sys.argv[1]
+cmd = {"type": "command", "command": "python3 %s/bin/hook.py log" % kit}
+h = {"probe-log": {ev: [cmd] for ev in ("SessionStart", "PreInvocation", "PostInvocation", "Stop")}}
+for ev in ("PreToolUse", "PostToolUse"):
+    h["probe-log"][ev] = [{"matcher": "*", "hooks": [cmd]}]
+json.dump(h, open(kit + "/repo/.agents/hooks.json", "w"), indent=2)
+json.dump({"trustedWorkspaces": [kit + "/repo"], "agentMode": "auto", "toolPermission": "always-proceed"},
+          open(kit + "/set-ap.json", "w"))
+PY
+cd "$KIT/repo"
+printf 'hello\n' > README.md
+git init -q -b main
+git add -A
+git -c user.name=probe -c user.email=probe@obor.invalid -c commit.gpgsign=false commit -q -m fixture
+echo "fixture at $KIT"
+```
+
+`start.sh`
+
+```sh
+#!/bin/sh
+# Starts agy in the probe pane with --settings <file>; exits a running agy first.   start.sh [settings-file]
+S=probe-p14; P=w1:p1
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+SET=${1:-$KIT/set-ap.json}
+if herdr --session "$S" pane get "$P" 2>/dev/null | grep -q '"agent":"agy"'; then
+  herdr --session "$S" pane send-text "$P" "/exit" >/dev/null; sleep 0.5
+  herdr --session "$S" pane send-keys "$P" enter >/dev/null
+  herdr --session "$S" pane wait-output "$P" --match "Resume with" --timeout 10000 >/dev/null 2>&1
+fi
+herdr --session "$S" pane run "$P" "clear; cd $KIT/repo && agy --model gemini-3.8-flash-low --settings $SET" >/dev/null
+herdr --session "$S" pane wait-output "$P" --match "for shortcuts" --timeout 40000 >/dev/null 2>&1
+sleep 2
+herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | tail -${LINES_TAIL:-12}
+```
+
+`cell.sh`
+
+```sh
+#!/bin/sh
+# One cell: /clear (a new conversation), arm the control files, one turn, then a neutral follow-up turn.
+#   cell.sh <Event> <name> [reply-text|-] [exit-code]      (reply-text - : no stdout; no reply file = hook.py's {})
+# Prints: what the screen shows after the turn, the hooks that fired (hk.py), then the follow-up's result.
+S=probe-p14; P=w1:p1
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+EV=$1; NAME=$2; REPLY=${3:-}; EXIT=${4:-}
+herdr --session "$S" pane send-text "$P" "/clear" >/dev/null; sleep 0.5
+herdr --session "$S" pane send-keys "$P" enter >/dev/null; sleep 2
+rm -f "$KIT"/ctrl/log-*.reply "$KIT"/ctrl/log-*.exit "$KIT"/ctrl/log-*.reply1
+[ -n "$REPLY" ] && [ "$REPLY" != "-" ] && printf '%s\n' "$REPLY" > "$KIT/ctrl/log-$EV.reply"
+[ "$REPLY" = "-" ] && : > "$KIT/ctrl/log-$EV.reply"
+[ -n "$EXIT" ] && printf '%s\n' "$EXIT" > "$KIT/ctrl/log-$EV.exit"
+mark=$(python3 -c 'import time; print(time.time_ns())')
+echo "===== cell $NAME: $EV answers ${REPLY:-{\}} exit=${EXIT:-0}"
+out=$(herdr --session "$S" agent prompt "$P" "Run the shell command: echo P14-$NAME > p14-$NAME.txt   Then reply with exactly: DONE-$NAME" --wait --timeout "${TMO:-60000}" 2>&1)
+printf '%s' "$out" | python3 -c 'import json,sys
+raw=sys.stdin.read()
+try:
+    d=json.loads(raw); a=d.get("result",{}).get("agent",{}); print("status:", a.get("agent_status"), "error:", d.get("error"))
+except Exception:
+    print("raw:", raw[:300])'
+sleep 1
+echo "--- screen"
+herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | grep -v -E 'Sonar|^─|for shortcuts' | tail -${LINES_TAIL:-10}
+echo "--- file: $([ -f "$KIT/repo/p14-$NAME.txt" ] && echo written || echo absent)"
+echo "--- hooks"
+python3 "$KIT/bin/hk.py" "$mark" 100
+# the follow-up: neutral hooks, same conversation
+rm -f "$KIT"/ctrl/log-*.reply "$KIT"/ctrl/log-*.exit "$KIT"/ctrl/log-*.reply1
+mark2=$(python3 -c 'import time; print(time.time_ns())')
+out=$(herdr --session "$S" agent prompt "$P" "Reply with exactly: AFTER-$NAME" --wait --timeout 45000 2>&1)
+printf '%s' "$out" | python3 -c 'import json,sys
+raw=sys.stdin.read()
+try:
+    d=json.loads(raw); a=d.get("result",{}).get("agent",{}); print("follow-up status:", a.get("agent_status"))
+except Exception:
+    print("follow-up raw:", raw[:200])'
+sleep 1
+echo "--- follow-up screen"
+herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | grep -v -E 'Sonar|^─|for shortcuts' | tail -4
+echo "--- follow-up hooks"
+python3 "$KIT/bin/hk.py" "$mark2" 100
+```
+
+`shim.sh`
+
+```sh
+#!/bin/sh
+# P14: the obor-kit shim as a teammate without a usable obor binary runs it: a copy of bin/obor in a plugin root with
+# no dist/ and an empty HOME (no ~/.obor/bin). Logs the event and the answer, answers what the shim answered.
+KIT=$(cd "$(dirname "$0")/.." && pwd)
+in=$(cat)
+out=$(printf '%s' "$in" | env -i PATH=/usr/bin:/bin:/opt/homebrew/bin HOME="$KIT/noobor/home" sh "$KIT/noobor/bin/obor" kind agy hook 2>"$KIT/log/shim-stderr.last")
+rc=$?
+ev=$(printf '%s' "$in" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("hookEventName"))')
+printf '%s rc=%s out=%s\n' "$ev" "$rc" "$out" >> "$KIT/log/shim.log"
+printf '%s\n' "$out"
+exit $rc
+```
+
+`shimcell.sh`
+
+```sh
+#!/bin/sh
+# The shim cell: /clear, one tool turn, a follow-up; prints the screen and the shim's log lines (each event the
+# shim answered, and what).   shimcell.sh <name>
+S=probe-p14; P=w1:p1
+KIT=$(cd "$(dirname "$0")/.." && pwd); N=$1
+herdr --session "$S" pane send-text "$P" "/clear" >/dev/null; sleep 0.5
+herdr --session "$S" pane send-keys "$P" enter >/dev/null; sleep 2
+: > "$KIT/log/shim.log"
+echo "===== $N"
+herdr --session "$S" agent prompt "$P" "Run the shell command: echo P14-$N > p14-$N.txt   Then reply with exactly: DONE-$N" --wait --timeout 60000 2>&1 | python3 -c 'import json,sys
+raw=sys.stdin.read()
+try:
+    d=json.loads(raw); a=d.get("result",{}).get("agent",{}); print("status:", a.get("agent_status"), "error:", d.get("error"))
+except Exception:
+    print("raw:", raw[:300])'
+sleep 1
+echo "--- screen"; herdr --session "$S" pane read "$P" --source visible 2>&1 | grep -v '^[[:space:]]*$' | grep -v -E 'Sonar|^─|for shortcuts' | tail -${LINES_TAIL:-9}
+echo "--- file: $([ -f "$KIT/repo/p14-$N.txt" ] && echo written || echo absent)"
+echo "--- shim.log"; cut -c1-70 "$KIT/log/shim.log"
 ```
