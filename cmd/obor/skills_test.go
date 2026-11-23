@@ -40,12 +40,13 @@ func frontmatterField(text, field string) string {
 	return ""
 }
 
-// codeText is the text inside backtick spans and fenced code blocks, one chunk per element.
+// codeText is the text inside backtick spans and fenced code blocks, one chunk per element. A span that crosses a
+// line is code on each line it covers, and the prose after the line that closes it stays prose.
 func codeText(text string) []string {
 	var out []string
-	fence := false
+	fence, span := false, false
 	for _, l := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimLeft(l, " \t"), "```") {
+		if !span && strings.HasPrefix(strings.TrimLeft(l, " \t"), "```") {
 			fence = !fence
 			continue
 		}
@@ -54,8 +55,13 @@ func codeText(text string) []string {
 			continue
 		}
 		parts := strings.Split(l, "`")
-		for i := 1; i < len(parts); i += 2 {
-			out = append(out, parts[i])
+		for i, p := range parts {
+			if (i%2 == 0) == span { // a span between two backticks, or the tail of one opened on an earlier line
+				out = append(out, p)
+			}
+		}
+		if len(parts)%2 == 0 { // an odd count of backticks on the line: a span opens or closes here
+			span = !span
 		}
 	}
 	return out
@@ -228,11 +234,12 @@ func TestMentionsCountBackticksAndFencesNotProse(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"r/skills/x/SKILL.md": "Run `obor dispatch L-01 T-1` and `obor ghost`; `[obor answer] a line`; the obor hooks deny; `/obor:lead`; `herdr agent list`.\n",
-		"r/templates/a.md":    "text\n```\nobor fenced --flag\n```\nobor prose here\n",
+		"r/templates/a.md":    "text\n```\nobor fenced --flag\n```\nobor prose here\na span `git status` split as `--short\n--branch` and obor itself stays prose\n",
 	})
 	r := filepath.Join(root, "r")
 	eqStrings(t, []string{"dispatch", "fenced", "ghost"},
-		oborMentions(t, filepath.Join(r, "skills"), filepath.Join(r, "templates")), "mentions: no bracketed tag, no prose")
+		oborMentions(t, filepath.Join(r, "skills"), filepath.Join(r, "templates")),
+		"mentions: no bracketed tag, no prose, no prose after a span that crosses a line")
 	eqStrings(t, []string{"fenced", "ghost"}, missingSubs(t, r), "missing: dispatch is a Go command")
 }
 
