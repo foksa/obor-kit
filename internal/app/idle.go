@@ -54,7 +54,7 @@ type idleEnd struct {
 // idle is idleNow's answer: the last merge or drop as the line names it ("T-xx merged <sha7>", "T-xx dropped: <why>",
 // "no merge yet" before the first one), the newest end record's seq (the idle key) and time, and whether nothing is in
 // flight — the pipeline is empty, no needs-you is in force, no review request is pending, no verify waits for its brief
-// and no role worktree agent (the reviewer, the deep dive) holds one. why is the first condition that said no, as the
+// and no role agent holds one. why is the first condition that said no, as the
 // refusal names it ("T-12 open (L-02)", "RV-4 verify pending"; "" while idle). A project that never merged or dropped is
 // idle too: its end is 0 (no record ended work yet), so nothing keys it and no line goes out for it.
 type idle struct {
@@ -82,9 +82,9 @@ func (p *proj) foldIdle(r event.Record) {
 
 // idleNow is the pipeline's state now (under mu): idle with the last merge or drop's line, the newest end record's seq
 // (the idle key) and time when nothing is in flight, no needs-you is in force, no review request or verify is pending
-// and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
+// and no role agent holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
 // one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on:
-// a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a
+// a merge, a drop, the last after-merge step, a role agent's finished or stopped brief, a
 // review request's end (every end: a failed --after end, a --rm or a firing). A project that never merged or dropped
 // is idle as well, its last "no merge yet" and its end 0: the lead's rule and obor idle agree before the first end.
 // Not idle: why names the first condition that said no.
@@ -138,9 +138,9 @@ func (p *proj) idleNow(cfg *config.Config) idle {
 		}
 		return idle{why: why}
 	}
-	for _, w := range p.wtAgentsNow(cfg) { // an open brief to the reviewer or the deep dive is work in flight
-		if p.out.Brief(w.agent) != nil {
-			return idle{why: w.agent + " holds a brief"}
+	for _, agent := range p.briefAgentsNow(cfg) { // an open brief to a role agent is work in flight
+		if p.out.Brief(agent) != nil {
+			return idle{why: agent + " holds a brief"}
 		}
 	}
 	end, _ := p.idleEnd(cfg)
@@ -192,10 +192,32 @@ func (p *proj) idleEnd(cfg *config.Config) (idleEnd, string) {
 		}
 	}
 	newer(p.folded.reviewIdleEnd, "")
-	for _, w := range p.wtAgentsNow(cfg) {
-		newer(p.folded.briefEnds[w.agent], "")
+	for _, agent := range p.briefAgentsNow(cfg) {
+		newer(p.folded.briefEnds[agent], "")
 	}
 	return end, by
+}
+
+// briefAgents is cfg's role agents a brief counts for, in Roles order: RoleAgents but the lead and the integrator,
+// which serve hands jobs (a lane's worker takes dispatches, not briefs).
+func briefAgents(cfg *config.Config) []string {
+	var out []string
+	for _, rc := range cfg.RoleAgents() {
+		if rc.Agent != "" && rc.Role.Name != "lead" && rc.Role.Name != "integrator" {
+			out = append(out, rc.Agent)
+		}
+	}
+	return out
+}
+
+// briefAgentsNow is the role agents a brief counts for by cfg, kept in p.briefAgents: a role renamed, added or removed
+// while serve runs counts at the next call that has the config; a nil cfg (a config that does not load) keeps the last
+// good set (under mu).
+func (p *proj) briefAgentsNow(cfg *config.Config) []string {
+	if cfg != nil {
+		p.briefAgents = briefAgents(cfg)
+	}
+	return p.briefAgents
 }
 
 // idleOpen is the idle state the lead has not acknowledged (under mu): idleNow's answer, ok when nothing is in flight,
@@ -265,7 +287,7 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 		return "", fmt.Errorf("idle: the lead or the owner answers it, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
 	why := oneLine(c.Why)
-	cfg, _ := p.cfgNow() // the call's one read of the config; one that does not load keeps the role worktree agents last known
+	cfg, _ := p.cfgNow() // the call's one read of the config; one that does not load keeps the role agents last known
 	a.mu.Lock()
 	n := p.idleNow(cfg)
 	shown := p.idleText(n)

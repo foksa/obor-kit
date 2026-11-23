@@ -176,27 +176,42 @@ func TestIdleLineAfterTheWatchLine(t *testing.T) {
 	})
 }
 
-// A brief of a role with no role worktree keeps the idle state: its acknowledgement stands.
-func TestCustomRoleBriefKeepsIdle(t *testing.T) {
+// A brief to a role with no role worktree (the researcher) keeps no idle state: it is work in flight like any role
+// agent's, and its finished line is an idle end of its own, which the older acknowledgement does not cover.
+func TestCustomRoleBriefBreaksIdle(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, withConfig(testkit.Set("agents.roles.researcher", "sonnet")))
-		line := r.idleAcked()
+		r.addPane(port.Pane{ID: "w1:p7", Label: "pj-researcher", Agent: "claude", Status: "idle", Cwd: r.p.Root})
+		r.idleAcked()
 		if reply, err := r.line("b1", &wire.BriefReq{To: "pj-researcher", Text: "look at the docs"}); err != nil ||
 			!strings.HasPrefix(reply, "BRIEFED pj-researcher") {
 			t.Fatalf("brief of pj-researcher: %q, %v", reply, err)
 		}
-		st := r.app.Status().Project.Idle
-		if st == nil || !st.Acked || st.Why != "nothing to dispatch" {
-			t.Fatalf("idle state %+v after a custom role's brief, want the acknowledged state", st)
+		if st := r.app.Status().Project.Idle; st != nil {
+			t.Errorf("idle state %+v while pj-researcher holds a brief, want none", st)
 		}
-		if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "IDLE: nothing to dispatch" {
-			t.Errorf("obor idle (the state): %q, %v; want the acknowledged state", reply, err)
+		if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "NOT IDLE: pj-researcher holds a brief" {
+			t.Errorf("obor idle (the state): %q, %v; want the refusal naming the researcher's brief", reply, err)
 		}
-		r.passes()
-		if n := r.inbox.count("pj-lead", line); n != 1 {
-			t.Errorf("%d idle lines, want the one", n)
+
+		r.waitFor("the brief posted", func() bool {
+			return r.inbox.count("pj-researcher", "[obor pj-lead] look at the docs") == 1
+		})
+		r.waitBriefDelivered()
+		r.statusEvent("w1:p7", "working", "claude")
+		r.waitFor("its work logged", func() bool { return r.taskStep(event.MsgTask, "fact worked") == 1 })
+		r.clock.Add(2 * time.Minute)
+		finishedAt := r.clock.Now()
+		r.statusEvent("w1:p7", "idle", "claude")
+		const done = "[obor] pj-researcher finished (briefed 2m ago)"
+		r.waitFor("the finished line posted to the lead", func() bool { return r.inbox.count("pj-lead", done) == 1 })
+		if st := r.app.Status().Project.Idle; st == nil || st.Acked || st.Since != finishedAt.Unix() {
+			t.Fatalf("idle state %+v after the researcher's brief ended at %d, want a new state the ack does not cover",
+				st, finishedAt.Unix())
 		}
+		r.settleIdle()
+		r.waitFor("a second idle line", func() bool { return len(r.idlePosts()) == 2 })
 	})
 }
 

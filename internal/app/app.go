@@ -243,8 +243,10 @@ type proj struct {
 	out   outbox.Outbox
 	night nightlyState
 	// wtAgents: the configured reviewer and deep dive as the config last loaded names them (wtAgentsNow): the role
-	// agents whose role worktree serve moves (roleworktree.go). Under mu.
-	wtAgents []wtAgent
+	// agents whose role worktree serve moves (roleworktree.go). briefAgents: the role agents a brief counts for as the
+	// config last loaded names them (briefAgentsNow, idle.go). Under mu.
+	wtAgents    []wtAgent
+	briefAgents []string
 	// admits: the admissions in force (a config_set, from its wait for the running publish to its commit in: no
 	// publish starts meanwhile); published: closed when the running publish ends (nil: none runs). Under mu
 	// (roleworktree.go).
@@ -289,7 +291,7 @@ type folded struct {
 	// idleAck: the lead's last acknowledgement of an idle state (idle.go; zero: none).
 	idleAck idleAck
 	// ends: the records that ended work idleNow waits on besides a task's merge or drop, so the idle key and
-	// its age are the newest of them: briefEnds, each role worktree agent's last brief end (its finished line, or the
+	// its age are the newest of them: briefEnds, each role agent's last brief end (its finished line, or the
 	// stop that ended it); reviewIdleEnd, the last review
 	// request's end (a failed --after end, a --rm or a firing: every end, so idle does not read the marker
 	// below); reviewEnd, the last end that suppresses the on-merge rule (a --rm or a firing, not a failed --after

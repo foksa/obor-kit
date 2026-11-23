@@ -3,13 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"strings"
-	"testing"
-	"time"
-
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
 )
 
 // idleRefusal is the text obor idle shows while the pipeline is busy (a test fails when it is idle).
@@ -98,6 +99,87 @@ func TestIdleRefusalNamesWhatIsInFlight(t *testing.T) {
 				t.Errorf("idle refusal %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// idleRoleRoot is lineRoot's project with the advisor and the researcher configured beside the reviewer: the role
+// agents a brief may reach (serve hands the lead and the integrator jobs, a lane's worker a dispatch).
+func idleRoleRoot(t *testing.T) string {
+	t.Helper()
+	root := lineRoot(t)
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},` +
+		`"agents":{"roles":{"integrator":"","reviewer":"","advisor":"","researcher":""}}}`
+	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// idleBriefNow is idleNow of p at its config (under mu).
+func idleBriefNow(t *testing.T, a *App, p *proj) idle {
+	t.Helper()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return p.idleNow(loadCfg(t, p.root))
+}
+
+// An open brief to any role agent of the config is work in flight, and its finished brief is an idle end of its own:
+// the advisor and the researcher alike (the reviewer's brief is idle_test's row above).
+func TestIdleCountsARoleAgentsBrief(t *testing.T) {
+	t.Parallel()
+	for _, agent := range []string{"pj-advisor", "pj-researcher"} {
+		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
+			now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+			a, p := lineApp(t, idleRoleRoot(t), &now)
+			if n := idleBriefNow(t, a, p); !n.ok {
+				t.Fatalf("precondition: idle %+v before the brief", n)
+			}
+			if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact},
+				event.Message{To: agent, From: "pj-lead", Line: "[obor pj-lead] look at this"}) {
+				t.Fatal("the log refused the brief")
+			}
+			if n := idleBriefNow(t, a, p); n.ok || n.why != agent+" holds a brief" {
+				t.Errorf("idle %+v with %s's brief open, want NOT IDLE: %s holds a brief", n, agent, agent)
+			}
+			seq, ok := a.recordSeq(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+				event.Message{To: "pj-lead", From: "obor", Ends: agent, Line: "[obor] " + agent + " finished"})
+			if !ok {
+				t.Fatal("the log refused the finished line")
+			}
+			a.mu.Lock()
+			n, open := p.idleOpen(loadCfg(t, p.root))
+			a.mu.Unlock()
+			if !n.ok || n.end != seq {
+				t.Errorf("idle %+v after %s's brief ended at %d, want idle keyed by that end", n, agent, seq)
+			}
+			if !open {
+				t.Errorf("%s's brief end %d is acknowledged, want its own idle line", agent, seq)
+			}
+		})
+	}
+}
+
+// The lead and the integrator are handed jobs, so a brief to either is no work in flight.
+func TestIdleIgnoresTheLeadAndIntegratorsBriefs(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	a, p := lineApp(t, idleRoleRoot(t), &now)
+	for _, agent := range []string{"pj-lead", "pj-int"} {
+		if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact},
+			event.Message{To: agent, From: "pj-lead", Line: "[obor pj-lead] look at this"}) {
+			t.Fatalf("the log refused the brief to %s", agent)
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, agent := range []string{"pj-lead", "pj-int"} {
+		if p.out.Brief(agent) == nil {
+			t.Fatalf("precondition: %s has no open brief", agent)
+		}
+	}
+	if n := p.idleNow(loadCfg(t, p.root)); !n.ok {
+		t.Errorf("idle %+v with the lead's and the integrator's briefs open, want idle", n)
 	}
 }
 
