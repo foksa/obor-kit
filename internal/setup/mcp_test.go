@@ -421,6 +421,9 @@ func TestSetupMCPLaneChecksTheStart(t *testing.T) {
 	names := func(t *testing.T) []string {
 		t.Helper()
 		entries, err := os.ReadDir(state)
+		if os.IsNotExist(err) { // nothing cached: the kit's kinds are answered in process
+			return nil
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
