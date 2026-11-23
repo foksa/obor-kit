@@ -287,9 +287,10 @@ func (s *Setup) usedKinds() (map[string]bool, error) {
 // mcpLane is `obor setup mcp --model <name>`: whether a start of that model gives its agent obor's server, read from
 // its effective start args as its kind says (agents.MCPRegistration.Lane) — claude: a lane's start carries
 // --strict-mcp-config, so obor adds its --mcp-config (an explicit obor entry in kinds.claude.args wins); codex: launch
-// args on every start; opencode: the start's generated config (OPENCODE_CONFIG). It starts no agent and runs no `claude -p`
-// (a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake: `obor setup mcp`
-// runs it.
+// args on every start; opencode: the start's generated config (OPENCODE_CONFIG). The start it builds is a check
+// (agents.Start.Check): the kind runs no CLI, and obor writes none of the files it names. It starts no agent and runs
+// no `claude -p` (a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake:
+// `obor setup mcp` runs it.
 func (s *Setup) mcpLane(ctx context.Context, name string) error {
 	if err := s.load(); err != nil {
 		return err
@@ -311,18 +312,18 @@ func (s *Setup) mcpLane(ctx context.Context, name string) error {
 	}
 	m := in.MCP
 	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict
-	// unless the project's committed CLI config opts out (the main checkout's copy stands for a lane's). A kind
-	// whose start is one call (a plugin kind) gets the complete start, the kit too; a compiled kind's Lane reads
-	// the type's launch args, before the start registers obor's server for the kit, and its start file (Claude's
-	// settings file, its MCP file) is named, not written: no agent starts.
-	start := agents.Start{Agent: "worker", Dir: s.cfg.Root, Root: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, Dirs: project.SubDirs,
-		WriteState: project.StateWriter(s.cfg.Root)}
+	// unless the project's committed CLI config opts out (the main checkout's copy stands for a lane's). The start is
+	// a check: the kind runs no CLI and skips its live checks (agy's `agy models`, a workspace's hooks file), and
+	// WriteState names the files the start reads without writing them. A kind whose start is
+	// one call (a plugin kind) gets the complete start, the kit too; a compiled kind's Lane reads the type's launch
+	// args, before the start registers obor's server for the kit, and its start file (Claude's settings file, its MCP
+	// file) is named, not written: no agent starts.
+	start := agents.Start{Agent: "worker", Dir: s.cfg.Root, Root: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get,
+		Dirs: project.SubDirs, Check: true, WriteState: func(name string, _ []byte) (string, error) {
+			return filepath.Join(project.StateDir(s.cfg.Root), name), nil
+		}}
 	if _, whole := k.(agents.Whole); whole {
 		start.Kit = s.Kit
-	} else {
-		start.WriteState = func(name string, _ []byte) (string, error) {
-			return filepath.Join(project.StateDir(s.cfg.Root), name), nil
-		}
 	}
 	overrides, err := s.cfg.Overrides(lt.Kind)
 	var built agents.Launch
