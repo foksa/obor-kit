@@ -15,11 +15,12 @@ import (
 	ockind "obor/kinds/opencode/kind"
 )
 
-// mute is a plugin kind that resumes nothing (its manifest has no caps.resume), answered in process.
-const mute = "mute"
+// mute is a plugin kind that resumes nothing (its manifest has no caps.resume), answered in process: the config names
+// it as muteCmd.
+const mute, muteCmd = "mute", "/obor-kind-mute"
 
 func init() {
-	plugin.Local[mute] = func(call string, req []byte) ([]byte, error) {
+	plugin.Local[muteCmd] = func(call string, req []byte) ([]byte, error) {
 		var reply map[string]any
 		switch call {
 		case "describe": // OpenCode's manifest under another name, without its resume
@@ -60,7 +61,7 @@ func init() {
 func reviewerOn(t *testing.T, model string, recs ...store.Session) *fx {
 	t.Helper()
 	x := setup(t, testkit.AddModels(`{"neon":{"kind":"agy","id":"gemini-4-neon-high"},"mu":{"kind":"mute","id":"m"}}`),
-		testkit.Set("agents.kinds.mute", map[string]any{"plugin": "kinds/obor-kind-mute"}),
+		testkit.Set("agents.kinds.mute", map[string]any{"plugin": muteCmd}),
 		testkit.Set("agents.roles", `{"integrator":"opus","lead":"opus","reviewer":"`+model+`"}`))
 	hooks, _ := json.Marshal(map[string]any{"obor": agykind.HooksEntry()})
 	x.p.Write(agykind.HooksFile, string(hooks))

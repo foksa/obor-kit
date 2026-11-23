@@ -253,22 +253,34 @@ func TestLanesCount(t *testing.T) {
 	}
 }
 
-// a kit kind (OpenCode) with no agents.kinds.<name>.plugin runs the kit's binary and is a
-// plugin kind of the config; a set plugin still overrides it.
-func TestKitKindDefaultCommand(t *testing.T) {
+// a kit kind with no agents.kinds.<name>.plugin, or naming its kit binary, is that binary's name as it is (obor answers
+// it in process) and a plugin kind of the config; any other plugin is its path, relative to the root.
+func TestKitKindCommand(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
-	if want := KitKind("obor-kind-opencode"); c.KindCommand("opencode") != want {
-		t.Errorf("KindCommand(opencode) with no plugin = %q, want the kit's binary %q", c.KindCommand("opencode"), want)
-	}
-	if got := c.PluginKinds(); !slices.Contains(got, "opencode") {
-		t.Errorf("PluginKinds = %q, want opencode (a kit kind with no plugin is one)", got)
+	if got := c.PluginKinds(); !slices.Contains(got, "opencode") || !slices.Contains(got, "agy") {
+		t.Errorf("PluginKinds = %q, want opencode and agy (a kit kind with no plugin is one)", got)
 	}
 	if got := c.KindCommand("claude"); got != "" {
 		t.Errorf("KindCommand(claude) = %q, want none (a compiled kind is no plugin kind)", got)
 	}
-	own := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"kinds":{"opencode":{"plugin":"tools/oc"}}}}`, "")
-	if want := filepath.Join(own.Root, "tools", "oc"); own.KindCommand("opencode") != want {
-		t.Errorf("KindCommand(opencode) = %q, want the set plugin %q", own.KindCommand("opencode"), want)
+	for _, kind := range []string{"opencode", "agy"} {
+		bin := "obor-kind-" + kind
+		for _, tc := range []struct{ plugin, want string }{
+			{"", bin}, {bin, bin}, {"tools/oc", "tools/oc"}, {"/opt/" + bin, "/opt/" + bin},
+		} {
+			doc := `{"version":2,"project":{"agent_prefix":"pj"}}`
+			if tc.plugin != "" {
+				doc = `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"kinds":{"` + kind + `":{"plugin":"` + tc.plugin + `"}}}}`
+			}
+			c := load(t, doc, "")
+			want := tc.want
+			if tc.want == "tools/oc" {
+				want = filepath.Join(c.Root, "tools", "oc")
+			}
+			if got := c.KindCommand(kind); got != want {
+				t.Errorf("KindCommand(%s) with plugin %q = %q, want %q", kind, tc.plugin, got, want)
+			}
+		}
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -353,8 +352,8 @@ func write(key string, doc []byte, path []string, v any) (Write, error) {
 // ProjectDoc is doc (the kit's config example, shape 2) as obor init writes a new project's config: name, prefix,
 // terminal (project.terminal, one of TerminalKinds) and lanesDir set, no lanes, project commands, lane links or
 // protected files, the commands init detects (lanes.setup, merge.check, nightly.slow_check) null; the example's
-// agents.difficulty, agents.models and agents.kinds go (init writes the models and levels of the kinds it detects),
-// but for each kit kind's plugin (KitKinds).
+// agents.difficulty, agents.models and agents.kinds go (init writes the models and levels of the kinds it detects; a
+// kit kind needs no plugin line: KindCommand).
 func ProjectDoc(doc []byte, name, prefix, terminal, lanesDir string) ([]byte, error) {
 	for _, kv := range []struct {
 		path []string
@@ -371,12 +370,6 @@ func ProjectDoc(doc []byte, name, prefix, terminal, lanesDir string) ([]byte, er
 	} {
 		var err error
 		if doc, err = EditJSON(doc, kv.path, kv.val); err != nil {
-			return nil, err
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(KitKinds)) {
-		var err error
-		if doc, err = EditJSON(doc, p("agents", "kinds", name, "plugin"), KitKinds[name]); err != nil {
 			return nil, err
 		}
 	}

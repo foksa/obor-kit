@@ -31,14 +31,14 @@ import (
 	ockind "obor/kinds/opencode/kind"
 )
 
-// OpenCode and agy are plugin kinds: a test binary has no built obor-kind-opencode or obor-kind-agy, so each kind
-// answers in process (plugin.Local) with the handler its binary runs; a loaded config's kinds hold them
-// (config.Config.Kinds), and Kinds are the kinds of a test that has no config. agy's start checks its model against
-// AgyModels, never the host's `agy models` (no unit test runs the real agy: it needs a login, the network and a local
-// socket a sandbox may refuse).
+// OpenCode and agy are the kit's plugin kinds, which obor answers in process (plugin.Local, by their binary's name:
+// cmd/obor links them); a test binary does not link cmd/obor, so each is registered here with the handler its binary
+// runs. A loaded config's kinds hold them (config.Config.Kinds), and Kinds are the kinds of a test that has no
+// config. agy's start checks its model against AgyModels, never the host's `agy models` (no unit test runs the real
+// agy: it needs a login, the network and a local socket a sandbox may refuse).
 func init() {
-	plugin.Local[ockind.Name] = ockind.Handle
-	plugin.Local[agykind.Name] = agykind.HandleModels(func() ([]byte, error) { return []byte(AgyModels), nil })
+	plugin.Local[config.KitKinds[ockind.Name]] = ockind.Handle
+	plugin.Local[config.KitKinds[agykind.Name]] = agykind.HandleModels(func() ([]byte, error) { return []byte(AgyModels), nil })
 }
 
 // AgyModels is the model list the in-process agy kind's start checks against, in `agy models`'s shape (one slug, a tab

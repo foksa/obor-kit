@@ -69,10 +69,6 @@ func (l *lab) makeRealKit() error {
 	} else if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./cmd/obor"); err != nil {
 		return fmt.Errorf("go build ./cmd/obor: %v: %s", err, o)
 	}
-	// the agy kind beside it, as config.KitKind finds it from obor-real (obor kind agy: agy's hook transport)
-	if o, err := output(3*time.Minute, "go", "build", "-o", filepath.Join(bin, config.KitKinds["agy"]+"-real"), "./kinds/agy"); err != nil {
-		return fmt.Errorf("go build ./kinds/agy: %v: %s", err, o)
-	}
 	wrapper := "#!/bin/bash\nexec \"$(dirname \"$0\")/obor-real\" \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "obor"), []byte(wrapper), 0o755); err != nil {
 		return err

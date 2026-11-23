@@ -5,14 +5,16 @@ compiled in (claude, codex). A **plugin kind** is an executable, in any language
 protocol; obor's `internal/agents/plugin` package implements `agents.Kind` by running it, so nothing above the bridge
 changes (`docs/plan/architecture-target.md` §2a).
 
-**OpenCode is the reference plugin kind**: `kinds/opencode/` in the kit, a Go binary of its own
-(`kinds/opencode/main.go`; the kind itself is package `kinds/opencode/kind`, standard library and obor's `agents` only).
-`make build` writes it as `dist/obor-kind-opencode` beside `dist/obor`; a release ships it beside obor's binary
-(`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor` into `~/.obor/bin` with obor's). `opencode/obor.js` stays
-its hook transport. A test binary answers it in process (`plugin.Local`, testkit), with the handler the binary runs.
-The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, built and shipped the same way as
-`obor-kind-agy`: obor's MCP server and hooks through the project's `.agents/mcp_config.json` and `.agents/hooks.json`
-(`install`'s `where: project`); its binary's `hook` call is agy's hook transport (`obor kind agy hook`); its inbox is the
+**OpenCode is the reference plugin kind**: `kinds/opencode/` in the kit (the kind itself is package
+`kinds/opencode/kind`, standard library and obor's `agents` only). obor links it and answers it in process
+(`plugin.Local`, registered by `cmd/obor` under its binary's name `obor-kind-opencode`; a test binary's by testkit):
+the same requests and replies, no process. `make build` also writes it as its own binary,
+`dist/obor-kind-opencode` (`kinds/opencode/main.go`), and a release still ships it beside obor's
+(`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor`); obor runs neither. `opencode/obor.js` stays its hook
+transport.
+The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, linked and built the same way
+(`obor-kind-agy`): obor's MCP server and hooks through the project's `.agents/mcp_config.json` and `.agents/hooks.json`
+(`install`'s `where: project`); its `hook` call is agy's hook transport (`obor kind agy hook`); its inbox is the
 agentapi variables of the commands the agent runs (`inbox_record`, recorded by the agent's `obor` commands), which its
 `deliver` sends with (`sent`).
 
@@ -23,13 +25,12 @@ agentapi variables of the commands the agent runs (`inbox_record`, recorded by t
 ```
 
 - `agents.kinds.<name>.plugin`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
-  (`agents.models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's. The name of a binary the kit ships
-  (`obor-kind-opencode`, `obor-kind-agy`, `config.KitKinds`) is that binary beside the running obor (`config.KitKind`: `dist/obor`'s
-  `dist/obor-kind-opencode`, a release binary's same-suffixed file in `~/.obor/bin`). `obor init` writes
-  `"opencode": {"plugin": "obor-kind-opencode"}` and `"agy": {"plugin": "obor-kind-agy"}`.
-- A config that uses OpenCode may name `agents.kinds.opencode.plugin` (`"plugin": "obor-kind-opencode"`); with no
-  line it runs the kit's binary all the same (`config.KitKinds`, the default). `obor setup agents` caches the
-  resolved command's manifest and writes nothing to the config (a value obor derives needs no line).
+  (`agents.models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's.
+- A kit kind (`opencode`, `agy`: `config.KitKinds`) needs no line: with none, or one naming its kit binary
+  (`"plugin": "obor-kind-opencode"`, `"plugin": "obor-kind-agy"`), obor answers it in process (`config.KindCommand`
+  keeps that name, `plugin.Local` has its handler): no process runs, no manifest is cached, `obor setup agents` and
+  serve skip it. Any other path for a kit kind's name replaces it and runs as any plugin kind. `obor init` writes no
+  line for them.
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
   and again once the command's mtime (or its path) differs from the cached one; `obor init` and
@@ -181,15 +182,15 @@ nothing yet: herdr's agent detection still gives every pane its status. The comp
 
 A kind's hooks reach obor as `obor hook <name>`: `hooks: native` is the CLI's own hooks file running it (Claude
 Code's plugin `hooks/hooks.json`), `hooks: plugin` is obor's plugin for the CLI, which maps the CLI's events to the
-same calls (`opencode/obor.js`; agy's kind binary, `obor-kind-agy hook`, which the project's `.agents/hooks.json` runs as `obor kind
-agy hook`: `obor kind <name>` execs the kit's binary of that kind with the obor's own executable in `OBOR_EXE`, which
-the transport runs `hook <name>` on). A transport reads its CLI's event, runs `obor hook <name>` with the event's JSON
+same calls (`opencode/obor.js`; agy's `hook` call, which the project's `.agents/hooks.json` runs as `obor kind agy
+hook`: `obor kind <name>` runs that kit kind's call in process with the obor's own executable in `OBOR_EXE`, which the
+transport runs `hook <name>` on). A transport reads its CLI's event, runs `obor hook <name>` with the event's JSON
 on stdin and reads the answer; a transport that only rewrites events holds none of obor's rules. The hooks read the
 agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the pane's `HERDR_PANE_ID`), so a transport
 passes it through.
 
 `bin/obor` runs both of those on its hook path: it never fetches a binary there, runs the first one that has the
-command (`hook <name>`, or `kind` for `obor kind <name> hook`, with the kind binary `obor kind` execs beside it), and
+command (`hook <name>`, or `kind` for `obor kind <name> hook`), and
 with none answers for the hook — a deny with the repair hint for `pre-tool-use`, nothing for the other hooks, and for
 `obor kind <name> hook` one generic deny JSON naming the repair.
 
@@ -242,6 +243,7 @@ arrives as an empty one.
 - A model name in the args (`agents.ModelEditor`): a plugin kind's model id goes on as `--model <id>` (appended to the
   kind's base args, `config.Model`).
 - Live conformance of a plugin kind of a project's own: the static tier, `make conformance TIER=static KIND=plugin`,
-  runs against `tests/conformance/kindplugin/obor-kind-shell`, a shell-script kind answering every call. The kit's
-  OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), run against `kinds/opencode` built into
-  the scratch dir and called through obor's plugin package.
+  runs against `tests/conformance/kindplugin/obor-kind-shell`, a shell-script kind answering every call, and against
+  `kinds/agy` built as a binary and named by its path (P-S8: describe and start), so the external-command path stays
+  tested for a real kind. The kit's OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), run
+  against `kinds/opencode` built into the scratch dir and called through obor's plugin package.

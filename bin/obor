@@ -268,14 +268,6 @@ hook() {
   exit 2
 }
 
-# kind_exe <binary> <kind>: the kind binary beside a main binary (config.KitKind's layout: dist/obor's
-# dist/obor-kind-<kind>, a release obor-<v>-<os>-<arch>'s obor-kind-<kind>-<v>-<os>-<arch>).
-kind_exe() {
-  local base=${1##*/} suffix=
-  case "$base" in obor-*) suffix="-${base#obor-}" ;; esac
-  printf '%s/obor-kind-%s%s\n' "$(dirname "$1")" "$2" "$suffix"
-}
-
 # json_escape <text>: text as a JSON string's body, its backslashes and quotes escaped, so a kit path with either one
 # still makes valid JSON.
 json_escape() {
@@ -286,21 +278,18 @@ json_escape() {
 }
 
 # kind_hook <name> hook [args…]: a kind's hook transport (`obor kind <name> hook`, agy's .agents/hooks.json) follows
-# the hook rules: it never fetches, the binary it runs must have `kind` and an executable `obor-kind-<name>` beside it
-# (the companion `obor kind` execs), and with none it answers one generic deny JSON naming the repair (no repair
-# exception: the owner runs make in a shell).
+# the hook rules: it never fetches, the binary it runs must have `kind` (it runs the kind in process), and with none it
+# answers one generic deny JSON naming the repair (no repair exception: the owner runs make in a shell).
 kind_hook() {
-  local name=${1:-} binary kind
+  local binary
   export OBOR_NO_SELF_HOST=1
   binary=$OBOR_PLUGIN_ROOT/dist/obor
-  kind=$(kind_exe "$binary" "$name")
-  if [ -x "$binary" ] && [ -x "$kind" ] && has_cmd "$binary" kind; then
+  if [ -x "$binary" ] && has_cmd "$binary" kind; then
     run "$binary" "dev build" kind "$@"
   fi
   if platform; then
     binary="${HOME:-}/.obor/bin/$asset"
-    kind=$(kind_exe "$binary" "$name")
-    if [ -x "$binary" ] && [ -x "$kind" ] && has_cmd "$binary" kind; then run "$binary" "$source" kind "$@"; fi
+    if [ -x "$binary" ] && has_cmd "$binary" kind; then run "$binary" "$source" kind "$@"; fi
   fi
   printf '{"decision":"deny","reason":"%s"}\n' "$(json_escape "$(hint "no usable Go binary in $OBOR_PLUGIN_ROOT")")"
   exit 0

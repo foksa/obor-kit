@@ -25,15 +25,7 @@ import (
 // kind gave it (--auto --standalone, the model gone, --prompt; OBOR_OPENCODE_MODEL model#effort, OPENCODE_CONFIG the
 // lane's file in the state dir holding obor's server and plugin and the user's own server disabled).
 func TestLaneStartRunsTheBinary(t *testing.T) {
-	// testkit answers OpenCode in process: this test runs the binary. It is no parallel test (the parallel ones of the
-	// package start once it has returned), and puts the in-process answer back for them.
-	local, had := plugin.Local[kind.Name]
-	delete(plugin.Local, kind.Name)
-	t.Cleanup(func() {
-		if had {
-			plugin.Local[kind.Name] = local
-		}
-	})
+	// the config names the binary by its path, not the kit's name: obor runs it, not the in-process kind
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real")
 	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", real, "obor/kinds/opencode").CombinedOutput(); err != nil {

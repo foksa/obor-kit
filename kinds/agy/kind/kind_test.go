@@ -22,9 +22,10 @@ import (
 func agy(t *testing.T, stateDir string) agents.Kind {
 	t.Helper()
 	stubAGY(t, stubList, 0)
-	plugin.Local[kind.Name] = kind.Handle
-	t.Cleanup(func() { delete(plugin.Local, kind.Name) })
-	k := agents.Plugins.Kind(kind.Name, "obor-kind-agy", stateDir)
+	const cmd = "obor-kind-agy"
+	plugin.Local[cmd] = kind.Handle
+	t.Cleanup(func() { delete(plugin.Local, cmd) })
+	k := agents.Plugins.Kind(kind.Name, cmd, stateDir)
 	if k.Name() != kind.Name || !k.Caps().Resume {
 		t.Fatalf("precondition: the kind describes itself: %s %+v", k.Name(), k.Caps())
 	}

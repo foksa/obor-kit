@@ -278,9 +278,9 @@ func (s *Setup) hasModelOf(name string) bool {
 
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config; a
 // config that fails to load is its own error) and caches its manifest, then reloads the config (Setup.cfg) so its
-// plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step). A kit
-// kind the config names no plugin for (config.KitKinds: the kit's binary is the default) is cached as that
-// default and the config is left as it is (a value obor derives needs no edit).
+// plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step). A kind obor answers in
+// process (plugin.InProcess: a kit kind with no plugin or its kit binary's name) needs no cache and is skipped; the
+// config is left as it is.
 func (s *Setup) cachePlugins() (cached []string, err error) {
 	cfg, err := s.projectConfig()
 	if err != nil || cfg == nil {
@@ -288,6 +288,9 @@ func (s *Setup) cachePlugins() (cached []string, err error) {
 	}
 	for _, name := range cfg.PluginKinds() {
 		cmd := cfg.KindCommand(name)
+		if plugin.InProcess(cmd) {
+			continue
+		}
 		if _, err := plugin.Cache(name, cmd, cfg.StateDir()); err != nil {
 			return nil, project.Failf("agents %s: %v", name, err)
 		}

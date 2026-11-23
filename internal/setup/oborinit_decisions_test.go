@@ -131,6 +131,10 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus:high"`) {
 		t.Errorf("config.json is not the new shape:\n%s", doc)
 	}
+	// a kit kind needs no plugin line: obor answers it in process
+	if strings.Contains(doc, `"plugin"`) || strings.Contains(doc, "obor-kind-") {
+		t.Errorf("config.json names a kit kind's plugin:\n%s", doc)
+	}
 	for _, lane := range []string{"L-01", "L-02"} {
 		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
 			t.Errorf("no worktree for %s: %v", lane, err)

@@ -23,9 +23,10 @@ import (
 // by Handle: the same requests and replies as the binary's, without the exec. stateDir: where a start's files go.
 func opencode(t *testing.T, stateDir string) agents.Kind {
 	t.Helper()
-	plugin.Local[kind.Name] = kind.Handle
-	t.Cleanup(func() { delete(plugin.Local, kind.Name) })
-	k := agents.Plugins.Kind(kind.Name, "obor-kind-opencode", stateDir)
+	const cmd = "obor-kind-opencode"
+	plugin.Local[cmd] = kind.Handle
+	t.Cleanup(func() { delete(plugin.Local, cmd) })
+	k := agents.Plugins.Kind(kind.Name, cmd, stateDir)
 	if k.Name() != kind.Name || k.Caps().Hooks != agents.HooksPlugin {
 		t.Fatalf("precondition: the kind describes itself: %s %+v", k.Name(), k.Caps())
 	}

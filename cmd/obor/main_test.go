@@ -46,14 +46,6 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", oborBin, ".").CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
-	// beside it the kit's kind binaries, as make build lays them out (obor runs a kit kind from its own
-	// executable's directory; config validate, init and setup agents describe it)
-	for _, name := range []string{"opencode", "agy"} {
-		kind := filepath.Join(dir, "obor-kind-"+name)
-		if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", kind, "../../kinds/"+name).CombinedOutput(); err != nil {
-			panic("go build kinds/" + name + ": " + err.Error() + "\n" + string(out))
-		}
-	}
 	code := testkit.Run(m) // removes the project template testkit.New copies
 	for _, f := range afterRun {
 		f()
@@ -121,25 +113,28 @@ func TestExitCodes(t *testing.T) {
 	// Outside a git repository: TestExitCodesOutsideARepo (main_integration_test.go: project.Find asks git there).
 }
 
-// kindEnv is the environment `obor kind` execs a kit kind with: this obor's executable in agents.ExeVar, and an entry
-// it inherits replaced rather than left beside this one (a reader takes the first match, the stale obor).
-func TestKindEnvSetsItsOwnExe(t *testing.T) {
+// `obor kind agy hook` runs agy's hook transport in this obor, no kind binary beside it: agy's event of a tool obor
+// cannot guard reaches obor hook pre-tool-use on this obor's executable (an inherited OBOR_EXE naming another is
+// replaced), whose guard denies it for an agent with a role, with the transport's reason. An unknown kind exits 2.
+func TestKindRunsTheKitKindInProcess(t *testing.T) {
 	t.Parallel()
-	const exe = "OBOR_EXE=/this/obor"
-	for _, c := range []struct {
-		name    string
-		environ []string
-		want    []string
-	}{
-		{"none inherited: appended", []string{"PATH=/bin", "HOME=/h"}, []string{"PATH=/bin", "HOME=/h", exe}},
-		{"inherited: replaced", []string{"PATH=/bin", "OBOR_EXE=/other/obor", "HOME=/h"},
-			[]string{"PATH=/bin", "HOME=/h", exe}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			if got := kindEnv(c.environ, "/this/obor"); !slices.Equal(got, c.want) {
-				t.Errorf("kindEnv = %q, want %q", got, c.want)
-			}
-		})
+	p := testkit.NewPlain(t)
+	p.Config()
+	if _, err := os.Stat(filepath.Join(filepath.Dir(oborBin), "obor-kind-agy")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: no kind binary of that name beside obor (%v)", err)
+	}
+	event := `{"hookEventName": "PreToolUse", "conversationId": "c1", "cwd": "` + p.Root + `", ` +
+		`"toolCall": {"name": "run_workflow", "args": {}}}` + "\n"
+	rc, stdout, stderr := runIn(t, p.Root, []string{"OBOR_EXE=/no/such/obor", "OBOR_ROLE=lead"}, event, "kind", "agy", "hook")
+	var got struct{ Decision, Reason string }
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || rc != 0 {
+		t.Fatalf("obor kind agy hook: exit %d, %q (%v), stderr %q", rc, stdout, err, stderr)
+	}
+	if got.Decision != "deny" || !strings.Contains(got.Reason, "obor cannot guard a workflow script") {
+		t.Errorf("the answer = %+v; want obor hook's deny with the transport's reason (run on this obor)", got)
+	}
+	if rc, _, stderr := run(t, p.Root, nil, "kind", "nope", "hook"); rc != 2 || !strings.Contains(stderr, `"nope" is no kit kind (agy, opencode)`) {
+		t.Errorf("obor kind nope: exit %d, %q; want 2 naming the kit kinds", rc, stderr)
 	}
 }
 
@@ -485,21 +480,34 @@ func bashHook(t *testing.T, dir, cmd string) (int, string) {
 	return rc, stderr.String()
 }
 
-// a project whose OpenCode manifest is not cached has no headless forms for opencode, so the guard
-// denies every opencode command (also wrapped) naming obor setup agents; after obor serve's start, which caches the
-// manifest of the kit's real obor-kind-opencode, the manifest's rule applies: `opencode run` is denied as headless and
-// another opencode command is let through.
+// The kit's OpenCode is answered in process: with nothing cached the guard applies its manifest's rule (`opencode run`
+// denied as headless, another opencode command let through). A project's own plugin kind whose manifest is not
+// cached has no headless forms, so the guard denies every command of its CLI (also wrapped) naming obor setup agents;
+// after obor serve's start, which caches its manifest (and none for OpenCode), the manifest's rule applies.
 func TestGuardDeniesAnUncachedPluginKindUntilServeCachesIt(t *testing.T) {
 	t.Parallel()
+	bin := filepath.Join(t.TempDir(), "obor-kind-hermes")
+	manifest := `{"version":1,"name":"hermes","status":"terminal","headless":{"subcommands":["run"]}}`
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\necho '"+manifest+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	p := testkit.NewPlain(t)
-	p.Config()
-	cache := filepath.Join(p.Root, ".obor", "state", "kinds", "opencode.json")
-	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+	p.Config(testkit.Set("agents.kinds.hermes.plugin", bin))
+	kinds := filepath.Join(p.Root, ".obor", "state", "kinds")
+	if _, err := os.Stat(kinds); !os.IsNotExist(err) {
 		t.Fatalf("precondition: no manifest cached (%v)", err)
 	}
-	for _, cmd := range []string{"opencode run hello", "env opencode run hello", "opencode --version"} {
+	for _, cmd := range []string{"opencode run hello", "env opencode run hello"} {
+		if rc, stderr := bashHook(t, p.Root, cmd); rc != 2 || !strings.Contains(stderr, "opencode run runs an agent headless") {
+			t.Errorf("in process, %q: exit %d, %q; want the manifest's headless deny", cmd, rc, stderr)
+		}
+	}
+	if rc, stderr := bashHook(t, p.Root, "opencode --version"); rc != 0 {
+		t.Errorf("in process, opencode --version: exit %d, %q; want allowed", rc, stderr)
+	}
+	for _, cmd := range []string{"hermes run hello", "env hermes run hello", "hermes --version"} {
 		if rc, stderr := bashHook(t, p.Root, cmd); rc != 2 ||
-			!strings.Contains(stderr, "opencode is the CLI of plugin kind opencode, whose manifest is not cached") ||
+			!strings.Contains(stderr, "hermes is the CLI of plugin kind hermes, whose manifest is not cached") ||
 			!strings.Contains(stderr, "run obor setup agents") {
 			t.Errorf("no cache, %q: exit %d, %q; want the uncached deny", cmd, rc, stderr)
 		}
@@ -514,21 +522,24 @@ func TestGuardDeniesAnUncachedPluginKindUntilServeCachesIt(t *testing.T) {
 	}
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	b, err := os.ReadFile(cache)
-	if err != nil || !strings.Contains(out.String(), "obor serve: kind opencode: manifest of ") {
+	b, err := os.ReadFile(filepath.Join(kinds, "hermes.json"))
+	if err != nil || !strings.Contains(out.String(), "obor serve: kind hermes: manifest of "+bin+" cached") {
 		t.Fatalf("serve's start cached no manifest (%v):\n%s", err, out.String())
 	}
 	var c struct{ Command string }
-	if json.Unmarshal(b, &c) != nil || filepath.Base(c.Command) != "obor-kind-opencode" {
-		t.Errorf("the cache describes %q, want the kit's obor-kind-opencode", c.Command)
+	if json.Unmarshal(b, &c) != nil || c.Command != bin {
+		t.Errorf("the cache describes %q, want %s", c.Command, bin)
 	}
-	for _, cmd := range []string{"opencode run hello", "env opencode run hello"} {
-		if rc, stderr := bashHook(t, p.Root, cmd); rc != 2 || !strings.Contains(stderr, "opencode run runs an agent headless") {
+	if _, err := os.Stat(filepath.Join(kinds, "opencode.json")); !os.IsNotExist(err) {
+		t.Errorf("serve cached OpenCode, a kind answered in process (%v)", err)
+	}
+	for _, cmd := range []string{"hermes run hello", "env hermes run hello"} {
+		if rc, stderr := bashHook(t, p.Root, cmd); rc != 2 || !strings.Contains(stderr, "hermes run runs an agent headless") {
 			t.Errorf("cached, %q: exit %d, %q; want the manifest's headless deny", cmd, rc, stderr)
 		}
 	}
-	if rc, stderr := bashHook(t, p.Root, "opencode --version"); rc != 0 {
-		t.Errorf("cached, opencode --version: exit %d, %q; want allowed", rc, stderr)
+	if rc, stderr := bashHook(t, p.Root, "hermes --version"); rc != 0 {
+		t.Errorf("cached, hermes --version: exit %d, %q; want allowed", rc, stderr)
 	}
 }
 
@@ -776,11 +787,7 @@ func TestLeadLinesHooks(t *testing.T) {
 		}
 	}
 	p.Config(testkit.Set("agents.roles.integrator", ""), testkit.Set("agents.roles.lead", "deepseek"))
-	// A hook's config reads a plugin kind's manifest from the state dir's cache (obor setup agents writes it).
-	kindBin := filepath.Join(filepath.Dir(oborBin), "obor-kind-opencode")
-	if _, err := plugin.Cache("opencode", kindBin, filepath.Join(p.Root, ".obor", "state")); err != nil {
-		t.Fatalf("precondition: OpenCode's manifest cached: %v", err)
-	}
+	// OpenCode, a kit kind, is answered in process: no manifest cached
 	shimRun(t, p.Root, event("UserPromptSubmit"), lead, oborBin, "hook", "user-prompt-submit")
 	shimRun(t, p.Root, event("Stop"), lead, oborBin, "hook", "stop")
 	if m := serve.sentMethods(); len(m) != 4 {

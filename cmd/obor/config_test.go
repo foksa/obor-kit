@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -136,11 +135,7 @@ func TestWhoamiRecordsAnAgyLeadsInbox(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("agents.models.gem", map[string]any{"kind": "agy", "id": "gemini-3-flash"}),
 		testkit.Set("agents.roles.lead", "gem"))
-	// A command's config reads a plugin kind's manifest from the state dir's cache (obor setup agents writes it).
-	kindBin := filepath.Join(filepath.Dir(oborBin), "obor-kind-agy")
-	if _, err := plugin.Cache("agy", kindBin, filepath.Join(p.Root, ".obor", "state")); err != nil {
-		t.Fatalf("precondition: agy's manifest cached: %v", err)
-	}
+	// agy, a kit kind, is answered in process: no manifest cached
 	inbox := project.InboxFile(p.Root, "lead")
 	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=lead"); !strings.HasSuffix(text, "lines: hooks\n") || p.Exists(inbox) {
 		t.Fatalf("precondition: a lead's shell without the variables: %q, record %v; want hooks, none", text, p.Exists(inbox))

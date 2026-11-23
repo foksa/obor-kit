@@ -203,7 +203,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 
 	// kinds: each plugin kind's manifest cached, before anything reads it: the guard, the agent starts of the
-	// panes step, obor setup mcp
+	// panes step, obor setup mcp (the kit's kinds are answered in process: nothing to cache)
 	kinds, err := s.cachePlugins()
 	if err != nil {
 		return err
@@ -212,7 +212,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(kinds) == 0 {
-		add("kinds", "skipped", "no plugin kinds")
+		add("kinds", "skipped", "no plugin kinds to cache")
 	} else {
 		add("kinds", "done", "%s: manifest cached", strings.Join(kinds, ", "))
 	}
