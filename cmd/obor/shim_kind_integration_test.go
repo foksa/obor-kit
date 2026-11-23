@@ -13,9 +13,10 @@ import (
 
 // Tests for `obor kind <name> hook`, a kind's hook transport (agy's .agents/hooks.json runs it): bin/obor's hook path.
 // It never fetches, runs the first main binary that has `kind` (the kind runs in it, no kind binary beside it), and
-// with none answers by event: an event that carries a tool call is a PreToolUse — in a running obor project it denies
-// with the repair hint, anywhere else it asks (agy's own check) — and SessionStart, PreInvocation and Stop answer
-// nothing. Every other kind call keeps the generic path (the fetch when there is no binary).
+// with none answers by event: an event named PreToolUse, or one carrying a tool call, is a PreToolUse — in a running
+// obor project it denies with the repair hint, anywhere else it asks (agy's own check) — and SessionStart,
+// PreInvocation and Stop answer nothing. Every other kind call keeps the generic path (the fetch when there is no
+// binary).
 
 // kindFixture is a kit copy (the tree's bin/obor and VERSION, no dev build) with a fake curl first on PATH, recording
 // each call in curl.log and failing, so a fetch is seen and never reaches a release.
@@ -183,12 +184,12 @@ func TestShimKindHookNoBinary(t *testing.T) {
 	}
 }
 
-// With no usable binary `kind <name> hook` answers by agy's event, never one generic deny: an event that carries a
-// tool call denies in a running obor project with the repair hint, and asks in a stopped project or outside one; an
-// event that carries none (SessionStart, PreInvocation, Stop) answers nothing (exit 0, empty stdout), in and out of a
-// project. A tool call is the event's raw text `"toolCall"`, so it is answered as a PreToolUse whatever its event name
-// reads: the rows after the loop vary the name around it. The hook runs under the project's .agents, as agy runs it, so
-// the config is up from the cwd.
+// With no usable binary `kind <name> hook` answers by agy's event, never one generic deny: an event named PreToolUse,
+// or one carrying a tool call, denies in a running obor project with the repair hint and asks in a stopped project or
+// outside one; an event that is neither (SessionStart, PreInvocation, Stop) answers nothing (exit 0, empty stdout), in
+// and out of a project. A tool call is the event's raw text `"toolCall"`, so an event whose name and call are in
+// shapes the shim has not seen is still answered by whichever it can read: the rows after the loop vary those
+// shapes. The hook runs under the project's .agents, as agy runs it, so the config is up from the cwd.
 func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 	t.Parallel()
 	for _, event := range []string{"PreToolUse", "SessionStart", "PreInvocation", "Stop"} {
@@ -223,9 +224,10 @@ func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 			})
 		}
 	}
-	// A tool call whose event name cannot confirm it: a nested "hookEventName" in the call's own arguments (read as
-	// the event's name), a cut-off event (its trailing name cut away), and a key spelled another way. Each carries a
-	// tool call, so each denies in a running project.
+	// A PreToolUse whose name or call is in a shape the shim has not seen: a nested "hookEventName" in the call's own
+	// arguments (read as the event's name), a cut-off event (its trailing name cut away), a key spelled another way, and
+	// a PreToolUse cut before its call (the name is the only reading left). Each is a PreToolUse, so each denies in a
+	// running project.
 	for _, c := range []struct {
 		name  string
 		event func(cwd string) string
@@ -238,6 +240,9 @@ func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 		}},
 		{"a renamed key", func(cwd string) string {
 			return `{"conversationId":"c","cwd":"` + cwd + `","hook_event_name":"PreToolUse","toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
+		}},
+		{"a PreToolUse cut before its call", func(cwd string) string {
+			return `{"conversationId":"c","cwd":"` + cwd + `","hookEventName":"PreToolUse","tool`
 		}},
 	} {
 		t.Run(c.name+" in a running project", func(t *testing.T) {
