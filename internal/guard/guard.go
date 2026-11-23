@@ -663,3 +663,20 @@ func (g *guard) recordBackground() {
 	project.AppendBackground(g.root, project.BackgroundCall{At: time.Now().Unix(), Agent: project.SelfAgent(g.cfg, g.detected),
 		Pane: pane, Session: g.session, Description: g.description, Command: g.cmd})
 }
+
+// unparsedChars is how much of a command the unparsed record keeps.
+const unparsedChars = 200
+
+// recordUnparsed records a Bash call whose parse stopped at a syntax error: when, the agent and role, the parser's
+// error and the call's command cut to unparsedChars characters, so the lead can count how often agents write a command
+// the parser rejects (project.AppendUnparsed: one append, no wait). A nested string's parse (sh -c, eval) is the same
+// call, logged from the same site. The call itself is checked as far as it parsed and allowed when nothing before the
+// error denies.
+func (g *guard) recordUnparsed(err error) {
+	cmd := g.cmd
+	if r := []rune(cmd); len(r) > unparsedChars {
+		cmd = string(r[:unparsedChars])
+	}
+	project.AppendUnparsed(g.root, project.UnparsedCall{At: time.Now().Unix(), Agent: project.SelfAgent(g.cfg, g.detected),
+		Role: g.role, Error: err.Error(), Command: cmd})
+}
