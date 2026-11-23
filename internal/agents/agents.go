@@ -752,7 +752,7 @@ type Split interface {
 	// kit), then the resume form or the first prompt (never both).
 	Start(in Start) []string
 	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it). An error: the
-	// start cannot carry in.Effort (it says why).
+	// start cannot carry in.Effort, or the kind refuses its args (codex: a lane's args under mcp_servers); it says why.
 	StartEnv(in Start) (map[string]string, error)
 }
 
@@ -760,7 +760,7 @@ type Split interface {
 // a Split kind's env (StartEnv) and its argv in two passes of Start: the type's launch args (Args with
 // Settings or SettingsFile, MCPFile, Effort, StrictMCP, TrimUser and Overrides with Env and Dirs, WriteDirs), then the
 // start over them (Kit, Resume, Session, Prompt), Dir and Read in both; a Preparer's Prepare comes first. An error: the start cannot carry
-// in.Effort, a plugin kind's start or a Prepare failed, or k has no start.
+// in.Effort or its args (StartEnv), a plugin kind's start or a Prepare failed, or k has no start.
 func StartOf(k Kind, in Start) (Launch, error) {
 	if w, ok := k.(Whole); ok {
 		return w.StartWhole(in)

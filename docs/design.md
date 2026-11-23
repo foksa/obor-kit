@@ -251,8 +251,11 @@ dir's `.mcp.json` servers the project's settings approve and do not reject (`ena
 `enabledMcpjsonServers`; a name `disabledMcpjsonServers` lists never joins), then obor's. Codex gets `-c mcp_servers.<name>.enabled=false` for each server of the user's
 `config.toml` that the project's `.codex/config.toml` does not define (obor's and a name `config_override.toml` sets are
 left alone; a name is matched as the config stores it, one with a space or a dot too). A name that needs quotes goes in
-one inline table at `mcp_servers`, the override's quoted entries in the same one; none is passed under `mcp_servers`
-when the type's args set a key there. OpenCode's generated config makes `{"disabled": true}` each server of the
+one inline table at `mcp_servers`, the override's quoted entries in the same one. A lane's Codex start whose args (the
+type's or `agents.kinds.codex.args`) set a key under `mcp_servers` (`-c`/`--config`, dotted or the whole table) is
+refused: "a lane's MCP servers come from the project's .codex/config.toml; move <key> there" (a role agent's or a
+lead's start takes such args). Every Codex key is compared as TOML parses it, part by part: a quoted `"a.b"` is one
+part, not the nested `a` → `b`, in the project's config, the override and the args alike. OpenCode's generated config makes `{"disabled": true}` each server of the
 user's `opencode.json(c)` that the project's does not define (obor's and an override's entry are left alone). Claude,
 Codex and OpenCode read the lane's own copy of the project file at its start; agy's rule reads the main
 checkout's. agy has no switch, so the guard denies a lane
