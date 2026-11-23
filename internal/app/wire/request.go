@@ -290,9 +290,9 @@ func (TurnReq) Method() string { return MethodTurn }
 // LeadLinesReq is the lead's UserPromptSubmit or Stop hook's when its kind has no inbox (leadlines.go): the lines
 // queued for the envelope's agent, the lead, handed over and recorded as delivered. UntilMS is the instant its call
 // ends, epoch milliseconds (Verdict stamps it; 0: no deadline, an older binary): serve records the lines as handed
-// only while it answers before then, and leaves them queued after (for the next hook or the inbox), never handing
-// them to a hook that stopped waiting. Reply: their text, one line per row ("": nothing to hand, or the call ended
-// first).
+// only while it can answer a margin before then, and leaves them queued after (for the next hook or the inbox), never
+// handing them to a hook that stopped waiting. Reply: their text, one line per row ("": nothing to hand, or the call
+// ended first).
 type LeadLinesReq struct {
 	Envelope
 	UntilMS int64 `json:"until_ms,omitempty"`
@@ -304,8 +304,8 @@ func (LeadLinesReq) Method() string { return MethodLeadLines }
 func (r *LeadLinesReq) SetDeadline(until time.Time) { r.UntilMS = until.UnixMilli() }
 
 // DeadlineReq is a request whose answer lands on a caller that may have stopped waiting for it: the client stamps
-// the call's deadline on every such request (Verdict), and serve acts only while that instant is ahead
-// (LeadLinesReq: its lines would else be recorded as handed to a hook that never saw them).
+// the call's deadline on every such request (Verdict), and serve acts only while it can answer a margin before that
+// instant (LeadLinesReq: its lines would else be recorded as handed to a hook that never saw them).
 type DeadlineReq interface {
 	Req
 	SetDeadline(until time.Time)

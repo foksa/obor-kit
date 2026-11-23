@@ -165,6 +165,48 @@ func TestLeadLinesLateAskLeavesThemQueued(t *testing.T) {
 	})
 }
 
+// A hook's ask with less than its deadline's margin left hands nothing: the delivery would be recorded after the
+// hook's call ended, so the lines stay queued for the next ask in time; with a second left, they are handed.
+func TestLeadLinesAskInsideTheDeadlineMarginHandsNothing(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := hookLeadRig(t)
+		r.start()
+		line := sentLine("other", "hello")
+		if _, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
+			t.Fatal(err)
+		}
+		r.passes()
+		if w := r.waiting(); len(w) != 1 || w[0].Line != line {
+			t.Fatalf("precondition: the line waiting for the hooks, %+v", w)
+		}
+		near := r.clock.Now().Add(200 * time.Millisecond).UnixMilli()
+		if got, err := r.leadLinesUntil("h1", near); err != nil || got != "" {
+			t.Fatalf("an ask 200 ms before its call's end: %q, %v; want nothing handed", got, err)
+		}
+		if res, in := r.lineResults(), r.hookIntents(); len(res) != 0 || len(in) != 0 {
+			t.Errorf("delivery results %q, hook intents %v; want none recorded", res, in)
+		}
+		r.passes()
+		if w := r.waiting(); len(w) != 1 || w[0].Line != line {
+			t.Errorf("waiting %+v; want the line still queued", w)
+		}
+		if n := r.inbox.tries("pj-lead", line) + r.typedTo("pj-lead", line); n != 0 {
+			t.Errorf("posted or typed %d times; want the line queued for the hooks", n)
+		}
+		next := r.clock.Now().Add(time.Second).UnixMilli()
+		if got, err := r.leadLinesUntil("h2", next); err != nil || got != line {
+			t.Fatalf("an ask a second before its call's end: %q, %v; want %q", got, err, line)
+		}
+		if res, in := r.lineResults(), r.hookIntents(); len(res) != 1 || res[0] != "sent" || len(in) != 1 || len(in[0]) != 1 {
+			t.Errorf("delivery results %q, hook intents %v; want one sent of one line via hook", res, in)
+		}
+		if w := r.waiting(); len(w) != 0 {
+			t.Errorf("waiting %+v; want the line handed", w)
+		}
+	})
+}
+
 // Lines queued for the lead go to its hook as one, oldest first, one per row: the intent names both, each gets its
 // result.
 func TestLeadLinesHandedAsOne(t *testing.T) {
