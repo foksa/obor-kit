@@ -13,8 +13,9 @@ import (
 
 // Tests for `obor kind <name> hook`, a kind's hook transport (agy's .agents/hooks.json runs it): bin/obor's hook path.
 // It never fetches, runs the first main binary that has `kind` (the kind runs in it, no kind binary beside it), and
-// with none answers one generic deny JSON naming the repair. Every other kind call keeps the generic path (the fetch
-// when there is no binary).
+// with none answers by event: PreToolUse in a running obor project denies with the repair hint, PreToolUse anywhere
+// else asks (agy's own check), and SessionStart, PreInvocation and Stop answer nothing. Every other kind call keeps
+// the generic path (the fetch when there is no binary).
 
 // kindFixture is a kit copy (the tree's bin/obor and VERSION, no dev build) with a fake curl first on PATH, recording
 // each call in curl.log and failing, so a fetch is seen and never reaches a release.
@@ -69,11 +70,32 @@ func denyReason(root string) string {
 	return "obor: no usable Go binary in " + root + " — run: make -C " + root + " build"
 }
 
-// denyJSON is the one generic deny `obor kind <name> hook` answers when no binary has `kind`: agy's PreToolUse
-// deny with the repair hint, as a JSON object (json.Marshal's escaping).
+// denyJSON is agy's PreToolUse deny `obor kind <name> hook` answers in a running obor project when no binary has
+// `kind`: the repair hint as a JSON object (json.Marshal's escaping).
 func denyJSON(root string) string {
 	b, _ := json.Marshal(map[string]any{"decision": "deny", "reason": denyReason(root)})
 	return string(b) + "\n"
+}
+
+// askJSON is agy's no-opinion PreToolUse answer: agy's own check decides (a tool runs in auto mode).
+const askJSON = `{"decision":"ask"}` + "\n"
+
+// kindEvent is agy's hook event for event name, as agy sends it on stdin (the shim reads hookEventName from it, not
+// only as the first field).
+func kindEvent(name string) string {
+	if name == "PreToolUse" {
+		return `{"conversationId":"c","cwd":"/nowhere","hookEventName":"PreToolUse","toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
+	}
+	return `{"conversationId":"c","cwd":"/nowhere","hookEventName":"` + name + `"}`
+}
+
+// hook runs `<root>/bin/obor kind agy hook` in dir with agy's event for name on stdin, the fake curl on PATH and env
+// added: exit code, stdout, stderr.
+func (k *kindFixture) hook(t *testing.T, dir, root string, env []string, name string) (int, string, string) {
+	t.Helper()
+	env = append([]string{"PATH=" + filepath.Join(k.Base, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")},
+		append(env, noSelfHost...)...)
+	return k.shimStdin(t, dir, env, kindEvent(name), filepath.Join(root, "bin", "obor"), "kind", "agy", "hook")
 }
 
 // logStub is a dev build whose argv is logged: `has` exits hasRC (or hangs, hasRC < 0), anything else prints "kind ran".
@@ -97,8 +119,9 @@ func (k *kindFixture) stubLog(t *testing.T) string {
 	return strings.TrimSpace(readFile(t, filepath.Join(k.Base, "stub.log")))
 }
 
-// No usable binary for `kind <name> hook` (none, a stale or hanging dev build, a stale release): one generic deny JSON
-// naming the repair, no fetch, no release installed. A stale binary is asked `has kind` and never run.
+// No usable binary for `kind <name> hook` (none, a stale or hanging dev build, a stale release): outside an obor
+// project a PreToolUse asks (agy's own check decides), no fetch, no release installed. A stale binary is asked
+// `has kind` and never run.
 func TestShimKindHookNoBinary(t *testing.T) {
 	t.Parallel()
 	release := func(t *testing.T, k *kindFixture, has string) string {
@@ -124,10 +147,10 @@ func TestShimKindHookNoBinary(t *testing.T) {
 			t.Parallel()
 			k := newKindFixture(t)
 			c.setup(t, k)
-			want := denyJSON(k.Root)
-			rc, stdout, stderr := k.run(t, c.env, "kind", "agy", "hook")
-			if rc != 0 || stdout != want || stderr != "" {
-				t.Errorf("obor kind agy hook: exit %d, stdout %q, stderr %q; want 0, %q, nothing", rc, stdout, stderr, want)
+			rc, stdout, stderr := k.hook(t, k.Base, k.Root, c.env, "PreToolUse")
+			if rc != 0 || stdout != askJSON || stderr != "" {
+				t.Errorf("obor kind agy hook PreToolUse outside a project: exit %d, stdout %q, stderr %q; want 0, %q, nothing",
+					rc, stdout, stderr, askJSON)
 			}
 			if got := k.stubLog(t); got != c.log {
 				t.Errorf("stub log %q; want %q", got, c.log)
@@ -139,6 +162,46 @@ func TestShimKindHookNoBinary(t *testing.T) {
 				t.Errorf("~/.obor/bin holds %d files; want %d", n, c.releases)
 			}
 		})
+	}
+}
+
+// With no usable binary `kind <name> hook` answers by agy's event, never one generic deny: PreToolUse in a running
+// obor project denies with the repair hint; in a stopped project or outside one it asks; SessionStart, PreInvocation
+// and Stop answer nothing (exit 0, empty stdout), in and out of a project. The hook runs under the project's .agents,
+// as agy runs it, so the config is up from the cwd.
+func TestShimKindHookNoBinaryByEvent(t *testing.T) {
+	t.Parallel()
+	for _, event := range []string{"PreToolUse", "SessionStart", "PreInvocation", "Stop"} {
+		for _, state := range []string{"running", "stopped", "outside"} {
+			t.Run(event+" in a "+state+" project", func(t *testing.T) {
+				t.Parallel()
+				k := newKindFixture(t)
+				repo := filepath.Join(k.Base, "repo")
+				writeFile(t, filepath.Join(repo, ".agents", "hooks.json"), "{}\n")
+				if state != "outside" {
+					writeFile(t, filepath.Join(repo, ".obor", "config.json"), "{}\n")
+				}
+				if state == "stopped" {
+					writeFile(t, filepath.Join(repo, ".obor", "state", "stopped"), "stopped\n")
+				}
+				want := ""
+				switch {
+				case event != "PreToolUse":
+				case state == "running":
+					want = denyJSON(k.Root)
+				default:
+					want = askJSON
+				}
+				rc, stdout, stderr := k.hook(t, filepath.Join(repo, ".agents"), k.Root, nil, event)
+				if rc != 0 || stdout != want || stderr != "" {
+					t.Errorf("obor kind agy hook %s: exit %d, stdout %q, stderr %q; want 0, %q, nothing",
+						event, rc, stdout, stderr, want)
+				}
+				if k.fetched(t) {
+					t.Errorf("a hook fetched: curl %q", readFile(t, k.curlLog))
+				}
+			})
+		}
 	}
 }
 
@@ -170,16 +233,18 @@ func TestShimKindHookRunsBinary(t *testing.T) {
 }
 
 // A kit path with a quote and a backslash: the deny JSON escapes them, so agy reads a valid reason naming the repair
-// (encoding/json is the Go test's jq -e).
+// (encoding/json is the Go test's jq -e). A running project is where the deny is answered.
 func TestShimKindHookDenyJSONEscapesKitPath(t *testing.T) {
 	t.Parallel()
 	f := newKindFixture(t)
 	root := filepath.Join(f.Base, `ki"t\path`)
 	kit(t, root, "quoted")
 	os.Remove(filepath.Join(root, "dist", "obor"))
-	rc, stdout, stderr := f.runAt(t, root, nil, "kind", "agy", "hook")
+	project := filepath.Join(f.Base, "proj")
+	writeFile(t, filepath.Join(project, ".obor", "config.json"), "{}\n")
+	rc, stdout, stderr := f.hook(t, project, root, nil, "PreToolUse")
 	if rc != 0 || stderr != "" {
-		t.Errorf("obor kind agy hook: exit %d, stderr %q; want 0, nothing", rc, stderr)
+		t.Errorf("obor kind agy hook PreToolUse in a project: exit %d, stderr %q; want 0, nothing", rc, stderr)
 	}
 	var got struct{ Decision, Reason string }
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {

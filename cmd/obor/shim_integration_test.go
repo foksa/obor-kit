@@ -171,9 +171,18 @@ func newKitFixture(t *testing.T) *shimFixture {
 // shim runs bash <script> args… in dir with stdin /dev/null, HOME = f.home, and env added: exit code, stdout, stderr.
 func (f *shimFixture) shim(t *testing.T, dir string, env []string, script string, args ...string) (int, string, string) {
 	t.Helper()
+	return f.shimStdin(t, dir, env, "", script, args...)
+}
+
+// shimStdin is shim with stdin ("" is /dev/null).
+func (f *shimFixture) shimStdin(t *testing.T, dir string, env []string, stdin, script string, args ...string) (int, string, string) {
+	t.Helper()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("bash", append([]string{script}, args...)...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, &stdout, &stderr
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	cmd.Env = append(append(os.Environ(), "HOME="+f.home), env...)
 	err := cmd.Run()
 	rc := 0
