@@ -3,7 +3,9 @@
 // the guard, the session context, the hooks' verdicts and the limit logic stay in the Go binary; this file carries them
 // into opencode's prompt and events.
 //
-//	tool hook execute.before          → pre-tool-use (a deny throws with obor's line, which aborts the tool)
+//	tool hook execute.before          → pre-tool-use (a deny throws with obor's line, which aborts the tool); a tool
+//	                                     name neither the mapping nor ctx.tool.list()'s namespaces know goes as
+//	                                     unguarded, and the guard decides it
 //	a session's first event           → session-start (its context lines, appended to the system prompt by the
 //	                                     session hook context)
 //	session hook prompt               → user-prompt-submit (its context appended to the prompt's text) and the start's
@@ -102,8 +104,14 @@ import { fileURLToPath } from "node:url";
 const TIMEOUT_MS = 5000;
 // AGENT_KIND is this kind's name in every event's agent_kind (kinds/opencode/kind.Name).
 const AGENT_KIND = "opencode";
-// The tools hooks/hooks.json's PreToolUse matcher sends to the guard (Read, Glob, … map but are not run).
-const GUARDED = new Set(["Bash", "Edit", "Write"]);
+// GUARDED are the tools hooks/hooks.json's PreToolUse matcher sends to the guard (Read, Glob, … map but are not run),
+// and a call no tool of the mapping covers (unguarded), which the guard decides.
+const GUARDED = new Set(["Bash", "Edit", "Write", "unguarded"]);
+// PASS are opencode's tools obor knows and needs no event for: they run as they are. execute is Code Mode, the one
+// tool the model calls to reach an MCP tool: its inner calls reach the hook by id and are judged there. question,
+// skill, webfetch and websearch only ask or read, and a subagent's calls reach the hook under the child's own session
+// (the plugin tells a child by parentID), so subagent is no session confusion as agy's invoke_subagent is.
+const PASS = new Set(["execute", "skill", "question", "webfetch", "websearch", "subagent"]);
 
 // The kit: this file's real path, two levels up.
 function kitRoot() {
@@ -138,11 +146,16 @@ export function patchPaths(text) {
   return out;
 }
 
+// preToolUse is one Claude Code PreToolUse event for an opencode call of toolName.
+function preToolUse(toolName, input, cwd, sessionID) {
+  return { hook_event_name: "PreToolUse", session_id: sessionID ?? "", cwd, agent_kind: AGENT_KIND, tool_name: toolName, tool_input: input };
+}
+
 // toClaudeEvents maps one opencode tool call to the Claude Code PreToolUse events obor checks: [] when the tool has
 // no Claude twin. opencode 1.x names the shell tool bash and takes filePath; 2.x names it shell and takes path.
 export function toClaudeEvents(tool, args, cwd, sessionID) {
   args = args ?? {};
-  const ev = (name, input) => ({ hook_event_name: "PreToolUse", session_id: sessionID ?? "", cwd, agent_kind: AGENT_KIND, tool_name: name, tool_input: input });
+  const ev = (name, input) => preToolUse(name, input, cwd, sessionID);
   const file = (p) => (p ? path.resolve(cwd, p) : "");
   switch (tool) {
     case "bash":
@@ -169,6 +182,19 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
       return [ev("LS", { path: file(args.path) })];
   }
   return [];
+}
+
+// toolEvents is one opencode tool call as the events obor checks: toClaudeEvents' mapping for a tool it maps, [] for
+// one that needs no event (PASS), and the unguarded event for a name it does not map and ctx.tool.list() gives no
+// namespace (isNamespaced: obor's tools, another MCP server's, opencode's own opencode_*, a plugin's code-mode tools).
+// The hook gives an inner call of execute an id and never its namespace, and a prefix says nothing (obor_foo_bar is
+// obor's foo_bar or a server obor_foo's bar), so the lookup is exact. Any other name goes to the guard as unguarded, so
+// an opencode update that adds a tool shows as a named deny for obor's agents, never a silent bypass.
+export async function toolEvents(tool, args, cwd, sessionID, isNamespaced = () => false) {
+  if (PASS.has(tool)) return [];
+  const evs = toClaudeEvents(tool, args, cwd, sessionID);
+  if (evs.length > 0 || (await isNamespaced(tool))) return evs;
+  return [preToolUse("unguarded", { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` }, cwd, sessionID)];
 }
 
 // tokensPath is a session's token file, in the state dir the kind's manifest names (kinds/opencode/kind.TranscriptGlob):
@@ -565,9 +591,24 @@ async function setup(ctx) {
     return verdicts.get(id).then((root) => root && sessions.isMine(id));
   };
 
+  // isNamespaced: id is a tool ctx.tool.list() gives a namespace. It is read once, on the first name the mapping does
+  // not know, because the hook names an inner call of execute by id alone; a list that cannot be read names none, and
+  // the next call asks it again.
+  let names = null;
+  const isNamespaced = async (id) => {
+    if (names) return names.has(id);
+    try {
+      names = new Set(((await ctx.tool.list()) ?? []).filter((t) => t?.id && t.options?.namespace).map((t) => t.id));
+      return names.has(id);
+    } catch (e) {
+      console.error(`obor: OpenCode's tool list not read (${e?.message ?? e}); ${id} goes to the guard as unguarded`);
+      return false;
+    }
+  };
+
   // guard throws obor's line when obor denies one of the call's events: only exit 0 allows.
   await ctx.tool.hook("execute.before", async (call) => {
-    for (const ev of toClaudeEvents(call.tool, call.input, cwd, call.sessionID)) {
+    for (const ev of await toolEvents(call.tool, call.input, cwd, call.sessionID, isNamespaced)) {
       if (!GUARDED.has(ev.tool_name)) continue;
       const r = await runHook(kit, "pre-tool-use", ev, cwd);
       if (r.failed) throw new Error(`obor: guard unavailable (${r.failed}); denied — run: make -C ${kit} build`);
