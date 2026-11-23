@@ -49,8 +49,7 @@ func runBuild(t *testing.T, dir string, extra ...string) string {
 }
 
 // TestMakeBuildOut: make build writes dist/obor by default and OUT's file when given (its directories created: another
-// worktree has no dist/ under the root it builds into), and the OpenCode kind's binary beside it, from
-// kinds/opencode (obor runs a kit kind from its own executable's directory).
+// worktree has no dist/ under the root it builds into).
 func TestMakeBuildOut(t *testing.T) {
 	t.Parallel()
 	t.Run("default: dist/obor", func(t *testing.T) {
@@ -63,15 +62,6 @@ func TestMakeBuildOut(t *testing.T) {
 		}
 		if got := readFile(t, filepath.Join(dir, "dist", "obor")); got != "binary\n" {
 			t.Errorf("make build left %q at dist/obor, want the built binary", got)
-		}
-		if !strings.Contains(build, "-o dist/obor-kind-opencode ./kinds/opencode") {
-			t.Errorf("the default build is %q, want the kind built as dist/obor-kind-opencode", build)
-		}
-		if got := readFile(t, filepath.Join(dir, "dist", "obor-kind-opencode")); got != "binary\n" {
-			t.Errorf("make build left %q at dist/obor-kind-opencode, want the built kind", got)
-		}
-		if !strings.Contains(build, "-o dist/obor-kind-agy ./kinds/agy") {
-			t.Errorf("the default build is %q, want the kind built as dist/obor-kind-agy", build)
 		}
 	})
 	t.Run("OUT: the binary lands there, not in dist/", func(t *testing.T) {
@@ -88,9 +78,6 @@ func TestMakeBuildOut(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(dir, "dist", "obor")); !os.IsNotExist(err) {
 			t.Errorf("make build OUT=%s also wrote dist/obor (%v)", out, err)
-		}
-		if got := readFile(t, filepath.Join(filepath.Dir(out), "obor-kind-opencode")); got != "binary\n" {
-			t.Errorf("make build OUT=%s left %q beside it, want the built kind", out, got)
 		}
 	})
 }

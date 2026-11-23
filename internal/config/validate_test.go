@@ -638,9 +638,9 @@ func TestPluginKind(t *testing.T) {
 	}
 }
 
-// A kit kind (agy, OpenCode) with no plugin, or one naming its kit binary, is answered in process: its kind has the
-// manifest with nothing cached, and serve's cache step (plugin.Ensure) runs nothing (an executable of that name at
-// the root is never run). A plugin naming another path runs that command.
+// A kit kind (agy, OpenCode) with no plugin, one naming its kit binary, or one naming a path that ends in it, is
+// answered in process: its kind has the manifest with nothing cached, and serve's cache step (plugin.Ensure) runs
+// nothing (an executable at that path is never run). A plugin naming another path runs that command.
 func TestKitKindInProcess(t *testing.T) {
 	for _, kind := range []string{"agy", "opencode"} {
 		bin := "obor-kind-" + kind
@@ -648,7 +648,10 @@ func TestKitKindInProcess(t *testing.T) {
 		log := filepath.Join(p.Root, "runs")
 		script := "#!/bin/sh\necho \"$1\" >>" + log + "\ncat >/dev/null\necho '{\"version\":1,\"name\":\"" + kind +
 			"\",\"status\":\"terminal\"}'\n"
-		for _, f := range []string{bin, "own-" + kind} {
+		for _, f := range []string{bin, "own-" + kind, filepath.Join("bin", bin)} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(p.Root, f)), 0o755); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(filepath.Join(p.Root, f), []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -656,7 +659,8 @@ func TestKitKindInProcess(t *testing.T) {
 		for _, c := range []struct {
 			name, plugin string
 			linked       bool
-		}{{"no plugin", "", true}, {"the kit binary", bin, true}, {"another path", "own-" + kind, false}} {
+		}{{"no plugin", "", true}, {"the kit binary", bin, true}, {"a path ending in it", filepath.Join("bin", bin), true},
+			{"another path", "own-" + kind, false}} {
 			os.Remove(log)
 			os.RemoveAll(filepath.Join(p.Root, ".obor", "state"))
 			if c.plugin == "" {

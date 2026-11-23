@@ -482,81 +482,51 @@ func TestShimFetchVerifiesChecksum(t *testing.T) {
 	}
 }
 
-// the fetch also brings each kind binary the catalog lists for this version and platform
-// (obor-kind-<name>-<v>-<os>-<arch>, from the release dir obor's asset is in) into ~/.obor/bin beside obor's, checked
-// against its line; a kind binary that is missing alone is fetched at the next command; a catalog that lists no kind
-// fetches obor's alone (TestShimFetchVerifiesChecksum).
-func TestShimFetchesKindBinaries(t *testing.T) {
+// A catalog that also lists an obor-kind-* asset (an older release fetched it beside obor's) fetches obor's alone: the
+// kit's kinds are linked into obor and no kind binary is fetched.
+func TestShimFetchIgnoresKindAssets(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name     string
-		kindLine string // the kind's checksum line: "%s" its sha256, "%[2]s" the asset
-		rc       int
-		want     string // a stderr substring when rc != 0
-	}{
-		{"fetched beside obor's", "%s  dist/%s\n", 0, ""},
-		{"a kind checksum mismatch is refused", strings.Repeat("0", 64) + "  dist/%[2]s\n", 1, "checksum mismatch for obor-kind-opencode-"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			f := newKitFixture(t)
-			os.Remove(filepath.Join(f.Root, "dist", "obor"))
-			f.Write("VERSION", "0.9.1\n")
-			asset, kind := shimAsset("0.9.1"), "obor-kind-opencode-0.9.1-"+runtime.GOOS+"-"+runtime.GOARCH
-			download := filepath.Join(f.Base, "download")
-			fakeGo(t, filepath.Join(download, asset))
-			writeExec(t, filepath.Join(download, kind), "#!/bin/sh\necho kind\n")
-			sum := sha256.Sum256([]byte(readFile(t, filepath.Join(download, asset))))
-			kindSum := sha256.Sum256([]byte(readFile(t, filepath.Join(download, kind))))
-			f.Write("bin/release-url", "file://"+download+"/obor-%VERSION%-%OS%-%ARCH%\n")
-			f.Write("bin/checksums.txt", fmt.Sprintf("%s  dist/%s\n", hex.EncodeToString(sum[:]), asset)+
-				fmt.Sprintf(c.kindLine, hex.EncodeToString(kindSum[:]), kind))
-			bin := filepath.Join(f.home, ".obor", "bin")
-			if f.Exists(filepath.Join(bin, kind)) {
-				t.Fatal("precondition: cold cache")
-			}
-			rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "version")
-			if c.rc != 0 {
-				if rc != c.rc || !strings.Contains(stderr, c.want) {
-					t.Errorf("exit %d, stderr %q; want %d, %q", rc, stderr, c.rc, c.want)
-				}
-				if f.Exists(filepath.Join(bin, kind)) {
-					t.Errorf("a refused kind binary was installed")
-				}
-				return
-			}
-			if rc != 0 || !strings.HasPrefix(stdout, "argv: <version>") {
-				t.Fatalf("exit %d, %q (stderr %q)", rc, stdout, stderr)
-			}
-			if got := readFile(t, filepath.Join(bin, kind)); got != "#!/bin/sh\necho kind\n" {
-				t.Errorf("the kind binary beside obor's: %q", got)
-			}
-			// the kind binary alone gone: the next command fetches it again, obor's kept
-			os.Remove(filepath.Join(bin, kind))
-			if rc, _, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "version"); rc != 0 ||
-				!f.Exists(filepath.Join(bin, kind)) {
-				t.Errorf("a missing kind binary is fetched at the next command: exit %d, %q", rc, stderr)
-			}
-		})
+	f := newKitFixture(t)
+	os.Remove(filepath.Join(f.Root, "dist", "obor"))
+	f.Write("VERSION", "0.9.1\n")
+	asset, kind := shimAsset("0.9.1"), "obor-kind-opencode-0.9.1-"+runtime.GOOS+"-"+runtime.GOARCH
+	download := filepath.Join(f.Base, "download")
+	fakeGo(t, filepath.Join(download, asset))
+	writeExec(t, filepath.Join(download, kind), "#!/bin/sh\necho kind\n")
+	sum := sha256.Sum256([]byte(readFile(t, filepath.Join(download, asset))))
+	kindSum := sha256.Sum256([]byte(readFile(t, filepath.Join(download, kind))))
+	f.Write("bin/release-url", "file://"+download+"/obor-%VERSION%-%OS%-%ARCH%\n")
+	f.Write("bin/checksums.txt", fmt.Sprintf("%s  dist/%s\n%s  dist/%s\n", hex.EncodeToString(sum[:]), asset,
+		hex.EncodeToString(kindSum[:]), kind))
+	bin := filepath.Join(f.home, ".obor", "bin")
+	if f.Exists(filepath.Join(bin, asset)) {
+		t.Fatal("precondition: cold cache")
+	}
+	rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "version")
+	if want := "argv: <version> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
+		t.Fatalf("the fetch runs the release: exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
+	}
+	if !f.Exists(filepath.Join(bin, asset)) {
+		t.Errorf("the release binary is not installed")
+	}
+	if f.Exists(filepath.Join(bin, kind)) {
+		t.Errorf("an obor-kind-* asset in the catalog was fetched")
 	}
 }
 
-// shimVersionFiles writes version v's release and OpenCode kind binaries for this platform into dir, with mtime when
-// (a fetched file's mtime is its fetch time, which ranks versions for pruning).
+// shimVersionFiles writes version v's release binary for this platform into dir, with mtime when (a fetched file's mtime
+// is its fetch time, which ranks versions for pruning).
 func shimVersionFiles(t *testing.T, dir, v string, when time.Time) {
 	t.Helper()
-	for _, name := range []string{shimAsset(v), "obor-kind-opencode-" + v + "-" + runtime.GOOS + "-" + runtime.GOARCH} {
-		path := filepath.Join(dir, name)
-		writeExec(t, path, "#!/bin/sh\necho "+v+"\n")
-		if err := os.Chtimes(path, when, when); err != nil {
-			t.Fatal(err)
-		}
+	path := filepath.Join(dir, shimAsset(v))
+	writeExec(t, path, "#!/bin/sh\necho "+v+"\n")
+	if err := os.Chtimes(path, when, when); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// A successful fetch removes the release and kind binaries of every version but
-// the kit's and the one fetched before it (the previous kit, kept for a rollback); a file that is not one of those
-// stays.
+// A successful fetch removes the release binaries of every version but the kit's and the one fetched before it (the
+// previous kit, kept for a rollback); a file that is not one of those stays.
 func TestShimFetchPrunesOldBinaries(t *testing.T) {
 	t.Parallel()
 	f := newKitFixture(t)
@@ -575,6 +545,8 @@ func TestShimFetchPrunesOldBinaries(t *testing.T) {
 		shimVersionFiles(t, bin, v, now.Add(time.Duration(i-3)*time.Hour))
 	}
 	writeFile(t, filepath.Join(bin, "notes.txt"), "not a binary\n")
+	oldKind := "obor-kind-opencode-0.8.1-" + runtime.GOOS + "-" + runtime.GOARCH
+	writeExec(t, filepath.Join(bin, oldKind), "#!/bin/sh\necho kind\n")
 	if f.Exists(filepath.Join(bin, asset)) {
 		t.Fatal("precondition: cold cache")
 	}
@@ -585,7 +557,7 @@ func TestShimFetchPrunesOldBinaries(t *testing.T) {
 	want := []string{
 		asset,
 		shimAsset("0.8.1"),
-		"obor-kind-opencode-0.8.1-" + runtime.GOOS + "-" + runtime.GOARCH,
+		oldKind,
 		"notes.txt",
 	}
 	entries, err := os.ReadDir(bin)
@@ -599,7 +571,7 @@ func TestShimFetchPrunesOldBinaries(t *testing.T) {
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Errorf("~/.obor/bin after the fetch = %q; want the kit's asset, the previous version's release and kind binaries, and the file that is not one: %q",
+		t.Errorf("~/.obor/bin after the fetch = %q; want the kit's asset, the previous version's release binary, an older release's kind binary, and the file that is not one: %q",
 			got, want)
 	}
 	if body := readFile(t, filepath.Join(bin, "notes.txt")); body != "not a binary\n" {
@@ -641,8 +613,8 @@ func TestShimNoBinary(t *testing.T) {
 	}
 }
 
-// bash tests/bin.test.sh case_release_keeps_other_versions_and_sorts_catalog: make release (a fake go) replaces only
-// its own version's lines of bin/checksums.txt, obor's and the OpenCode kind's, and keeps the catalog sorted.
+// bash tests/bin.test.sh case_release_keeps_other_versions_and_sorts_catalog: make release (a fake go) replaces its
+// own version's lines of bin/checksums.txt (an obor-kind-* line for it is stale too) and keeps the catalog sorted.
 func TestShimReleaseCatalog(t *testing.T) {
 	t.Parallel()
 	dir := testkit.Dir(t)
@@ -653,7 +625,7 @@ func TestShimReleaseCatalog(t *testing.T) {
 	for _, p := range []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"} {
 		old = append(old, fmt.Sprintf("%064x  dist/obor-0.6.4-dev-%s", len(old)+1, p))
 	}
-	// stale lines of the version being released, obor's and the kind's: replaced
+	// stale lines of the version being released: replaced
 	stale := strings.Repeat("f", 64) + "  dist/obor-0.6.5-linux-amd64"
 	staleKind := strings.Repeat("e", 64) + "  dist/obor-kind-opencode-0.6.5-linux-amd64"
 	writeFile(t, filepath.Join(dir, "bin", "checksums.txt"), strings.Join(append(slices.Clone(old), stale, staleKind), "\n")+"\n")
@@ -673,15 +645,15 @@ printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 		t.Fatalf("make release: %v\n%s", err, out)
 	}
 	lines := strings.Split(strings.TrimSuffix(readFile(t, filepath.Join(dir, "bin", "checksums.txt")), "\n"), "\n")
-	var kept, released, kinds []string
+	var kept, released []string
 	for _, l := range lines {
 		switch {
 		case strings.Contains(l, "dist/obor-0.6.4-dev-"):
 			kept = append(kept, l)
 		case strings.Contains(l, "dist/obor-0.6.5-"):
 			released = append(released, l)
-		case strings.Contains(l, "dist/obor-kind-opencode-0.6.5-"):
-			kinds = append(kinds, l)
+		case strings.Contains(l, "dist/obor-kind-"):
+			t.Errorf("the catalog of the version being released keeps a kind line: %q", l)
 		}
 	}
 	slices.Sort(old)
@@ -691,11 +663,8 @@ printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 	if len(released) != 4 || slices.Contains(released, stale) {
 		t.Errorf("release writes exactly four fresh entries for its version (stale one replaced): %q", released)
 	}
-	if len(kinds) != 4 || slices.Contains(kinds, staleKind) {
-		t.Errorf("release writes exactly four fresh entries for the kind (stale one replaced): %q", kinds)
-	}
-	if len(lines) != 16 {
-		t.Errorf("catalog = four old and twelve new entries (obor and the kit's two kinds), got %d:\n%s", len(lines),
+	if len(lines) != 8 {
+		t.Errorf("catalog = four old and four new entries, got %d:\n%s", len(lines),
 			strings.Join(lines, "\n"))
 	}
 	if !slices.IsSortedFunc(lines, func(a, b string) int { return strings.Compare(fields2(a), fields2(b)) }) {

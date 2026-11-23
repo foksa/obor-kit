@@ -22,7 +22,7 @@ import (
 	"obor/internal/store"
 )
 
-// The variables the OpenCode kind's start sets (kinds/opencode/kind: a tool may not import a kind's package).
+// The variables the OpenCode kind's start sets.
 const (
 	ocConfigVar = "OPENCODE_CONFIG"
 	ocModelVar  = "OBOR_OPENCODE_MODEL"
@@ -30,7 +30,7 @@ const (
 
 // opencodeLive: on scratch XDG dirs holding nothing of obor's (`obor setup agents` installs nothing global; an
 // old entry and link are removed by hand), one --standalone start in the lane with the env the kind's start (the
-// real kinds/opencode binary through obor's plugin package) gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
+// OpenCode kind obor links into itself, through obor's plugin package) gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
 // mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L7 (the
 // tools ctx.tool.list() gives the plugin, against the transport's table: one WARN per tool it has no row for), OC-L5's
 // quit. With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).

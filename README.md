@@ -64,8 +64,8 @@ curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
 This clones the kit into `~/.obor/kit` at the newest release, links `~/.local/bin/obor` (it prints the `PATH` line if
-needed), then downloads the release binary for your platform and the OpenCode kind binary (`obor-kind-opencode`) beside
-it, and checks their checksums. To upgrade, run the same line again.
+needed), then downloads the release binary for your platform and checks its checksum. To upgrade, run the same line
+again.
 
 ## Set up a project
 

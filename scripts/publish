@@ -1,5 +1,5 @@
 #!/bin/sh
-# publish <version>: upload the twelve release binaries of v<version> (obor and the kit's kinds, per platform)
+# publish <version>: upload the four release binaries of v<version> (obor, per platform)
 # to its GitHub release (`make publish`). The paths are a literal list (release-lib.sh's binaries and platforms), not
 # GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
 # bin/checksums.txt before gh runs, so what is uploaded is what the tag's catalog names. The release carries a title

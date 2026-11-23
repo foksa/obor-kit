@@ -31,7 +31,6 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/setup"
 )
@@ -39,15 +38,6 @@ import (
 // liveKinds is each kind's live tier.
 var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude": claudeLive, "codex": codexLive,
 	"opencode": opencodeLive, "agy": agyLive}
-
-// liveIDs are each kind's live rows, for the SKIP lines when the kind cannot run.
-var liveIDs = map[string][]string{
-	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8", "H-L9", "H-L12", "H-L13", "H-L14"},
-	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7", "CC-L8", "CC-L9"},
-	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11", "H-L14"},
-	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6", "OC-L7", "H-L14"},
-	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "AG-L10", "AG-L11", "AG-L12", "AG-L13", "AG-L14", "P10", "P10-control"},
-}
 
 func live(kinds []string, turn bool) {
 	sig := make(chan os.Signal, 1)
@@ -102,8 +92,8 @@ func skipAll(kind, why string) {
 }
 
 // lab is one kind's throwaway herdr session and its scratch dir.
-// config is the scratch project's config (its kinds: the compiled ones and its plugin kinds, OpenCode's manifest as
-// makeProject cached it); nil when it does not load.
+// config is the scratch project's config (the compiled kinds and the kit's, answered in process); nil when it does not
+// load.
 func (l *lab) config() *config.Config {
 	cfg, err := config.Load(l.main)
 	if err != nil {
@@ -268,13 +258,6 @@ func (l *lab) makeProject() error {
 		models["agy-bogus"] = config.ModelEntry{Kind: "agy", ID: "gemini-9-bogus"} // AG-L7: no such model
 	}
 	agentsDoc := map[string]any{"models": models}
-	if l.kind == "opencode" || l.kind == "agy" {
-		cmd, err := l.kitKind(l.kind)
-		if err != nil {
-			return err
-		}
-		agentsDoc["kinds"] = map[string]any{l.kind: map[string]any{"plugin": cmd}}
-	}
 	b, err := json.Marshal(agentsDoc)
 	if err != nil {
 		return err
@@ -285,15 +268,6 @@ func (l *lab) makeProject() error {
 `
 	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
 		return err
-	}
-	if l.kind == "opencode" || l.kind == "agy" { // its manifest cached as obor setup agents caches it: the config's kind carries it
-		cfg, err := config.Load(l.main)
-		if err == nil {
-			_, err = plugin.Cache(l.kind, cfg.KindCommand(l.kind), cfg.StateDir())
-		}
-		if err != nil {
-			return fmt.Errorf("the %s kind: %v", l.kind, err)
-		}
 	}
 	git := func(dir string, args ...string) error {
 		args = append([]string{"-C", dir, "-c", "user.name=obor-conformance", "-c", "user.email=conformance@obor.invalid",
@@ -314,16 +288,6 @@ func (l *lab) makeProject() error {
 		}
 	}
 	return nil
-}
-
-// kitKind builds the kit kind name's binary (kinds/<name>) into the scratch dir: the lab's kind is that binary, named
-// by its path and run through obor's plugin package (the lab's obor answers the kit's own name in process).
-func (l *lab) kitKind(name string) (string, error) {
-	exe := filepath.Join(l.root, "bin", "obor-kind-"+name)
-	if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./kinds/"+name); err != nil {
-		return "", fmt.Errorf("go build ./kinds/%s: %v: %s", name, err, o)
-	}
-	return exe, nil
 }
 
 // cleanEnv is the server's environment: the user's identity, shell, PATH and locale, a terminal, and nothing of the

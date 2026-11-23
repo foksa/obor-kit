@@ -19,7 +19,8 @@ import (
 )
 
 // a lane worker of an OpenCode model, started the way a dispatch starts it
-// (launch.Launcher.Build, the test helper of export_test.go), runs the real obor-kind-opencode binary built here, once, through obor's plugin package
+// (launch.Launcher.Build, the test helper of export_test.go), runs an external kind binary built here from a test main,
+// once, through obor's plugin package
 // (a recording wrapper keeps each request): the start request carries the complete start (kit, the model's args, the
 // effort, the prompt, the lane dir, strict), and the start gets the argv, the env and the generated config the compiled
 // kind gave it (--auto --standalone, the model gone, --prompt; OBOR_OPENCODE_MODEL model#effort, OPENCODE_CONFIG the
@@ -28,11 +29,12 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 	// the config names the binary by its path, not the kit's name: obor runs it, not the in-process kind
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real")
-	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", real, "obor/kinds/opencode").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-tags", "conformance", "-buildvcs=false", "-o", real,
+		"obor/tests/conformance/kindmain/opencode").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	rec := filepath.Join(dir, "requests")
-	wrapper := filepath.Join(dir, "obor-kind-opencode")
+	wrapper := filepath.Join(dir, "opencode-plugin") // no plugin.Local name: obor runs it
 	script := "#!/bin/sh\nreq=$(cat)\nprintf '%s %s\\n' \"$1\" \"$req\" >> '" + rec + "'\nprintf '%s' \"$req\" | exec '" + real + "' \"$1\"\n"
 	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

@@ -27,7 +27,7 @@ import (
 const (
 	claudeGo   = "internal/agents/claude/claude.go"
 	codexGo    = "internal/agents/codex/codex.go"
-	opencodeGo = "kinds/opencode/kind/kind.go" // a plugin kind's binary
+	opencodeGo = "kinds/opencode/kind/kind.go" // the OpenCode kind's source
 )
 
 // kindOf is the compiled agents.Kind name (the driver under test; a plugin kind is a lab's: lab.kindOf).

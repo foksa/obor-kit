@@ -6,7 +6,8 @@
 // running the command: hooks and the guard load the config, and hook time stays the binary's own; without a cache the
 // guard denies the kind's program outright. The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
 // the command changed (its mtime, or another path) since the cache was written. A command this binary links (Local: the
-// kit's own kinds, by their binary's name) is answered in process: no process runs and nothing is cached.
+// kit's own kinds, by their binary's name or a path ending in it) is answered in process: no process runs and nothing is
+// cached.
 package plugin
 
 import (
@@ -210,7 +211,7 @@ func New(name, command, stateDir string) *Kind {
 // Cache runs kind name's describe, writes its manifest to stateDir's cache and returns the kind (obor setup agents,
 // obor init). A command answered in process (Local) is described by its handler and caches nothing.
 func Cache(name, command, stateDir string) (*Kind, error) {
-	if h := Local[command]; h != nil {
+	if h := localHandler(command); h != nil {
 		k := local(name, stateDir, h)
 		return k, k.missing
 	}
@@ -225,7 +226,7 @@ func Cache(name, command, stateDir string) (*Kind, error) {
 // command, another mtime: obor serve); wrote says it described. A kind answered in process (Local) caches
 // nothing: it needs no cache.
 func Ensure(name, command, stateDir string) (wrote bool, err error) {
-	if Local[command] != nil {
+	if localHandler(command) != nil {
 		return false, nil
 	}
 	if b, err := os.ReadFile(CacheFile(stateDir, name)); err == nil {
@@ -326,7 +327,16 @@ type Handler func(call string, req []byte) ([]byte, error)
 var Local = map[string]Handler{}
 
 // InProcess: command is answered in process (Local), so it runs nothing and needs no cache.
-func InProcess(command string) bool { return Local[command] != nil }
+func InProcess(command string) bool { return localHandler(command) != nil }
+
+// localHandler is the handler command is answered by in process: Local's entry for the command, or for a path whose
+// base name is one (a kit kind a config names by a path instead of its binary's name). nil: the command runs.
+func localHandler(command string) Handler {
+	if h := Local[command]; h != nil {
+		return h
+	}
+	return Local[filepath.Base(command)]
+}
 
 // local is kind name answered by h: its manifest from h's describe, nothing cached; a describe that fails leaves it
 // without a manifest (missing says why).
@@ -345,7 +355,7 @@ func local(name, stateDir string, h Handler) *Kind {
 type loader struct{}
 
 func (loader) Kind(name, command, stateDir string) agents.Kind {
-	if h := Local[command]; h != nil {
+	if h := localHandler(command); h != nil {
 		return local(name, stateDir, h)
 	}
 	return New(name, command, stateDir)
@@ -354,7 +364,7 @@ func (loader) Kind(name, command, stateDir string) agents.Kind {
 // Check: command is executable and its describe answers with a manifest of kind name; the kind with that manifest
 // (nothing is cached: the cache stays setup's). A command answered in process (Local) is described by its handler.
 func (loader) Check(name, command string) (agents.Kind, error) {
-	if h := Local[command]; h != nil {
+	if h := localHandler(command); h != nil {
 		k := local(name, "", h)
 		return k, k.missing
 	}

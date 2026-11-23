@@ -234,7 +234,7 @@ func tagWithoutNotes(t *testing.T, f *releaseFixture, v string) {
 		strings.Replace(plugin, `"version":"1.2.3"`, `"version":"`+v+`"`, 1))
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "-m", "obor v"+v+": VERSION, plugin version")
-	// The twelve files and their catalog lines: dist/ is ignored, so main stays clean.
+	// The four files and their catalog lines: dist/ is ignored, so main stays clean.
 	var fresh string
 	for _, a := range releaseAssets(v) {
 		path := filepath.Join(f.Root, "dist", a)
