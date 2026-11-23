@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/store"
+	"obor/kinds/agy/kind"
 )
 
 const (
@@ -67,16 +69,17 @@ func agyStatic() {
 // agyLive: a worker of the lab's project started as obor's launch builds it (config.Model.Launch: the real kinds/agy
 // binary through obor's plugin package), in the lane, with the project's .agents/mcp_config.json and .agents/hooks.json
 // as obor setup agents writes them and the repository's own obor (and its agy kind, the hook transport) first on PATH
-// (the files name obor by PATH), a stub serve on the project's socket. AG-L1 the start (no trust dialog, no
-// wrong-model notice, idle), AG-L7 the lab's bogus model refused by the launcher while that agent runs, AG-L4 the
-// quit. With TURN=1: AG-L2 the first prompt in the argv, AG-L8 the session
-// record (the SessionStart hook reports the new conversation to serve), AG-L3 an obor MCP tool call with no prompt
-// (job_next's reply in the transcript), AG-L6 the context read of that transcript, AG-L9 a command obor's guard denies
-// (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L10 the inbox (the agent's own obor
-// command records it; the kind's deliver through agentapi starts a turn in the idle session), AG-L5 the resume by the recorded
-// conversation id, and P10 (agy-probes.md): with
-// command(obor), command(go test) and read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a
-// unix socket and a module download run in auto mode with no prompt.
+// (the files name obor by PATH), a stub serve on the project's socket. AG-L11..AG-L13: the calls agy's tool set can make
+// that the guard must refuse, each run through the project's hooks entry's command (a deny stops the tool and agy shows
+// the model its reason). AG-L1 the start (no trust dialog, no wrong-model notice, idle), AG-L7 the lab's bogus model
+// refused by the launcher while that agent runs, AG-L4 the quit. With TURN=1: AG-L2 the first prompt in the argv,
+// AG-L8 the session record (the SessionStart hook reports the new conversation to serve), AG-L3 an obor MCP tool call
+// with no prompt (job_next's reply in the transcript), AG-L6 the context read of that transcript, AG-L9 a command
+// obor's guard denies (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L10 the inbox (the
+// agent's own obor command records it; the kind's deliver through agentapi starts a turn in the idle session), AG-L5 the
+// resume by the recorded conversation id, and P10 (agy-probes.md): with command(obor), command(go test) and
+// read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a unix socket and a module download run
+// in auto mode with no prompt.
 //
 // agy trusts a folder by exact path and the kind adds a lane only when the project's root is in the user's saved
 // trustedWorkspaces, which the lab must not write: so the lab adds its scratch dirs to each start's settings file
@@ -122,6 +125,7 @@ func agyLive(l *lab, turn bool) {
 		report("FAIL", "AG-L1", fmt.Sprintf("the env line failed (status %d, %v)", st, err), at(launchGo, "func envLine"))
 		return
 	}
+	l.agyDenies(pane)
 	stop := k.Stop()
 	whereStop := at(agyGo, `"stop"`)
 	if !turn {
@@ -289,6 +293,69 @@ func (l *lab) agyDenied(k agents.Kind, pane, sid, where string) {
 
 // agyDenyRE is agy's error for a call a PreToolUse hook denied, with obor's line (agy-probes.md P3).
 var agyDenyRE = regexp.MustCompile(`tool call denied by pre-tool hook: obor:[^"]*`)
+
+// agyDenies are AG-L11..AG-L13: the calls agy's tool set can make that the guard must refuse — a tool the transport has
+// no row for, run_workflow, and an MCP call to a server the project does not declare. Each is run through the project's
+// hooks entry's command (kind.HookCommand, the real obor and its guard) in the pane's lane env: a deny stops the tool
+// and agy shows the model its reason (P13). A model call cannot make the first (agy offers no such tool).
+func (l *lab) agyDenies(pane string) {
+	where := at(agyHookGo, "func Hook(") + ", " + at(agyHookGo, "var tools") + ", " +
+		at("internal/guard/guard.go", "func (g *guard) unguarded")
+	const server = "conf-undeclared"
+	if declaresServer(filepath.Join(l.main, agents.ProjectMCPFile), server) {
+		report("FAIL", "AG-L13", "precondition: the project's "+agents.ProjectMCPFile+" declares "+server+", the server this row calls", where)
+		return
+	}
+	event := func(tool string, args map[string]any) string {
+		b, _ := json.Marshal(map[string]any{"hookEventName": "PreToolUse", "conversationId": "conf-deny", "cwd": l.lane,
+			"toolCall": map[string]any{"name": tool, "args": args}})
+		return string(b)
+	}
+	cases := []struct{ id, name, event, want string }{
+		{"AG-L11", "an agy tool the transport has no row for (conf_unknown_tool)", event("conf_unknown_tool", map[string]any{}),
+			"obor has no rule for agy tool conf_unknown_tool: update obor"},
+		{"AG-L12", "run_workflow (a script no hook sees)", event("run_workflow", map[string]any{"Script": "print(1)"}),
+			"obor cannot guard a workflow script; run commands with run_command"},
+		{"AG-L13", "an MCP call to a server the project does not declare (" + server + ")",
+			event("call_mcp_tool", map[string]any{"ServerName": server, "ToolName": "echo"}),
+			"obor lanes use the project's MCP servers only"},
+	}
+	for i, c := range cases {
+		path := filepath.Join(l.kit, "out", fmt.Sprintf("agy-deny-%d.json", i))
+		line := "printf '%s' " + shq(c.event) + " | " + kind.HookCommand + " > " + shq(path)
+		if st, err := l.shell(pane, line, 60*time.Second); err != nil || st != 0 {
+			report("FAIL", c.id, fmt.Sprintf("obor kind agy hook in the pane failed (status %d, %v); screen: %s", st, err,
+				tail(l.screen(pane), 3)), where)
+			continue
+		}
+		b, err := os.ReadFile(path)
+		var a struct{ Decision, Reason string }
+		switch {
+		case err != nil:
+			report("FAIL", c.id, "the transport wrote no answer: "+err.Error(), where)
+		case json.Unmarshal(b, &a) != nil:
+			report("FAIL", c.id, "the transport's answer is not JSON: "+tail(string(b), 2), where)
+		case a.Decision != "deny":
+			report("FAIL", c.id, c.name+": the transport answers "+strconv.Quote(strings.TrimSpace(string(b)))+"; want a deny", where)
+		case !strings.Contains(a.Reason, c.want):
+			report("FAIL", c.id, c.name+": denied "+strconv.Quote(a.Reason)+"; want one naming "+strconv.Quote(c.want), where)
+		default:
+			report("PASS", c.id, c.name+": the guard denies it: "+strconv.Quote(a.Reason), where)
+		}
+	}
+}
+
+// declaresServer reports whether the committed MCP config at path names server under mcpServers.
+func declaresServer(path, server string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	return json.Unmarshal(b, &doc) == nil && doc.Servers[server] != nil
+}
 
 // agyPush is AG-L10 (docs/design.md "agy's inbox", probes P7): the agent runs `obor whoami` (a start check), which
 // records its inbox from the command's environment (agy's agentapi variables) under its slot, L-01; once the agent is

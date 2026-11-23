@@ -12,7 +12,8 @@
 // TURN), SKIPs with why.
 //
 // Tiers: static (static.go and herdrStatic here: schema, help text, binary strings, files; no session, no model, and
-// hooks.go: one row per kind's hook transport against a stub guard) and
+// hooks.go: one row per kind's hook transport against a stub guard; guard_transport.go: the shared row, every
+// transport's answer to the calls the guard must deny) and
 // live (live.go: one throwaway herdr session per kind, the agents started interactively in its panes; model calls only
 // with TURN=1, one "Reply with exactly OK" per kind).
 package main
@@ -102,7 +103,8 @@ func main() {
 		for _, k := range run {
 			static[k]()
 		}
-		hookTransports() // one row per hook transport, whichever kinds the run names
+		hookTransports()  // one row per hook transport, whichever kinds the run names
+		guardTransports() // the shared row: every transport's answer to the calls the guard must deny
 	case "live":
 		if os.Getenv("TERMINAL") == "hc" { // the kinds' starts on hc (live_hcterm.go); herdr otherwise
 			liveOnHC(run, turn)
