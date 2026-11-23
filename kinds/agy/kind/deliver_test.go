@@ -113,9 +113,10 @@ func TestDeliverRunsOnlyAgy(t *testing.T) {
 	}
 }
 
-// A record whose address is not localhost:<port> or 127.0.0.1:<port> is no inbox (ok false, why naming the address;
-// the line typed or waiting), its check included, and nothing runs; 127.0.0.1:<port> is local. (The records carry an
-// old record's executable variable too, naming agy itself, so the old code would have sent with them.)
+// A record whose address is not localhost:<port> or 127.0.0.1:<port> is no inbox (ok false, why naming the address in
+// the delivery's Refused and the reply: the line typed or waiting), its check included, and nothing runs;
+// 127.0.0.1:<port> is local. (The records carry an old record's executable variable too, naming agy itself, so the old
+// code would have sent with them.)
 func TestDeliverOnlyToALocalAddress(t *testing.T) {
 	k := agy(t, t.TempDir())
 	ran := stubSend(t, 0, `{"response": {"sendMessage": {}}}`)
@@ -127,8 +128,9 @@ func TestDeliverOnlyToALocalAddress(t *testing.T) {
 	for _, addr := range []string{"evil.example:5011", "10.0.0.2:5011", "[::1]:5011", "localhost", "localhost:",
 		"localhost:0", "localhost:99999", "localhost:50x1", "localhost.evil.example:5011", "127.0.0.1.nip.io:5011"} {
 		for _, text := range []string{"", "[obor] hi"} {
-			if d, ok := k.Deliver(text, record(addr)); ok || d.Sent || d.Refused != "" {
-				t.Errorf("address %q, text %q: %+v, %v; want no inbox", addr, text, d, ok)
+			d, ok := k.Deliver(text, record(addr))
+			if ok || d.Sent || !strings.Contains(d.Refused, addr) {
+				t.Errorf("address %q, text %q: %+v, %v; want no inbox refused with the address", addr, text, d, ok)
 			}
 		}
 	}

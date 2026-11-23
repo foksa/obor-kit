@@ -69,8 +69,8 @@ type Kind interface {
 
 	// Deliver is how text reaches a running session of this kind: Typed (herdr agent.prompt), an inbox post built from
 	// the session's inbox record, or Sent: the kind sent it itself (agy's agentapi send-message). ok false: the record
-	// names no inbox, or the kind's own send was refused (Refused: why); keep the line queued. An empty text is the
-	// record's check: nothing is sent.
+	// names no inbox, or the kind's own send was refused (Refused: the kind's why, when it gives one); keep the line
+	// queued. An empty text is the record's check: nothing is sent.
 	Deliver(text string, record []byte) (Delivery, bool)
 	// InboxRecord is the inbox record of a session from an environment of it (env: its SessionStart hook's, or a
 	// command's the agent runs), in the format Deliver reads; nil: env holds no inbox of this kind.
