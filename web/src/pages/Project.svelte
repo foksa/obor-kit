@@ -9,7 +9,7 @@
   import { agentStatusText, dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
   import { fileName, reviewActive, reviewStageText, reviewTone } from "../lib/review";
-  import { briefActive, briefCards, briefFirstLine, briefStage, briefText, briefTone } from "../lib/brief";
+  import { briefActive, briefCards, briefFirstLine, briefFull, briefStage, briefTone } from "../lib/brief";
   import { stageOf, taskOf } from "../lib/stages";
   import { WAITS_NEVER, laneSteps, pipelineOf, queuedForLane, waitChips } from "../lib/pipeline";
   import type { Lane, ProjectView, Role, WaitItem } from "../lib/types";
@@ -166,7 +166,7 @@
 
     {#each briefed as r (r.agent)}
       {@const st = briefStage(r)}
-      {@const full = briefText(r.brief?.text)}
+      {@const full = briefFull(r.brief)}
       <div class="card review brief" class:active={briefActive(r)}>
         <Pill tone={briefTone(st)} text={st} />
         <strong>{roleName(r.role)}</strong>
@@ -175,6 +175,7 @@
           <details class="btext small">
             <summary title={full}>{briefFirstLine(full)}</summary>
             <p>{full}</p>
+            {#if r.brief?.text_clipped}<a href={href.agent(project, r.agent)}>full brief on {r.agent} →</a>{/if}
           </details>
         {:else}<span class="muted small">brief carried by its fresh start</span>{/if}
         <span class="rwho small">
