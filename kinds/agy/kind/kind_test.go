@@ -41,6 +41,10 @@ const stubList = "gemini-4-neon-high\tGemini 4 Neon (High)\n" +
 	"gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n" +
 	"gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"
 
+// stubSlugs is stubList's slugs as a start's refusal names them: one line, in the list's order.
+const stubSlugs = "gemini-4-neon-high, gemini-4-neon-medium, gemini-4-neon-low, gemini-pro-orchestrator-neon, " +
+	"gemini-3.8-flash-high, gemini-3.8-flash-medium, gemini-3.8-flash-low"
+
 // stubAGY puts an `agy` on PATH whose `models` prints out (code 0) or fails with exit code and an error line on stderr,
 // and reports whether it ran: a marker file it appends to on every run.
 func stubAGY(t *testing.T, out string, code int) (ran func() bool) {
@@ -221,9 +225,10 @@ func TestStartModels(t *testing.T) {
 		{"a base with variants: agy's alias", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}},
 			[]string{"--settings", "{settings}", "--model", "gemini-3.8-flash"}, ""},
 		{"a slug naming an effort the model lacks, with no --effort", agents.Start{Args: []string{"--model", "gemini-3.8-flash-xhigh"}},
-			nil, "model gemini-3.8-flash-xhigh is not in agy models (models.<name>.id names a slug the list shows)"},
+			nil, "model gemini-3.8-flash-xhigh is not in agy models (the live list: " + stubSlugs +
+				"; models.<name>.id names a slug the list shows)"},
 		{"an unknown model", agents.Start{Args: []string{"--model", "gemini-9-bogus"}}, nil,
-			"model gemini-9-bogus is not in agy models (models.<name>.id names a slug the list shows)"},
+			"model gemini-9-bogus is not in agy models (the live list: " + stubSlugs + "; models.<name>.id names a slug the list shows)"},
 		{"an effort the model lacks", agents.Start{Args: []string{"--model", "gemini-3.8-flash"}, Effort: "xhigh"}, nil,
 			`gemini-3.8-flash has no "xhigh" effort (agy models: high, medium, low)`},
 		{"a model that takes no effort", agents.Start{Args: []string{"--model", "gemini-pro-orchestrator-neon"}, Effort: "high"},
@@ -335,14 +340,17 @@ func TestStartResumeChecksNoModel(t *testing.T) {
 	}
 }
 
-// The start's model check falls back to the cached list: a live list is checked, an empty live answer is no answer and
-// checks the last good list (it replaces no cache), a check that times out checks the last good list, a check that
-// fails another way checks it and warns, a timeout or an empty answer with no list at all starts the ref unchecked with
-// a WARN naming the cache, and a failure with no list is the start's error.
+// The start's model check falls back to the cached list: a live list is checked, an empty or garbled live answer is no
+// list and checks the last good list with a warning (it replaces no cache), a check that times out checks the last good
+// list silently, a check that fails another way checks it and warns, a timeout or an empty or garbled answer with no
+// list at all starts the ref unchecked with a WARN naming the cache, and a failure with no list is the start's error.
 func TestStartModelCache(t *testing.T) {
 	timeout := func() ([]byte, error) { return nil, kind.ErrModelsTimeout }
 	failure := func() ([]byte, error) { return nil, fmt.Errorf("exit 1: no network") }
 	empty := func() ([]byte, error) { return nil, nil }
+	garbled := func() ([]byte, error) {
+		return []byte("Fetching available models...\ngemini-4-neon-high (High)\n"), nil
+	}
 	for _, c := range []struct {
 		name     string
 		live     func() ([]byte, error)
@@ -352,7 +360,10 @@ func TestStartModelCache(t *testing.T) {
 		wantWarn string // "{cache}" is the cache's path
 	}{
 		{"a live list checks the ref", func() ([]byte, error) { return []byte(stubList), nil }, "", "gemini-4-neon-high", "", ""},
-		{"an empty live answer checks the cached list", empty, stubList, "gemini-4-neon-high", "", ""},
+		{"an empty live answer checks the cached list and warns", empty, stubList, "gemini-4-neon-high", "",
+			"WARN agy models: no model listed: the start checks the cached list in {cache}"},
+		{"a garbled live answer checks the cached list and warns", garbled, stubList, "gemini-4-neon-high", "",
+			"WARN agy models: no model listed: the start checks the cached list in {cache}"},
 		{"a timeout checks the cached list", timeout, stubList, "gemini-3.8-flash-low", "", ""},
 		{"a failure checks the cached list and warns", failure, stubList, "gemini-4-neon-high", "",
 			"WARN agy models: exit 1: no network: the start checks the cached list in {cache}"},
@@ -361,6 +372,8 @@ func TestStartModelCache(t *testing.T) {
 		{"a timeout with no list starts unchecked with a WARN", timeout, "", "gemini-4-neon-high", "",
 			"WARN agy models: no reply within 4s and no cached list in {cache}: the start's model is unchecked"},
 		{"an empty live answer with no list starts unchecked with a WARN", empty, "", "gemini-4-neon-high", "",
+			"WARN agy models: no model listed and no cached list in {cache}: the start's model is unchecked"},
+		{"a garbled live answer with no list starts unchecked with a WARN", garbled, "", "gemini-4-neon-high", "",
 			"WARN agy models: no model listed and no cached list in {cache}: the start's model is unchecked"},
 		{"a failure with no list is the error", failure, "", "gemini-4-neon-high", "agy models: exit 1: no network", ""},
 	} {
@@ -389,6 +402,33 @@ func TestStartModelCache(t *testing.T) {
 			if b, err := os.ReadFile(p); err != nil || string(b) != c.cached {
 				t.Errorf("%s: the cache at %s holds %q, %v; want it unchanged", c.name, p, b, err)
 			}
+		}
+	}
+}
+
+// A start's refusal of a model names the list the check read: the live list or the cached list's path, and the slugs it
+// held on one line, so the next failed nightly shows what the lab's `agy models` answered.
+func TestStartRefusalNamesTheList(t *testing.T) {
+	cases := []struct {
+		name   string
+		live   func() ([]byte, error)
+		cached string
+		from   string // "{cache}" is the cache's path
+	}{
+		{"the live list", func() ([]byte, error) { return []byte(stubList), nil }, "", "the live list"},
+		{"the cached list", func() ([]byte, error) { return nil, kind.ErrModelsTimeout }, stubList, "the cached list in {cache}"},
+	}
+	for _, c := range cases {
+		env := home(t, "")
+		p := modelsCacheFile(t, env["HOME"], c.cached)
+		r := startCall(t, kind.HandleModels(c.live), env, map[string]any{"args": []string{"--model", "gemini-9-bogus"}})
+		want := "model gemini-9-bogus is not in agy models (" + strings.ReplaceAll(c.from, "{cache}", p) + ": " +
+			stubSlugs + "; models.<name>.id names a slug the list shows)"
+		if r.Error != want {
+			t.Errorf("%s: refusal %q, want %q", c.name, r.Error, want)
+		}
+		if strings.Contains(r.Error, "\n") {
+			t.Errorf("%s: the refusal is not one line: %q", c.name, r.Error)
 		}
 	}
 }

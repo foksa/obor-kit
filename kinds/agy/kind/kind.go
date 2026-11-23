@@ -1,7 +1,7 @@
 // Package kind is the Antigravity CLI (agy) as obor's kind protocol answers it (docs/agents/kind-protocol.md), built as
 // the binary obor-kind-agy (kinds/agy). A start is `agy --settings <file> [args] --model … [--effort …] -i <prompt>`
 // (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first (no check on a
-// resume; its answer kept as the last good list for a check that times out or fails), the settings file
+// resume; its `slug<TAB>label` lines kept as the last good list for a check that gives none or fails), the settings file
 // the user's saved settings with the project's override file and obor's entries laid over them (settings.go); obor's
 // MCP server and hooks through the project's committed .agents/mcp_config.json and .agents/hooks.json (install's where:
 // project; the hooks' transport is hook.go); /exit with one Enter; `agy acp`, -p/--print and --prompt denied; prompts
@@ -190,8 +190,8 @@ func describe() map[string]any {
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file and the start. An effort with no model
 // is the start's error: agy's --effort selects a variant of a model named by its base. A model check with no list (a
-// live check that gave none and no cached list) is a reply's warning: the ref goes to agy unchecked; a cached list a
-// failure falls back to is checked and the fallback warned. In an obor project
+// live check that gave none and no cached list) is a reply's warning: the ref goes to agy unchecked. A fallback to the
+// cached list is checked, and warned about unless the live check timed out. In an obor project
 // (root) whose start dir's HooksFile, the one agy runs (in.Dir's, root's when in.Dir is empty or the root), does not
 // hold this kit's entry (hooksStale; not in a check), an agent's start is refused and a lead's goes on with a reply's
 // warning: obor logs it as `obor: kind agy: start: WARN …`.
@@ -215,13 +215,13 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 	}
 	warn := ""
 	if model != "" && !in.Check && in.Resume == "" {
-		list, w, err := modelList(in.Env["HOME"], models, store)
+		list, from, w, err := modelList(in.Env["HOME"], models, store)
 		if err != nil {
 			return map[string]any{"error": err.Error()}
 		}
 		warn = w
 		if len(list) > 0 {
-			if why := checkModel(list, model, effort); why != "" {
+			if why := checkModel(list, model, effort, from); why != "" {
 				return map[string]any{"error": why}
 			}
 		}
@@ -399,11 +399,12 @@ const modelsLimit = 4 * time.Second
 // none cached, goes on unchecked with a warning. Any other failure of the check is a start's error.
 var ErrModelsTimeout = errors.New("no reply within " + modelsLimit.String())
 
-// errModelsEmpty is `agy models` answering no model: no answer, like a timeout, so a start takes its cached list instead
-// or, with none cached, goes on unchecked with a warning.
+// errModelsEmpty is `agy models` answering no model: an empty answer, or none of its lines a `slug<TAB>label` one. It is
+// no list: a start takes its cached list instead or, with none cached, goes on unchecked with a warning.
 var errModelsEmpty = errors.New("no model listed")
 
-// groupGrace is how long `agy models`, and the children it leaves, have to exit after SIGTERM before SIGKILL.
+// groupGrace is how long `agy models` and `agy agentapi send-message`, and the children they leave, have to exit after
+// SIGTERM before SIGKILL.
 const groupGrace = 200 * time.Millisecond
 
 // ModelsFile is a start's cached `agy models` output, relative to HOME: agy's own model list, one file for every
@@ -411,36 +412,38 @@ const groupGrace = 200 * time.Millisecond
 const ModelsFile = ".obor/agy/models"
 
 // modelList is the list a start's check reads: `agy models`'s live answer (kept as the cached list when store is set),
-// else the last good list. A live answer with no model in it is no answer: it replaces no cache. warn names a live check
-// that gave no list at all (a timeout, an empty answer), whose model goes unchecked, or a fallback to the cache for a
-// failure that is not a timeout, which the start checks; err is the live check's failure with no cached list.
-func modelList(home string, models func() ([]byte, error), store bool) (list []model, warn string, err error) {
+// else the last good list. Only its `slug<TAB>label` lines are models, so a live answer with none is no list and
+// replaces no cache (as a timeout does). from names where the list came from (checkModel's refusal says so). warn names
+// a live check that gave no list at all (a timeout, an empty or garbled answer), whose model goes unchecked, or a
+// fallback to the cache for a cause that is not a timeout, which the start checks; err is the live check's failure with
+// no cached list.
+func modelList(home string, models func() ([]byte, error), store bool) (list []model, from, warn string, err error) {
 	out, liveErr := models()
 	if liveErr == nil {
 		if list = parseModels(out); len(list) > 0 {
 			if store {
 				keepModels(home, out)
 			}
-			return list, "", nil
+			return list, "the live list", "", nil
 		}
 		liveErr = errModelsEmpty
 	}
-	noAnswer := errors.Is(liveErr, ErrModelsTimeout) || errors.Is(liveErr, errModelsEmpty)
-	if cached, ok := cachedModels(home); ok {
-		if noAnswer {
-			return parseModels(cached), "", nil
+	cached, ok := cachedModels(home)
+	if ok {
+		from = "the cached list in " + modelsCache(home)
+		if errors.Is(liveErr, ErrModelsTimeout) {
+			return parseModels(cached), from, "", nil
 		}
-		return parseModels(cached), fmt.Sprintf("WARN agy models: %v: the start checks the cached list in %s",
-			liveErr, modelsCache(home)), nil
+		return parseModels(cached), from, fmt.Sprintf("WARN agy models: %v: the start checks %s", liveErr, from), nil
 	}
-	if noAnswer {
+	if errors.Is(liveErr, ErrModelsTimeout) || errors.Is(liveErr, errModelsEmpty) {
 		where := "no cached list: the start names no HOME"
 		if p := modelsCache(home); p != "" {
 			where = "no cached list in " + p
 		}
-		return nil, fmt.Sprintf("WARN agy models: %v and %s: the start's model is unchecked", liveErr, where), nil
+		return nil, "", fmt.Sprintf("WARN agy models: %v and %s: the start's model is unchecked", liveErr, where), nil
 	}
-	return nil, "", fmt.Errorf("agy models: %w", liveErr)
+	return nil, "", "", fmt.Errorf("agy models: %w", liveErr)
 }
 
 // modelsCache is the file of home's cached model list ("" : no HOME, so no cache).
@@ -552,17 +555,39 @@ func lastLine(text string) string {
 	return ""
 }
 
-// parseModels is `agy models`'s output as the models it lists: one slug, a tab and its label per line (a line without a
-// tab is a slug alone).
+// parseModels is `agy models`'s output as the models it lists: one slug, a tab and its label per line. Any other line
+// (a notice before the list, a wrapped label, a blank line) is no model: only the shape agy's list has counts.
 func parseModels(out []byte) []model {
 	var list []model
 	for _, line := range strings.Split(string(out), "\n") {
-		slug, label, _ := strings.Cut(strings.TrimSpace(line), "\t")
-		if slug = strings.TrimSpace(slug); slug != "" {
-			list = append(list, model{slug: slug, label: strings.TrimSpace(label)})
+		slug, label, ok := strings.Cut(line, "\t")
+		if !ok || strings.TrimSpace(slug) == "" {
+			continue
 		}
+		list = append(list, model{slug: strings.TrimSpace(slug), label: strings.TrimSpace(label)})
 	}
 	return list
+}
+
+// slugsMax bounds the slugs a start's refusal names: agy's own list (22 models, about 510 characters) fits, and a list
+// that outgrows it is cut rather than making an unbounded error line.
+const slugsMax = 600
+
+// slugLine is list's slugs on one line, cut after slugsMax bytes at a slug's end with "…".
+func slugLine(list []model) string {
+	slugs := make([]string, len(list))
+	for i, m := range list {
+		slugs[i] = m.slug
+	}
+	line := strings.Join(slugs, ", ")
+	if len(line) <= slugsMax {
+		return line
+	}
+	line = line[:slugsMax]
+	if i := strings.LastIndex(line, ", "); i > 0 {
+		line = line[:i]
+	}
+	return line + ", …"
 }
 
 // variants are the efforts agy models lists for base: the slugs base-<effort>.
@@ -580,8 +605,9 @@ func variants(list []model, base string) []string {
 // an unknown one or one without the effort, so the start refuses it before agy does. "" : the ref is in list. A ref
 // with no effort of its own is a listed slug or label exactly (agy resolves labels), or the bare base of a model the
 // list shows with variants (agy's default variant); a ref that names a variant the list has not ("…-xhigh" beside
-// low/medium/high) is no model agy runs.
-func checkModel(list []model, ref, effort string) string {
+// low/medium/high) is no model agy runs. from names where list came from: the refusal of a model it does not hold
+// names it and the slugs it held (one line), so the failure shows what the check saw.
+func checkModel(list []model, ref, effort, from string) string {
 	base := Base(ref)
 	has := variants(list, base)
 	if effort == "" {
@@ -589,7 +615,7 @@ func checkModel(list []model, ref, effort string) string {
 			base == ref && len(has) > 0 {
 			return ""
 		}
-		return fmt.Sprintf("model %s is not in agy models (models.<name>.id names a slug the list shows)", ref)
+		return notListed(ref, from, list)
 	}
 	if slices.Contains(has, effort) {
 		return ""
@@ -598,9 +624,16 @@ func checkModel(list []model, ref, effort string) string {
 		if slices.ContainsFunc(list, func(m model) bool { return m.slug == base || m.label == base }) {
 			return fmt.Sprintf("%s takes no %q effort (agy models names it with no effort)", base, effort)
 		}
-		return fmt.Sprintf("model %s is not in agy models (models.<name>.id names a slug the list shows)", base)
+		return notListed(base, from, list)
 	}
 	return fmt.Sprintf("%s has no %q effort (agy models: %s)", base, effort, strings.Join(has, ", "))
+}
+
+// notListed is the refusal of name, which list (from) does not hold: its slugs follow, so the next failure shows what
+// the check read.
+func notListed(name, from string, list []model) string {
+	return fmt.Sprintf("model %s is not in agy models (%s: %s; models.<name>.id names a slug the list shows)",
+		name, from, slugLine(list))
 }
 
 // SettingsFile is the name of a start's settings file in the state dir: a lead's (untrimmed) or another agent's, per
