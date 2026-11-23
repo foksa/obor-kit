@@ -101,6 +101,9 @@ type Start struct {
 	// registered on the start (claude: --strict-mcp-config with --mcp-config MCPConfig and those servers; a kind that
 	// hides nothing ignores it).
 	StrictMCP bool
+	// Check is a start built to check its wiring, not to launch: a kind that reads its CLI's live data answers
+	// without running it, and the caller writes none of the files the start names (obor setup mcp --model builds one).
+	Check bool
 	// TrimUser is every agent but a lead starting: the kind switches off its default part of the user's own
 	// settings (claude: the user's plugins, in Prepare's merged settings file; codex: -c features.plugins,
 	// features.apps and skills.bundled.enabled false, skills.config with enabled false per skill of the user's skills
