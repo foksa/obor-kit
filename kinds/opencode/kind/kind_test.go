@@ -267,6 +267,34 @@ func TestStartEnvNamesTheResumedSession(t *testing.T) {
 	}
 }
 
+// a lane's start (StrictMCP: a worker, the drive agent) carries no inline config from the pane's shell: its env names
+// OPENCODE_CONFIG_CONTENT empty, which the start unsets. A role's start (trimmed, not strict) names it not at all, so
+// the pane's own value stands, and it is no registry var: another kind's start and a lead's leave it alone too.
+func TestStartEnvClearsTheUserInlineConfig(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	if kind.ConfigContentVar != "OPENCODE_CONFIG_CONTENT" {
+		t.Errorf("ConfigContentVar = %q: OpenCode reads OPENCODE_CONFIG_CONTENT", kind.ConfigContentVar)
+	}
+	if slices.Contains(k.Vars(), kind.ConfigContentVar) {
+		t.Errorf("Vars %q name %s: every start would unset it", k.Vars(), kind.ConfigContentVar)
+	}
+	start := func(strict bool) agents.Launch {
+		l, err := agents.StartOf(k, agents.Start{Args: []string{"--model", "p/m"}, Prompt: "go", TrimUser: true,
+			StrictMCP: strict})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	lane, role := start(true), start(false)
+	if v, set := lane.Env[kind.ConfigContentVar]; !set || v != "" {
+		t.Errorf("a lane's start: %s = %q (in the env: %v), want it there and empty (unset)", kind.ConfigContentVar, v, lane.Env)
+	}
+	if v, set := role.Env[kind.ConfigContentVar]; set || v != "" {
+		t.Errorf("a role's start: %s = %q in %v, want it absent (the pane's own value stands)", kind.ConfigContentVar, v, role.Env)
+	}
+}
+
 // a trimmed start (every agent but a lead) sets OpenCode's own switch for the Claude skill dirs; an untrimmed one
 // has it in its env as "", which the start unsets (the pane's shell may hold an earlier, trimmed start's), and the
 // manifest's vars name it so every other kind's start unsets it too. The argv is the same either way.

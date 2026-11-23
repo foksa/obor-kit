@@ -102,8 +102,10 @@ The compiled kinds get three Go functions; a process gets data instead.
 
 A kind's `start` owns its own fixed flags: it puts them in the `args` it returns; obor's tables hold none for a plugin kind.
 
-Every variable in `env` must be among the manifest's `vars` (`agents.Kinds.Vars`: a start unsets every registry var
-it does not set).
+Every variable in `env` that gives a value must be among the manifest's `vars` (`agents.Kinds.Vars`: a start unsets
+every registry var it does not set). A variable `env` names empty that `vars` does not is one this start clears from
+the pane's shell (OpenCode: a lane's `OPENCODE_CONFIG_CONTENT`, the user's inline config layer); every other kind's or
+role's start leaves it as the pane has it.
 
 `strict_mcp` (`agents.Start.StrictMCP`) is true for a lane's agent (a worker, the owner's drive agent): the kind hides
 the user's own MCP servers where its CLI has a way (Claude's `--strict-mcp-config`, OpenCode's generated config); a
@@ -123,8 +125,9 @@ merge key by key, `null` deletes a key, anything else replaces), on every start 
 
 OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env` on a trimmed start ("" for a lead) hides the Claude skill
 dirs only; `opencode_override.json` merged over the user's `opencode.json[c]` is the base of its generated config
-file, and a lane's start disables the user's own MCP servers the project's `opencode.json[c]` does not define. What the
-CLI has no switch for stays visible.
+file, and a lane's start disables the user's own MCP servers the project's `opencode.json[c]` does not define. A lane's
+start also names `OPENCODE_CONFIG_CONTENT` empty, so no server of the user's inline config reaches it; a lead's or
+role's start names it not at all, so the pane's own value stands. What the CLI has no switch for stays visible.
 
 ## The manifest
 

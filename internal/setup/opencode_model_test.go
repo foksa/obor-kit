@@ -10,8 +10,9 @@ import (
 )
 
 // the env obor setup hands herdr for a new OpenCode pane carries the start's model and effort for obor's plugin
-// (OBOR_OPENCODE_MODEL provider/model#effort), and no workaround variables (no XDG_STATE_HOME, no
-// OPENCODE_CONFIG_CONTENT), and OPENCODE_CONFIG naming the start's generated config. A type without a model hands the variable empty, so a value the pane would inherit from
+// (OBOR_OPENCODE_MODEL provider/model#effort), OPENCODE_CONFIG naming the start's generated config, and the user's
+// inline config (OPENCODE_CONFIG_CONTENT) cleared on a lane's start but left alone on a role's. No workaround variable
+// (no XDG_STATE_HOME). A type without a model hands the variable empty, so a value the pane would inherit from
 // setup's own env (an OpenCode agent running setup) is none to the plugin. (A model without a model id:
 // agents.models.bare.) A new pane's shell is typed at once: the env line that exports its pane id.
 func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
@@ -45,7 +46,11 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			has(t, calls, c.want, "the plugin's model")
 			hasNot(t, calls, "inherited/m", "the inherited model")
 			hasNot(t, calls, "XDG_STATE_HOME", "no state dir, the user's own untouched")
-			hasNot(t, calls, "OPENCODE_CONFIG_CONTENT", "no config content")
+			if c.role == "" { // a lane's start clears the shell's inline config
+				has(t, calls, "OPENCODE_CONFIG_CONTENT=,", "the lane's cleared inline config")
+			} else {
+				hasNot(t, calls, "OPENCODE_CONFIG_CONTENT", "a role's start leaves the inline config alone")
+			}
 			// the start's generated config, by path, with the launching kit's server and plugin.
 			name := "opencode-trimmed.json"
 			if c.role == "" { // a lane's worker: one file per start dir

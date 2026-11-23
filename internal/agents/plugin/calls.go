@@ -151,7 +151,9 @@ type startReply struct {
 	} `json:"files"`
 }
 
-// start runs start with in as data (closure 1: the command reads a file itself; closure 2: the reply's files).
+// start runs start with in as data (closure 1: the command reads a file itself; closure 2: the reply's files). An env
+// var the reply gives a value is one of the manifest's vars; one it names empty is a var this start clears from the
+// pane's shell, the manifest's vars or not.
 func (k *Kind) start(in agents.Start) (startReply, error) {
 	m, err := k.manifest()
 	if err != nil {
@@ -168,8 +170,8 @@ func (k *Kind) start(in agents.Start) (startReply, error) {
 	for _, w := range r.Warnings {
 		fmt.Fprintf(Log, "obor: kind %s: start: %s\n", k.name, w)
 	}
-	for v := range r.Env {
-		if !slices.Contains(m.Vars, v) {
+	for v, val := range r.Env {
+		if val != "" && !slices.Contains(m.Vars, v) {
 			return startReply{}, fmt.Errorf("kind %s: start: env %s is not among the manifest's vars", k.name, v)
 		}
 	}

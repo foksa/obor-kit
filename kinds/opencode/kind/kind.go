@@ -3,7 +3,7 @@
 // /exit with its popup's second Enter, `opencode run`/`acp`/`serve`/`api` denied, obor's MCP server and plugin (<kit>/opencode, its hook
 // transport, which acts on the hooks' answers, and its session inbox: InboxVar) in each start's generated config
 // (OPENCODE_CONFIG: obor's entries on the user's own config with the project's override file laid over it, a lane's
-// start disabling the user's own MCP servers too; override.go), lines
+// start disabling the user's own MCP servers too and clearing the shell's inline config, ConfigContentVar; override.go), lines
 // posted to the session's inbox (deliver), the session's context size from the plugin's token file (TranscriptGlob). Handle is one request; the binary runs it on its stdin, a test binary in
 // process (testkit).
 package kind
@@ -47,6 +47,11 @@ const ResumeVar = "OBOR_OPENCODE_RESUME"
 // ConfigVar is the variable that names a start's generated config: a path, so the typed env line stays short
 // (herdr refuses over-long lines).
 const ConfigVar = "OPENCODE_CONFIG"
+
+// ConfigContentVar is OpenCode's inline config layer in the environment. It is a user layer, not one of the kind's
+// registry vars: a lane's start names it empty (the start unsets it), so no MCP server or plugin of the user's shell
+// config reaches a lane, and a lead's or role's start leaves it as the pane has it.
+const ConfigContentVar = "OPENCODE_CONFIG_CONTENT"
 
 // SkillsVar is OpenCode's own switch that leaves the Claude skill dirs unread (~/.claude/skills with the user's synced
 // skills, and the project's .claude/skills): "1" on a trimmed start. .agents/skills and .opencode/skills still load.
@@ -212,7 +217,9 @@ var FixedArgs = []string{"--auto", "--standalone"}
 // (startConfig), and ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
 // earlier start's), and SkillsVar "1" on a start that trims the user's settings (trim_user: every agent but a lead),
-// else "" (unset, the same way). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
+// else "" (unset, the same way), and ConfigContentVar "" on a lane's start (StrictMCP: a worker, the drive agent), so
+// the user's inline config of the pane's shell reaches no lane; a lead's or role's start names it not at all, so the
+// pane's own value stands. OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
 // for a new session, ranks the variant it remembers in its state (model.json) above the config's; obor's plugin switches
 // the session in its prompt hook, after the TUI's own pre-submit switch, so the start's model and variant win from the
 // first turn (a live probe). obor never guesses a model: args without --model set none, so OpenCode's own choice
@@ -242,6 +249,9 @@ func start(in request) map[string]any {
 	env := map[string]string{ModelVar: model, SkillsVar: "", ResumeVar: in.Resume}
 	if in.TrimUser {
 		env[SkillsVar] = "1"
+	}
+	if in.StrictMCP {
+		env[ConfigContentVar] = ""
 	}
 	files := []map[string]string{}
 	if in.Kit != "" {
