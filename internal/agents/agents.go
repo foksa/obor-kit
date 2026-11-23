@@ -689,7 +689,7 @@ func (s Kinds) Names() []string {
 	return out
 }
 
-// PluginLoader builds the kinds a project's config names as executables (kinds.<name>.command); the plugin
+// PluginLoader builds the kinds a project's config names as executables (agents.kinds.<name>.plugin); the plugin
 // package (internal/agents/plugin) sets Plugins from its init, so the config (which cannot import it) builds them.
 type PluginLoader interface {
 	// Kind is the kind name answering obor's kind protocol as command, its manifest the one obor setup agents cached in

@@ -22,7 +22,6 @@
       "haiku": { "kind": "claude", "id": "haiku" },
       "sol": { "kind": "codex", "id": "gpt-6.1-sol" }
     },
-    "kinds": { "opencode": { "plugin": "obor-kind-opencode" } },
     "confirmed": false
   },
   "rules": {

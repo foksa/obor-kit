@@ -164,9 +164,10 @@ func (s *Setup) hooksLine(root string) string {
 // agentsCmd is `obor setup agents` (once per user, and after an upgrade): in a project, the agents.models entries its
 // levels and roles name without one are added and its former built-in entries with no kind get theirs
 // (upgradeModels: decided from config.json alone), then each plugin kind its config names
-// (kinds.<name>.command: the kit's OpenCode and agy) is described and its manifest cached in the state dir
-// (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
-// a failure is a FAIL. A kind installs nothing user-global; one that registers through a project file (agy's
+// (agents.kinds.<name>.plugin) is described and its manifest cached in the state dir (plugin.Cache), what hooks and
+// the guard read; a kit kind answered in process (the kit's OpenCode and agy) is described by its handler and leaves
+// no cache file; then every kind's install is run (its answer is obor setup mcp's) and a failure is a FAIL. A kind
+// installs nothing user-global; one that registers through a project file (agy's
 // .agents/mcp_config.json, and its hooks' .agents/hooks.json) has it written there when the config has a model of that
 // kind (projectInstall).
 func (s *Setup) agentsCmd(ctx context.Context, args []string) error {
@@ -279,8 +280,8 @@ func (s *Setup) hasModelOf(name string) bool {
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config; a
 // config that fails to load is its own error) and caches its manifest, then reloads the config (Setup.cfg) so its
 // plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step). A kind obor answers in
-// process (plugin.InProcess: a kit kind with no plugin or its kit binary's name) needs no cache and is skipped; the
-// config is left as it is.
+// process (plugin.InProcess: a kit kind with no plugin or its kit binary's name) needs no cache and leaves none: it is
+// skipped, and the config is left as it is.
 func (s *Setup) cachePlugins() (cached []string, err error) {
 	cfg, err := s.projectConfig()
 	if err != nil || cfg == nil {

@@ -40,16 +40,16 @@ var retired = []string{"herdr-instance", "opencode-lane.json"}
 // the newest backupKeep dates (either format: gzip'd days count together with the older uncompressed ones;
 // every other entry of state/backup/ but a temp file younger than a day), files keyed by a lane or agent the config no
 // longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
-// restart-<agent>.log, restart-<lane|agent>.lock), the retired state entries (retired), drafts not modified for
-// draftKeep, launch.log and restart-<agent>.log unwritten for staleLogKeep, stop-failure entries older than
-// stopFailureKeep and flakes.jsonl's entries older than flakeKeep. A task's step logs are serve's to remove at its
-// end: the sweep leaves them, a task's or an unknown one's.
+// restart-<agent>.log, restart-<lane|agent>.lock), the retired state entries (retired), the cache files of a kit kind
+// the config answers in process, drafts not modified for draftKeep, launch.log and restart-<agent>.log unwritten for
+// staleLogKeep, stop-failure entries older than stopFailureKeep and flakes.jsonl's entries older than flakeKeep. A
+// task's step logs are serve's to remove at its end: the sweep leaves them, a task's or an unknown one's.
 // backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
-// never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them), kinds/, the
-// generated OpenCode configs (opencode.json, opencode-trimmed.json, opencode-lane-<dir hash>.json), last-full-check or
-// background.jsonl. Every removal is best-effort: a failure is one line naming its path and the sweep goes on (a
-// removal it misses is only disk).
+// never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them), a plugin kind's
+// cache file, the generated OpenCode configs (opencode.json, opencode-trimmed.json, opencode-lane-<dir hash>.json),
+// last-full-check or background.jsonl. Every removal is best-effort: a failure is one line naming its path and the
+// sweep goes on (a removal it misses is only disk).
 func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 	if cfg == nil {
 		return []string{"sweep: no config"}
@@ -73,6 +73,7 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 			}
 			return paths, nil
 		}},
+		{"kinds", func() ([]string, error) { return sweepKinds(cfg, filepath.Join(state, "kinds")) }},
 		{"drafts", func() ([]string, error) { return sweepDrafts(filepath.Join(cfg.Root, ".obor", "drafts"), now) }},
 		{"logs", func() ([]string, error) { return sweepLogs(state, now) }},
 	}
@@ -251,6 +252,19 @@ func liveNames(cfg *config.Config) (lanes, agents, slots map[string]bool, err er
 		}
 	}
 	return lanes, agents, slots, nil
+}
+
+// sweepKinds is the kinds dir's cache files obor writes no more: a kit kind its config answers in process
+// (KindCommand is that kind's kit binary's name, the one plugin.Local holds: config.KitKinds) has none, since its
+// handler answers each call. A plugin kind's file stays, and so does an entry no rule names.
+func sweepKinds(cfg *config.Config, dir string) ([]string, error) {
+	inProcess := map[string]bool{}
+	for name, bin := range config.KitKinds {
+		if cfg.KindCommand(name) == bin {
+			inProcess[name+".json"] = true
+		}
+	}
+	return sweepDir(dir, func(name string) bool { return inProcess[name] })
 }
 
 // sweepDir is dir's files gone says yes of; a directory it does not read is the error.

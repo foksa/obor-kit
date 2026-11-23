@@ -147,9 +147,9 @@ func (s *Setup) writeConfig(name, prefix string) (wrote bool, err error) {
 }
 
 // configJSON is the .obor/config.json init writes: the kit's example with name, prefix, terminal, the lanes dir beside the root
-// and no lanes, commands, lane links or protected files; the example's difficulty and kinds go (initDifficulty writes
-// the levels from the kinds init detected), but for each kit kind's command (config.KitKinds: OpenCode's
-// and agy's binaries).
+// and no lanes, commands, lane links or protected files; the example's difficulty, models and kinds go (initDifficulty
+// writes the levels from the kinds it detected, initModels their models; a kit kind needs no agents.kinds entry:
+// KindCommand answers it in process).
 func (s *Setup) configJSON(name, prefix, terminal string) ([]byte, error) {
 	example, err := os.ReadFile(filepath.Join(s.Kit, "templates", "config.example.json"))
 	if err != nil {
