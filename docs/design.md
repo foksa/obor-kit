@@ -252,8 +252,8 @@ dir's `.mcp.json` servers the project's settings approve and do not reject (`ena
 `config.toml` that the project's `.codex/config.toml` does not define (obor's and a name `config_override.toml` sets are
 left alone; a name is matched as the config stores it, one with a space or a dot too). A name that needs quotes goes in
 one inline table at `mcp_servers`, the override's quoted entries in the same one. A lane's Codex start whose args (the
-type's or `agents.kinds.codex.args`) set a key under `mcp_servers` (`-c`/`--config`, dotted or the whole table) is
-refused: "a lane's MCP servers come from the project's .codex/config.toml; move <key> there" (a role agent's or a
+type's or `agents.kinds.codex.args`) set a key under `mcp_servers` (`-c`/`--config`, dotted or the whole table; obor's own server included: the kit's
+start passes it) is refused: "a lane's MCP servers come from the project's .codex/config.toml; move <key> there" (a role agent's or a
 lead's start takes such args). Every Codex key is compared as TOML parses it, part by part: a quoted `"a.b"` is one
 part, not the nested `a` → `b`, in the project's config, the override and the args alike. OpenCode's generated config makes `{"disabled": true}` each server of the
 user's `opencode.json(c)` that the project's does not define (obor's and an override's entry are left alone). Claude,
@@ -975,8 +975,8 @@ no rule for OpenCode tool <X>: update obor"), so an opencode update that adds a 
 agents, never a silent bypass. `execute` (Code Mode, the carrier of every MCP tool) and the tools with no guard rule
 (`read`, `glob`, `grep`, `list`, `skill`, `question`, `webfetch`, `websearch`, `subagent`; a child's calls reach the hook
 under its own session) pass as they are; `execute`'s inner calls reach the hook as `<namespace>_<tool>`, and one passes
-only when `ctx.tool.list()` gives it the namespace of an MCP server the start's configs name (obor's own, the generated
-config's `mcp.servers`, the project's `opencode.json(c)` and the user's), never by prefix: a plugin's namespace is no
+only when `ctx.tool.list()` gives it a namespace and the runtime reports that MCP server connected (`ctx.mcp.list()`;
+obor's own always), never by prefix: a plugin's namespace is no
 server's and goes to the guard as unguarded. OpenCode's own tools (`opencode_*`) are classified one by one:
 `worktree_create` and `worktree_remove` go as the guard's `Bash` event for the git command they run (`git worktree
 add`, `git worktree remove [--force]`), its read tools (`worktree_list`, `models`, the MCP resource readers) pass, and

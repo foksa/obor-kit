@@ -19,6 +19,8 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   `opus:high` first; move its file out of the project; set `agents.roles.deep_dive` to `gemini` (agy) and brief it fresh;
   set the role back; then the advisor verifies both against the code and says what to fix before the tag. The brief
   asks for a probe wherever one is cheap.
+- An accept row whose fix is "with task X" (an advice's or a review's) goes into X's BACKLOG line the day it is read, so
+  X's spec carries it (two releases in a row lost one).
 - Integrator: ob-int (`agents.roles.integrator`). The lead never merges by hand; `obor serve` gates a finished lane and
   sends ob-int its review job (`obor status --facts` shows the task move through gate → review).
 - A merge-loop needs-you of obor serve (`obor status --facts`: held, job not delivered/stalled, red past K, publish,
