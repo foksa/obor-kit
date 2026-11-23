@@ -144,15 +144,26 @@ type ReviewFix struct {
 }
 
 // BriefStatus is a role agent's open brief: to whom, since when (Unix seconds: its line's delivery, else its fact's
-// time), whether its line was delivered, whether the agent's pane worked on it since, and the head of its line (the
-// first BriefTextMax bytes; "": a fresh start's prompt carried the brief).
+// time), whether its line was delivered, whether the agent's pane worked on it since, where it is (Stage, Brief*), and
+// the head of its line (the first BriefTextMax bytes; "": a fresh start's prompt carried the brief; TextClipped: the
+// line is longer, the agent's detail page shows it whole).
 type BriefStatus struct {
-	To        string `json:"to"`
-	Since     int64  `json:"since"`
-	Delivered bool   `json:"delivered"`
-	Worked    bool   `json:"worked,omitempty"`
-	Text      string `json:"text,omitempty"`
+	To          string `json:"to"`
+	Since       int64  `json:"since"`
+	Delivered   bool   `json:"delivered"`
+	Worked      bool   `json:"worked,omitempty"`
+	Stage       string `json:"stage"`
+	Text        string `json:"text,omitempty"`
+	TextClipped bool   `json:"text_clipped,omitempty"`
 }
+
+// An open brief's stages (BriefStatus.Stage).
+const (
+	BriefNotDelivered = "not delivered" // its line is still queued
+	BriefWorking      = "working"       // delivered, and not done: its pane works, is about to, or is not seen
+	BriefWaiting      = "waiting"       // its agent's pane is blocked at a prompt: the owner's input is what it waits on
+	BriefDone         = "done"          // worked, and its pane is ready or its agent gone: serve's "finished" closes it
+)
 
 // BriefTextMax bounds BriefStatus.Text: enough for the web page's card, never the whole brief on every status answer.
 const BriefTextMax = 300

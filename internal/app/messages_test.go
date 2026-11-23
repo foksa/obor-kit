@@ -1435,6 +1435,74 @@ func TestBriefStatusTextBounded(t *testing.T) {
 	if txt := got[0].Text; txt == "" || len(txt) > wire.BriefTextMax || !utf8.ValidString(txt) || !strings.HasPrefix(txt, "[obor ") {
 		t.Errorf("text %q (%d bytes): want its line's head, at most %d bytes, whole runes", txt, len(txt), wire.BriefTextMax)
 	}
+	if !got[0].TextClipped {
+		t.Errorf("text of a %d-byte line: want marked clipped", len(long))
+	}
+}
+
+// TestClipBrief: a brief's text of wire.BriefTextMax bytes is kept whole and not marked; one byte more is cut to the
+// bound and marked clipped.
+func TestClipBrief(t *testing.T) {
+	t.Parallel()
+	whole := wire.BriefStatus{Text: strings.Repeat("a", wire.BriefTextMax)}
+	clipBrief(&whole)
+	if len(whole.Text) != wire.BriefTextMax || whole.TextClipped {
+		t.Errorf("%d bytes: got %d bytes, clipped %v; want kept whole, not clipped", wire.BriefTextMax, len(whole.Text), whole.TextClipped)
+	}
+	cut := wire.BriefStatus{Text: strings.Repeat("a", wire.BriefTextMax+1)}
+	clipBrief(&cut)
+	if len(cut.Text) != wire.BriefTextMax || !cut.TextClipped {
+		t.Errorf("%d bytes: got %d bytes, clipped %v; want cut to %d, clipped", wire.BriefTextMax+1, len(cut.Text), cut.TextClipped, wire.BriefTextMax)
+	}
+}
+
+// TestBriefStage: an open brief's stage is serve's: not delivered while its line is queued, working once typed and
+// while its pane works or its status is unknown, waiting while its pane is blocked at a prompt, done once its pane
+// worked and is ready (the rule that closes it), working when serve sees no pane for its agent (not connected).
+func TestBriefStage(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	stage := func() string {
+		t.Helper()
+		got := a.Status().Project.Briefs
+		if len(got) != 1 {
+			t.Fatalf("want one open brief, got %+v", got)
+		}
+		return got[0].Stage
+	}
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "verify 1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stage(); got != wire.BriefNotDelivered {
+		t.Errorf("its line queued: stage %q, want %q", got, wire.BriefNotDelivered)
+	}
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: the brief's line typed, got %v", l.calls)
+	}
+	if got := stage(); got != wire.BriefWorking {
+		t.Errorf("typed, its pane idle, not worked on yet: stage %q, want %q", got, wire.BriefWorking)
+	}
+	for _, c := range []struct{ status, want string }{
+		{"working", wire.BriefWorking},
+		{"blocked", wire.BriefWaiting},
+		{"unknown", wire.BriefWorking},
+		{"idle", wire.BriefDone},
+	} {
+		lineStatus(a, "w:rev", c.status, now)
+		if got := stage(); got != c.want {
+			t.Errorf("its pane %s: stage %q, want %q", c.status, got, c.want)
+		}
+	}
+	a.mu.Lock()
+	a.connected = false
+	a.mu.Unlock()
+	if got := stage(); got != wire.BriefWorking {
+		t.Errorf("worked, its pane not seen (serve not connected): stage %q, want %q", got, wire.BriefWorking)
+	}
 }
 
 // A queued line's delivery as explicit states. The case → test table: each state a line can be in

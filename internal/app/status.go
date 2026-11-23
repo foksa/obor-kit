@@ -141,10 +141,7 @@ func (a *App) Status() wire.Status {
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
 		ps.ReviewOpen = a.reviewOpen(p, cfg)
-		ps.Briefs = p.out.BriefStatus()
-		for i := range ps.Briefs {
-			ps.Briefs[i].Text = clip(ps.Briefs[i].Text, wire.BriefTextMax)
-		}
+		ps.Briefs = a.briefStatus(p, now)
 		ps.Stopped = a.stoppedRoles(p, cfg)
 		for _, f := range ps.Facts {
 			if f.Step != event.StepNeedsYou {

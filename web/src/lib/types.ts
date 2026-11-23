@@ -81,7 +81,9 @@ export interface BriefStatus {
   since: number;
   delivered: boolean;
   worked?: boolean;
+  stage: string; // wire.Brief*: not delivered, working, waiting, done
   text?: string; // the head of its line (serve sends at most 300 bytes)
+  text_clipped?: boolean; // the line is longer than text: the agent's detail page shows it whole
 }
 
 export interface Role {

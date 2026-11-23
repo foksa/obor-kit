@@ -193,11 +193,10 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	var done []event.Message
 	var reminders []event.Message  // the role agents done with no open work (roleDone)
 	var reviewed map[string]string // the finished agents' review files (finishedReview): by agent, the review id + "[-verify]"
-	restoring := a.restoring()     // a gone agent's pane may be one the restore restarts: no brief ends as gone meanwhile
 	for agent, b := range p.out.Briefs() {
 		w := a.whereIs(p, agent)
-		gone := a.gone(p, agent, b, w, now) // noted on every pass: where its agent was last seen
-		if b.Worked() && b.Stop() == nil && (w.State == Identified && Ready(w.Pane.Status) || gone && !restoring) {
+		noteSeen(b, w, now) // noted on every pass: where its agent was last seen
+		if a.briefDone(p, agent, b, w, now) {
 			done = append(done, event.Message{To: p.out.Lead(), From: "obor", Ends: agent,
 				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.At())))})
 			if file := p.folded.rv.BriefFile(agent, b.Seq()); file != "" {
@@ -302,21 +301,26 @@ func (a *App) closeSettled(ctx context.Context, p *proj) {
 // brief ends: a short reconnect, or a relabel after a serve restart, does not end it.
 const goneAfter = time.Minute
 
-// gone: agent of brief b, resolved now as w, is gone (under mu): its last pane runs no agent (at its shell, or
-// closed), its only labelled pane is at its shell (a brief replayed from the log: no pane seen yet), or no pane has
-// identified it for goneAfter while serve is connected. It notes where the agent is seen (b.Term, b.PaneID, b.Lost).
-// Two panes claiming it (Ambiguous) are no gone agent.
-func (a *App) gone(p *proj, agent string, b *outbox.Brief, w Where, now time.Time) bool {
+// noteSeen notes in brief b where its agent, resolved now as w, is seen (b.Term, b.PaneID; b.Lost: since when no pane
+// identifies it while serve is connected), as gone reads it.
+func noteSeen(b *outbox.Brief, w Where, now time.Time) {
 	switch {
 	case w.State == Identified:
 		b.Term, b.PaneID, b.Lost = identity.TermOf(w.Pane), w.Pane.ID, time.Time{}
-		return false
 	case w.State == Ambiguous || w.Why == notConnected:
 		b.Lost = time.Time{}
-		return false
-	}
-	if b.Lost.IsZero() {
+	case b.Lost.IsZero():
 		b.Lost = now
+	}
+}
+
+// gone: agent of brief b, resolved now as w, is gone (under mu): its last pane runs no agent (at its shell, or
+// closed), its only labelled pane is at its shell (a brief replayed from the log: no pane seen yet), or no pane has
+// identified it for goneAfter while serve is connected (b.Lost, noteSeen's note). Two panes claiming it (Ambiguous) are
+// no gone agent.
+func (a *App) gone(p *proj, agent string, b *outbox.Brief, w Where, now time.Time) bool {
+	if w.State == Identified || w.State == Ambiguous || w.Why == notConnected {
+		return false
 	}
 	if b.Term != "" {
 		if o := a.terminal(p, b.Term, b.PaneID); o == nil || o.pane.Agent == "" {
@@ -326,7 +330,53 @@ func (a *App) gone(p *proj, agent string, b *outbox.Brief, w Where, now time.Tim
 	if _, ok := a.labelledShell(p, agent); ok {
 		return true
 	}
-	return now.Sub(b.Lost) >= goneAfter
+	return !b.Lost.IsZero() && now.Sub(b.Lost) >= goneAfter
+}
+
+// briefDone: agent's brief b, its agent resolved now as w, is done (under mu): worked, no stop in force, and its pane
+// identified and ready, or its agent gone while no restore is pending or running (a gone agent's pane may be one the
+// restore restarts). deliver records "<agent> finished" for it, which closes it; status shows it as wire.BriefDone.
+func (a *App) briefDone(p *proj, agent string, b *outbox.Brief, w Where, now time.Time) bool {
+	if !b.Worked() || b.Stop() != nil {
+		return false
+	}
+	return w.State == Identified && Ready(w.Pane.Status) || a.gone(p, agent, b, w, now) && !a.restoring()
+}
+
+// briefStatus is p's open briefs as obor status lists them (under mu): each with its stage (briefStage) and the head
+// of its line (clipBrief).
+func (a *App) briefStatus(p *proj, now time.Time) []wire.BriefStatus {
+	bs := p.out.BriefStatus()
+	for i := range bs {
+		if b := p.out.Brief(bs[i].To); b != nil {
+			bs[i].Stage = a.briefStage(p, bs[i].To, b, bs[i].Delivered, now)
+		}
+		clipBrief(&bs[i])
+	}
+	return bs
+}
+
+// briefStage is where agent's open brief b is (under mu): its line still queued (not delivered), done by briefDone's
+// rule, its agent's pane blocked at a prompt (waiting), else working: a pane at work or about to start, and an agent
+// no pane identifies now, are never done before that rule says so.
+func (a *App) briefStage(p *proj, agent string, b *outbox.Brief, delivered bool, now time.Time) string {
+	w := a.whereIs(p, agent)
+	switch {
+	case !delivered:
+		return wire.BriefNotDelivered
+	case a.briefDone(p, agent, b, w, now):
+		return wire.BriefDone
+	case w.State == Identified && w.Pane.Status == "blocked":
+		return wire.BriefWaiting
+	}
+	return wire.BriefWorking
+}
+
+// clipBrief cuts bs's text to wire.BriefTextMax bytes at a rune boundary, marking a cut text clipped.
+func clipBrief(bs *wire.BriefStatus) {
+	if len(bs.Text) > wire.BriefTextMax {
+		bs.Text, bs.TextClipped = clip(bs.Text, wire.BriefTextMax), true
+	}
 }
 
 // route is how q's line goes out now (under mu): posted to its agent's session (post: the kind whose inbox takes it;
