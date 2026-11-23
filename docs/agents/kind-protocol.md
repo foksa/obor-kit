@@ -1,18 +1,17 @@
 # The kind protocol
 
 An agent kind is the part of obor that differs per agent CLI (`agents.Kind`, `internal/agents/agents.go`). Two are
-compiled in (claude, codex). A **plugin kind** is an executable, in any language, that answers this
-protocol; obor's `internal/agents/plugin` package implements `agents.Kind` by running it, so nothing above the bridge
-changes (`docs/plan/architecture-target.md` §2a).
+compiled kinds (claude, codex). A **plugin kind** is a kind obor's `internal/agents/plugin` package implements
+`agents.Kind` for: an executable, in any language, that answers this protocol, or a kit kind obor links into itself
+and answers in process. Both speak this protocol, so nothing above the bridge changes
+(`docs/plan/architecture-target.md` §2a).
 
 **OpenCode is the reference plugin kind**: `kinds/opencode/` in the kit (the kind itself is package
 `kinds/opencode/kind`, standard library and obor's `agents` only). obor links it and answers it in process
-(`plugin.Local`, registered by `cmd/obor` under its binary's name `obor-kind-opencode`; a test binary's by testkit):
-the same requests and replies, no process. `make build` also writes it as its own binary,
-`dist/obor-kind-opencode` (`kinds/opencode/main.go`), and a release still ships it beside obor's
-(`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor`); obor runs neither. `opencode/obor.js` stays its hook
-transport.
-The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, linked and built the same way
+(`plugin.Local`, registered by `cmd/obor` under the name `obor-kind-opencode`; a test binary's by testkit): the same
+requests and replies, no process, no manifest cache. `make build` writes one binary, `dist/obor`, which carries the
+kind; no `obor-kind-*` binary is built, shipped or fetched. `opencode/obor.js` stays its hook transport.
+The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, linked and answered the same way
 (`obor-kind-agy`): obor's MCP server and hooks through the project's `.agents/mcp_config.json` and `.agents/hooks.json`
 (`install`'s `where: project`); its `hook` call is agy's hook transport (`obor kind agy hook`); its inbox is the
 agentapi variables of the commands the agent runs (`inbox_record`, recorded by the agent's `obor` commands), which its
@@ -26,11 +25,12 @@ agentapi variables of the commands the agent runs (`inbox_record`, recorded by t
 
 - `agents.kinds.<name>.plugin`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
   (`agents.models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's.
-- A kit kind (`opencode`, `agy`: `config.KitKinds`) needs no line: with none, or one naming its kit binary
-  (`"plugin": "obor-kind-opencode"`, `"plugin": "obor-kind-agy"`), obor answers it in process (`config.KindCommand`
-  keeps that name, `plugin.Local` has its handler): no process runs, no manifest is cached, `obor setup agents` and
-  serve skip it. Any other path for a kit kind's name replaces it and runs as any plugin kind. `obor init` writes no
-  line for them.
+- A kit kind (`opencode`, `agy`: `config.KitKinds`) needs no line: with none, or one naming the command it is answered
+  under (`"plugin": "obor-kind-opencode"`, `"plugin": "obor-kind-agy"`), obor answers it in process
+  (`config.KindCommand` keeps that name, `plugin.Local` has its handler): no process runs, no manifest is cached,
+  `obor setup agents` and serve skip it. A path whose base name is one of those (`"plugin": "bin/obor-kind-agy"`) is
+  the same: the base name decides, and the linked kind answers in process. Any other path for a kit kind's name
+  replaces it and runs as any plugin kind. `obor init` writes no line for them.
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
   and again once the command's mtime (or its path) differs from the cached one; `obor init` and
@@ -187,8 +187,7 @@ A kind's hooks reach obor as `obor hook <name>`: `hooks: native` is the CLI's ow
 Code's plugin `hooks/hooks.json`), `hooks: plugin` is obor's plugin for the CLI, which maps the CLI's events to the
 same calls (`opencode/obor.js`; agy's `hook` call, which the project's `.agents/hooks.json` runs as `obor kind agy
 hook`: `obor kind <name>` runs that kit kind's call in process, and agy's transport runs obor's hook in process too, so
-a tool call starts obor once after the shim). The kit kind's own binary (`obor-kind-agy`, which obor does not run) has
-no obor in process: its hook call execs the executable `OBOR_EXE` names. A transport reads its CLI's event, runs
+a tool call starts obor once after the shim). A transport reads its CLI's event, runs
 `obor hook <name>` with the event's JSON on stdin and reads the answer; a transport that only rewrites events holds
 none of obor's rules. The hooks read the agent from its environment (`OBOR_ROLE`, `OBOR_LANE`, `OBOR_PANE`, and the
 pane's `HERDR_PANE_ID`), so a transport passes it through.
@@ -257,6 +256,6 @@ arrives as an empty one.
   kind's base args, `config.Model`).
 - Live conformance of a plugin kind of a project's own: the static tier, `make conformance TIER=static KIND=plugin`,
   runs against `tests/conformance/kindplugin/obor-kind-shell`, a shell-script kind answering every call, and against
-  `kinds/agy` built as a binary and named by its path (P-S8: describe and start), so the external-command path stays
-  tested for a real kind. The kit's OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), run
-  against `kinds/opencode` built into the scratch dir and called through obor's plugin package.
+  the kit's agy kind, built as an external command from its test main `tests/conformance/kindmain/agy` and named by
+  its path (P-S8: describe and start), so the external-command path stays tested for the kit's own kind too. The kit's
+  OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), against the linked kind in process.

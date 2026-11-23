@@ -11,8 +11,8 @@ multi-machine itself is later, but no interface may assume local.
 
 The layers are base, bridge, core, adapter, view, entry, test helpers, tools (probes under `tests/`, the kit's own
 programs under `tools/`: `affected`, the Go packages a change can break, run by the Makefile's `check-affected`)
-and kind binaries (`kinds/<name>`: a plugin kind the kit ships as its own binary; it imports the bridge
-and its own tree only). The enforced table
+and the kit's kinds (`kinds/<name>`: each kind's packages, which implement the kind protocol; they import the
+bridge and their own tree only). The enforced table
 (which package is in which layer, and who may import whom) is `layerOf` in `internal/checks/boundary_test.go`; the merge
 gate runs it. Adapters never import each other: one that needs another goes through an interface the core defines
 (e.g. `launch` gets panes via `app.PaneControl`, not `herdr`). A package with no layer fails the test: add it to
@@ -98,16 +98,16 @@ built once at the launch boundary from the complete `agents.Start` (`agents.Star
 install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A project's kinds:
 `Kinds.Lookup`, `Names`, `IsPlugin`, `Vars`/`StartVars`; `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
-`config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges and the kind binaries (boundary test).
+`config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges and the kit's kinds (boundary test).
 Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `agents.kinds.<name>.plugin`.
 
-**kind binaries** — `kinds/opencode`: the OpenCode kind as the reference plugin kind, linked into obor (its
-`kind.Handle` in `plugin.Local`, its `kind.Main` as `obor kind opencode`: `cmd/obor/kinds.go`) and also built as its own
-binary `obor-kind-opencode` (`main.go`: stdin → `kind.Handle` → stdout), which obor does not run. Package `kinds/opencode/kind` is
+**kind packages** — `kinds/opencode`: the OpenCode kind as the reference plugin kind, linked into obor (its
+`kind.Handle` in `plugin.Local` under the name `obor-kind-opencode`, its `kind.Main` as `obor kind opencode`:
+`cmd/obor/kinds.go`); obor builds, ships and fetches no kind binary. Package `kinds/opencode/kind` is
 the kind: the manifest, `start` (the args without `--model`, `--prompt`; `OBOR_OPENCODE_MODEL` model#effort and
 `OPENCODE_CONFIG`, the generated config with obor's MCP server and plugin `<kit>/opencode`), `turn` (a `rate_limit`'s
 reset; no turn, session or context read), `project-warnings`. It imports `agents` only (`Pin`, `ResetIn`); testkit
-registers its handler in a test binary. `kinds/agy` (`obor-kind-agy`), the same shape: package
+registers its handler in a test binary. `kinds/agy` (`obor-kind-agy`), linked the same way: package
 `kinds/agy/kind` is the manifest, `start` (`--settings` with the start's settings file, `settings.go`: the user's saved
 agy settings, the project's `settings_override.json` and obor's entries; the model and `--effort`; `-i` or
 `--conversation`), `install` (`where: project`, `.agents/mcp_config.json` and `.agents/hooks.json`), `turn` (`context`
