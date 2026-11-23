@@ -192,9 +192,11 @@ passes it through.
 `bin/obor` runs both of those on its hook path: it never fetches a binary there, runs the first one that has the
 command (`hook <name>`, or `kind` for `obor kind <name> hook`), and
 with none answers for the hook — a deny with the repair hint for `pre-tool-use`, nothing for the other hooks, and for
-`obor kind <name> hook` one generic deny JSON naming the repair.
+`obor kind <name> hook` by event: a tool call in a running project denied with the repair, a tool call elsewhere
+`ask`, nothing for the other events.
 
-Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unreadable event allows.
+Every hook exits 0 but `pre-tool-use`'s denial, and a hook never fails: an unreadable event allows, and a kind's hook
+answers a tool call in one by the rule above.
 
 - **An allow is no opinion**, never an approval: a transport maps it to its CLI's fall-through, which leaves the call
   to the CLI's own permission check (agy's `{"decision": "ask"}`, never `allow`).

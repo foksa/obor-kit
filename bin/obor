@@ -277,12 +277,6 @@ json_escape() {
   printf '%s' "$s"
 }
 
-# kind_event <event json>: agy's hookEventName from its hook event, read as text (a kind's hook answers on a machine
-# with no usable obor, so it counts on no JSON tool): empty when the event names none.
-kind_event() {
-  printf '%s' "$1" | sed -n 's/.*"hookEventName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
-}
-
 # running_project [<dir>]: dir (default: cwd) is in an obor project that is running: a .obor/config.json at it or
 # above, and no .obor/state/stopped at that root. A linked worktree answers as its main checkout (obor stop writes
 # the marker there, and the config may be only there; the kind's Go transport resolves it the same way); a git call
@@ -304,9 +298,10 @@ running_project() {
 
 # kind_hook <name> hook [args…]: a kind's hook transport (`obor kind <name> hook`, agy's .agents/hooks.json) follows
 # the hook rules: it never fetches, the binary it runs must have `kind` (it runs the kind in process, no kind binary
-# beside it), and with none it answers by event: PreToolUse in a running obor project denies with the repair hint (agy
-# shows the reason and blocks the tool), PreToolUse anywhere else asks (agy's own check), and every other event answers
-# nothing (agy ignores those answers, and a deny or `{}` there only costs a cli.log line).
+# beside it), and with none it answers by event: an event that carries a tool call (the raw text `"toolCall"`, since
+# the shim counts on no JSON tool) is a PreToolUse, whatever its event name reads. In a running obor project it denies
+# with the repair hint (agy shows the reason and blocks the tool), anywhere else it asks (agy's own check); every other
+# event answers nothing (agy ignores those answers, and a deny or `{}` there only costs a cli.log line).
 kind_hook() {
   local binary input
   export OBOR_NO_SELF_HOST=1
@@ -319,7 +314,10 @@ kind_hook() {
     if [ -x "$binary" ] && has_cmd "$binary" kind; then run "$binary" "$source" kind "$@"; fi
   fi
   input=$(cat) || exit 0
-  [ "$(kind_event "$input")" = PreToolUse ] || exit 0
+  case "$input" in
+    *'"toolCall"'*) ;;
+    *) exit 0 ;;
+  esac
   if running_project; then
     printf '{"decision":"deny","reason":"%s"}\n' "$(json_escape "$(hint "no usable Go binary in $OBOR_PLUGIN_ROOT")")"
   else

@@ -13,9 +13,9 @@ import (
 
 // Tests for `obor kind <name> hook`, a kind's hook transport (agy's .agents/hooks.json runs it): bin/obor's hook path.
 // It never fetches, runs the first main binary that has `kind` (the kind runs in it, no kind binary beside it), and
-// with none answers by event: PreToolUse in a running obor project denies with the repair hint, PreToolUse anywhere
-// else asks (agy's own check), and SessionStart, PreInvocation and Stop answer nothing. Every other kind call keeps
-// the generic path (the fetch when there is no binary).
+// with none answers by event: an event that carries a tool call is a PreToolUse — in a running obor project it denies
+// with the repair hint, anywhere else it asks (agy's own check) — and SessionStart, PreInvocation and Stop answer
+// nothing. Every other kind call keeps the generic path (the fetch when there is no binary).
 
 // kindFixture is a kit copy (the tree's bin/obor and VERSION, no dev build) with a fake curl first on PATH, recording
 // each call in curl.log and failing, so a fetch is seen and never reaches a release.
@@ -92,22 +92,28 @@ func denyJSON(root string) string {
 // askJSON is agy's no-opinion PreToolUse answer: agy's own check decides (a tool runs in auto mode).
 const askJSON = `{"decision":"ask"}` + "\n"
 
-// kindEvent is agy's hook event for event name, as agy sends it on stdin (the shim reads hookEventName from it, not
-// only as the first field).
-func kindEvent(name string) string {
+// kindEvent is agy's hook event for event name, as agy sends it on stdin from cwd (the dir it runs the hook in): a
+// PreToolUse carries one tool call, a run_command.
+func kindEvent(cwd, name string) string {
 	if name == "PreToolUse" {
-		return `{"conversationId":"c","cwd":"/nowhere","hookEventName":"PreToolUse","toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
+		return `{"conversationId":"c","cwd":"` + cwd + `","hookEventName":"PreToolUse","toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
 	}
-	return `{"conversationId":"c","cwd":"/nowhere","hookEventName":"` + name + `"}`
+	return `{"conversationId":"c","cwd":"` + cwd + `","hookEventName":"` + name + `"}`
 }
 
-// hook runs `<root>/bin/obor kind agy hook` in dir with agy's event for name on stdin, the fake curl on PATH and env
-// added: exit code, stdout, stderr.
+// hook runs `<root>/bin/obor kind agy hook` in dir with agy's event for name on stdin (its cwd dir), the fake curl on
+// PATH and env added: exit code, stdout, stderr.
 func (k *kindFixture) hook(t *testing.T, dir, root string, env []string, name string) (int, string, string) {
+	t.Helper()
+	return k.hookEvent(t, dir, root, env, kindEvent(dir, name))
+}
+
+// hookEvent is hook with the event JSON as given.
+func (k *kindFixture) hookEvent(t *testing.T, dir, root string, env []string, event string) (int, string, string) {
 	t.Helper()
 	env = append([]string{"PATH=" + filepath.Join(k.Base, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")},
 		append(env, noSelfHost...)...)
-	return k.shimStdin(t, dir, env, kindEvent(name), filepath.Join(root, "bin", "obor"), "kind", "agy", "hook")
+	return k.shimStdin(t, dir, env, event, filepath.Join(root, "bin", "obor"), "kind", "agy", "hook")
 }
 
 // logStub is a dev build whose argv is logged: `has` exits hasRC (or hangs, hasRC < 0), anything else prints "kind ran".
@@ -177,10 +183,12 @@ func TestShimKindHookNoBinary(t *testing.T) {
 	}
 }
 
-// With no usable binary `kind <name> hook` answers by agy's event, never one generic deny: PreToolUse in a running
-// obor project denies with the repair hint; in a stopped project or outside one it asks; SessionStart, PreInvocation
-// and Stop answer nothing (exit 0, empty stdout), in and out of a project. The hook runs under the project's .agents,
-// as agy runs it, so the config is up from the cwd.
+// With no usable binary `kind <name> hook` answers by agy's event, never one generic deny: an event that carries a
+// tool call denies in a running obor project with the repair hint, and asks in a stopped project or outside one; an
+// event that carries none (SessionStart, PreInvocation, Stop) answers nothing (exit 0, empty stdout), in and out of a
+// project. A tool call is the event's raw text `"toolCall"`, so it is answered as a PreToolUse whatever its event name
+// reads: the rows after the loop vary the name around it. The hook runs under the project's .agents, as agy runs it, so
+// the config is up from the cwd.
 func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 	t.Parallel()
 	for _, event := range []string{"PreToolUse", "SessionStart", "PreInvocation", "Stop"} {
@@ -214,6 +222,41 @@ func TestShimKindHookNoBinaryByEvent(t *testing.T) {
 				}
 			})
 		}
+	}
+	// A tool call whose event name cannot confirm it: a nested "hookEventName" in the call's own arguments (read as
+	// the event's name), a cut-off event (its trailing name cut away), and a key spelled another way. Each carries a
+	// tool call, so each denies in a running project.
+	for _, c := range []struct {
+		name  string
+		event func(cwd string) string
+	}{
+		{"a nested key", func(cwd string) string {
+			return `{"conversationId":"c","cwd":"` + cwd + `","hookEventName":"PreToolUse","toolCall":{"name":"call_mcp_tool","args":{"hookEventName":"Stop"}}}`
+		}},
+		{"a cut-off event", func(cwd string) string {
+			return `{"conversationId":"c","cwd":"` + cwd + `","toolCall":{"name":"run_command","args":{"CommandLine":"ls"}},"hookEventName":"PreTool`
+		}},
+		{"a renamed key", func(cwd string) string {
+			return `{"conversationId":"c","cwd":"` + cwd + `","hook_event_name":"PreToolUse","toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
+		}},
+	} {
+		t.Run(c.name+" in a running project", func(t *testing.T) {
+			t.Parallel()
+			k := newKindFixture(t)
+			repo := filepath.Join(k.Base, "repo")
+			dir := filepath.Join(repo, ".agents")
+			writeFile(t, filepath.Join(dir, "hooks.json"), "{}\n")
+			writeFile(t, filepath.Join(repo, ".obor", "config.json"), "{}\n")
+			want := denyJSON(k.Root)
+			rc, stdout, stderr := k.hookEvent(t, dir, k.Root, nil, c.event(dir))
+			if rc != 0 || stdout != want || stderr != "" {
+				t.Errorf("obor kind agy hook %s: exit %d, stdout %q, stderr %q; want 0, %q, nothing",
+					c.name, rc, stdout, stderr, want)
+			}
+			if k.fetched(t) {
+				t.Errorf("a hook fetched: curl %q", readFile(t, k.curlLog))
+			}
+		})
 	}
 }
 
