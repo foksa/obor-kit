@@ -231,9 +231,13 @@ obor cannot guard it in `tool_input.why`: a transport sends it for a tool whose 
 `run_workflow` and `swarm`, a Python script run with no hook) or whose session cannot be told from the agent's (agy's
 `invoke_subagent`), and for a tool it has no row for ("obor has no rule for agy tool <X>: update obor"). OpenCode's
 plugin sends it for a name it knows nothing about ("obor has no rule for OpenCode tool <X>: update obor"), and allows
-`execute` (Code Mode, the carrier of every MCP tool), whose inner calls reach the hook as `<namespace>_<tool>` ids it
-judges through `ctx.tool.list()`'s namespaces (obor's, another MCP server's, opencode's own), never by prefix. Which
-tools those are and why are the CLI's facts, so they stay in the transport; the decision is the guard's: a deny with
+`execute` (Code Mode, the carrier of every MCP tool), whose inner calls reach the hook as `<namespace>_<tool>` ids: one
+passes only when `ctx.tool.list()` gives it the namespace of an MCP server the start's configs name (obor's own, or one
+of the generated config's `mcp.servers`, the project's `opencode.json(c)` and the user's), and never by prefix.
+OpenCode's own tools (`opencode_*`) are classified one by one: its worktree create and remove go as the guard's `Bash`
+event for the git command they run, its read tools pass, and any other is unguarded until obor has a row for it (the
+catalog is re-probed on an OpenCode upgrade). Which tools those are and why are the CLI's facts, so they stay in the
+transport; the decision is the guard's: a deny with
 `tool_input.why` for every session but a role-less one in the main checkout (the owner's own agent), which has no
 opinion. In a stopped project (`obor stop`) no hook loads: a transport runs none (agy's reads `.obor/state/stopped`).
 
