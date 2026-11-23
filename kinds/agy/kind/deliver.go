@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -78,24 +79,33 @@ func localAddress(addr string) bool {
 
 // sendMessage runs `agy agentapi send-message <conversation> <text>` of rec, agy from the kind's PATH, with rec's
 // address and token laid over the kind's environment, under SendLimit: an error for a non-zero exit (its output's last
-// line), no answer in time, or no agy on PATH.
+// line), no answer in time, or no agy on PATH. It runs in its own process group, which is stopped with it: the CLI
+// leaves a child on the language server, and serve's own group must not keep it.
 func sendMessage(rec map[string]string, text string) error {
+	return sendWithin(rec, text, SendLimit)
+}
+
+// sendWithin is sendMessage with limit in place of SendLimit.
+func sendWithin(rec map[string]string, text string, limit time.Duration) error {
 	exe, err := exec.LookPath(Name)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), SendLimit)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "agentapi", "send-message", rec[VarConversation], text)
 	cmd.Env = append(os.Environ(), VarAddress+"="+rec[VarAddress], VarToken+"="+rec[VarToken])
-	cmd.WaitDelay = 200 * time.Millisecond
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM, groupGrace) }
+	cmd.WaitDelay = groupGrace + 100*time.Millisecond
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err = cmd.Run()
+	signalGroup(cmd, syscall.SIGKILL, 0) // a timed-out group's children: the group goes whether or not cmd waited
 	var ee *exec.ExitError
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return fmt.Errorf("no answer within %s", SendLimit)
+		return fmt.Errorf("no answer within %s", limit)
 	case errors.As(err, &ee):
 		why := lastLine(out.String())
 		if why == "" {
