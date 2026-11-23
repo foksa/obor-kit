@@ -48,6 +48,10 @@ if [ -f "`+filepath.Join(f.Base, "live-fail")+`" ]; then
   echo "make: *** [conformance] Error 1" >&2
   exit 1
 fi
+if [ -f "`+filepath.Join(f.Base, "live-warn")+`" ]; then
+  echo "conformance: 9 pass, 0 fail, 0 skip, 3 warn"
+  exit 0
+fi
 echo "conformance: 9 pass, 0 fail, 0 skip, 0 warn"
 `)
 	return f
@@ -188,6 +192,23 @@ func TestOborKitConformanceLive(t *testing.T) {
 		}
 		if line := decisionLine(out); line != "conformance_live: agy 1.5.15 live tier: conformance: 9 pass, 0 fail, 0 skip, 0 warn" {
 			t.Errorf("the line the nightly shows is %q, want the live run's conformance summary", line)
+		}
+	})
+	t.Run("a live run with WARN lines: recorded, the summary counts them", func(t *testing.T) {
+		t.Parallel()
+		f := newConformanceLiveFixture(t)
+		f.agy(t, "1.5.15")
+		writeFile(t, f.Path(".obor/state/agy-live-version"), "1.5.14\n")
+		writeFile(t, filepath.Join(f.Base, "live-warn"), "")
+		out, failed := f.live(t, f.env(t))
+		if failed {
+			t.Fatalf("WARN lines must not fail the line:\n%s", out)
+		}
+		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.15\n" {
+			t.Errorf("the record is %q after a run with WARNs, want the version it ran at", got)
+		}
+		if line := decisionLine(out); line != "conformance_live: agy 1.5.15 live tier: conformance: 9 pass, 0 fail, 0 skip, 3 warn" {
+			t.Errorf("the line the nightly shows is %q, want the summary with its WARNs counted", line)
 		}
 	})
 	t.Run("an all-skip live run: not recorded, the next run retries", func(t *testing.T) {

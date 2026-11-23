@@ -111,6 +111,13 @@ const workflowDenied = "obor cannot guard a workflow script; run commands with r
 // subagentDenied is the reason invoke_subagent's deny gives.
 const subagentDenied = "obor agents run no agy subagents: their sessions cannot be told from the agent's"
 
+// HasRow reports whether the transport's table has a row for an agy tool named name: a tool with no row goes to the
+// guard as unguarded, so the live tier lists the ones a CLI update adds as WARNs (tests/conformance/live_agy.go).
+func HasRow(name string) bool {
+	_, ok := tools[name]
+	return ok
+}
+
 // unguardedWhy is why obor cannot guard a call of tool, a denyTool row or a tool with no row: the row's reason, else
 // one naming the tool.
 func unguardedWhy(tool string) string {

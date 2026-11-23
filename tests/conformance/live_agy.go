@@ -76,7 +76,8 @@ func agyStatic() {
 // AG-L8 the session record (the SessionStart hook reports the new conversation to serve), AG-L3 an obor MCP tool call
 // with no prompt (job_next's reply in the transcript), AG-L6 the context read of that transcript, AG-L9 a command
 // obor's guard denies (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L10 the inbox (the
-// agent's own obor command records it; the kind's deliver through agentapi starts a turn in the idle session), AG-L5 the
+// agent's own obor command records it; the kind's deliver through agentapi starts a turn in the idle session), AG-L14
+// P13's enumeration against the transport's table (one WARN per tool it has no row for), AG-L5 the
 // resume by the recorded conversation id, and P10 (agy-probes.md): with command(obor), command(go test) and
 // read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a unix socket and a module download run
 // in auto mode with no prompt.
@@ -135,7 +136,7 @@ func agyLive(l *lab, turn bool) {
 		} else {
 			report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		}
-		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "AG-L10", "P10", "P10-control"} {
+		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "AG-L10", "AG-L14", "P10", "P10-control"} {
 			report("SKIP", id, "needs TURN=1 (a model call)", whereStart)
 		}
 		return
@@ -190,6 +191,8 @@ func agyLive(l *lab, turn bool) {
 	} else {
 		report("FAIL", "AG-L6", fmt.Sprintf("turn what: context read %+v, %v from the transcript: %s", c, cok, tail(text, 2)), whereCtx)
 	}
+	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
+	l.agyToolDrift(k, pane, sid)
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
 	l.agyPush(k, pane, sid, s.name)
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
@@ -342,6 +345,49 @@ func (l *lab) agyDenies(pane string) {
 		default:
 			report("PASS", c.id, c.name+": the guard denies it: "+strconv.Quote(a.Reason), where)
 		}
+	}
+}
+
+// agyToolAsk is the enumeration's instruction: the prompt carries it, and it is how the answer's place in the
+// transcript is found (no other prompt obor sends has it).
+const agyToolAsk = "List every tool (function) you can call in this session"
+
+// agyToolDrift is AG-L14: P13's enumeration — the model lists the tools it can call in this session — against the
+// transport's table (var tools), one WARN per name the table has no row for: a call of such a tool goes to the guard as
+// unguarded and is denied, so this is a classify-me list, never a failure. agy prints no tool list of its own, so the
+// answer is the model's report (docs/research/agy-probes.md P13); the nightly runs the tier at a new `agy --version`.
+func (l *lab) agyToolDrift(k agents.Kind, pane, sid string) {
+	const marker = "TOOL-LIST-DONE"
+	where := at(agyHookGo, "var tools") + ", docs/research/agy-probes.md P13"
+	prompt := "[obor conf] Do not call any tool. " + agyToolAsk + ", by its exact function name as declared to you, one " +
+		"per line, no descriptions, in the order they are declared. Then reply " + marker + "."
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": prompt}, 15*time.Second); err != nil {
+		report("FAIL", "AG-L14", "agent.prompt: "+err.Error(), where)
+		return
+	}
+	// the marker ends the answer, so its presence means the whole list is in the record
+	text, ok := waitTranscript(180*time.Second, func() string {
+		if a, found := answerAfter(l.agyTranscript(k, sid), agyToolAsk); found && strings.Contains(a, marker) {
+			return a
+		}
+		return ""
+	}, marker)
+	if !ok {
+		report("SKIP", "AG-L14", "the enumeration's answer did not land in 180s: "+tail(l.agyTranscript(k, sid), 3), where)
+		return
+	}
+	names := toolNamesIn(text)
+	if len(names) == 0 {
+		report("SKIP", "AG-L14", "the enumeration's answer named no tool: "+tail(text, 3), where)
+		return
+	}
+	unknown := noRow(names, kind.HasRow)
+	if len(unknown) == 0 {
+		report("PASS", "AG-L14", fmt.Sprintf("P13's enumeration: agy offers %d tools, each with a row in the transport's table", len(names)), where)
+		return
+	}
+	for _, name := range unknown {
+		report("WARN", "AG-L14", "agy offers "+name+", which the transport's table has no row for: the guard decides a call of it as unguarded (a deny for obor's agents); classify it", where)
 	}
 }
 
