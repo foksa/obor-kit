@@ -268,7 +268,20 @@ func opencodeTransport(root string, deny func(map[string]any) (hookAnswer, error
 			case "unknown":
 				evs, err = events("mystery_tool", nil, false)
 			case "command":
-				evs, err = events("shell", map[string]any{"cmd": "ls"}, false) // the command key renamed: the plugin reads args.command
+				// the command key renamed: the plugin reads args.command, and a workdir beside the missing one changes
+				// nothing (a cd before no command would hide the guard's empty-command deny).
+				plain, perr := events("shell", map[string]any{"cmd": "ls"}, false)
+				if perr != nil {
+					return hookAnswer{}, perr
+				}
+				if len(plain) != 1 {
+					return hookAnswer{}, fmt.Errorf("the call maps to %d events, want 1", len(plain))
+				}
+				a, perr := deny(plain[0])
+				if perr != nil || !a.denied {
+					return a, perr
+				}
+				evs, err = events("shell", map[string]any{"cmd": "ls", "workdir": root}, false)
 			case "file":
 				evs, err = events("edit", map[string]any{"file": "x"}, false) // the file key renamed: the plugin reads filePath/path
 			}

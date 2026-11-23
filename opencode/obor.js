@@ -166,8 +166,9 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
     case "bash":
     case "shell": {
       const dir = args.workdir ?? args.cwd;
-      const command = dir ? `cd ${shellQuote(dir)} && ${args.command ?? ""}` : (args.command ?? "");
-      return [ev("Bash", { command })];
+      const command = args.command ?? "";
+      // the cd goes before a command only when there is one: no command is the guard's empty-command deny, not a bare cd
+      return [ev("Bash", { command: dir && command !== "" ? `cd ${shellQuote(dir)} && ${command}` : command })];
     }
     case "edit":
     case "multiedit":
@@ -175,8 +176,11 @@ export function toClaudeEvents(tool, args, cwd, sessionID) {
     case "write":
       return [ev("Write", { file_path: file(args.filePath ?? args.path) })];
     case "patch":
-    case "apply_patch":
-      return patchPaths(args.patchText ?? args.patch).map((p) => ev("Edit", { file_path: file(p) }));
+    case "apply_patch": {
+      const paths = patchPaths(args.patchText ?? args.patch);
+      // no path: a write naming no file, which the guard denies
+      return paths.length > 0 ? paths.map((p) => ev("Edit", { file_path: file(p) })) : [ev("Edit", { file_path: "" })];
+    }
   }
   return [];
 }
