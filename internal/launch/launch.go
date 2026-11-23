@@ -914,7 +914,7 @@ func (l *Launcher) place(ctx context.Context, t *target, p *port.Placer) error {
 // paneEnv is t's start env for a new pane's shell, NAME=VALUE, by the one builder of a start's env
 // (agents.Kinds.StartVars of the project's kinds): every registry var the start does not set goes empty ("NAME="), so
 // the pane inherits none of its placer's (a stale OBOR_AGENT, the caller's OBOR_PANE: the new pane's id is exported by
-// the env line).
+// the env line), and so does a var the kind's start clears.
 func paneEnv(kinds agents.Kinds, t *target) []string {
 	set, unset := kinds.StartVars(roleEnv(t.info.Role), t.info.Lane, "", t.env)
 	env := make([]string, 0, len(set)+len(unset))
@@ -1125,8 +1125,9 @@ func (l *Launcher) addWorktree(ctx context.Context, dir string) error {
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does, from the one builder of a start's
 // env (agents.Kinds.StartVars of the project's kinds) by the one builder of the line (project.EnvLine): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id) and the kind's vars exported,
-// every other var of the registry unset (a stale OBOR_AGENT; another kind's OBOR_OPENCODE_MODEL), so
-// nothing of an earlier start in the pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
+// every other var of the registry unset (a stale OBOR_AGENT; another kind's OBOR_OPENCODE_MODEL) and so is a var the
+// kind's start clears (a lane's OPENCODE_CONFIG_CONTENT), so nothing of an earlier start in the pane's shell survives.
+// An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
 func envLine(kinds agents.Kinds, t *target) string {
 	role := roleEnv(t.info.Role)
 	var keep []string

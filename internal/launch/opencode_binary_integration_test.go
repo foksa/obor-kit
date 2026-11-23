@@ -98,10 +98,11 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 		t.Errorf("argv %q, want %q", built.Args, want)
 	}
 	conf := filepath.Join(cfg.StateDir(), kind.LaneConfigFile(lane))
-	if r, set := built.Vars[kind.ResumeVar]; len(built.Vars) != 4 || built.Vars[kind.ModelVar] != "go/ds#high" ||
-		built.Vars[kind.ConfigVar] != conf || built.Vars[kind.SkillsVar] != "1" || !set || r != "" {
-		t.Errorf("env %v, want %s=go/ds#high, %s=%s, a worker's %s=1 and %s unset (a fresh start)", built.Vars, kind.ModelVar,
-			kind.ConfigVar, conf, kind.SkillsVar, kind.ResumeVar)
+	if r, set := built.Vars[kind.ResumeVar]; len(built.Vars) != 5 || built.Vars[kind.ModelVar] != "go/ds#high" ||
+		built.Vars[kind.ConfigVar] != conf || built.Vars[kind.SkillsVar] != "1" || !set || r != "" ||
+		built.Vars[kind.ConfigContentVar] != "" {
+		t.Errorf("env %v, want %s=go/ds#high, %s=%s, a worker's %s=1, %s unset (a fresh start) and %s cleared", built.Vars,
+			kind.ModelVar, kind.ConfigVar, conf, kind.SkillsVar, kind.ResumeVar, kind.ConfigContentVar)
 	}
 	var got struct {
 		MCP struct {

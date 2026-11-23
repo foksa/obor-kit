@@ -18,37 +18,43 @@ import (
 // every start path types its env line through the one builder (agents.Kinds.StartVars): run in a real sh after a
 // shell that exports a stale value of every registry var (another role, another lane, another kind's model and config,
 // the retired OBOR_AGENT, another pane's OBOR_PANE), the line leaves the new start's values and none of the stale ones:
-// OBOR_PANE is the pane the start runs in. A user's own
-// XDG_STATE_HOME and OPENCODE_CONFIG_CONTENT are none of obor's (obor keeps no per-agent state dirs) and stay as
-// they were. Paths: a restart, a dispatch's type (OpenCode: its model and config), a start in another pane (a move),
-// and setup's reused pane (SetEnv). A restore runs obor restart (TestRestoreWorkerWithoutSessionFresh): the restart path.
+// OBOR_PANE is the pane the start runs in. A user's own XDG_STATE_HOME is none of obor's (obor keeps no per-agent state
+// dirs) and stays as it was; OPENCODE_CONFIG_CONTENT is the user's inline config layer, which a lane's OpenCode start
+// clears and a role's OpenCode start leaves as the pane has it. Paths: a restart, a dispatch's type (OpenCode: its model
+// and config), a start in another pane (a move), a role's OpenCode type, and setup's reused pane (SetEnv). A restore
+// runs obor restart (TestRestoreWorkerWithoutSessionFresh): the restart path.
 func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 	t.Parallel()
 	const stale = "export OBOR_ROLE=lead OBOR_LANE=L-09 OBOR_AGENT=old OBOR_OPENCODE_MODEL=old/m OPENCODE_CONFIG=/old.json" +
 		" OBOR_PANE=w9:old XDG_STATE_HOME=/mine OPENCODE_CONFIG_CONTENT=c"
 	const show = `echo "${OBOR_ROLE-UNSET} ${OBOR_LANE-UNSET} ${OBOR_AGENT-UNSET} ${OBOR_OPENCODE_MODEL-UNSET} ${OPENCODE_CONFIG-UNSET}"` +
 		` "${OBOR_PANE-UNSET}" "${XDG_STATE_HOME-UNSET} ${OPENCODE_CONFIG_CONTENT-UNSET}"`
-	const user = " /mine c" // the user's own, untouched by every row
 	for _, c := range []struct {
 		name string
 		pane string
 		run  func(x *fx) (string, bool)
-		want string // show's line; CONFIG: the generated config's path
+		want string // show's line; LANECONFIG and ROLEFILE: the start's generated config path
+		// inline is show's OPENCODE_CONFIG_CONTENT, the user's own value the stale shell exported: a lane's OpenCode
+		// start clears it, every other start leaves it.
+		inline string
 	}{
 		{"restart: a lane's worker", "w1:p3", func(x *fx) (string, bool) {
 			return x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-		}, "worker L-01 UNSET UNSET UNSET"},
+		}, "worker L-01 UNSET UNSET UNSET", "c"},
 		{"dispatch: the lane's worker on an OpenCode type", "w1:p3", func(x *fx) (string, bool) {
 			return x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Type: "oc", Effort: "high"})
-		}, "worker L-01 UNSET go/ds#high CONFIG"},
+		}, "worker L-01 UNSET go/ds#high LANECONFIG", "UNSET"},
 		{"move: a role agent started in another pane", "w1:p4", func(x *fx) (string, bool) {
 			return x.restart(launch.Request{Agent: "pj-int", Pane: "w1:p4", Fresh: true})
-		}, "integrator UNSET UNSET UNSET UNSET"},
+		}, "integrator UNSET UNSET UNSET UNSET", "c"},
+		{"a role agent on an OpenCode type: its inline config stands", "w1:p6", func(x *fx) (string, bool) {
+			return x.restart(launch.Request{Agent: "pj-rev", Pane: "w1:p6", Fresh: true, Type: "oc"})
+		}, "reviewer UNSET UNSET go/ds ROLEFILE", "c"},
 		{"setup: a reused pane (SetEnv)", "w1:p5", func(x *fx) (string, bool) {
 			err := x.launcher(io.Discard).SetEnv(context.Background(), "w1:p5",
 				launch.AgentEnv{Agent: "pj-rev", Role: "reviewer", Cwd: x.p.Root})
 			return "", err == nil
-		}, "reviewer UNSET UNSET UNSET UNSET"},
+		}, "reviewer UNSET UNSET UNSET UNSET", "c"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -56,6 +62,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			x.shell("w1:p3", "pj-l-01", "")
 			x.shell("w1:p4", "", "")
 			x.shell("w1:p5", "", "")
+			x.shell("w1:p6", "", "")
 			if out, ok := c.run(x); !ok {
 				t.Fatal(out)
 			}
@@ -76,7 +83,10 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v: %s", err, out)
 			}
-			want := strings.Replace(c.want, "CONFIG", filepath.Join(x.p.Root, ".obor", "state", kind.LaneConfigFile(x.p.LaneDir("L-01"))), 1) + " " + c.pane + user
+			want := strings.NewReplacer(
+				"LANECONFIG", filepath.Join(x.p.Root, ".obor", "state", kind.LaneConfigFile(x.p.LaneDir("L-01"))),
+				"ROLEFILE", filepath.Join(x.p.Root, ".obor", "state", kind.TrimmedConfigFile),
+			).Replace(c.want) + " " + c.pane + " /mine " + c.inline
 			if got := strings.TrimSpace(string(out)); got != want {
 				t.Errorf("after a stale shell, the env line %q leaves %q, want %q", line, got, want)
 			}

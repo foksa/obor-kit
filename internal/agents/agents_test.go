@@ -185,7 +185,8 @@ func TestModelArgs(t *testing.T) {
 }
 
 // the registry of the env vars obor sets for an agent is one list: the identity vars, the retired OBOR_AGENT and
-// every kind's own (Kind.Vars), and a kind's start sets none outside it.
+// every kind's own (Kind.Vars), and a kind's start sets no value outside it (an empty name outside it is that start's
+// own clear, no registry var).
 func TestVarsRegistry(t *testing.T) {
 	vars := kinds.Vars()
 	for _, v := range []string{"OBOR_ROLE", "OBOR_LANE", "OBOR_AGENT", "OBOR_OPENCODE_MODEL", "OPENCODE_CONFIG", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"} {
@@ -224,8 +225,9 @@ func TestVarsRegistry(t *testing.T) {
 	}
 }
 
-// StartVars, the one builder of a start's env: the role, the lane, the pane and the kind's vars set (a
-// "" value: none), every other registry var unset, whatever kind set it before; keep leaves one as the pane has it.
+// StartVars, the one builder of a start's env: the role, the lane, the pane and the kind's vars set (a non-empty
+// value; a "" value of a var outside the registry is this start's own clear), every other registry var unset, whatever
+// kind set it before; keep leaves one as the pane has it.
 func TestStartVars(t *testing.T) {
 	names := func(set []agents.EnvVar) string {
 		var out []string
@@ -256,6 +258,14 @@ func TestStartVars(t *testing.T) {
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": "p/m", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": ""}, nil,
 			"OBOR_ROLE=lead OBOR_PANE=w1:4 OBOR_OPENCODE_MODEL=p/m OPENCODE_CONFIG=/s/oc.json",
 			"OBOR_AGENT OBOR_LANE OBOR_OPENCODE_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+		{"a lane's opencode start clears the shell's inline config alone", "worker", "L-01", "w1:4",
+			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OPENCODE_CONFIG_CONTENT": ""}, nil,
+			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json",
+			"OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG_CONTENT OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+		{"a kept inline config stays as the pane has it", "worker", "L-01", "w1:4",
+			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OPENCODE_CONFIG_CONTENT": ""}, []string{"OPENCODE_CONFIG_CONTENT"},
+			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json",
+			"OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"a pane being made: OBOR_PANE unset (not the maker's), a kind's OBOR_PANE ignored", "worker", "L-01", "",
 			map[string]string{"OBOR_PANE": "w9:9"}, nil,
 			"OBOR_ROLE=worker OBOR_LANE=L-01", "OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},

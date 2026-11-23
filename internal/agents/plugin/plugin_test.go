@@ -344,7 +344,8 @@ func TestContextTimeout(t *testing.T) {
 // TestStartRequest: start's request carries the version, the call, every field of the complete start (check, trim_user
 // and the project's override files as the start holds them, name → document; a lead's start: false and none) and the
 // manifest's env snapshot (closure 1 as data: the dir the plugin reads itself), in one call whose argv and env both
-// have the file's path substituted; an env var the manifest's vars do not name is an error.
+// have the file's path substituted; an env var with a value the manifest's vars do not name is an error, while one
+// named empty is that start's own clear.
 func TestStartRequest(t *testing.T) {
 	k, state := kind(t, `cat >"$REQ"; echo '{"version":1,"args":["-c","{file:c.json}"],"env":{"STUB_CONFIG":"{file:c.json}"},"files":[{"name":"c.json","bytes":"x"}]}'`)
 	env := func(v string) string { return map[string]string{"HOME": "/home/u", "OTHER": "o"}[v] }
@@ -413,7 +414,12 @@ func TestStartRequest(t *testing.T) {
 
 	k, _ = kind(t, `cat >/dev/null; echo '{"version":1,"env":{"PATH":"/x"}}'`)
 	if _, err := k.StartWhole(agents.Start{}); err == nil || !strings.Contains(err.Error(), "kind stub: start: env PATH is not among the manifest's vars") {
-		t.Errorf("an env var outside vars: %v", err)
+		t.Errorf("an env var outside vars with a value: %v", err)
+	}
+	// empty, outside vars: a var this start clears from the pane's shell (OpenCode's OPENCODE_CONFIG_CONTENT on a lane's)
+	k, _ = kind(t, `cat >/dev/null; echo '{"version":1,"env":{"PATH":""}}'`)
+	if l, err := k.StartWhole(agents.Start{}); err != nil || l.Env["PATH"] != "" || len(l.Env) != 1 {
+		t.Errorf("an env var outside vars, empty: %+v, %v; want PATH empty (the start clears it)", l, err)
 	}
 	k, _ = kind(t, `cat >/dev/null; echo '{"version":1,"files":[{"name":"../x","bytes":""}]}'`)
 	if _, err := k.StartWhole(agents.Start{}); err == nil || !strings.Contains(err.Error(), "is no name in the state dir") {

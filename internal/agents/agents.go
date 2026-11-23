@@ -583,10 +583,11 @@ func (s Kinds) Vars() []string {
 type EnvVar struct{ Name, Value string }
 
 // StartVars is the one builder of a start's env: set, the role's env value ("": none), the lane ("": none), the
-// pane the agent starts in ("": not known yet, a pane being made) and the kind's StartEnv vars (a "" value:
-// none), in that order (a kind's sorted); unset, every registry var (Vars) the
-// start does not set and keep does not name, sorted. keep is a var the caller leaves as the pane has it (an unknown
-// agent's OBOR_ROLE: obor cannot tell it).
+// pane the agent starts in ("": not known yet, a pane being made) and the kind's StartEnv vars, in that order (a
+// kind's sorted); unset, every registry var (Vars) the start does not set and keep does not name, and every var of the
+// pane the kind's env names empty outside the registry (that start's own clear: OpenCode's OPENCODE_CONFIG_CONTENT on a
+// lane's start), sorted. keep is a var the caller leaves as the pane has it (an unknown agent's OBOR_ROLE: obor cannot
+// tell it).
 func (s Kinds) StartVars(role, lane, pane string, kind map[string]string, keep ...string) (set []EnvVar, unset []string) {
 	if role != "" {
 		set = append(set, EnvVar{RoleVar, role})
@@ -602,16 +603,24 @@ func (s Kinds) StartVars(role, lane, pane string, kind map[string]string, keep .
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	var clear []string
+	registry := s.Vars()
 	for _, k := range keys {
-		if v := kind[k]; v != "" && k != RoleVar && k != LaneVar && k != PaneVar {
+		switch v := kind[k]; {
+		case k == RoleVar || k == LaneVar || k == PaneVar: // obor's own: no kind sets them
+		case v != "":
 			set = append(set, EnvVar{k, v})
+		case !slices.Contains(keep, k) && !slices.Contains(registry, k): // a var of the pane this start clears alone
+			clear = append(clear, k)
 		}
 	}
-	for _, v := range s.Vars() {
+	for _, v := range registry {
 		if !slices.Contains(keep, v) && !slices.ContainsFunc(set, func(e EnvVar) bool { return e.Name == v }) {
 			unset = append(unset, v)
 		}
 	}
+	unset = append(unset, clear...)
+	sort.Strings(unset)
 	return set, unset
 }
 
