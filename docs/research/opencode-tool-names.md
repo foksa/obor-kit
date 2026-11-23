@@ -151,6 +151,26 @@ Stated as what the facts allow, not as the design:
 - A name the host does not know needs no deny to stay unrunnable (turns D and I), but it is what a table miss would name.
   A tool the host does run and the plugin does not map (`webfetch`, `websearch`, `skill`, `question`) does.
 
+## Which namespaces are MCP servers: `ctx.mcp.list()`
+
+2026-11-23, the installed OpenCode v2.2.0 binary (`~/.opencode/bin/opencode`: its bundled plugin API construction, the
+`server.mcp` route schemas and the schema codec that shapes a plugin call's answer). A live `opencode serve` probe is
+denied in a lane (the obor guard reads it as a headless agent run), so this reading is the source; the plugin context
+page states its read methods use the client's inputs and responses.
+
+- `setup(ctx)` has `ctx.mcp` beside `ctx.tool`, `ctx.session` and `ctx.event`: `{list, transform, reload}`.
+- `ctx.mcp.list(input?)` takes an optional location and answers the `mcp.list` route's response, `{location, data}`:
+  `data` is an array of `Mcp.Server` `{name, status, title?, integrationID?}`. `status` is one of
+  `{status: "connected" | "pending" | "disabled" | "failed" | "needs_auth"}`, with `error` on the last three. A call
+  with no location is the plugin instance's own (`opencode mcp list` itself reads this response's `.data`).
+- A namespace is an MCP server when that server's `name` has `status.status === "connected"`: the runtime decides,
+  whatever config layer named it (the inline `OPENCODE_CONFIG_CONTENT` obor preserves, the system config, an ancestor
+  project, `OPENCODE_CONFIG_DIR`). A server a lane's generated config disables is `"disabled"`, so its tools are never
+  reported connected.
+- `ctx.tool.list()` still gives each id its namespace; its `options` carry no MCP marker, so the two lists together are
+  the one source (`opencode/obor.js`'s `connectedServers`). A route whose success is only `{data}` (e.g.
+  `session.get`) answers its `data` alone; the `location, data` pair above is why `mcp.list` keeps its envelope.
+
 ## Not verified
 
 - A file-defined custom tool. `.opencode/tools/*.js` and `.opencode/tool/*.js` with a plain `{description, args, execute}`
@@ -160,8 +180,10 @@ Stated as what the facts allow, not as the design:
   model is not known.
 - `execute`'s description says its code may also call tools "returned by the `search` function". No `search` was
   scripted, so whether it reaches tools outside the catalog (and under which ids) was not seen.
-- A server named with a space, a dot, upper case or an underscore (id sanitising), a remote (`type: "remote"`) MCP server,
-  and an MCP server's tool whose name has an underscore.
+- An MCP server named with a space, a dot, upper case or an underscore: `ctx.tool.list()` gives a namespaced tool's
+  `options.namespace`, and whether it is the `Mcp.Server` name unchanged (the match `connectedServers` makes) or a
+  sanitised one was not seen. A name that differs leaves the tool unguarded.
+- A remote (`type: "remote"`) MCP server, and an MCP server's tool whose name has an underscore.
 - A lead's obor tools: `OBOR_ROLE=lead` listed none in the scratch project (the probe used `worker`). The browser
   namespace's tools were listed and never offered or called.
 - OpenCode 1.x names (`bash`, `filePath`) and the 2.x names of `patch`'s arguments: only `shell` was called here.

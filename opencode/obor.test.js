@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import net from "node:net";
-import { toClaudeEvents, toolEvents, configServers, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
+import { toClaudeEvents, toolEvents, connectedServers, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name, tool_input });
@@ -46,8 +46,8 @@ test("patchPaths ignores body lines", () => {
 
 // ctx.tool.list()'s namespaced ids of an opencode 2.2 session with obor's MCP server, another server's, a plugin's
 // code-mode tool and opencode's own (docs/research/opencode-tool-names.md): the hook names an inner call of execute by
-// its id, and the list gives that id its namespace. The servers are the start's configs' (configServers): obor's own,
-// which every start has, and probe-b's; a plugin's namespace is no MCP server's.
+// its id, and the list gives that id its namespace. The servers are the ones ctx.mcp.list() reports connected
+// (connectedServers): obor's own and probe-b's; a plugin's namespace is no MCP server's.
 const namespaces = new Map([
   ["obor_job_next", "obor"],
   ["obor_task_done", "obor"],
@@ -87,19 +87,20 @@ test("toolEvents: a namespace that is no MCP server's, and a name obor knows not
   assert.deepEqual(await toolEvents("shell", { command: "ls" }, cwd, "s1", isMCPServer), [ev("Bash", { command: "ls" })]);
 });
 
-test("configServers: the servers the start's configs name, a later layer's disabled winning", (t) => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-conf-"));
-  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
-  const dir = path.join(base, "lane");
-  const write = (f, text) => (fs.mkdirSync(path.dirname(f), { recursive: true }), fs.writeFileSync(f, text));
-  // The user's own config (JSONC: a comment and a trailing comma are not JSON), with one server the start disables.
-  write(path.join(base, "xdg", "opencode", "opencode.jsonc"), '{\n  // mine\n  "mcp": {"servers": {"user": {"type": "local"}, "masked": {"type": "local"},}},\n}');
-  write(path.join(base, "gen.json"), JSON.stringify({ mcp: { servers: { "probe-b": { type: "local" }, masked: { type: "local", disabled: true } } } }));
-  write(path.join(dir, "opencode.json"), JSON.stringify({ mcp: { servers: { project: { type: "local" } } } }));
-  const env = { OPENCODE_CONFIG: path.join(base, "gen.json"), XDG_CONFIG_HOME: path.join(base, "xdg") };
-  assert.deepEqual([...configServers(env, dir)].sort(), ["obor", "probe-b", "project", "user"]);
-  // No config to read: obor's own server alone.
-  assert.deepEqual([...configServers({}, path.join(base, "none"))], ["obor"]);
+test("connectedServers: the servers the runtime reports connected, every other state out", () => {
+  const list = [
+    { name: "obor", status: { status: "connected" } },
+    { name: "docs", status: { status: "connected" } },
+    { name: "user", status: { status: "disabled" } },
+    { name: "old", status: { status: "failed", error: "boom" } },
+    { name: "slow", status: { status: "pending" } },
+    { name: "auth", status: { status: "needs_auth", error: "sign in" } },
+    { name: "", status: { status: "connected" } },
+    null,
+  ];
+  assert.deepEqual([...connectedServers(list)].sort(), ["docs", "obor"]);
+  // No list at all names no server.
+  assert.deepEqual([...connectedServers(undefined)], []);
 });
 
 // The headers opencode 2.0.23 itself accepts (trimmed lines): a patch it applies must not slip past the guard.
@@ -161,9 +162,9 @@ function feed() {
 // the ctx.session.switchModel calls (none: the context has no switchModel). prompted
 // collects the ctx.session.prompt calls (a stop's block, an inbox line). inbox() is each hook call's OBOR_OPENCODE_INBOX
 // ("<hook> <path>", "" unset). tools is ctx.tool.list()'s answer (the plugin asks it for a name its mapping does not
-// know; absent: the context has no list), and config the start's generated config (OPENCODE_CONFIG; absent: no file,
-// so only obor's own MCP server is named).
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [], tools, config } = {}) {
+// know; absent: the context has no list), and mcp the servers ctx.mcp.list() reports (the runtime's {location, data};
+// absent: none connected).
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [], tools, mcp } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -226,13 +227,6 @@ esac
   // HOME is this stub's: a step writes the plugin's token file under it, never the runner's own ~/.obor.
   const wasHome = process.env.HOME;
   process.env.HOME = base;
-  // OPENCODE_CONFIG is the start's generated config, which names the MCP servers the plugin passes (configServers).
-  const wasConfig = process.env.OPENCODE_CONFIG;
-  if (config === undefined) delete process.env.OPENCODE_CONFIG;
-  else {
-    fs.writeFileSync(path.join(base, "opencode.json"), JSON.stringify(config));
-    process.env.OPENCODE_CONFIG = path.join(base, "opencode.json");
-  }
   const wasResume = process.env.OBOR_OPENCODE_RESUME;
   if (resume === undefined) delete process.env.OBOR_OPENCODE_RESUME;
   else process.env.OBOR_OPENCODE_RESUME = resume;
@@ -242,6 +236,7 @@ esac
     location: { directory: dir },
     app: { name: "cli", version, channel: "latest" },
     tool: { hook: async (name, fn) => (hooked["tool:" + name] = fn), ...(tools ? { list: async () => tools } : {}) },
+    mcp: { list: async () => ({ location: { directory: dir }, data: mcp ?? [] }) },
     session,
     event: { subscribe: (opts) => ((hooked["event:subscribe"] = opts), events.iterable) },
   });
@@ -249,8 +244,6 @@ esac
   else process.env.OBOR_OPENCODE_MODEL = was;
   if (wasHome === undefined) delete process.env.HOME;
   else process.env.HOME = wasHome;
-  if (wasConfig === undefined) delete process.env.OPENCODE_CONFIG;
-  else process.env.OPENCODE_CONFIG = wasConfig;
   if (wasResume === undefined) delete process.env.OBOR_OPENCODE_RESUME;
   else process.env.OBOR_OPENCODE_RESUME = wasResume;
   process.argv = wasArgv;
@@ -268,7 +261,7 @@ esac
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "configServers", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath", "toolEvents"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "connectedServers", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath", "toolEvents"]);
 });
 
 test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
@@ -330,12 +323,40 @@ test("guard: execute, the tools with no guard rule and an MCP server's inner id 
     { id: "probe-b_echo", options: { namespace: "probe-b", codemode: true } },
     { id: "opencode_list_mcp_resources", options: { namespace: "opencode", codemode: true } },
   ];
-  const config = { mcp: { servers: { obor: { type: "local", command: ["x"] }, "probe-b": { type: "local", command: ["x"] } } } };
-  const { hooked, calls } = await stubPlugin(t, { tools, config });
+  const mcp = [
+    { name: "obor", status: { status: "connected" } },
+    { name: "probe-b", status: { status: "connected" } },
+  ];
+  const { hooked, calls } = await stubPlugin(t, { tools, mcp });
   for (const tool of ["execute", "read", "glob", "skill", "question", "webfetch", "websearch", "subagent", "obor_job_next", "probe-b_echo", "opencode_list_mcp_resources"]) {
     await hooked["tool:execute.before"]({ tool, sessionID: "s1", input: {} });
   }
   assert.deepEqual(calls(), []);
+});
+
+test("guard: a namespaced tool passes when the runtime reports its server connected, whatever config layer named it", async (t) => {
+  // docs may come from the start's inline OPENCODE_CONFIG_CONTENT: the plugin reads no config, the runtime's list is
+  // the word.
+  const tools = [{ id: "docs_search", options: { namespace: "docs", codemode: true } }];
+  const mcp = [{ name: "docs", status: { status: "connected" } }];
+  const { hooked, calls } = await stubPlugin(t, { tools, mcp });
+  await hooked["tool:execute.before"]({ tool: "docs_search", sessionID: "s1", input: { query: "x" } });
+  assert.deepEqual(calls(), []);
+});
+
+test("guard: obor's own namespace passes even when the runtime's list does not name it", async (t) => {
+  const tools = [{ id: "obor_job_next", options: { namespace: "obor", codemode: true } }];
+  const { hooked, calls } = await stubPlugin(t, { tools, mcp: [] });
+  await hooked["tool:execute.before"]({ tool: "obor_job_next", sessionID: "s1", input: {} });
+  assert.deepEqual(calls(), []);
+});
+
+test("guard: a server the runtime reports disabled is unguarded (a lane's generated config disables a user's server)", async (t) => {
+  const tools = [{ id: "user_tool", options: { namespace: "user", codemode: true } }];
+  const mcp = [{ name: "user", status: { status: "disabled" } }];
+  const { hooked, calls, event, dir } = await stubPlugin(t, { tools, mcp });
+  await hooked["tool:execute.before"]({ tool: "user_tool", sessionID: "s1", input: {} });
+  assert.deepEqual(calls().map((l) => event(l)), [unguarded("user_tool", dir)]);
 });
 
 test("guard: opencode's worktree tools reach the guard as the git commands they run", async (t) => {
