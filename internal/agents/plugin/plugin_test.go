@@ -176,6 +176,17 @@ func TestCalls(t *testing.T) {
 	}
 }
 
+// A deliver reply that is ok false hands its why to the caller as the delivery's Refused (the refusal the lead or serve
+// marks the record with), not dropped: nothing was delivered, and the line goes through the hooks.
+func TestDeliverHandsItsWhyToTheRefusal(t *testing.T) {
+	const why = "STUB_INBOX is not localhost:<port> or 127.0.0.1:<port>"
+	k, _ := kind(t, reply(`{"version":1,"ok":false,"why":"`+why+`"}`))
+	d, ok := k.Deliver("hi", []byte(`{"STUB_INBOX":"evil.example:1"}`))
+	if ok || d.Typed || d.Sent || d.Socket != "" || d.Refused != why {
+		t.Errorf("Deliver = %+v, %v; want no delivery refused with %q", d, ok, why)
+	}
+}
+
 // A start's warnings are notes on a start it made anyway, not a failure: each goes to Log as one line naming the kind
 // and the call, and the start's argv is still the reply's.
 func TestStartLogsItsWarnings(t *testing.T) {

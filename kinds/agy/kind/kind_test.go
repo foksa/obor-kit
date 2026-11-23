@@ -335,12 +335,14 @@ func TestStartResumeChecksNoModel(t *testing.T) {
 	}
 }
 
-// The start's model check falls back to the cached list: a live list is checked, a check that times out or fails
-// checks the last good list, a timeout with no list at all starts the ref unchecked with a WARN naming the cache, and
-// a failure with no list is the start's error.
+// The start's model check falls back to the cached list: a live list is checked, an empty live answer is no answer and
+// checks the last good list (it replaces no cache), a check that times out checks the last good list, a check that
+// fails another way checks it and warns, a timeout or an empty answer with no list at all starts the ref unchecked with
+// a WARN naming the cache, and a failure with no list is the start's error.
 func TestStartModelCache(t *testing.T) {
 	timeout := func() ([]byte, error) { return nil, kind.ErrModelsTimeout }
 	failure := func() ([]byte, error) { return nil, fmt.Errorf("exit 1: no network") }
+	empty := func() ([]byte, error) { return nil, nil }
 	for _, c := range []struct {
 		name     string
 		live     func() ([]byte, error)
@@ -350,12 +352,16 @@ func TestStartModelCache(t *testing.T) {
 		wantWarn string // "{cache}" is the cache's path
 	}{
 		{"a live list checks the ref", func() ([]byte, error) { return []byte(stubList), nil }, "", "gemini-4-neon-high", "", ""},
+		{"an empty live answer checks the cached list", empty, stubList, "gemini-4-neon-high", "", ""},
 		{"a timeout checks the cached list", timeout, stubList, "gemini-3.8-flash-low", "", ""},
-		{"a failure checks the cached list", failure, stubList, "gemini-4-neon-high", "", ""},
+		{"a failure checks the cached list and warns", failure, stubList, "gemini-4-neon-high", "",
+			"WARN agy models: exit 1: no network: the start checks the cached list in {cache}"},
 		{"a cached list still refuses an unknown model", timeout, stubList, "gemini-9-bogus",
 			"model gemini-9-bogus is not in agy models", ""},
 		{"a timeout with no list starts unchecked with a WARN", timeout, "", "gemini-4-neon-high", "",
 			"WARN agy models: no reply within 4s and no cached list in {cache}: the start's model is unchecked"},
+		{"an empty live answer with no list starts unchecked with a WARN", empty, "", "gemini-4-neon-high", "",
+			"WARN agy models: no model listed and no cached list in {cache}: the start's model is unchecked"},
 		{"a failure with no list is the error", failure, "", "gemini-4-neon-high", "agy models: exit 1: no network", ""},
 	} {
 		env := home(t, "")
@@ -379,6 +385,31 @@ func TestStartModelCache(t *testing.T) {
 		case want != "" && (len(r.Warnings) != 1 || r.Warnings[0] != want):
 			t.Errorf("%s: warnings %q, want %q", c.name, r.Warnings, want)
 		}
+		if c.cached != "" {
+			if b, err := os.ReadFile(p); err != nil || string(b) != c.cached {
+				t.Errorf("%s: the cache at %s holds %q, %v; want it unchanged", c.name, p, b, err)
+			}
+		}
+	}
+}
+
+// An empty live `agy models` answer replaces no cache: with `agy models` still the live check (the cache's writer), a
+// start takes the last good list and the cache still holds it.
+func TestStartEmptyModelsKeepsCache(t *testing.T) {
+	k := agy(t, t.TempDir())
+	env := home(t, "")
+	p := modelsCacheFile(t, env["HOME"], stubList)
+	ran := stubAGY(t, "", 0)
+	argv, _, err := started(t, k, agents.Start{Args: []string{"--model", "gemini-4-neon-high"},
+		Env: func(v string) string { return env[v] }})
+	if err != nil || !slices.Contains(argv, "gemini-4-neon-high") {
+		t.Fatalf("start = %q, %v; want the cached list's model", argv, err)
+	}
+	if !ran() {
+		t.Error("precondition: the start ran the empty `agy models`")
+	}
+	if b, err := os.ReadFile(p); err != nil || string(b) != stubList {
+		t.Errorf("the cache at %s holds %q, %v; want the stub's list", p, b, err)
 	}
 }
 

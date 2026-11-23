@@ -189,8 +189,9 @@ func describe() map[string]any {
 // a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file and the start. An effort with no model
-// is the start's error: agy's --effort selects a variant of a model named by its base. A model check with neither a
-// live nor a cached list (a timeout alone) is a reply's warning: the ref goes to agy unchecked. In an obor project
+// is the start's error: agy's --effort selects a variant of a model named by its base. A model check with no list (a
+// live check that gave none and no cached list) is a reply's warning: the ref goes to agy unchecked; a cached list a
+// failure falls back to is checked and the fallback warned. In an obor project
 // (root) whose start dir's HooksFile, the one agy runs (in.Dir's, root's when in.Dir is empty or the root), does not
 // hold this kit's entry (hooksStale; not in a check), an agent's start is refused and a lead's goes on with a reply's
 // warning: obor logs it as `obor: kind agy: start: WARN …`.
@@ -219,7 +220,7 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 			return map[string]any{"error": err.Error()}
 		}
 		warn = w
-		if warn == "" {
+		if len(list) > 0 {
 			if why := checkModel(list, model, effort); why != "" {
 				return map[string]any{"error": why}
 			}
@@ -398,6 +399,10 @@ const modelsLimit = 4 * time.Second
 // none cached, goes on unchecked with a warning. Any other failure of the check is a start's error.
 var ErrModelsTimeout = errors.New("no reply within " + modelsLimit.String())
 
+// errModelsEmpty is `agy models` answering no model: no answer, like a timeout, so a start takes its cached list instead
+// or, with none cached, goes on unchecked with a warning.
+var errModelsEmpty = errors.New("no model listed")
+
 // groupGrace is how long `agy models`, and the children it leaves, have to exit after SIGTERM before SIGKILL.
 const groupGrace = 200 * time.Millisecond
 
@@ -406,21 +411,29 @@ const groupGrace = 200 * time.Millisecond
 const ModelsFile = ".obor/agy/models"
 
 // modelList is the list a start's check reads: `agy models`'s live answer (kept as the cached list when store is set),
-// else the last good list. warn names the one case with no list at all, a live check that timed out; err is the live
-// check's failure with no cached list.
+// else the last good list. A live answer with no model in it is no answer: it replaces no cache. warn names a live check
+// that gave no list at all (a timeout, an empty answer), whose model goes unchecked, or a fallback to the cache for a
+// failure that is not a timeout, which the start checks; err is the live check's failure with no cached list.
 func modelList(home string, models func() ([]byte, error), store bool) (list []model, warn string, err error) {
 	out, liveErr := models()
 	if liveErr == nil {
-		list = parseModels(out)
-		if store && len(list) > 0 {
-			keepModels(home, out)
+		if list = parseModels(out); len(list) > 0 {
+			if store {
+				keepModels(home, out)
+			}
+			return list, "", nil
 		}
-		return list, "", nil
+		liveErr = errModelsEmpty
 	}
+	noAnswer := errors.Is(liveErr, ErrModelsTimeout) || errors.Is(liveErr, errModelsEmpty)
 	if cached, ok := cachedModels(home); ok {
-		return parseModels(cached), "", nil
+		if noAnswer {
+			return parseModels(cached), "", nil
+		}
+		return parseModels(cached), fmt.Sprintf("WARN agy models: %v: the start checks the cached list in %s",
+			liveErr, modelsCache(home)), nil
 	}
-	if errors.Is(liveErr, ErrModelsTimeout) {
+	if noAnswer {
 		where := "no cached list: the start names no HOME"
 		if p := modelsCache(home); p != "" {
 			where = "no cached list in " + p

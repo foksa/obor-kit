@@ -470,7 +470,8 @@ func (k *Kind) Reset(errText, details string, at time.Time) (time.Time, bool) {
 }
 
 // Deliver is a typed line for a manifest with typed, else deliver {text, record}; a failure keeps the line queued, the
-// failed call's error its Refused (a kind's own send that was refused answers with the reply's error).
+// failed call's error its Refused (a kind's own send that was refused answers with the reply's error, and a deliver that
+// is ok false with the reply's why).
 func (k *Kind) Deliver(text string, record []byte) (agents.Delivery, bool) {
 	if m := k.cached(); m != nil && m.Typed {
 		return agents.Delivery{Typed: true}, true
@@ -480,7 +481,8 @@ func (k *Kind) Deliver(text string, record []byte) (agents.Delivery, bool) {
 		return agents.Delivery{Refused: err.Error()}, false
 	}
 	var r struct {
-		OK       bool `json:"ok"`
+		OK       bool   `json:"ok"`
+		Why      string `json:"why"` // ok false: why the record is no inbox
 		Delivery struct {
 			Typed  bool     `json:"typed"`
 			Socket string   `json:"socket"`
@@ -492,6 +494,9 @@ func (k *Kind) Deliver(text string, record []byte) (agents.Delivery, bool) {
 		fmt.Fprintf(Log, "obor: %v\n", err)
 		return agents.Delivery{Refused: err.Error()}, false
 	}
-	d := r.Delivery
-	return agents.Delivery{Typed: d.Typed, Socket: d.Socket, Lines: d.Lines, Sent: d.Sent}, r.OK
+	d := agents.Delivery{Typed: r.Delivery.Typed, Socket: r.Delivery.Socket, Lines: r.Delivery.Lines, Sent: r.Delivery.Sent}
+	if !r.OK {
+		d.Refused = r.Why
+	}
+	return d, r.OK
 }
