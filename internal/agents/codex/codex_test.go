@@ -10,6 +10,8 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/codex"
+	"obor/internal/config"
+	"obor/internal/roles"
 )
 
 // Codex's start argv (resume first, obor's five -c options with a kit, the update check off, the prompt last
@@ -506,10 +508,10 @@ func TestStartTrimUserSkills(t *testing.T) {
 // a lane's start (a worker, the owner's drive agent: StrictMCP) switches off each MCP server of the user's
 // config.toml ($CODEX_HOME or ~/.codex) that the project does not declare, each by Codex's own key `enabled = false`,
 // obor's own never; a lead's or a role agent's start switches off none. The project declares a server by name in its
-// .codex/config.toml, in config_override.toml or in the type's args, a name with a space or a dot as the config stores
-// it, and a name the override sets is left to it. A name that needs quotes is one inline table at mcp_servers - the
-// override's quoted entries at mcp_servers are entries of the same one - before the override's options and the trim (a
-// dotted key cannot carry a quoted part), and none is passed under mcp_servers when the type's args set a key there.
+// .codex/config.toml or in config_override.toml, a name with a space or a dot as the config stores it, and a name the
+// override sets is left to it. A name that needs quotes is one inline table at mcp_servers - the override's quoted
+// entries at mcp_servers are entries of the same one - before the override's options and the trim (a dotted key
+// cannot carry a quoted part).
 func TestStartLaneMCPServers(t *testing.T) {
 	k, _ := split()
 	base := []string{"-a", "never"}
@@ -537,38 +539,33 @@ func TestStartLaneMCPServers(t *testing.T) {
 		env           func(string) string
 		user, project string
 		override      string
-		args          []string
 		notLane       bool // a role agent's start: trimmed, not a lane's
 		before        []string
 	}{
-		{"no project file: the user's a and b, obor never", home, user, "", "", nil, false,
+		{"no project file: the user's a and b, obor never", home, user, "", "", false,
 			opts("mcp_servers.a.enabled=false", "mcp_servers.b.enabled=false")},
-		{"a server the project's config defines is left to it", home, user, "[mcp_servers.b]\ncommand = \"b\"\n", "", nil, false,
+		{"a server the project's config defines is left to it", home, user, "[mcp_servers.b]\ncommand = \"b\"\n", "", false,
 			opts("mcp_servers.a.enabled=false")},
 		{"a server the override sets is left to it",
-			home, user, "", "[mcp_servers.a]\ncommand = \"x\"\n", nil, false,
+			home, user, "", "[mcp_servers.a]\ncommand = \"x\"\n", false,
 			opts(`mcp_servers.a.command="x"`, "mcp_servers.b.enabled=false")},
-		{"a server the type's args declare is left to them", home, user, "", "",
-			append(slices.Clone(base), "-c", `mcp_servers.a.command="a"`), false, opts("mcp_servers.b.enabled=false")},
-		{"$CODEX_HOME's config: the user's servers", codexHome, user, "", "", nil, false,
+		{"$CODEX_HOME's config: the user's servers", codexHome, user, "", "", false,
 			opts("mcp_servers.a.enabled=false", "mcp_servers.b.enabled=false")},
 		{"a name that needs quotes: one inline table before the override's key and the trim",
 			home, "[mcp_servers.\"a b\"]\ncommand = \"x\"\n[mcp_servers.c]\ncommand = \"c\"\n", "",
-			"model_reasoning_summary = \"none\"\n", nil, false,
+			"model_reasoning_summary = \"none\"\n", false,
 			opts(`mcp_servers={"a b"={enabled=false}}`, `model_reasoning_summary="none"`, "mcp_servers.c.enabled=false")},
-		{"a key the type's args set under mcp_servers: no inline table", home,
-			"[mcp_servers.\"a b\"]\ncommand = \"x\"\n", "", "", append(slices.Clone(base), "-c", `mcp_servers.c.command="c"`), false, nil},
 		{"a quoted name in the user's config and the project's: left to it, as the config stores it", home,
-			"[mcp_servers.\"a b\"]\ncommand = \"u\"\n", "[mcp_servers.\"a b\"]\ncommand = \"p\"\n", "", nil, false, nil},
+			"[mcp_servers.\"a b\"]\ncommand = \"u\"\n", "[mcp_servers.\"a b\"]\ncommand = \"p\"\n", "", false, nil},
 		{"a quoted name in the user's config and another in the override: one table at mcp_servers, both", home,
-			"[mcp_servers.\"a b\"]\ncommand = \"u\"\n", "", "[mcp_servers.\"c d\"]\ncommand = \"o\"\n", nil, false,
+			"[mcp_servers.\"a b\"]\ncommand = \"u\"\n", "", "[mcp_servers.\"c d\"]\ncommand = \"o\"\n", false,
 			opts(`mcp_servers={"a b"={enabled=false},"c d"={command="o"}}`)},
 		{"a dotted name in the user's config and the project's: left to it", home,
-			"[mcp_servers.\"a.b\"]\ncommand = \"u\"\n", "[mcp_servers.\"a.b\"]\ncommand = \"p\"\n", "", nil, false, nil},
+			"[mcp_servers.\"a.b\"]\ncommand = \"u\"\n", "[mcp_servers.\"a.b\"]\ncommand = \"p\"\n", "", false, nil},
 		{"a dotted name is not the project's [mcp_servers.a.b]: switched off", home,
-			"[mcp_servers.\"a.b\"]\ncommand = \"u\"\n", "[mcp_servers.a.b]\ncommand = \"p\"\n", "", nil, false,
+			"[mcp_servers.\"a.b\"]\ncommand = \"u\"\n", "[mcp_servers.a.b]\ncommand = \"p\"\n", "", false,
 			opts(`mcp_servers={"a.b"={enabled=false}}`)},
-		{"a role agent's start: the user's servers stay", home, user, "", "", nil, true, nil},
+		{"a role agent's start: the user's servers stay", home, user, "", "", true, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := map[string]string{userDir + "/config.toml": c.user, "/cx/config.toml": c.user}
@@ -579,13 +576,9 @@ func TestStartLaneMCPServers(t *testing.T) {
 			if c.override != "" {
 				overrides[codex.ConfigOverride] = c.override
 			}
-			args := c.args
-			if args == nil {
-				args = base
-			}
-			in := agents.Start{Args: args, TrimUser: true, StrictMCP: !c.notLane, Overrides: overrides, Dir: "/lane",
+			in := agents.Start{Args: base, TrimUser: true, StrictMCP: !c.notLane, Overrides: overrides, Dir: "/lane",
 				Env: c.env, Read: files(m)}
-			if got, w := k.Start(in), want(args, c.before); !slices.Equal(got, w) {
+			if got, w := k.Start(in), want(base, c.before); !slices.Equal(got, w) {
 				t.Errorf("Start =\n %q\nwant\n %q", got, w)
 			}
 		})
@@ -603,6 +596,189 @@ func TestStartLaneMCPServers(t *testing.T) {
 		in := agents.Start{Args: base, TrimUser: true, StrictMCP: true, Dir: "/lane", Env: c.env, Read: c.read}
 		if got, w := k.Start(in), want(base, nil); !slices.Equal(got, w) {
 			t.Errorf("%s: Start =\n %q\nwant\n %q", c.name, got, w)
+		}
+	}
+}
+
+// keyCase is a start of a project's Codex keys: the user's config.toml, the project's .codex/config.toml and
+// config_override.toml ("": none), the type's args (nil: -a never) and whether it is a lane's (a worker, the owner's
+// drive agent) or a role agent's.
+type keyCase struct {
+	user, project, override string
+	args                    []string
+	lane                    bool
+}
+
+// start is c's start: its env error (StartEnv) and argv (Start), trimmed.
+func (c keyCase) start(t *testing.T) ([]string, error) {
+	t.Helper()
+	k, _ := split()
+	m := map[string]string{}
+	if c.user != "" {
+		m["/home/u/.codex/config.toml"] = c.user
+	}
+	if c.project != "" {
+		m["/lane/"+codex.ConfigFile] = c.project
+	}
+	overrides := map[string]string{}
+	if c.override != "" {
+		overrides[codex.ConfigOverride] = c.override
+	}
+	args := c.args
+	if args == nil {
+		args = []string{"-a", "never"}
+	}
+	in := agents.Start{Args: args, TrimUser: true, StrictMCP: c.lane, Overrides: overrides, Dir: "/lane",
+		Env: func(k string) string { return map[string]string{"HOME": "/home/u"}[k] }, Read: files(m)}
+	_, err := k.StartEnv(in)
+	return k.Start(in), err
+}
+
+// withOpt: argv holds the option -c opt.
+func withOpt(argv []string, opt string) bool {
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "-c" && argv[i+1] == opt {
+			return true
+		}
+	}
+	return false
+}
+
+// mentions: some word of argv contains s.
+func mentions(argv []string, s string) bool {
+	return slices.ContainsFunc(argv, func(a string) bool { return strings.Contains(a, s) })
+}
+
+// a lane's start whose args set a key under mcp_servers (another server than the user's quoted one; -c or --config,
+// with = or not, dotted or the whole table; the type's args or agents.kinds.codex.args, which follow them) is refused,
+// the error naming the key and the project's .codex/config.toml.
+func TestStartLaneArgsMCPRefused(t *testing.T) {
+	const user = "[mcp_servers.\"private.server\"]\ncommand = \"u\"\n"
+	if _, err := (keyCase{user: user, lane: true}).start(t); err != nil {
+		t.Fatalf("precondition: a lane's start without such args is made: %v", err)
+	}
+	for _, c := range []struct {
+		args []string
+		key  string
+	}{
+		{[]string{"-a", "never", "-c", `mcp_servers.project.command="project"`}, "mcp_servers.project.command"},
+		{[]string{"--config", `mcp_servers.project.args=["x"]`}, "mcp_servers.project.args"},
+		{[]string{"-c=mcp_servers.project.command=\"p\""}, "mcp_servers.project.command"},
+		{[]string{"-a", "never", "--config=mcp_servers={project={command=\"p\"}}"}, "mcp_servers"},
+		{[]string{"-a", "never", "-m", "gpt-6", "-c", " mcp_servers.x.enabled = true"}, "mcp_servers.x.enabled"},
+	} {
+		_, err := (keyCase{user: user, args: c.args, lane: true}).start(t)
+		want := "a lane's MCP servers come from the project's .codex/config.toml; move " + c.key + " there"
+		if err == nil || err.Error() != want {
+			t.Errorf("args %q: StartEnv error %v, want %q", c.args, err, want)
+		}
+	}
+}
+
+// a lane's start with the user's quoted server and no args under mcp_servers: the server is switched off by
+// enabled=false in the one inline table at mcp_servers, and no start error.
+func TestStartLaneQuotedUserServerOff(t *testing.T) {
+	argv, err := (keyCase{user: "[mcp_servers.\"private.server\"]\ncommand = \"u\"\n", lane: true}).start(t)
+	if err != nil {
+		t.Fatalf("StartEnv: %v", err)
+	}
+	if !withOpt(argv, `mcp_servers={"private.server"={enabled=false}}`) {
+		t.Errorf("no enabled=false for private.server in an inline table: %q", argv)
+	}
+	if n := len(slices.DeleteFunc(slices.Clone(argv), func(a string) bool { return !strings.HasPrefix(a, "mcp_servers") })); n != 1 {
+		t.Errorf("%d options under mcp_servers, want the one table: %q", n, argv)
+	}
+}
+
+// the project's quoted server and the override's entry for the same server: the project's wins, the override's
+// command is not passed (without the project's file it is).
+func TestStartProjectQuotedServerWins(t *testing.T) {
+	c := keyCase{override: "[mcp_servers.\"team.server\"]\ncommand = \"override\"\n"}
+	if argv, _ := c.start(t); !withOpt(argv, `mcp_servers={"team.server"={command="override"}}`) {
+		t.Fatalf("precondition: without the project's file the override's entry is passed: %q", argv)
+	}
+	c.project = "[mcp_servers.\"team.server\"]\ncommand = \"project\"\n"
+	if argv, _ := c.start(t); mentions(argv, "team.server") || mentions(argv, "override") {
+		t.Errorf("the override's entry for the project's server is passed: %q", argv)
+	}
+}
+
+// a quoted dotted name and nested tables are distinct keys: the project's "a.b" leaves the override's nested
+// [mcp_servers.a] b=… to pass, and the project's nested a → b leaves the override's quoted "a.b" to pass.
+func TestStartQuotedDottedNotNested(t *testing.T) {
+	quoted, nested := "[mcp_servers.\"a.b\"]\ncommand = \"q\"\n", "[mcp_servers.a]\nb = { command = \"n\" }\n"
+	argv, _ := (keyCase{project: quoted, override: nested}).start(t)
+	if !withOpt(argv, `mcp_servers.a.b.command="n"`) {
+		t.Errorf("the project's \"a.b\" drops the override's nested a.b: %q", argv)
+	}
+	argv, _ = (keyCase{project: nested, override: quoted}).start(t)
+	if !withOpt(argv, `mcp_servers={"a.b"={command="q"}}`) {
+		t.Errorf("the project's nested a.b drops the override's \"a.b\": %q", argv)
+	}
+}
+
+// a lane's start with the user's bare-named server: one dotted enabled=false option, no inline table.
+func TestStartLaneBareUserServerDotted(t *testing.T) {
+	argv, err := (keyCase{user: "[mcp_servers.mine]\ncommand = \"u\"\n", lane: true}).start(t)
+	if err != nil {
+		t.Fatalf("StartEnv: %v", err)
+	}
+	if !withOpt(argv, "mcp_servers.mine.enabled=false") || mentions(argv, "mcp_servers={") {
+		t.Errorf("want the dotted switch alone: %q", argv)
+	}
+}
+
+// the override's quoted key in another table than mcp_servers gives way to the project's same key (without the
+// project's file it is passed); the override's other quoted key of that table still passes.
+func TestStartProjectQuotedKeyWins(t *testing.T) {
+	c := keyCase{override: "[profiles.\"my.p\"]\nmodel = \"o\"\n[shell_environment_policy.set]\n\"A.B\" = \"o\"\n\"C D\" = \"o\"\n"}
+	argv, _ := c.start(t)
+	if !withOpt(argv, `profiles={"my.p"={model="o"}}`) || !withOpt(argv, `shell_environment_policy.set={"A.B"="o","C D"="o"}`) {
+		t.Fatalf("precondition: without the project's file the override's quoted keys are passed: %q", argv)
+	}
+	c.project = "[profiles.\"my.p\"]\nmodel = \"p\"\n[shell_environment_policy]\nset = { \"A.B\" = \"p\" }\n"
+	argv, _ = c.start(t)
+	if mentions(argv, "my.p") || mentions(argv, "A.B") {
+		t.Errorf("an override key the project sets is passed: %q", argv)
+	}
+	if !withOpt(argv, `shell_environment_policy.set={"C D"="o"}`) {
+		t.Errorf("the override's key the project does not set is dropped: %q", argv)
+	}
+}
+
+// a role agent's start (trimmed, not a lane's) whose args set a key under mcp_servers is made: no error, the args
+// kept, and the user's servers stay on.
+func TestStartRoleAgentArgsMCP(t *testing.T) {
+	args := []string{"-a", "never", "-c", `mcp_servers.project.command="project"`}
+	c := keyCase{user: "[mcp_servers.\"private.server\"]\ncommand = \"u\"\n", args: args}
+	argv, err := c.start(t)
+	if err != nil {
+		t.Fatalf("a role agent's start is refused: %v", err)
+	}
+	if !slices.Equal(argv[:len(args)], args) || mentions(argv, "private.server") {
+		t.Errorf("want the args kept and no switch of the user's server: %q", argv)
+	}
+}
+
+// each entry point through the config (config.Model.Launch: a worker, the owner's drive agent, a role agent) goes
+// through the override's options with the project's precedence: the override's key the project sets is not passed,
+// its other key is; the lane's two refuse args under mcp_servers, the role agent's does not.
+func TestStartEntryPoints(t *testing.T) {
+	read := files(map[string]string{"/lane/" + codex.ConfigFile: "[profiles.\"my.p\"]\nmodel = \"p\"\n"})
+	overrides := map[string]string{codex.ConfigOverride: "web_search = \"live\"\n[profiles.\"my.p\"]\nmodel = \"o\"\n"}
+	mcpArgs := []string{"-a", "never", "-c", `mcp_servers.x.command="x"`}
+	for _, role := range []string{"worker", roles.Driver, "reviewer"} {
+		in := agents.Start{Dir: "/lane", Read: read, Env: func(string) string { return "" }}
+		l, err := config.Model{Kind: "codex", Args: []string{"-a", "never"}}.Launch(role, overrides, in)
+		if err != nil {
+			t.Fatalf("%s: %v", role, err)
+		}
+		if !withOpt(l.Args, `web_search="live"`) || mentions(l.Args, "my.p") {
+			t.Errorf("%s: want the override's web_search and not its my.p: %q", role, l.Args)
+		}
+		_, err = config.Model{Kind: "codex", Args: mcpArgs}.Launch(role, overrides, in)
+		if lane := role != "reviewer"; (err != nil) != lane {
+			t.Errorf("%s with args under mcp_servers: error %v, want refused %v", role, err, lane)
 		}
 	}
 }
