@@ -1025,7 +1025,10 @@ on the same obor and rewrites the answer (`kinds/agy/kind/hook.go`; no rule live
 `mcp`; the tools obor cannot guard (`run_workflow`: a script with no hook; `swarm`; `invoke_subagent`: a child's session
 cannot be told from the agent's) and any tool it does not know go to the guard as `unguarded` with agy's reason, and the
 guard denies them for an agent with a role (a role-less session in the main checkout: no opinion); the rest only read or
-talk and get no opinion. A stopped project runs none of it. A start refuses (a lead: warns) a workspace whose
+talk and get no opinion. A stopped project runs none of it. `obor kind agy hook` runs the first obor that has `kind`
+(no kind binary beside it is needed) and never fetches; with none it answers by event: PreToolUse in a running project
+is the deny naming the repair, PreToolUse anywhere else `ask` (agy's own check decides), and SessionStart,
+PreInvocation and Stop nothing (agy ignores their answers). A start refuses (a lead: warns) a workspace whose
 `.agents/hooks.json` obor entry is not this kit's, after launch has prepared that workspace. obor's
 allow is agy's `ask` (agy's own check decides: in auto mode, none), a deny is final; agy denies a tool call whose hook
 fails, so the transport always answers, and a failing `obor hook pre-tool-use` is a deny naming the failure.
