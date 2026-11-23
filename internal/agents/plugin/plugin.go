@@ -1,12 +1,13 @@
 // Package plugin is a plugin kind: an agents.Kind whose CLI-specific part is an executable, any language,
 // answering obor's kind protocol (docs/agents/kind-protocol.md): one JSON request on stdin, one JSON reply on stdout,
-// per run. A project names it as kinds.<name>.command; obor serve (at its start and when the command changes, Ensure),
-// obor init and obor setup agents run its describe and cache the reply (the manifest) in the state dir. What the
-// manifest answers (caps, stop, headless forms, the transcript glob, the inbox record) is read from that cache, never by
-// running the command: hooks and the guard load the config, and hook time stays the binary's own; without a cache the
-// guard denies the kind's program outright. The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
-// the command changed (its mtime, or another path) since the cache was written. A command this binary links (Local: the
-// kit's own kinds, by their binary's name) is answered in process: no process runs and nothing is cached.
+// per run. A project names it as agents.kinds.<name>.plugin; obor serve (at its start and when the command changes,
+// Ensure), obor init and obor setup agents run its describe and cache the reply (the manifest) in the state dir. What
+// the manifest answers (caps, stop, headless forms, the transcript glob, the inbox record) is read from that cache,
+// never by running the command: hooks and the guard load the config, and hook time stays the binary's own; without a
+// cache the guard denies the kind's program outright. The calls that run it (start, not-ready, install, turn, deliver)
+// first describe it again when the command changed (its mtime, or another path) since the cache was written. A command
+// this binary links (Local: the kit's own kinds, by their binary's name) is answered in process: no process runs and
+// nothing is cached, so it leaves no file under the state dir's kinds/.
 package plugin
 
 import (

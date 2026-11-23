@@ -22,7 +22,7 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	"obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command)
+	"obor/internal/agents/plugin" // the plugin kinds a config names (agents.kinds.<name>.plugin)
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"

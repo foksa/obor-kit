@@ -30,7 +30,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   project (`stopped.go`: `Stopped`, `WriteStopMarker`, `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start);
   `sweep.go`: the nightly sweep of `.obor` (daily backups past the newest 7 dates, gzip'd or the older
   uncompressed ones, and only after a successful backup; files of lanes and agents the config does not
-  names, the retired state names, old drafts, the logs nothing needs (the names no code writes, and
+  names, the retired state names, the cache files of a kit kind the config answers in process, old drafts, the logs
+  nothing needs (the names no code writes, and
   `launch.log`/`restart-<agent>.log` 14 days unwritten; a task's step logs are serve's), `flakes.jsonl`'s
   entries older than the 7 days `obor flakes` reads, and stop-failure entries).
 - `config`: effective config. `config.Load(root) (*Config, error)` (every command's, serve's: an unknown key is ignored
@@ -50,10 +51,10 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `version`: build version line.
 - `agents/plugin`: a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind
   protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` builds the
-  kinds its `kinds.<name>.command` name through `agents.Plugins` (it cannot import this package) on every load, each with
-  the manifest obor serve, `obor init` or `obor setup agents` cached (`plugin.Ensure`, `plugin.Cache`,
-  `.obor/state/kinds/<name>.json`): no process runs at load. The loaded config holds them (`cfg.Kinds()`,
-  `cfg.Kind(name)`); a load changes no package state (boundary test).
+  kinds its `agents.kinds.<name>.plugin` name through `agents.Plugins` (it cannot import this package) on every load,
+  each with the manifest obor serve, `obor init` or `obor setup agents` cached (`plugin.Ensure`, `plugin.Cache`,
+  `.obor/state/kinds/<name>.json`): no process runs at load; a kit kind answered in process has no cache file. The
+  loaded config holds them (`cfg.Kinds()`, `cfg.Kind(name)`); a load changes no package state (boundary test).
   Base, not bridge: it runs processes and writes the cache. `Local`: the commands answered in process by a Go
   handler instead of a process, by the command a config names (the kit's kinds under their binary's name, which
   `cmd/obor`'s `kinds.go` registers; testkit's in a test binary); any other command runs.
@@ -96,7 +97,7 @@ install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A project's kinds:
 `Kinds.Lookup`, `Names`, `IsPlugin`, `Vars`/`StartVars`; `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
 `config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges and the kind binaries (boundary test).
-Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `kinds.<name>.command`.
+Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `agents.kinds.<name>.plugin`.
 
 **kind binaries** — `kinds/opencode`: the OpenCode kind as the reference plugin kind, linked into obor (its
 `kind.Handle` in `plugin.Local`, its `kind.Main` as `obor kind opencode`: `cmd/obor/kinds.go`) and also built as its own

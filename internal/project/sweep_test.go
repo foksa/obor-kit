@@ -105,6 +105,44 @@ func TestSweep(t *testing.T) {
 				there(t, p)
 			}
 		}},
+		{"a kit kind answered in process has no cache file: its old ones go, a plugin kind's stays", func(t *testing.T, cfg *config.Config, now time.Time) {
+			state := StateDir(cfg.Root)
+			stale := []string{filepath.Join(state, "kinds", "agy.json"), filepath.Join(state, "kinds", "opencode.json")}
+			plugin := filepath.Join(state, "kinds", "mine.json")
+			for _, p := range append(stale, plugin) {
+				sweepFile(t, now, p, time.Hour)
+			}
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
+				t.Fatalf("Sweep = %q, want no lines", lines)
+			}
+			for _, p := range stale {
+				gone(t, p)
+			}
+			there(t, plugin)
+		}},
+		{"a kit kind a plugin of its own answers keeps its cache file", func(t *testing.T, cfg *config.Config, now time.Time) {
+			doc := `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"kinds":{"agy":{"plugin":"tools/agy"}}}}`
+			if err := os.WriteFile(filepath.Join(cfg.Root, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(cfg.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.KindCommand("agy"); got != filepath.Join(cfg.Root, "tools", "agy") {
+				t.Fatalf("precondition: KindCommand(agy) = %q, want its own plugin", got)
+			}
+			state := StateDir(cfg.Root)
+			kept := filepath.Join(state, "kinds", "agy.json")
+			stale := filepath.Join(state, "kinds", "opencode.json")
+			sweepFile(t, now, kept, time.Hour)
+			sweepFile(t, now, stale, time.Hour)
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
+				t.Fatalf("Sweep = %q, want no lines", lines)
+			}
+			there(t, kept) // its plugin's cache: a writer has it
+			gone(t, stale) // the kit kind it does not answer in process
+		}},
 		{"files of gone lanes and agents go, the live ones stay", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
 			live := []string{
@@ -166,7 +204,7 @@ func TestSweep(t *testing.T) {
 				filepath.Join(state, "serve.flock"),
 				filepath.Join(state, "serve.log"),
 				filepath.Join(state, "logs", "nightly-check.log"),
-				filepath.Join(state, "kinds", "opencode.json"),
+				filepath.Join(state, "kinds", "mine.json"), // a plugin kind's manifest: its writer has it
 				filepath.Join(state, "opencode.json"),
 				filepath.Join(state, "opencode-trimmed.json"),
 				filepath.Join(state, "opencode-lane-1a2b3c4d.json"),
