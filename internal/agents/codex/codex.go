@@ -649,8 +649,8 @@ func (kind) WithModel(args []string, model string) []string {
 	return agents.SetFlag(args, []string{"-m", "--model"}, model)
 }
 
-// withEffort is args without their effortKey option (`-c`/`--config` with its word, or either spelling with =), then
-// -c model_reasoning_effort=<effort>; args as they are for effort "".
+// withEffort is args without their effortKey option (`-c`/`--config` with its word, either spelling with =, or the
+// attached `-c<key>=<value>`), then -c model_reasoning_effort=<effort>; args as they are for effort "".
 func withEffort(args []string, effort string) []string {
 	if effort == "" {
 		return append([]string(nil), args...)
@@ -666,7 +666,8 @@ func withEffort(args []string, effort string) []string {
 		case (a == "-c" || a == "--config") && i+1 < len(args) && isEffort(args[i+1]):
 			i++
 		case strings.HasPrefix(a, "-c=") && isEffort(strings.TrimPrefix(a, "-c=")),
-			strings.HasPrefix(a, "--config=") && isEffort(strings.TrimPrefix(a, "--config=")):
+			strings.HasPrefix(a, "--config=") && isEffort(strings.TrimPrefix(a, "--config=")),
+			strings.HasPrefix(a, "-c") && len(a) > 2 && isEffort(strings.TrimPrefix(a[2:], "=")):
 		default:
 			out = append(out, a)
 		}
@@ -677,8 +678,8 @@ func withEffort(args []string, effort string) []string {
 // updateCheck is Codex's setting for the update check it runs on startup.
 var updateCheck = toml.Key{"check_for_update_on_startup"}
 
-// configArgKeys are the keys the type's args set (`-c key=value`, `--config key=value`, either flag with =), each
-// split at its dots as Codex's -c reads it (it honors no quotes).
+// configArgKeys are the keys the type's args set (`-c key=value`, its attached form `-ckey=value`, `--config
+// key=value`, either flag with =), each split at its dots as Codex's -c reads it (it honors no quotes).
 func configArgKeys(args []string) []toml.Key {
 	var keys []toml.Key
 	for i := 0; i < len(args); i++ {
@@ -689,6 +690,8 @@ func configArgKeys(args []string) []toml.Key {
 			a = args[i]
 		case strings.HasPrefix(a, "-c="), strings.HasPrefix(a, "--config="):
 			_, a, _ = strings.Cut(a, "=")
+		case strings.HasPrefix(a, "-c") && len(a) > 2:
+			a = strings.TrimPrefix(a[2:], "=")
 		default:
 			continue
 		}

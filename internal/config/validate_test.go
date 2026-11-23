@@ -181,6 +181,21 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .agents.roles.lead: opus:turbo: effort "turbo" is not one of claude's (low, medium, high, xhigh, max)`}},
 		{name: "a role with a colon and no effort", edits: []edit{set("agents.roles.integrator", "opus:")},
 			want: []string{`FAIL .agents.roles.integrator: "opus:" names no effort after the colon`}},
+		// a model whose kind refuses its args on a lane's start (a worker's or the drive agent's, StrictMCP):
+		// FAIL when a worker's level names it, WARN for a role that never takes a lane; the attached -ckey=value
+		// form is the same option.
+		{name: "a level's codex model a lane's start refuses", edits: []edit{
+			set("agents.kinds.codex.args", []any{"-c", "mcp_servers.x.command=y"}), set("agents.difficulty.hard", []any{"terra"})},
+			want: []string{`FAIL .agents.models.terra: kind codex refuses its args on a lane's start: a lane's MCP servers come from the project's .codex/config.toml; move mcp_servers.x.command there`}},
+		{name: "a role's codex model a lane's start refuses warns", edits: []edit{
+			set("agents.kinds.codex.args", []any{"-c", "mcp_servers.x.command=y"}), set("agents.roles.lead", "terra")},
+			want: []string{`WARN .agents.models.terra: kind codex refuses its args on a lane's start: a lane's MCP servers come from the project's .codex/config.toml; move mcp_servers.x.command there (no worker level or drive names this model)`}},
+		{name: "a level's codex model, attached -c", edits: []edit{
+			set("agents.kinds.codex.args", []any{"-cmcp_servers.x.command=y"}), set("agents.difficulty.hard", []any{"terra"})},
+			want: []string{`FAIL .agents.models.terra: kind codex refuses its args on a lane's start: a lane's MCP servers come from the project's .codex/config.toml; move mcp_servers.x.command there`}},
+		{name: "a role's codex model, attached -c, warns", edits: []edit{
+			set("agents.kinds.codex.args", []any{"-cmcp_servers.x.command=y"}), set("agents.roles.lead", "terra")},
+			want: []string{`WARN .agents.models.terra: kind codex refuses its args on a lane's start: a lane's MCP servers come from the project's .codex/config.toml; move mcp_servers.x.command there (no worker level or drive names this model)`}},
 		{name: "kinds args with a bare --", edits: []edit{set("agents.kinds.claude.args", []any{"--strict-mcp-config", "--"})},
 			want: []string{"FAIL .agents.kinds.claude.args: `--` is not allowed: obor adds the first prompt itself"}},
 		{name: "kinds args with -- inside a value", edits: []edit{set("agents.kinds.claude.args", []any{"--x=--"})}},

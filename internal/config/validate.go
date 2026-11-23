@@ -36,6 +36,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.top()
 	v.fixedCommands()
 	v.models()
+	v.laneArgs()
 	v.lanes()
 	v.difficulty()
 	v.classes()
@@ -283,6 +284,45 @@ func (v *validator) models() {
 		}
 		v.modelRef(path, e.Model, false)
 	}
+}
+
+// laneArgs: a model its kind refuses on a lane's start (Kinds.LaneRefusal: a Split kind's StartEnv with StrictMCP)
+// FAILs when a worker's difficulty level names it, and WARNs for a role that never takes a lane. A model no level or
+// role names is not asked: no start uses its args.
+func (v *validator) laneArgs() {
+	for _, name := range v.c.ModelNames() {
+		if !v.c.modelUsed(name) {
+			continue
+		}
+		m, ok := v.c.Model(name)
+		if !ok {
+			continue
+		}
+		why := v.c.kinds.LaneRefusal(m.Kind, m.Args, v.described)
+		if why == "" {
+			continue
+		}
+		path := ".agents.models" + key(name)
+		if v.laneModel(name) {
+			v.fail(path, "kind "+m.Kind+" refuses its args on a lane's start: "+why)
+			continue
+		}
+		v.warns = append(v.warns, "WARN "+path+": kind "+m.Kind+" refuses its args on a lane's start: "+why+
+			" (no worker level or drive names this model)")
+	}
+}
+
+// laneModel: model is one a lane's start runs: a worker's difficulty level names it. The drive agent, a lane's other
+// role, starts the hard level's first model unless the owner names one at `obor drive --model`, so the levels carry it.
+func (v *validator) laneModel(model string) bool {
+	for _, level := range spec.Levels {
+		for _, ref := range v.c.DifficultyList(level) {
+			if name, _ := ParseModelRef(ref); name == model {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // gatingCommands are the commands a merge or the nightly gates on, a by_path rule's run beside them:
