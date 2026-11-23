@@ -20,8 +20,8 @@ import (
 //
 // conformanceLiveFixture is a plain project dir (no git) for `make conformance-live`: the tree's Makefile and
 // scripts/conformance-live in it, its record under .obor/state (which the script finds through git), a stub make (a
-// live-fail file in Base makes it fail), a stub dir where a test writes its agy, and the stub git that answers the
-// common-dir path.
+// live-fail file in Base makes it fail, a live-skip file makes every row skip), a stub dir where a test writes its
+// agy, and the stub git that answers the common-dir path.
 type conformanceLiveFixture struct {
 	Base    string // the test's temp dir
 	Root    string // the plain project dir, <Base>/proj
@@ -39,6 +39,10 @@ func newConformanceLiveFixture(t *testing.T) *conformanceLiveFixture {
 	f.git(t, ".git")
 	writeExec(t, filepath.Join(f.stub, "make"), `#!/bin/sh
 echo "$*" >> "`+f.makeLog+`"
+if [ -f "`+filepath.Join(f.Base, "live-skip")+`" ]; then
+  echo "conformance: 0 pass, 0 fail, 13 skip, 0 warn"
+  exit 0
+fi
 if [ -f "`+filepath.Join(f.Base, "live-fail")+`" ]; then
   echo "conformance: 9 pass, 1 fail, 0 skip, 0 warn"
   echo "make: *** [conformance] Error 1" >&2
@@ -186,6 +190,42 @@ func TestOborKitConformanceLive(t *testing.T) {
 			t.Errorf("the line the nightly shows is %q, want the live run's conformance summary", line)
 		}
 	})
+	t.Run("an all-skip live run: not recorded, the next run retries", func(t *testing.T) {
+		t.Parallel()
+		f := newConformanceLiveFixture(t)
+		f.agy(t, "1.5.15")
+		writeFile(t, f.Path(".obor/state/agy-live-version"), "1.5.14\n")
+		writeFile(t, filepath.Join(f.Base, "live-skip"), "")
+		env := f.env(t)
+		f.wantAgyVersion(t, env, "1.5.15")
+		out, failed := f.live(t, env)
+		if failed {
+			t.Fatalf("an all-skip live run must not fail the line:\n%s", out)
+		}
+		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.14\n" {
+			t.Errorf("the record is %q after an all-skip run at 1.5.15, want the version it held", got)
+		}
+		if line := decisionLine(out); line != "conformance_live: agy 1.5.15 live tier not recorded: conformance: 0 pass, 0 fail, 13 skip, 0 warn" {
+			t.Errorf("the line the nightly shows is %q, want the all-skip summary marked not recorded", line)
+		}
+		// The record still names the old version, so the next run does not skip the tier: this one runs it and records.
+		if err := os.Remove(filepath.Join(f.Base, "live-skip")); err != nil {
+			t.Fatal(err)
+		}
+		out, failed = f.live(t, env)
+		if failed {
+			t.Fatalf("the next live run failed:\n%s", out)
+		}
+		if got := strings.Count(readFileOr(f.makeLog), "conformance TIER=live KIND=agy TURN=1\n"); got != 2 {
+			t.Errorf("the live tier ran %d times, want the all-skip run and the retry", got)
+		}
+		if got := f.Read(".obor/state/agy-live-version"); got != "1.5.15\n" {
+			t.Errorf("the record is %q after the retry, want the version it ran at", got)
+		}
+		if line := decisionLine(out); line != "conformance_live: agy 1.5.15 live tier: conformance: 9 pass, 0 fail, 0 skip, 0 warn" {
+			t.Errorf("the line the nightly shows is %q, want the retry's conformance summary", line)
+		}
+	})
 	t.Run("never run: the live tier, then the version recorded", func(t *testing.T) {
 		t.Parallel()
 		f := newConformanceLiveFixture(t)
@@ -240,8 +280,8 @@ func TestOborKitConformanceLive(t *testing.T) {
 		if !failed {
 			t.Fatalf("a failed live run must fail the line:\n%s", out)
 		}
-		if line := decisionLine(out); line != "conformance_live: agy 1.5.15 live tier: conformance: 9 pass, 1 fail, 0 skip, 0 warn" {
-			t.Errorf("the line the nightly shows is %q, want the live run's conformance summary", line)
+		if line := decisionLine(out); line != "conformance_live: agy 1.5.15 live tier not recorded: conformance: 9 pass, 1 fail, 0 skip, 0 warn" {
+			t.Errorf("the line the nightly shows is %q, want the failed run's summary marked not recorded", line)
 		}
 		// make appends its failed-recipe trailer after the summary: a bare last line would lose it (the prefixed
 		// line is what nonGatingLine reads).
