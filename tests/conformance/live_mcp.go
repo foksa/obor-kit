@@ -30,10 +30,12 @@ import (
 	"obor/internal/store"
 )
 
-// The job the stub serve answers job_next with. The prompt names neither, so only the tool result can carry them.
+// The job the stub serve answers job_next with. The prompt is tagged as obor's prompts are (`[obor …`): a worker's
+// wrong-tab guard (user-prompt-submit) answers an untagged prompt with its question instead of letting the tool run. It
+// names neither needle, so only the tool result can carry them.
 const (
-	mcpPrompt  = "Call the obor job_next tool once, then reply DONE."
 	mcpJob     = "T-1/1/work"
+	mcpPrompt  = "[obor conf] Call the obor job_next tool once, then reply DONE."
 	mcpJobHead = "JOB " + mcpJob + " (task T-1, attempt 1, step work)"
 	mcpMarker  = "obor-conformance: job_next reached the real obor MCP server"
 )
