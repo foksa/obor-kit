@@ -81,11 +81,13 @@ export interface BriefStatus {
   since: number;
   delivered: boolean;
   worked?: boolean;
+  text?: string; // the head of its line (serve sends at most 300 bytes)
 }
 
 export interface Role {
   role: string;
   agent: string;
+  type?: string; // the model it runs, as the Setup page names it ("opus:high")
   status?: string;
   age?: number;
   brief?: BriefStatus;

@@ -223,15 +223,16 @@ func (o *Outbox) Move(q *Line, e Event) {
 	}
 }
 
-// Brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
-// pane worked since (its line delivered; since its stop, when it had one), whether that work is in the log (fact
-// worked), its agent's stop on a usage limit in force (nil: none), and whether a turn that ended that stop is
+// Brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), its line
+// ("": a fresh start's prompt carried it), whether its pane worked since (its line delivered; since its stop, when it
+// had one), whether that work is in the log (fact worked), its agent's stop on a usage limit in force (nil: none), and whether a turn that ended that stop is
 // followed (its start seen, its end not yet: app's stopped.go turnDecide). Those are the fold's (worked also
 // SawWork's). Logging (app's logWorked records its fact worked now: its claim, not folded) and where its agent was
 // last seen (Term, PaneID, Lost; app's gone) are the delivery's, live.
 type Brief struct {
 	seq      int64
 	at       time.Time
+	line     string
 	worked   bool
 	logged   bool
 	stop     *RoleStop
@@ -404,7 +405,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 				brief: r.Step == event.StepBriefed}
 		}
 		if r.Step == event.StepBriefed {
-			o.briefs[m.To] = &Brief{seq: r.Seq, at: e.At}
+			o.briefs[m.To] = &Brief{seq: r.Seq, at: e.At, line: m.Line}
 		}
 		for _, seq := range m.Supersedes { // delivered no more (its 24 h needs-you ends with it)
 			delete(o.msgs, seq)
@@ -533,13 +534,13 @@ func (o *Outbox) roleAlarmed(seq int64) {
 	}
 }
 
-// BriefStatus is the open briefs as obor status lists them, by agent: a brief whose line is still queued is not
-// delivered.
+// BriefStatus is the open briefs as obor status lists them, by agent, each with its whole line: a brief whose line is
+// still queued is not delivered.
 func (o *Outbox) BriefStatus() []wire.BriefStatus {
 	var out []wire.BriefStatus
 	for agent, b := range o.briefs {
 		_, queued := o.msgs[b.seq]
-		out = append(out, wire.BriefStatus{To: agent, Since: b.at.Unix(), Delivered: !queued, Worked: b.worked})
+		out = append(out, wire.BriefStatus{To: agent, Since: b.at.Unix(), Delivered: !queued, Worked: b.worked, Text: b.line})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].To < out[j].To })
 	return out

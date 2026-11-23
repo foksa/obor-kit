@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A project's dashboard: what needs you, the open review, the status row, the pipeline, the lanes, then the lead's watches, the
+  // A project's dashboard: what needs you, the open review, the briefed role agents, the status row, the pipeline, the lanes, then the lead's watches, the
   // queue and the role agents beside the events.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
@@ -9,6 +9,7 @@
   import { agentStatusText, dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
   import { fileName, reviewActive, reviewStageText, reviewTone } from "../lib/review";
+  import { briefActive, briefCards, briefFirstLine, briefStage, briefText, briefTone } from "../lib/brief";
   import { stageOf, taskOf } from "../lib/stages";
   import { WAITS_NEVER, laneSteps, pipelineOf, queuedForLane, waitChips } from "../lib/pipeline";
   import type { Lane, ProjectView, Role, WaitItem } from "../lib/types";
@@ -54,6 +55,7 @@
   const ageOf = (agent: string | undefined, lane = "") =>
     (v?.agents || []).find((a) => a.name === agent && (a.lane || "") === lane)?.age;
   const jobStep = (id: string) => id.split("/").slice(2).join("/") || id;
+  const briefed = $derived(briefCards(v?.roles || []));
   const events = $derived((v?.events || []).map((e) => ({ ...e, project })));
   let filter = $state("All");
   const warn = $derived.by(() => {
@@ -161,6 +163,26 @@
         </span>
       </div>
     {/if}
+
+    {#each briefed as r (r.agent)}
+      {@const st = briefStage(r)}
+      {@const full = briefText(r.brief?.text)}
+      <div class="card review brief" class:active={briefActive(r)}>
+        <Pill tone={briefTone(st)} text={st} />
+        <strong>{roleName(r.role)}</strong>
+        {#if r.type}<span class="mono small muted">{r.type}</span>{/if}
+        {#if full}
+          <details class="btext small">
+            <summary title={full}>{briefFirstLine(full)}</summary>
+            <p>{full}</p>
+          </details>
+        {:else}<span class="muted small">brief carried by its fresh start</span>{/if}
+        <span class="rwho small">
+          <AgentLink {project} agent={r.agent} />{#if r.status}<Pill state={r.status === "done" ? "idle" : r.status} text={agentStatusText(r.status, r.age)} />{/if}
+          {#if r.brief?.since}<span class="mono muted"><Rel at={r.brief.since} mode="for" /></span>{/if}
+        </span>
+      </div>
+    {/each}
 
     <div class="stats">
       <Stat label="Lanes">{busy.length}<span class="of">of {lanes.length} busy</span>
@@ -342,6 +364,9 @@
   .review.active { border-color: var(--ok); }
   .review .rtasks { display: inline-flex; flex-wrap: wrap; gap: 4px; }
   .review .rwho { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+  .brief .btext { flex: 1 1 240px; min-width: 0; color: var(--fg-2); }
+  .brief .btext summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .brief .btext p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .head-btn { margin-left: auto; }
   .down { margin: -12px 0 0; }
   .of { font-size: 16px; color: var(--muted); font-weight: 500; }

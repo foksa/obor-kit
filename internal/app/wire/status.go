@@ -144,13 +144,18 @@ type ReviewFix struct {
 }
 
 // BriefStatus is a role agent's open brief: to whom, since when (Unix seconds: its line's delivery, else its fact's
-// time), whether its line was delivered, and whether the agent's pane worked on it since.
+// time), whether its line was delivered, whether the agent's pane worked on it since, and the head of its line (the
+// first BriefTextMax bytes; "": a fresh start's prompt carried the brief).
 type BriefStatus struct {
 	To        string `json:"to"`
 	Since     int64  `json:"since"`
 	Delivered bool   `json:"delivered"`
 	Worked    bool   `json:"worked,omitempty"`
+	Text      string `json:"text,omitempty"`
 }
+
+// BriefTextMax bounds BriefStatus.Text: enough for the web page's card, never the whole brief on every status answer.
+const BriefTextMax = 300
 
 // WatchStatus is one of the lead's open watches: the task or comma list watched, who watches it, its note (what the
 // lead meant to do when the set ends; "" when none), and since when (Unix seconds, its fact's time).

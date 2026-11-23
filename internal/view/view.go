@@ -155,12 +155,14 @@ type Job struct {
 	Delivered bool   `json:"delivered"`
 }
 
-// Role is a role agent on no lane: its role and agent name, its pane's status and for how long (seconds; Status "":
-// serve sees no pane of it; RoleStopped: serve or the lead stopped it), the brief it is on (nil: none) and its current
+// Role is a role agent on no lane: its role and agent name, the model it runs as the Setup page names it
+// (config.ModelRef: "opus:high"; "": the lead's row), its pane's status and for how long (seconds; Status "": serve
+// sees no pane of it; RoleStopped: serve or the lead stopped it), the brief it is on (nil: none) and its current
 // recorded session.
 type Role struct {
 	Role    string            `json:"role"`
 	Agent   string            `json:"agent"`
+	Type    string            `json:"type,omitempty"`
 	Status  string            `json:"status,omitempty"`
 	Age     int64             `json:"age,omitempty"`
 	Brief   *wire.BriefStatus `json:"brief,omitempty"`
@@ -370,7 +372,7 @@ func roles(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background
 		if name == "lead" || agent == "" {
 			continue
 		}
-		r := Role{Role: name, Agent: agent, Background: bg[agent]}
+		r := Role{Role: name, Agent: agent, Type: config.ModelRef(rc.Type, rc.Effort), Background: bg[agent]}
 		for _, a := range ps.Agents {
 			if a.Name == agent && a.Lane == "" {
 				r.Status, r.Age, r.Session = a.Status, a.Age, a.Session
