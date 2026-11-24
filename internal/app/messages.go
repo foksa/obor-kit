@@ -130,11 +130,12 @@ func settles(r event.Record) bool {
 		r.Step == event.StepMerged || isAsk(r))
 }
 
-// waitingAnswer: task has an answer line queued and not delivered yet (under mu): what a worker's refetch of its job
-// settles.
-func (p *proj) waitingAnswer(task string) bool {
+// unsettledAnswer: task has an answer line queued, not delivered and not settled yet (under mu): waiting, or being
+// sent (a refusal before a byte would put it back to wait). What a worker's refetch of its job settles: a waiting line
+// retires, one being sent becomes SendingSettled (its refusal before a byte retires it, its delivery stands).
+func (p *proj) unsettledAnswer(task string) bool {
 	for _, q := range p.out.Queued() {
-		if q.IsAnswer() && q.Msg().Task == task && q.State() == outbox.Waiting {
+		if s := q.State(); q.IsAnswer() && q.Msg().Task == task && (s == outbox.Waiting || s == outbox.Sending) {
 			return true
 		}
 	}

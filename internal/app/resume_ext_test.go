@@ -118,6 +118,78 @@ func TestRefetchRetiresWaitingAnswer(t *testing.T) {
 	})
 }
 
+// RV-260 verify #1: a resume line whose send is claimed (in flight) when the worker refetches its already fetched job
+// is settled by that refetch too: fact refetched once, the line SendingSettled. A send then refused before any byte
+// retires it (no needs-you 25 h later); a send that goes out delivers it once and leaves nothing waiting. A replay of
+// the log gives the same state.
+func TestRefetchSettlesAnswerBeingSent(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		refuse bool
+		posts  int // the answer's posts that went out
+	}{
+		{"refused before a byte", true, 0},
+		{"delivered", false, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			bubble(t, func(t *testing.T) {
+				r := asked(t) // the job fetched, its question in force
+				const line = "[obor answer] yes, edit internal/x.go too"
+				if reply, err := r.answer("lead", "a1", "yes, edit internal/x.go too"); err != nil ||
+					!strings.HasPrefix(reply, "ANSWERED T-1") {
+					t.Fatalf("answer: %q, %v; want ANSWERED", reply, err)
+				}
+				r.passes() // busy: the line waits
+				if q := r.waiting(); len(q) != 1 {
+					t.Fatalf("precondition: queued %v, want the answer", q)
+				}
+				started, release := r.inbox.holdPost("[obor answer]", c.refuse)
+				defer release()    // a failed assertion below still lets the held post end
+				r.workerIs("idle") // the line's send is claimed and held in flight
+				select {
+				case <-started:
+				case <-time.After(time.Minute):
+					t.Fatal("precondition: the answer's send did not start")
+				}
+				if jr := r.workerNext("n2"); jr.Job != "T-1/1/work" {
+					t.Fatalf("refetch: %+v, want T-1/1/work", jr)
+				}
+				if n := r.count("1 fact refetched"); n != 1 {
+					t.Fatalf("refetched facts %d during the send, want one: %q", n, r.steps())
+				}
+				r.workerIs("working") // the refetching worker works: no new delivery is tried
+				release()
+				r.waitFor("the line's send ended", func() bool { return len(r.waiting()) == 0 })
+				r.later(25 * time.Hour)
+				r.passes()
+				check := func(when string) {
+					t.Helper()
+					if q := r.waiting(); len(q) != 0 {
+						t.Errorf("%s: queued %v, want none", when, q)
+					}
+					if f := r.app.Status().Project.Facts; len(f) != 0 {
+						t.Errorf("%s: facts in force %+v, want none (no waiting-line needs-you)", when, f)
+					}
+					if n := r.inbox.count("pj-l-01", line); n != c.posts {
+						t.Errorf("%s: the answer posted %d times, want %d", when, n, c.posts)
+					}
+					if n := r.count("1 fact refetched"); n != 1 {
+						t.Errorf("%s: refetched facts %d, want one", when, n)
+					}
+					eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, when+": delivered facts")
+				}
+				check("25 h after the send")
+				r.stop()
+				r.start()
+				r.passes()
+				check("after a replay")
+			})
+		})
+	}
+}
+
 // After its Blocked: report the worker stops, the Stop hook makes it take one more turn (seen ready, then working, then
 // ready again) and it waits. That turn is no answer: the question stays in force, its answers' obor resume is accepted
 // and reaches the worker; no stall is recorded while it waits.

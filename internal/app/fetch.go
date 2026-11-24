@@ -85,8 +85,8 @@ func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 	mt, key, ok, err := a.callerJob(p, c)
 	delivered := p.folded.delivered[JobID(key)].seq
 	// A worker's refetch settles what its first delivery could not: the needs-you a failed delivery to it raised
-	// (recorded after that delivery, when the fetch raced it) or a resume line for its task still waiting.
-	settle := delivered != 0 && (mt.needs.failedDelivery() || p.waitingAnswer(key.Task))
+	// (recorded after that delivery, when the fetch raced it) or a resume line for its task still waiting or being sent.
+	settle := delivered != 0 && (mt.needs.failedDelivery() || p.unsettledAnswer(key.Task))
 	a.mu.Unlock()
 	if err != nil {
 		return "", err

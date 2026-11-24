@@ -130,12 +130,10 @@ func (a *App) verdict(ctx context.Context, c wire.VerdictReq) (string, error) {
 	method := c.Method()
 	op := method + " " + c.Task // a pending restart's wait names it (follow.go)
 	a.mu.Lock()
-	a.admitted++ // serve's restart on a new binary waits for it (follow.go)
-	a.verdictOps.add(op)
+	a.verdictOps.add(op) // serve's restart on a new binary waits for it (follow.go)
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
-		a.admitted--
 		a.verdictOps.del(op)
 		a.mu.Unlock()
 	}()

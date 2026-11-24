@@ -151,8 +151,7 @@ type App struct {
 	rescan     chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
 	scanned    chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
 	effects    sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
-	admitted   int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
-	verdictOps ops                // those calls by name, "<method> <task>" (under mu; follow.go's restart wait names them)
+	verdictOps ops                // the verdict calls in progress (verdict lock wait included), "<method> <task>" (under mu)
 	follow     follow             // the watch of a new obor binary (follow.go; the merge loop's goroutine only)
 	rst        restoreState       // the restore after a reconnect (restore.go; under mu)
 
@@ -255,11 +254,10 @@ type proj struct {
 	// config last loaded names them (briefAgentsNow, idle.go). Under mu.
 	wtAgents    []wtAgent
 	briefAgents []string
-	// admits: the admissions in force (a config_set, from its wait for the running publish to its commit in: no
-	// publish starts meanwhile); published: closed when the running publish ends (nil: none runs). Under mu
-	// (roleworktree.go).
-	admits    int
-	admitOps  ops // the admissions by the name admit gave them (a pending restart's wait names them)
+	// admitOps: the admissions in force, by the name admit gave them (a config_set, from its wait for the running
+	// publish to its commit in: no publish starts meanwhile; a pending restart's wait names them; admitting is the
+	// predicate); published: closed when the running publish ends (nil: none runs). Under mu (roleworktree.go).
+	admitOps  ops
 	published chan struct{}
 }
 

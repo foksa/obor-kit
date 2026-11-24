@@ -109,7 +109,6 @@ func (a *App) admit(ctx context.Context, p *proj, what string) (release func(), 
 			return nil, errors.New("serve is restarting on a new obor binary: try again in a moment")
 		}
 		if !p.publishing() {
-			p.admits++
 			p.admitOps.add(what)
 			a.mu.Unlock()
 			return func() { a.unadmit(p, what) }, nil
@@ -124,10 +123,12 @@ func (a *App) admit(ctx context.Context, p *proj, what string) (release func(), 
 	}
 }
 
+// admitting: an admission is in force (under mu): no publish starts; the restart's wait reads the same admitOps.
+func (p *proj) admitting() bool { return len(p.admitOps) > 0 }
+
 // unadmit ends one admission (what, as admit named it) and wakes the loop: a publish it held may start.
 func (a *App) unadmit(p *proj, what string) {
 	a.mu.Lock()
-	p.admits--
 	p.admitOps.del(what)
 	a.mu.Unlock()
 	a.wake()

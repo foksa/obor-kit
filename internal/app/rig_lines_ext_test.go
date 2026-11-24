@@ -299,11 +299,42 @@ type rigInbox struct {
 	stale    bool // a refused post marks the agent's record not live, as the poster marks a refused agy record (staleOnRefuse)
 	cutting  bool // the next post waits for serve's ctx and fails with its error (cut)
 	cancels  int  // the next cancels posts fail at once as a cancellation, serve running
+	// gate holds the next post of a line starting with gate.prefix in flight (holdPost): closes started, waits for
+	// release, then refuses it before a byte (refuse) or posts it.
+	gate *postGate
+}
+
+// postGate is one post held in flight (rigInbox.holdPost).
+type postGate struct {
+	prefix            string
+	refuse            bool
+	started, released chan struct{}
+}
+
+// holdPost holds the next post of a line starting with prefix in flight: the returned started closes once it is held,
+// release lets it go (refused before a byte when refuse, else posted); a second call does nothing (a test defers it).
+func (in *rigInbox) holdPost(prefix string, refuse bool) (started <-chan struct{}, release func()) {
+	g := &postGate{prefix: prefix, refuse: refuse, started: make(chan struct{}), released: make(chan struct{})}
+	in.mu.Lock()
+	in.gate = g
+	in.mu.Unlock()
+	var once sync.Once
+	return g.started, func() { once.Do(func() { close(g.released) }) }
 }
 
 func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, error) {
 	in.mu.Lock()
 	in.attempts = append(in.attempts, agent+": "+line)
+	if g := in.gate; g != nil && strings.HasPrefix(line, g.prefix) {
+		in.gate = nil
+		in.mu.Unlock()
+		close(g.started)
+		<-g.released
+		if g.refuse {
+			return false, errors.New("dial unix: connection refused")
+		}
+		in.mu.Lock()
+	}
 	cut := in.cutting
 	if cut {
 		in.cutting = false

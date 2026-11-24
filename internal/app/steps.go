@@ -28,7 +28,7 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 	a.mu.Lock()
 	// The publish's start decides, with p.running below: not pickAccepted's filter. A config_set admitted
 	// first (roleworktree.go): the next pass picks it again.
-	if base == event.StepPublish && p.admits > 0 {
+	if base == event.StepPublish && p.admitting() {
 		a.mu.Unlock()
 		<-p.scratch
 		return false
