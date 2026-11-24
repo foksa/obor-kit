@@ -48,6 +48,10 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 // Merge Patch) and obor's entries last:
 //   - every key over names (on a lead's start, without modeKeys: the lead takes the override's permissions and other
 //     keys, never its permission or agent mode; a key over deletes, null, is left out so the saved value applies);
+//   - toolPermission "always-proceed" on a lane start (a worker's or the drive agent's: lane), unless the override
+//     names that key: agy's allow rules cannot cover a compound command's every part, so its own permission dialog
+//     would ask for a lane's checks and read-only shell (docs/research/agy-probes.md P12), while obor's hooks
+//     (hook.go, whose deny is final) guard every call;
 //   - agentMode "auto" for every agent, a lead too (auto mode runs commands in agy's sandbox and has its reviewer
 //     approve, with no prompt, the re-run of one the sandbox refused: a socket, the network, a write outside the
 //     workspace; docs/research/agy-probes.md P11), obor's hooks (hook.go) guarding every call; a trimmed start's
@@ -58,7 +62,7 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 //     root): agy trusts by exact path and loads the workspace's MCP config and hooks only in a folder trusted when it
 //     starts, so a lane at agy's trust dialog would run without obor's server even once it is answered. A start in
 //     root leaves the key to the saved value: trusting the main checkout is the owner's answer to agy's dialog.
-func Settings(user, over map[string]any, lead bool, dir, root, kit string) map[string]any {
+func Settings(user, over map[string]any, lead, lane bool, dir, root, kit string) map[string]any {
 	if lead && len(over) > 0 {
 		over = maps.Clone(over)
 		for _, k := range modeKeys {
@@ -71,6 +75,9 @@ func Settings(user, over map[string]any, lead bool, dir, root, kit string) map[s
 		if v, ok := merged[k]; ok {
 			out[k] = v
 		}
+	}
+	if _, named := over["toolPermission"]; lane && !named {
+		out["toolPermission"] = "always-proceed"
 	}
 	out["agentMode"] = "auto"
 	if mode := over["agentMode"]; !lead && mode != nil {
