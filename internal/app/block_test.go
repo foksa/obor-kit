@@ -312,3 +312,55 @@ func TestNeedsYouBlockDueRecordedOnce(t *testing.T) {
 type notLanded struct{ port.Scratch }
 
 func (notLanded) Landed(context.Context, string) (bool, error) { return false, nil }
+
+// TestWorkerTakesItsJobEndsFailedDelivery: the worker's delivered fact (its job_next) ends the needs-you a failed
+// delivery to it raised: its wake refused (work, retry.work, fix, retry.fix) or its job not fetched in time. A cause
+// that is no delivery to the worker (a gate's or a start's failure) stays in force.
+func TestWorkerTakesItsJobEndsFailedDelivery(t *testing.T) {
+	t.Parallel()
+	work := func(cause string, start startOut) *blockLog {
+		b := &blockLog{}
+		b.fact(1, event.StepDispatched, dispatchData{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
+		b.result(1, event.StepPrepare, nil, prepareOut{Base: "base"})
+		b.result(1, event.StepStartWork, nil, start)
+		b.add(1, event.StepWork, event.KindIntent, nil)
+		return b.needs(1, cause, cause+": probe")
+	}
+	started := startOut{Agent: "pj-w1"}
+	fix := func(cause string) *blockLog {
+		return dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, noteData{Note: "red"}).
+			add(2, event.StepFix, event.KindIntent, nil).needs(2, cause, cause+": probe")
+	}
+	job := func(attempt int, step string) string {
+		return JobID(event.Key{Task: blockTask, Attempt: attempt, Step: step})
+	}
+	for _, c := range []struct {
+		name string
+		log  *blockLog
+		ends bool // the delivered fact ends the needs-you
+		att  int  // the delivered fact's attempt
+		job  string
+	}{
+		{"work failed", work(event.StepWork+failedSuffix, started), true, 1, job(1, event.StepWork)},
+		{"retry.work failed", work("retry.work"+failedSuffix, started), true, 1, job(1, event.StepWork)},
+		{"job not delivered", work(causeUndelivered, started), true, 1, job(1, event.StepWork)},
+		{"fix failed", fix(event.StepFix + failedSuffix), true, 2, job(2, event.StepFix)},
+		{"retry.fix failed", fix("retry.fix" + failedSuffix), true, 2, job(2, event.StepFix)},
+		{"fix not delivered", fix(causeUndelivered), true, 2, job(2, event.StepFix)},
+		{"gate failed", work(causeGate, started), false, 1, job(1, event.StepWork)},
+		{"start failed", work(event.StepStartWork+failedSuffix, startOut{Refused: "no pane"}), false, 1, job(1, event.StepWork)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			c.log.fact(c.att, event.StepDelivered, event.FactData{Lane: "L-01", Job: c.job, Merge: true})
+			_, p := blockProj(t, c.log.recs)
+			mt := p.folded.loop[blockTask]
+			if got := !mt.needs.held(); got != c.ends {
+				t.Errorf("needs-you in force after the fetch %v, want %v (%q)", !got, c.ends, mt.shown())
+			}
+			if c.ends && mt.state != stWorking {
+				t.Errorf("state %s after the fetch, want working", mt.state)
+			}
+		})
+	}
+}
