@@ -1,5 +1,22 @@
 # Upgrading an obor project from v0.45 to v0.46
 
+## v0.46.2 (agy lanes stop asking; serve follows a new binary past waiting tasks)
+
+From v0.46.1. Nothing to run.
+
+```sh
+# after updating the kit, in the project
+obor version                     # fetches this release's binary
+```
+
+**agy lane workers and the drive agent start with `toolPermission: "always-proceed"`**: agy no longer asks "Run this
+command?" before each command; obor's hooks still check every tool. A project's `.obor/agy/settings_override.json`
+that names `toolPermission` keeps its value (delete the key if it only said `always-proceed`). The lead and role
+agents are unchanged.
+
+**Serve follows a new obor binary** while tasks wait on you (needs-you), and at the latest 30 minutes after it sees
+the binary if work never stops.
+
 ## v0.46.1 (agy: lane worktrees trusted, the kit's role files readable, a resume checks its model)
 
 From v0.46.0. Nothing to change in a project.
