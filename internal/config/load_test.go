@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -60,6 +61,31 @@ func TestMerge(t *testing.T) {
 	} {
 		if got := string(merge([]byte(tc.a), []byte(tc.b))); got != tc.want {
 			t.Errorf("%s * %s = %s, want %s", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// An old obor's config (the 11-04 shape: lanes a number, roles, difficulty, kinds and a command obor runs by a fixed
+// name at the top level) fails every load with one hint naming the old keys, not encoding/json's decode error; a broken
+// file and a shape-2 type error keep their message.
+func TestOldShapeConfigHintsAtAnOlderObor(t *testing.T) {
+	old := `{"version":1,"lanes":5,"roles":{"lead":"opus:high"},"difficulty":{"hard":["opus"]},` +
+		`"kinds":{"claude":{}},"commands":{"check":"make check","lint":"make lint"}}`
+	root := writeProject(t, old, "")
+	_, err := Load(root)
+	want := "obor: " + filepath.Join(root, ".obor", "config.json") + ": the config is from an older obor than this" +
+		" one can read (old keys: lanes, roles, difficulty, kinds, commands); move .obor aside and run obor lead (it" +
+		" runs obor init), then carry over the check command and models by hand"
+	if err == nil || err.Error() != want {
+		t.Errorf("Load of the 11-04 shape = %v, want %q", err, want)
+	}
+	for _, tc := range []struct{ name, cfg, want string }{
+		{"broken JSON", `{"version":2,`, "is not valid JSON"},
+		{"a shape-2 type error beside commands", `{"version":2,"commands":{"lint":"make lint"},"nightly":{"at":5}}`, "nightly.at"},
+	} {
+		_, err := Load(writeProject(t, tc.cfg, ""))
+		if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "older obor") {
+			t.Errorf("%s = %v, want today's error naming %q", tc.name, err, tc.want)
 		}
 	}
 }
