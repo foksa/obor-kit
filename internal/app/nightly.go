@@ -21,7 +21,7 @@ import (
 // nightly.<YYYY-MM-DD> (G): a restart runs a pending one again, a day with a result runs none. A RED one is the
 // project's needs-you{full-check RED <sha7>} until a GREEN one ends it, or the lead's or the owner's obor resume
 // nightly "<why>"; a run that ends neither GREEN nor RED is a counted failure (fact failed), tried again nightlyRetry
-// after the last one, the tries-th the day's needs-you{nightly failed: …}. The last full check (last-full-check: a
+// after the last one, the tries-th the day's needs-you{nightly failed: …}. The last full check (checks' record: a
 // hand obor nightly's too) settles a RED needs-you at the next pass: GREEN ends it, RED at another sha replaces it.
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
@@ -36,33 +36,43 @@ const redPrefix = "full-check RED "
 type Nightly struct {
 	At  string                                        // "HH:MM", local time: it runs every night at or after it; "": off
 	Run func(ctx context.Context) (NightlyOut, error) // obor nightly's run; an error: it ended neither GREEN nor RED
-	// Last is the last full check (last-full-check), a hand run's too (nil: not read).
+	// Last is the last full check (checks' full-check.json), a hand run's too (nil: not read).
 	Last func() (FullCheck, error)
 }
 
-// FullCheck is the last full check as last-full-check holds it: the sha it checked, its verdict (GREEN | RED, "" none),
-// when it ran and the summary it reported.
+// FullCheck is the last full check as checks records it, a hand run's too: the sha it checked, its verdict (GREEN |
+// RED, "" none), when it ended, its steps' outcomes and those of the full check before it (nil: none).
 type FullCheck struct {
 	SHA     string
 	Verdict string
 	At      time.Time
-	Summary string
+	Steps   []CheckStep
+	Was     []CheckStep
 }
 
-// NightlyOut is a nightly run's outcome: GREEN or RED on the sha it checked, its one line, the check's summary and the
-// summary of the full check before it (both from last-full-check).
+// CheckStep is one step's outcome in a full check: its name, whether it gates the verdict, whether it passed, the
+// fail count it reported (nil: none), its report, its part of the check's summary and the log of its full output ("":
+// none).
+type CheckStep struct {
+	Name   string
+	Gating bool
+	OK     bool
+	Fails  *int
+	Report string
+	Line   string
+	Log    string
+}
+
+// NightlyOut is a nightly run's outcome: GREEN or RED on the sha it checked and its one line.
 type NightlyOut struct {
 	SHA     string `json:"sha"`
 	Verdict string `json:"verdict"` // GREEN | RED
 	Line    string `json:"line"`
-	Summary string `json:"summary,omitempty"`
-	Was     string `json:"was,omitempty"`
 }
 
 // nightlyState is the nightly full check's fold: its last intent's step and whether it has a result, the counted
 // failures per step and the time and reason of the last one, the last outcome while no needs-you or resumed fact has
-// followed it, the newest outcome with its result's seq (the line a GREEN check's changed non-gating failure takes),
-// when its last needs-you ended, and whether a run is going.
+// followed it, when its last needs-you ended, and whether a run is going.
 type nightlyState struct {
 	step      string
 	done      bool
@@ -70,10 +80,8 @@ type nightlyState struct {
 	failedAt  time.Time
 	failedWhy string // the last failed fact's reason: "nightly.<date>: <err>" (obor status' pending line)
 	unsettled *NightlyOut
-	last      *NightlyOut // the newest result, as folded
-	lastSeq   int64       // its record's seq
-	ended     time.Time   // the last resumed fact's time: the needs-you then in force ended
-	running   bool        // runNightly runs (under mu; only the merge loop's pass starts one)
+	ended     time.Time // the last resumed fact's time: the needs-you then in force ended
+	running   bool      // runNightly runs (under mu; only the merge loop's pass starts one)
 }
 
 // foldNightly folds r, a record of the nightly full check. Only nightly.<date> steps are its runs: an old log's
@@ -91,7 +99,6 @@ func (p *proj) foldNightly(r event.Record) {
 		n.done = true
 		var out NightlyOut
 		if json.Unmarshal(r.Data, &out) == nil && out.Verdict != "" {
-			n.last, n.lastSeq = &out, r.Seq
 			n.unsettled = &out
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepFailed:
@@ -199,12 +206,10 @@ func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) 
 		At string `json:"at"`
 	}{n.At}}
 	raw, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		was := previousSummary(a, p, n)
 		out, err := n.Run(ctx)
 		if err == nil && out.Verdict != "GREEN" && out.Verdict != "RED" {
 			err = errors.New("no GREEN or RED: " + out.Line)
 		}
-		out.Was = was
 		return out, err
 	})
 	if err != nil {

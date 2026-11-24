@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -149,7 +150,7 @@ func TestNonGatingLine(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			if got := nonGatingLine(c.cmd, c.rc, c.text); got != c.line {
+			if got := nonGatingLine(c.cmd, c.rc, nonGatingReport(c.cmd, c.rc, c.text)); got != c.line {
 				t.Errorf("line = %q, want %q", got, c.line)
 			}
 		})
@@ -420,24 +421,105 @@ func TestNightlyStepsCommands(t *testing.T) {
 	}
 }
 
-// LastFullCheck splits last-full-check into the sha, time, verdict and the summary after them (serve's nightly compares
-// it with the next check's).
-func TestLastFullCheckSummary(t *testing.T) {
+// readFullChecks is the fixture's full-check.json, failing the test when it cannot be read or holds no current check.
+func (k *fk) readFullChecks() FullChecks {
+	k.t.Helper()
+	c, err := ReadFullChecks(k.Root)
+	if err != nil || c.Current == nil {
+		k.t.Fatalf("full-check.json: %+v, %v", c, err)
+	}
+	return c
+}
+
+// stepOf is c's step named name, failing the test when it has none.
+func stepOf(t *testing.T, c *FullCheck, name string) StepOutcome {
+	t.Helper()
+	for _, s := range c.Steps {
+		if s.Name == name {
+			return s
+		}
+	}
+	t.Fatalf("no step %s in %+v", name, c.Steps)
+	return StepOutcome{}
+}
+
+// The nightly records each step's outcome in full-check.json and derives last-full-check's summary from it: a gating
+// step with its fail count; a failing non-gating step with its fail count and log; a zero-exit non-gating step that
+// reports failures failed, its full output kept in its log; a passing one with no log. The next check keeps this one
+// as its previous.
+func TestNightlyStepOutcomes(t *testing.T) {
+	t.Parallel()
+	x := newFk(t, nightly("conformance", "conformance_live", "check_budget"), cmd("check", "echo 7 pass; echo 0 fail"),
+		cmd("conformance", `echo "FAIL H-S1 gone"; echo "conformance: 3 pass, 1 fail"; exit 1`),
+		cmd("conformance_live", `echo "FAIL L-1 live tier"; echo "conformance_live: 5 pass, 2 fail"`),
+		cmd("check_budget", `echo "check_budget: budget OK"`))
+	logs := x.Path(".obor/state/logs/nightly-")
+	x.is(x.steps(), OK, `^NIGHTLY GREEN `)
+	c := x.readFullChecks()
+	if c.Previous != nil {
+		t.Errorf("the first check's previous: %+v, want none", c.Previous)
+	}
+	cur := c.Current
+	x.eq(cur.SHA+" "+cur.Verdict, stepsSha+" GREEN", "the check's sha and verdict")
+	x.eq(fmt.Sprintf("%s, %ds", "check 7 pass, 0 fail, WARN conformance (rc 1, non-gating): 3 pass, 1 fail, "+
+		"conformance_live (non-gating) 5 pass, 2 fail, check_budget (non-gating) budget OK", cur.Seconds), cur.Summary(), "the summary from the steps")
+	x.match(x.Read(".obor/state/last-full-check"), `^`+stepsSha+` [0-9]+ GREEN `+regexp.QuoteMeta(cur.Summary())+`\n$`, "last-full-check: the derived summary")
+	check := stepOf(t, cur, "check")
+	if !check.Gating || !check.OK || check.Fails == nil || *check.Fails != 0 || check.Log != "" {
+		t.Errorf("check: %+v, want gating, ok, 0 fails, no log", check)
+	}
+	conf := stepOf(t, cur, "conformance")
+	if conf.Gating || conf.OK || conf.Fails == nil || *conf.Fails != 1 || conf.Log != logs+"conformance.log" {
+		t.Errorf("conformance: %+v, want non-gating, failed, 1 fail, log %sconformance.log", conf, logs)
+	}
+	live := stepOf(t, cur, "conformance_live")
+	if live.OK || live.Fails == nil || *live.Fails != 2 || live.Log != logs+"conformance_live.log" {
+		t.Errorf("conformance_live (rc 0, 2 fail): %+v, want failed, 2 fail, log %sconformance_live.log", live, logs)
+	}
+	x.contains(x.Read(logs+"conformance_live.log"), "FAIL L-1 live tier", "the zero-exit failing step's log kept")
+	budget := stepOf(t, cur, "check_budget")
+	if !budget.OK || budget.Fails != nil || budget.Log != "" {
+		t.Errorf("check_budget: %+v, want ok, no count, no log", budget)
+	}
+	x.gone(logs+"check_budget.log", "a passing step keeps no log")
+
+	x.is(x.steps(), OK, `^NIGHTLY GREEN `)
+	next := x.readFullChecks()
+	if next.Previous == nil || next.Previous.At != cur.At || len(next.Previous.Steps) != len(cur.Steps) {
+		t.Errorf("the next check's previous: %+v, want the first check %+v", next.Previous, cur)
+	}
+}
+
+// A RED check's summary names its failed gating steps (a backup with no line too) before its steps' lines; no step
+// with a line is "no commands".
+func TestFullCheckSummary(t *testing.T) {
+	t.Parallel()
+	c := FullCheck{Seconds: 12, Steps: []StepOutcome{{Name: "check", Gating: true, Line: "check 1 pass, 2 fail"},
+		{Name: "backup", Gating: true, Report: "backup: no store"}}}
+	if v, s := c.verdict(), c.Summary(); v != "RED" || s != "failed: check, backup; check 1 pass, 2 fail, 12s" {
+		t.Errorf("verdict %q, summary %q", v, s)
+	}
+	if s := (FullCheck{Seconds: 3}).Summary(); s != "no commands, 3s" {
+		t.Errorf("no steps: summary %q, want no commands, 3s", s)
+	}
+}
+
+// The prune step: none while no serve listens; a call that fails is a failed non-gating step whose log is serve's.
+func TestPruneStep(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	const summary = "check 7 pass, 0 fail, WARN conformance (rc 1, non-gating): 3 pass, 1 fail, 12s"
-	file := filepath.Join(project.StateDir(root), "last-full-check")
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+	sock := filepath.Join(root, "serve.sock")
+	if _, ok := pruneStep(context.Background(), sock, root); ok {
+		t.Fatal("a prune step with no socket, want none")
+	}
+	if err := os.WriteFile(sock, nil, 0o644); err != nil { // there, but nothing listens
 		t.Fatal(err)
 	}
-	if err := project.WriteAtomic(file, []byte("abc1234def 1700000000 GREEN "+summary+"\n")); err != nil {
-		t.Fatal(err)
-	}
-	sha, epoch, verdict, got, err := LastFullCheck(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sha != "abc1234def" || epoch != 1700000000 || verdict != "GREEN" || got != summary {
-		t.Errorf("LastFullCheck = %q, %d, %q, %q; want abc1234def, 1700000000, GREEN, %q", sha, epoch, verdict, got, summary)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	st, ok := pruneStep(ctx, sock, root)
+	if !ok || st.Name != "prune" || st.Gating || st.OK || st.Report == "" ||
+		st.Line != "WARN prune (non-gating): "+st.Report || st.Log != filepath.Join(project.StateDir(root), "logs", "serve.log") {
+		t.Errorf("a failed prune: %+v, %v; want a failed non-gating step, serve's log", st, ok)
 	}
 }

@@ -135,14 +135,17 @@ A hand run's verdict settles the needs-you at the next pass while it is in force
 replaces it (the needs-you names the last full check). An acknowledged RED stays ended until a later full check is RED
 again.
 
-A GREEN full check also sends you one line when a non-gating step reports a failure the previous full check did not —
-a step that failed and did not before, or the same step with a different fail count — one line for all of them:
+A GREEN full check, scheduled or by hand (`obor nightly` while serve runs; one run while serve was down: at its next
+start), also sends you one line when a non-gating step's outcome differs from the previous full check's — a step that
+fails and did not, or fails with a different fail count — one line for all of them:
 
-    [obor] nightly GREEN <sha7>: <step> <its summary> (was: <its summary that check | ok>) — log: <serve.log>
+    [obor] nightly GREEN <sha7>: <step> <its report> (was: <its report that check | ok>), log <its log>
 
-The steps are joined by `;`, and the log comes once at the end; `was: ok` is a step that did not fail then. Read the
-log; a cause in obor is a task, one in a tool a watch. The same failure as the previous check sends nothing, and a RED
-check keeps its needs-you alone.
+The steps are joined by `;`. The log is the step's full output (`.obor/state/logs/nightly-<step>.log`, kept for a
+step that exits 0 but reports failures too; a failed prune: serve's log); a step whose log could not be written
+names its summary line instead (`no log: <line>`). `was: ok` is a step that passed or did not run then. Read the
+log; a cause in obor is a task, one in a tool a watch. The same outcome as the previous check sends nothing, and a
+RED check keeps its needs-you alone.
 
 Serve writes it as a setup edit (one commit on main, your `[obor] config: nightly.at …` line) and reads it from
 the next pass: no serve restart. `obor status` shows `nightly check at HH:MM (in …)`, or `nightly: off (obor nightly

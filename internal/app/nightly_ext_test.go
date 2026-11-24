@@ -25,9 +25,24 @@ type nightlyFake struct {
 	sha  string           // Last's sha ("" abc1234def)
 	last string           // Last's verdict ("" none)
 	at   time.Time        // Last's time
-	was  string           // Last's summary (the full check before a run)
 	outs []app.NightlyOut // each run's outcome in turn (the last one again); Verdict "": the run fails
 	runs int
+	// full is each run's full check in turn (none past its end), recorded as checks does: the current one becomes the
+	// previous one. Once one is recorded (a run's, or a hand run's: record), Last is it, the fields above unused.
+	full      []app.FullCheck
+	cur, prev *app.FullCheck
+}
+
+// record makes c the last full check and the one before it the previous one, as checks' full-check.json keeps them
+// (a hand obor nightly).
+func (f *nightlyFake) record(c app.FullCheck) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recordLocked(c)
+}
+
+func (f *nightlyFake) recordLocked(c app.FullCheck) {
+	f.prev, f.cur = f.cur, &c
 }
 
 func (f *nightlyFake) nightly(at string) *app.Nightly {
@@ -35,16 +50,26 @@ func (f *nightlyFake) nightly(at string) *app.Nightly {
 		Last: func() (app.FullCheck, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
+			if f.cur != nil {
+				c := *f.cur
+				if f.prev != nil {
+					c.Was = f.prev.Steps
+				}
+				return c, nil
+			}
 			sha := f.sha
 			if sha == "" {
 				sha = "abc1234def"
 			}
-			return app.FullCheck{SHA: sha, Verdict: f.last, At: f.at, Summary: f.was}, nil
+			return app.FullCheck{SHA: sha, Verdict: f.last, At: f.at}, nil
 		},
 		Run: func(context.Context) (app.NightlyOut, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			out := f.outs[min(f.runs, len(f.outs)-1)]
+			if f.runs < len(f.full) {
+				f.recordLocked(f.full[f.runs])
+			}
 			f.runs++
 			if out.Verdict == "" {
 				return out, errors.New("cannot take the lock")
@@ -640,72 +665,117 @@ func greenLines(r *loopRig) []string {
 	return out
 }
 
-// A GREEN full check lines the lead once when a non-gating step's failure is new, or the same step's fail count
-// changed, naming the step, its summary, the previous summary (ok: it did not fail) and serve's log; the same failure
-// as the previous check lines nothing, a first check with no previous lines its failure with ok, and a RED check keeps
-// its needs-you alone.
-func TestNightlyGreenNonGatingChangeLinesTheLead(t *testing.T) {
-	t.Parallel()
-	const (
-		passing = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
-			"conformance_live (non-gating) agy 1.5.14 live tier skipped, 12s"
-		failing = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
-			"WARN conformance_live (rc 2, non-gating): agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, 0 skip, 0 warn, 12s"
-		fewerFails = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
-			"conformance_live (non-gating) agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn, 12s"
-		live = "agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, 0 skip, 0 warn"
-		was1 = "agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn"
-	)
-	for _, c := range []struct {
-		name    string
-		was     string // last-full-check's summary before the run
-		now     string // the run's summary
-		verdict string
-		want    string // the line after the log path; "": none
-	}{
-		{"a step that failed and did not before", passing, failing, "GREEN",
-			"conformance_live " + live + " (was: ok)"},
-		{"the same step with a different fail count", fewerFails, failing, "GREEN",
-			"conformance_live " + live + " (was: " + was1 + ")"},
-		{"the same failure as the previous check", failing, failing, "GREEN", ""},
-		{"no previous full check", "", failing, "GREEN", "conformance_live " + live + " (was: ok)"},
-		{"a RED check keeps its needs-you", passing, failing, "RED", ""},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			bubble(t, func(t *testing.T) {
-				out := app.NightlyOut{SHA: "abc1234def", Verdict: c.verdict, Summary: c.now}
-				if c.verdict == "RED" {
-					out.Line = "NIGHTLY RED abc1234"
-				} else {
-					out.Line = "NIGHTLY GREEN abc1234"
-				}
-				f := &nightlyFake{last: "GREEN", was: c.was, outs: []app.NightlyOut{out}}
-				r := nightlyRig(t, f, "02:00")
-				r.start()
-				r.waitStep("0 result nightly.2026-11-10")
-				if c.verdict == "RED" {
-					r.waitStep("0 fact needs-you{full-check RED abc1234}")
-				} else {
-					r.passes()
-				}
-				if c.want == "" {
-					r.passes()
-					if lines := greenLines(r); len(lines) != 0 {
-						t.Fatalf("the lead's lines %q, want none", lines)
-					}
-					return
-				}
-				want := "pj-lead: [obor] nightly GREEN abc1234: " + c.want + " — log: " +
-					filepath.Join(r.p.Root, ".obor", "state", "logs", "serve.log")
-				line := strings.TrimPrefix(want, "pj-lead: ")
-				r.waitFor("the lead's line", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-				if lines := greenLines(r); len(lines) != 1 || lines[0] != want {
-					t.Errorf("the lead's lines %q, want one %q", lines, want)
-				}
-			})
-		})
+// fullCheck is a GREEN full check at the rig's clock plus d whose non-gating conformance_live step fails with fails
+// (-1: it passes), its log at log.
+func fullCheck(r *loopRig, d time.Duration, fails int, log string) app.FullCheck {
+	live := app.CheckStep{Name: "conformance_live", OK: true, Report: "0 fail", Line: "conformance_live (non-gating) 0 fail"}
+	if fails >= 0 {
+		report := fmt.Sprintf("%d fail", fails)
+		live = app.CheckStep{Name: "conformance_live", Fails: &fails, Report: report,
+			Line: "WARN conformance_live (rc 2, non-gating): " + report, Log: log}
 	}
+	zero := 0
+	return app.FullCheck{SHA: "abc1234def", Verdict: "GREEN", At: r.clock.Now().Add(d), Steps: []app.CheckStep{
+		{Name: "check", Gating: true, OK: true, Fails: &zero, Report: "7 pass, 0 fail", Line: "check 7 pass, 0 fail"}, live}}
+}
+
+// The GREEN full check's line in the flow, one rule for every full check: a scheduled one with a newly failing step
+// lines it with its log (here the first check ever: no previous), the same failure the next night lines nothing; a
+// hand run with a new failure lines it and the scheduled run after it with the same failure lines nothing; a hand run
+// while serve was down lines once at the next start, and not again after a restart; a RED check keeps its needs-you
+// alone. The line's text is nightlygreen's table (TestNightlyGreenLine).
+func TestNightlyGreenLineFlow(t *testing.T) {
+	t.Parallel()
+	const logPath = "/p/.obor/state/logs/nightly-conformance_live.log"
+	wantLine := "pj-lead: [obor] nightly GREEN abc1234: conformance_live 8 fail (was: ok), log " + logPath
+	t.Run("scheduled: a newly failing step lines, the same failure the next night none", func(t *testing.T) {
+		t.Parallel()
+		bubble(t, func(t *testing.T) {
+			f := &nightlyFake{outs: []app.NightlyOut{green}}
+			r := nightlyRig(t, f, "02:00")
+			f.full = []app.FullCheck{fullCheck(r, 0, 8, logPath), fullCheck(r, 24*time.Hour, 8, logPath)}
+			r.start()
+			r.waitStep("0 result nightly.2026-11-10")
+			r.waitFor("the lead's line", func() bool { return len(greenLines(r)) == 1 })
+			if lines := greenLines(r); lines[0] != wantLine {
+				t.Errorf("the lead's line %q, want %q", lines[0], wantLine)
+			}
+			r.later(24 * time.Hour)
+			r.waitStep("0 result nightly.2026-11-11")
+			if n := f.count(); n != 2 {
+				t.Fatalf("precondition: two scheduled runs, got %d", n)
+			}
+			r.passes()
+			if lines := greenLines(r); len(lines) != 1 {
+				t.Errorf("the lead's lines %q after the same failure, want only the first night's", lines)
+			}
+		})
+	})
+	t.Run("by hand: a new failure lines, the scheduled run with the same failure none", func(t *testing.T) {
+		t.Parallel()
+		bubble(t, func(t *testing.T) {
+			f := &nightlyFake{outs: []app.NightlyOut{green}}
+			r := nightlyRig(t, f, "23:00") // the rig's clock is 12:00: the scheduled run comes after the hand one
+			f.record(fullCheck(r, -time.Hour, -1, ""))
+			r.start()
+			r.passes()
+			if lines := greenLines(r); len(lines) != 0 {
+				t.Fatalf("precondition: a passing check lines nothing, got %q", lines)
+			}
+			f.record(fullCheck(r, time.Minute, 8, logPath))
+			r.later(time.Minute)
+			r.waitFor("the hand run's line", func() bool { return len(greenLines(r)) == 1 })
+			if lines := greenLines(r); lines[0] != wantLine {
+				t.Errorf("the lead's line %q, want %q", lines[0], wantLine)
+			}
+			f.mu.Lock()
+			f.full = []app.FullCheck{fullCheck(r, 11*time.Hour, 8, logPath)}
+			f.mu.Unlock()
+			r.later(11 * time.Hour)
+			r.waitStep("0 result nightly.2026-11-10")
+			r.passes()
+			if lines := greenLines(r); len(lines) != 1 {
+				t.Errorf("the lead's lines %q after the scheduled run's same failure, want only the hand run's", lines)
+			}
+		})
+	})
+	t.Run("by hand while serve was down: one line at the start, none after a restart", func(t *testing.T) {
+		t.Parallel()
+		bubble(t, func(t *testing.T) {
+			f := &nightlyFake{outs: []app.NightlyOut{green}}
+			r := nightlyRig(t, f, "")
+			f.record(fullCheck(r, -2*time.Hour, -1, ""))
+			f.record(fullCheck(r, -time.Hour, 8, logPath))
+			r.start()
+			r.waitFor("the lead's line", func() bool { return len(greenLines(r)) == 1 })
+			if lines := greenLines(r); lines[0] != wantLine {
+				t.Errorf("the lead's line %q, want %q", lines[0], wantLine)
+			}
+			r.stop()
+			r.start()
+			r.passes()
+			if n := r.inbox.count("pj-lead", strings.TrimPrefix(wantLine, "pj-lead: ")); n != 1 {
+				t.Errorf("the line posted %d times across a restart, want 1", n)
+			}
+		})
+	})
+	t.Run("RED: its needs-you only", func(t *testing.T) {
+		t.Parallel()
+		bubble(t, func(t *testing.T) {
+			f := &nightlyFake{outs: []app.NightlyOut{red}}
+			r := nightlyRig(t, f, "02:00")
+			c := fullCheck(r, 0, 8, logPath)
+			c.Verdict = "RED"
+			f.full = []app.FullCheck{c}
+			r.start()
+			r.waitStep("0 result nightly.2026-11-10")
+			r.waitStep("0 fact needs-you{full-check RED abc1234}")
+			r.passes()
+			if lines := greenLines(r); len(lines) != 0 {
+				t.Errorf("the lead's lines %q, want none", lines)
+			}
+		})
+	})
 }
 
 // nightlyFact is a nightly fact of step with data d, as the store holds it.
