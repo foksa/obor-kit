@@ -44,7 +44,7 @@ func TestPromptRefusals(t *testing.T) {
 		}(), false, blocked},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			began, err := tc.core.Client().Prompt(ctx, "t1", "[obor job T-1/1/work] call the obor job_next tool", tc.clear)
+			began, err := tc.core.Client().Prompt(ctx, "t1", "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)", tc.clear)
 			if began || !tc.check(err) {
 				t.Errorf("Prompt = began %v, %v; want a refusal before any typing", began, err)
 			}

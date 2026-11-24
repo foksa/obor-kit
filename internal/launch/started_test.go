@@ -75,7 +75,7 @@ func TestStartReportsTheConfirmedStart(t *testing.T) {
 		x := setupRunning(t, "luna")
 		x.capture = true // serve's rollout search, run by the test after the start
 		x.shell("w1:p3", "pj-l-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)"})
 		if !ok {
 			t.Fatal(out)
 		}

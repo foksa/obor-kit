@@ -54,7 +54,7 @@ func TestStartRefusesNewlineArgument(t *testing.T) {
 		arg     string
 		refused bool
 	}{
-		{"a one-line prompt: started", "call the obor job_next tool", false},
+		{"a one-line prompt: started", "call the obor job_next tool now (connected; it returns your job)", false},
 		{"quotes, backticks, $, backslashes, braces, & and ; pass", "a \"b\" `c` $d e\\f {g} & h; i", false},
 		{"a newline: refused", "line one\nline two", true},
 		{"a carriage return: refused", "line one\rline two", true},

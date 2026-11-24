@@ -428,7 +428,7 @@ for (const [name, opts, want] of kitCases) {
 // each event's time (ms); an event with at names its location (session.execution.* carry none in opencode).
 const CREATED = 1793361600000;
 const oc = (type, data, at) => ({ id: "evt_" + type, type, created: CREATED, ...(at ? { location: { directory: at } } : {}), data });
-const wake = "[obor job T-1/1/work] call the obor job_next tool";
+const wake = "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)";
 const turn = (dir, id, text) => [
   oc("session.inbox.enqueued", { sessionID: id, inboxID: "msg_1", item: { type: "user", payload: { text }, delivery: "steer" } }, dir),
   oc("session.execution.started", { sessionID: id }),
@@ -859,10 +859,10 @@ test("inbox: a socket bound per session and named in its session-start's env; a 
   assert.deepEqual(prompted, [], "precondition: nothing prompted before a post");
   await post(sock("s1"), [line("[obor other] hi\n[obor] needs-you T-1")]);
   assert.deepEqual(prompted, [{ sessionID: "s1", text: "[obor other] hi\n[obor] needs-you T-1", metadata: { obor: "line" } }]);
-  await post(sock("s2"), [line("[obor job T-2/1/work] call the obor job_next tool"), "garbage"]);
+  await post(sock("s2"), [line("[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)"), "garbage"]);
   assert.deepEqual(prompted.map((p) => [p.sessionID, p.text]), [
     ["s1", "[obor other] hi\n[obor] needs-you T-1"],
-    ["s2", "[obor job T-2/1/work] call the obor job_next tool"],
+    ["s2", "[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)"],
   ], "the second session's line to it alone; a line that does not parse is none");
 });
 

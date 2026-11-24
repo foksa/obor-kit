@@ -6,5 +6,5 @@
   "prompt_id": "9a7657a5-8744-457d-bbf1-1010df786a8f",
   "permission_mode": "auto",
   "hook_event_name": "UserPromptSubmit",
-  "prompt": "[obor job T-0/1/work] call the obor job_next tool"
+  "prompt": "[obor job T-0/1/work] call the obor job_next tool now (connected; it returns your job)"
 }

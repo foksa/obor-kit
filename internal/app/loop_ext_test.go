@@ -586,7 +586,7 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 		}
 		fixes := 0
 		for _, p := range r.prompts() {
-			if p.to == "pj-l-01" && strings.HasSuffix(p.text, "/fix] call the obor job_next tool") {
+			if p.to == "pj-l-01" && strings.HasSuffix(p.text, "/fix] call the obor job_next tool now (connected; it returns your job)") {
 				fixes++
 			}
 		}

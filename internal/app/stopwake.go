@@ -40,7 +40,7 @@ const (
 	wakeAlarm    = 30 * time.Minute // still stopped this long after the stop's first wake: the alarm
 	stepContinue = "continue."      // prompt intent (P) continue.<Unix seconds>: a stopped worker's wake at that time
 	stillStopped = "; still stopped 30m after the reset wake"
-	continueText = "Your usage limit has reset: continue where your turn stopped (" + wakeText + " for your job)."
+	continueText = "Your usage limit has reset: continue where your turn stopped. Then " + wakeText + "."
 	roleContinue = "[obor] Your usage limit has reset: continue your brief where your turn stopped."
 )
 

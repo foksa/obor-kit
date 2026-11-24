@@ -154,7 +154,7 @@ func (r *loopRig) before(a, b string) bool {
 }
 
 // continueLine is the continue wake T-1's stopped worker gets: its work job's tag, then the text.
-const continueLine = "[obor job T-1/1/work] Your usage limit has reset: continue where your turn stopped (call the obor job_next tool for your job)."
+const continueLine = "[obor job T-1/1/work] Your usage limit has reset: continue where your turn stopped. Then call the obor job_next tool now (connected; it returns your job)."
 
 // stillStopped is the alarm's addition to the stop's reason.
 const stillStopped = "; still stopped 30m after the reset wake"
@@ -355,7 +355,7 @@ func (r *loopRig) startedWith(job string) {
 	})
 	starts := r.ruleStarts()
 	l := starts[len(starts)-1]
-	if want := "[obor job " + job + "] call the obor job_next tool"; l.Pane != "w1:p1" || l.Prompt != want {
+	if want := "[obor job " + job + "] call the obor job_next tool now (connected; it returns your job)"; l.Pane != "w1:p1" || l.Prompt != want {
 		r.t.Errorf("the rule's start %+v; want pane w1:p1, prompt %q", l, want)
 	}
 	r.waitFor("pj-l-01 up again", func() bool {

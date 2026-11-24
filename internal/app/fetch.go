@@ -20,11 +20,11 @@ import (
 )
 
 // Jobs by fetch (docs/state-model.md rows 5–8 and 16–17). Every agent fetches its
-// jobs: a job's prompt is its wake, one constant line with no content ([obor job <id>] call the obor job_next
-// tool), harmless typed twice, lost or eaten by a dialog. The agent fetches the job with obor mcp's job_next tool (a
-// socket request here); its first fetch is fact delivered{job, via: mcp}, the job's only delivery. A worker finishes
-// only by task_done, its report the argument: fact submitted carries it, and the review job, the merge subject's
-// fallback and obor status read it there.
+// jobs: a job's prompt is its wake, one constant line ([obor job <id>] call the obor job_next tool now (connected; it
+// returns your job)), harmless typed twice, lost or eaten by a dialog. The agent fetches the job with obor mcp's
+// job_next tool (a socket request here); its first fetch is fact delivered{job, via: mcp}, the job's only delivery. A
+// worker finishes only by task_done, its report the argument: fact submitted carries it, and the review job, the merge
+// subject's fallback and obor status read it there.
 
 // wakeText is a job's wake for an agent that fetches it; its [obor job <id>] tag goes before it (jobLine).
 const wakeText = wire.WakeText

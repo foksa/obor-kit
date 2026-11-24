@@ -104,8 +104,8 @@ no per-file list is enforced: the integrator checks placement against `docs/modu
 Workers: read your spec and the `docs/design.md` sections it cites; the rest (tests to run, no git writes) is the
 worker role text `templates/agents/worker.md` + `docs/agents/worker.md`. Never run the full suite in a lane:
 `obor serve`'s merge loop runs it once as the gate.
-A job is fetched, not typed: the first prompt is the constant wake `[obor job <id>] call the obor
-job_next tool`; call `job_next` first. A worker finishes only with `task_done`, its report as the argument (there is
-no done file). `obor setup mcp` shows whether the `obor mcp` server is registered per agent kind (Claude: the plugin
-manifest's `mcpServers`; Codex: launch args; OpenCode: each start's generated config; agy: the project's
-`.agents/mcp_config.json`).
+A job is fetched, not typed: the first prompt is the constant wake `[obor job <id>] call the obor job_next tool now
+(connected; it returns your job)`; call `job_next` first. A worker finishes only with `task_done`, its report as the
+argument (there is no done file). `obor setup mcp` shows whether the `obor mcp` server is registered per agent kind
+(Claude: the plugin manifest's `mcpServers`; Codex: launch args; OpenCode: each start's generated config; agy: the
+project's `.agents/mcp_config.json`).
