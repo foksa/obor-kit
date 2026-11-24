@@ -246,20 +246,22 @@ func noteLines(text string) []string {
 	return out
 }
 
-// LastFullCheck reads root's .obor/state/last-full-check (Nightly): the sha, time and verdict (GREEN|RED) of the last
-// full check; none yet: "", 0, "".
-func LastFullCheck(root string) (sha string, epoch int64, verdict string, err error) {
+// LastFullCheck reads root's .obor/state/last-full-check (Nightly): the sha, time, verdict (GREEN|RED) and summary of
+// the last full check; none yet: "", 0, "", "".
+func LastFullCheck(root string) (sha string, epoch int64, verdict, summary string, err error) {
 	b, err := os.ReadFile(filepath.Join(project.StateDir(root), "last-full-check"))
 	if os.IsNotExist(err) {
-		return "", 0, "", nil
+		return "", 0, "", "", nil
 	}
 	if err != nil {
-		return "", 0, "", err
+		return "", 0, "", "", err
 	}
-	f := strings.Fields(project.FirstLine(string(b)))
+	line := project.FirstLine(string(b))
+	f := strings.Fields(line)
 	if len(f) < 3 {
-		return "", 0, "", fmt.Errorf("last-full-check: no \"<sha> <epoch> GREEN|RED\" line")
+		return "", 0, "", "", fmt.Errorf("last-full-check: no \"<sha> <epoch> GREEN|RED\" line")
 	}
 	epoch, _ = strconv.ParseInt(f[1], 10, 64)
-	return f[0], epoch, f[2], nil
+	summary = strings.TrimSpace(strings.TrimPrefix(line, f[0]+" "+f[1]+" "+f[2]))
+	return f[0], epoch, f[2], summary, nil
 }

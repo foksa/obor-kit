@@ -12,6 +12,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
@@ -416,5 +417,27 @@ func TestNightlyStepsCommands(t *testing.T) {
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) { t.Parallel(); c.test(t) })
+	}
+}
+
+// LastFullCheck splits last-full-check into the sha, time, verdict and the summary after them (serve's nightly compares
+// it with the next check's).
+func TestLastFullCheckSummary(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const summary = "check 7 pass, 0 fail, WARN conformance (rc 1, non-gating): 3 pass, 1 fail, 12s"
+	file := filepath.Join(project.StateDir(root), "last-full-check")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.WriteAtomic(file, []byte("abc1234def 1700000000 GREEN "+summary+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	sha, epoch, verdict, got, err := LastFullCheck(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != "abc1234def" || epoch != 1700000000 || verdict != "GREEN" || got != summary {
+		t.Errorf("LastFullCheck = %q, %d, %q, %q; want abc1234def, 1700000000, GREEN, %q", sha, epoch, verdict, got, summary)
 	}
 }
