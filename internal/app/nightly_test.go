@@ -12,10 +12,10 @@ import (
 )
 
 // A GREEN check's line: one clause per non-gating step whose outcome differs from the previous check's — failing
-// where it passed or did not run (the first check ever: no previous), or failing with another fail count — with its
-// report, its previous outcome (ok, or the report then) and its log, or its summary line when no log could be
-// written; the same failure (the same count, or no count both times), a passing step and a failing gating step line
-// nothing.
+// where it passed or did not run (the first check ever: no previous), or failing with another fail count, or with no
+// count on either side a different report — with its report, its previous outcome (ok, or the report then) and its
+// log, or its summary line when no log could be written; the same failure (the same count, or the same report when
+// neither has one), a passing step and a failing gating step line nothing.
 func TestNightlyGreenLine(t *testing.T) {
 	t.Parallel()
 	n := func(v int) *int { return &v }
@@ -27,6 +27,13 @@ func TestNightlyGreenLine(t *testing.T) {
 	passing := CheckStep{Name: "conformance", OK: true, Fails: n(0), Report: "4 pass, 0 fail", Line: "conformance (non-gating) 4 pass, 0 fail"}
 	race := CheckStep{Name: "race", Report: "1 data race report(s)", Line: "WARN race (rc 2, non-gating): 1 data race report(s)",
 		Log: "/p/.obor/state/logs/nightly-race.log"}
+	race2 := CheckStep{Name: "race", Report: "2 data race report(s)",
+		Line: "WARN race (rc 2, non-gating): 2 data race report(s)", Log: "/p/.obor/state/logs/nightly-race.log"}
+	budget := CheckStep{Name: "check_budget", Report: "budget OK: 12 packages",
+		Line: "check_budget (non-gating) budget OK: 12 packages", Log: "/p/.obor/state/logs/nightly-check_budget.log"}
+	budgetBad := CheckStep{Name: "check_budget", Report: "FAIL budget: internal/app 3.2s over 2.0s",
+		Line: "WARN check_budget (rc 1, non-gating): FAIL budget: internal/app 3.2s over 2.0s",
+		Log:  "/p/.obor/state/logs/nightly-check_budget.log"}
 	prune := CheckStep{Name: "prune", Report: "no serve listening", Line: "WARN prune (non-gating): no serve listening",
 		Log: "/p/.obor/state/logs/serve.log"}
 	const head = "[obor] nightly GREEN abc1234: "
@@ -41,9 +48,13 @@ func TestNightlyGreenLine(t *testing.T) {
 			head + "conformance 3 pass, 1 fail (was: ok), log " + log},
 		{"another fail count", []CheckStep{failing(n(8), "11 pass, 8 fail", log)}, []CheckStep{failing(n(1), "0 pass, 1 fail", log)},
 			head + "conformance 11 pass, 8 fail (was: 0 pass, 1 fail), log " + log},
+		{"a worse race report, no count on either side", []CheckStep{race2}, []CheckStep{race},
+			head + "race 2 data race report(s) (was: 1 data race report(s)), log /p/.obor/state/logs/nightly-race.log"},
+		{"a changed budget report, no count on either side", []CheckStep{budgetBad}, []CheckStep{budget},
+			head + "check_budget FAIL budget: internal/app 3.2s over 2.0s (was: budget OK: 12 packages), log /p/.obor/state/logs/nightly-check_budget.log"},
 		{"the same fail count, more passes", []CheckStep{failing(n(1), "9 pass, 1 fail", log)},
 			[]CheckStep{failing(n(1), "3 pass, 1 fail", log)}, ""},
-		{"the same failure with no count", []CheckStep{race}, []CheckStep{race}, ""},
+		{"the same race report twice, no count", []CheckStep{race}, []CheckStep{race}, ""},
 		{"a passing step", []CheckStep{passing}, []CheckStep{failing(n(1), "3 pass, 1 fail", log)}, ""},
 		{"a failing gating step", []CheckStep{{Name: "check", Gating: true, Report: "rc=1", Log: log}}, nil, ""},
 		{"a zero-exit step reporting failures: its log", []CheckStep{{Name: "conformance", Fails: n(2), Report: "5 pass, 2 fail",

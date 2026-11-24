@@ -137,7 +137,8 @@ again.
 
 A GREEN full check, scheduled or by hand (`obor nightly` while serve runs; one run while serve was down: at its next
 start), also sends you one line when a non-gating step's outcome differs from the previous full check's — a step that
-fails and did not, or fails with a different fail count — one line for all of them:
+fails and did not, or fails again with another fail count, or with no count on either side another report — one line
+for all of them:
 
     [obor] nightly GREEN <sha7>: <step> <its report> (was: <its report that check | ok>), log <its log>
 
