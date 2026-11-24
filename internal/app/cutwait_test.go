@@ -10,7 +10,7 @@ import (
 
 // A fact of a task ends the waits of that task's steps (a resume's unblocked, a counted failure) and no other
 // task's; a line's wait ends with its own failed fact, not with another line's or with a message, and a call's
-// receipt (a stored spec, a delivered job) ends none.
+// receipt (a stored spec, a delivered or refetched job) ends none.
 func TestCutEndFact(t *testing.T) {
 	t.Parallel()
 	gate := event.Key{Task: "T-1", Attempt: 1, Step: "gate"}
@@ -32,6 +32,7 @@ func TestCutEndFact(t *testing.T) {
 		{"a message", fact(event.MsgTask, event.StepMessage, event.FactData{}), event.Key{}},
 		{"a spec's receipt", fact("T-1", event.StepSpecSet, event.FactData{}), event.Key{}},
 		{"a delivery's receipt", fact("T-1", event.StepDelivered, event.FactData{}), event.Key{}},
+		{"a refetch's receipt", fact("T-1", event.StepRefetched, event.FactData{}), event.Key{}},
 	} {
 		p := &proj{cuts: map[event.Key]*cutWait{}}
 		for _, key := range []event.Key{gate, other, line7, line8} {
