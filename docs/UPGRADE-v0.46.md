@@ -15,7 +15,8 @@ that names `toolPermission` keeps its value (delete the key if it only said `alw
 agents are unchanged.
 
 **Serve follows a new obor binary** while tasks wait on you (needs-you), and at the latest 30 minutes after it sees
-the binary if work never stops.
+the binary if work never stops. Its log names the binary (path, version) and what holds a pending restart;
+`obor status` shows the same beside "restarting serve".
 
 ## v0.46.1 (agy: lane worktrees trusted, the kit's role files readable, a resume checks its model)
 
