@@ -2,9 +2,11 @@ package checks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,10 +24,10 @@ import (
 // It then backs up the project's database (wire.Backup), sweeps.obor (project.Sweep: each removal it could not
 // make is one detail line, never RED; its backup step only after a backup with a nonempty reply) and runs
 // merge.nightly_commands in order (each a
-// commands.<name>, non-gating — one report line, never RED; a nonzero exit a WARN line). Writes
-// .obor/state/last-full-check
-// "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
-// DefaultWindowWait).
+// commands.<name>, non-gating — one report line, never RED; a nonzero exit a WARN line). Writes each step's outcome
+// to .obor/state/full-check.json beside the previous check's (ReadFullChecks: serve's nightly reads it), and the
+// summary derived from them to .obor/state/last-full-check "<sha> <epoch> GREEN|RED <summary>" (obor status reads
+// it). A live nightly run of the project is waited for (max DefaultWindowWait).
 func Nightly(o Options) Result {
 	s, r := open(context.Background(), o, "nightly")
 	if r != nil {
@@ -58,12 +60,14 @@ func (s *session) nightly() *Result {
 }
 
 // steps runs the nightly's commands in s.dir (the checks, the backup, the sweep, merge.nightly_commands), writes
-// last-full-check for sha and returns the result line. It reads no git itself: scrub is what puts the worktree back
+// full-check.json and last-full-check for sha and returns the result line. It reads no git itself: scrub is what puts the worktree back
 // at sha between the gating checks and the rest, "no command artifacts left behind" (nil: nothing to scrub), so a
 // test runs it on a plain dir. That reset's `clean -fdq` takes the lane links with the artifacts, so the nightly
 // links them again before the commands that follow it.
 func (s *session) steps(sha string, scrub func()) *Result {
-	var results, failed, details, evidence []string
+	var outcomes []StepOutcome
+	var details, evidence []string
+	gatingFailed := false
 	// step runs commands.<name>; retest is whether a red's failing tests are rerun once (the nightly's check and
 	// check_milestone, as a lane test does; lane_setup and merge.nightly_commands never are).
 	step := func(name string, retest bool) *Result {
@@ -82,15 +86,18 @@ func (s *session) steps(sha string, scrub func()) *Result {
 		if !ok {
 			return nil
 		}
-		results = append(results, name+" "+s.what(o))
+		report := s.what(o)
+		line := name + " " + report
 		if saved > 0 {
 			// A retest that saved the run: the GREEN line names the rerun, so a flaky night shows in obor status.
-			results = append(results, fmt.Sprintf("retest saved %d", saved))
+			line += fmt.Sprintf(", retest saved %d", saved)
 		}
+		outcomes = append(outcomes, StepOutcome{Name: name, Gating: true, OK: o.rc == 0, Fails: failCount(report),
+			Report: report, Line: line, Log: o.log})
 		if o.rc == 0 {
 			return nil
 		}
-		failed = append(failed, name)
+		gatingFailed = true
 		details = append(details, fmt.Sprintf("--- %s (rc %d)", name, o.rc))
 		if e := s.evidence(o); e != "" {
 			evidence = append(evidence, name+": "+e)
@@ -101,7 +108,7 @@ func (s *session) steps(sha string, scrub func()) *Result {
 	if r := step("lane_setup", false); r != nil {
 		return r
 	}
-	if len(failed) == 0 {
+	if !gatingFailed {
 		s.retest = true // the nightly reruns a red check's failing tests once, inside the slot it holds
 		for _, name := range []string{"check", "check_milestone"} {
 			if r := step(name, true); r != nil {
@@ -120,19 +127,19 @@ func (s *session) steps(sha string, scrub func()) *Result {
 		ctx = s.ctx // an interrupted nightly does not wait out the call's deadline on a backup
 	}
 	line, failure, backedUp := backupOutcome(wire.Backup(ctx, sock, s.Cfg.Root, time.Now()))
-	if failure != "" {
-		failed = append(failed, "backup")
+	switch {
+	case failure != "":
+		outcomes = append(outcomes, StepOutcome{Name: "backup", Gating: true, Report: failure})
 		evidence = append(evidence, failure)
-	}
-	if line != "" {
-		results = append(results, line)
+	case line != "":
+		outcomes = append(outcomes, StepOutcome{Name: "backup", Gating: true, OK: true, Report: line, Line: line})
 	}
 	// The nightly sweep: after the backup, both the serve path and the direct one; a removal it could not
 	// make is a line, never a failure. Its backup step runs only when the backup above succeeded.
 	details = append(details, project.Sweep(s.Cfg, time.Now(), backedUp)...)
 	// The branch prune of tasks merged over a week ago: serve's (the fold says what merged), so none while it is down.
-	if line := pruneLine(ctx, sock, s.Cfg.Root); line != "" {
-		results = append(results, line)
+	if o, ok := pruneStep(ctx, sock, s.Cfg.Root); ok {
+		outcomes = append(outcomes, o)
 	}
 	// merge.nightly_commands: after the gating checks and the backup, in order, each non-gating.
 	for _, name := range s.Cfg.MergeNightlyCommands() {
@@ -143,58 +150,86 @@ func (s *session) steps(sha string, scrub func()) *Result {
 		if !ok { // config validate refuses a name that is no command; a config newer than this binary is no failure
 			continue
 		}
-		results = append(results, nonGatingLine(name, o.rc, o.text))
+		outcomes = append(outcomes, s.nonGatingOutcome(name, o))
 		if notes := noteLines(o.text); len(notes) > 0 {
 			details = append(details, fmt.Sprintf("--- %s (non-gating)", name))
 			details = append(details, notes...)
 		}
 	}
 
-	verdict, summary := "GREEN", strings.Join(results, ", ")
-	if summary == "" {
-		summary = "no commands"
-	}
-	summary = fmt.Sprintf("%s, %ds", summary, secs(time.Since(s.start)))
-	if len(failed) > 0 {
-		verdict = "RED"
-		summary = "failed: " + strings.Join(failed, ", ") + "; " + summary
+	c := FullCheck{SHA: sha, At: time.Now().Unix(), Seconds: secs(time.Since(s.start)), Steps: outcomes}
+	c.Verdict = c.verdict()
+	summary := c.Summary()
+	if err := writeFullCheck(s.state, c); err != nil {
+		return result(Fail, "FAIL %v", err)
 	}
 	file := filepath.Join(s.state, "last-full-check")
-	if project.WriteAtomic(file, []byte(fmt.Sprintf("%s %d %s %s\n", sha, time.Now().Unix(), verdict, summary))) != nil {
+	if project.WriteAtomic(file, []byte(fmt.Sprintf("%s %d %s %s\n", sha, c.At, c.Verdict, summary))) != nil {
 		return result(Fail, "FAIL cannot write %s", file)
 	}
 	s.printLines(details)
-	if verdict == "GREEN" {
+	if c.Verdict == "GREEN" {
 		return result(OK, "NIGHTLY GREEN %s on %s (%s)", sha[:min(7, len(sha))], s.target, summary)
 	}
 	return result(Red, "NIGHTLY RED %s on %s (%s) — %s", sha[:min(7, len(sha))], s.target, summary,
 		strings.Join(evidence, " | "))
 }
 
-// nonGatingLine is a merge.nightly_commands command's result line: its own summary, a nonzero exit a WARN line,
-// never RED. The summary is the command's last line that starts "<name>: " (prefix stripped), so a wrapper's trailer
-// never stands in for it — make appends `make: *** [check-race] Error 1` to a failed recipe; with no
-// such line, the command's last non-blank line is. A command that printed no line at all is rc=<rc>.
-func nonGatingLine(name string, rc int, text string) string {
-	summary, found := "", false
+// nonGatingOutcome is a merge.nightly_commands command's outcome: its own report (nonGatingReport) and the fail count
+// in it; failed when it exited nonzero or reported failures. A zero-exit run that reports failures keeps its full
+// output in its log, as a failed one does (the runner removed it: it passed).
+func (s *session) nonGatingOutcome(name string, o output) StepOutcome {
+	report := nonGatingReport(name, o.rc, o.text)
+	fails := failCount(report)
+	out := StepOutcome{Name: name, OK: o.rc == 0 && (fails == nil || *fails == 0), Fails: fails, Report: report,
+		Line: nonGatingLine(name, o.rc, report), Log: o.log}
+	if !out.OK && out.Log == "" && o.rc == 0 {
+		out.Log = s.writeLog(name, []byte(o.text))
+	}
+	return out
+}
+
+// nonGatingReport is a merge.nightly_commands command's own summary: its last line that starts "<name>: " (prefix
+// stripped), so a wrapper's trailer never stands in for it — make appends `make: *** [check-race] Error 1` to a failed
+// recipe; with no such line, the command's last non-blank line is. A command that printed no line at all is rc=<rc>.
+func nonGatingReport(name string, rc int, text string) string {
 	ls := lines(text)
 	for i := len(ls) - 1; i >= 0; i-- {
-		l := strings.TrimSpace(ls[i])
-		if strings.HasPrefix(l, name+": ") {
-			summary, found = strings.TrimPrefix(l, name+": "), true
-			break
+		if l := strings.TrimSpace(ls[i]); strings.HasPrefix(l, name+": ") {
+			return strings.TrimPrefix(l, name+": ")
 		}
 	}
-	if !found {
-		summary = lastLine(text)
+	if l := lastLine(text); l != "" {
+		return l
 	}
-	if summary == "" {
-		summary = "rc=" + strconv.Itoa(rc)
-	}
+	return "rc=" + strconv.Itoa(rc)
+}
+
+// nonGatingLine is a merge.nightly_commands command's part of the summary: its report, a nonzero exit a WARN line,
+// never RED.
+func nonGatingLine(name string, rc int, report string) string {
 	if rc != 0 { // a warning line, never RED
-		return fmt.Sprintf("WARN %s (rc %d, non-gating): %s", name, rc, summary)
+		return fmt.Sprintf("WARN %s (rc %d, non-gating): %s", name, rc, report)
 	}
-	return name + " (non-gating) " + summary
+	return name + " (non-gating) " + report
+}
+
+// failCountRE is a report's "<n> fail" count ("0 fail", "8 fail"), not "failed" or "failing".
+var failCountRE = regexp.MustCompile(`\b(\d+) fail\b`)
+
+// failCount is the fail count a step's report holds, the sum of its "<n> fail" counts (a chained command reports one
+// per part); nil when it reports none.
+func failCount(report string) *int {
+	ms := failCountRE.FindAllStringSubmatch(report, -1)
+	if len(ms) == 0 {
+		return nil
+	}
+	n := 0
+	for _, m := range ms {
+		v, _ := strconv.Atoi(m[1])
+		n += v
+	}
+	return &n
 }
 
 // backupOutcome is nightly's backup step's answer for wire.Backup's reply and error (a unit test, no nightly):
@@ -210,17 +245,19 @@ func backupOutcome(reply string, err error) (line, failure string, backedUp bool
 	return "", "", false
 }
 
-// pruneLine is the nightly's non-gating prune step: serve's line (`prune: N branches (oldest merge <date>)`), a WARN
-// line when the call failed, and nothing when no serve is listening.
-func pruneLine(ctx context.Context, sock, root string) string {
+// pruneStep is the nightly's non-gating prune step: serve's line (`prune: N branches (oldest merge <date>)`); a call
+// that failed is a failed step whose log is serve's (the prune's own lines are there); ok false when no serve is
+// listening.
+func pruneStep(ctx context.Context, sock, root string) (StepOutcome, bool) {
 	if _, err := os.Stat(sock); err != nil {
-		return ""
+		return StepOutcome{}, false
 	}
 	line, err := wire.Prune(ctx, sock, root)
 	if err != nil {
-		return "WARN prune (non-gating): " + err.Error()
+		return StepOutcome{Name: "prune", Report: err.Error(), Line: "WARN prune (non-gating): " + err.Error(),
+			Log: filepath.Join(project.StateDir(root), "logs", "serve.log")}, true
 	}
-	return line
+	return StepOutcome{Name: "prune", OK: true, Report: strings.TrimPrefix(line, "prune: "), Line: line}, true
 }
 
 // lastLine is text's last non-blank line, trimmed ("" when it printed none).
@@ -246,22 +283,107 @@ func noteLines(text string) []string {
 	return out
 }
 
-// LastFullCheck reads root's .obor/state/last-full-check (Nightly): the sha, time, verdict (GREEN|RED) and summary of
-// the last full check; none yet: "", 0, "", "".
-func LastFullCheck(root string) (sha string, epoch int64, verdict, summary string, err error) {
-	b, err := os.ReadFile(filepath.Join(project.StateDir(root), "last-full-check"))
-	if os.IsNotExist(err) {
-		return "", 0, "", "", nil
+// StepOutcome is one step of a full check as it ran: its name, whether it gates the verdict, whether it passed (a
+// non-gating step that exits 0 but reports failures did not), the fail count its report holds (nil: none), its report,
+// its part of the summary ("" none) and the log of its full output ("" when it passed or no log could be written; a
+// failed prune: serve's log).
+type StepOutcome struct {
+	Name   string `json:"name"`
+	Gating bool   `json:"gating,omitempty"`
+	OK     bool   `json:"ok"`
+	Fails  *int   `json:"fails,omitempty"`
+	Report string `json:"report,omitempty"`
+	Line   string `json:"line,omitempty"`
+	Log    string `json:"log,omitempty"`
+}
+
+// FullCheck is one full check's outcome: the sha it checked, when it ended (unix seconds), its verdict, how long it
+// took and its steps in the order they ran. Its summary is derived from them (Summary).
+type FullCheck struct {
+	SHA     string        `json:"sha"`
+	At      int64         `json:"at"`
+	Verdict string        `json:"verdict"`
+	Seconds int           `json:"seconds"`
+	Steps   []StepOutcome `json:"steps"`
+}
+
+// FullChecks is .obor/state/full-check.json: the last full check and the one before it (nil: none), so a restart or a
+// hand run between two scheduled ones loses no outcome.
+type FullChecks struct {
+	Current  *FullCheck `json:"current,omitempty"`
+	Previous *FullCheck `json:"previous,omitempty"`
+}
+
+// fullCheckFile is the full checks' state file under state.
+func fullCheckFile(state string) string { return filepath.Join(state, "full-check.json") }
+
+// verdict is RED when a gating step failed, else GREEN.
+func (c FullCheck) verdict() string {
+	for _, st := range c.Steps {
+		if st.Gating && !st.OK {
+			return "RED"
+		}
+	}
+	return "GREEN"
+}
+
+// Summary is the check's one-line summary (obor status, the result line): its steps' lines and its time, "no
+// commands" when no step has one, prefixed "failed: <gating steps that failed>; " when RED.
+func (c FullCheck) Summary() string {
+	var parts, failed []string
+	for _, st := range c.Steps {
+		if st.Line != "" {
+			parts = append(parts, st.Line)
+		}
+		if st.Gating && !st.OK {
+			failed = append(failed, st.Name)
+		}
+	}
+	summary := strings.Join(parts, ", ")
+	if summary == "" {
+		summary = "no commands"
+	}
+	summary = fmt.Sprintf("%s, %ds", summary, c.Seconds)
+	if len(failed) > 0 {
+		summary = "failed: " + strings.Join(failed, ", ") + "; " + summary
+	}
+	return summary
+}
+
+// writeFullCheck makes c the current full check in state's full-check.json, the current one before it its previous.
+// A file that cannot be read keeps no previous one.
+func writeFullCheck(state string, c FullCheck) error {
+	next := FullChecks{Current: &c}
+	if b, err := os.ReadFile(fullCheckFile(state)); err == nil {
+		var was FullChecks
+		if json.Unmarshal(b, &was) == nil {
+			next.Previous = was.Current
+		}
+	}
+	b, err := json.Marshal(next)
+	if err == nil {
+		err = project.WriteAtomic(fullCheckFile(state), append(b, '\n'))
 	}
 	if err != nil {
-		return "", 0, "", "", err
+		return fmt.Errorf("cannot write %s: %v", fullCheckFile(state), err)
 	}
-	line := project.FirstLine(string(b))
-	f := strings.Fields(line)
-	if len(f) < 3 {
-		return "", 0, "", "", fmt.Errorf("last-full-check: no \"<sha> <epoch> GREEN|RED\" line")
+	return nil
+}
+
+// ReadFullChecks reads root's .obor/state/full-check.json (Nightly): the last full check and the one before it; none
+// yet: both nil.
+func ReadFullChecks(root string) (FullChecks, error) {
+	file := fullCheckFile(project.StateDir(root))
+	b, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		return FullChecks{}, nil
 	}
-	epoch, _ = strconv.ParseInt(f[1], 10, 64)
-	summary = strings.TrimSpace(strings.TrimPrefix(line, f[0]+" "+f[1]+" "+f[2]))
-	return f[0], epoch, f[2], summary, nil
+	if err != nil {
+		return FullChecks{}, err
+	}
+	var c FullChecks
+	if err := json.Unmarshal(b, &c); err != nil {
+		return FullChecks{}, fmt.Errorf("%s: %v", file, err)
+	}
+	return c, nil
 }

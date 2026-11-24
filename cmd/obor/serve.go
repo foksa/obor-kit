@@ -319,8 +319,16 @@ func nightly(o checks.Options) *app.Nightly {
 	root := o.Cfg.Root
 	return &app.Nightly{At: o.Cfg.NightlyAt(),
 		Last: func() (app.FullCheck, error) {
-			sha, epoch, verdict, summary, err := checks.LastFullCheck(root)
-			return app.FullCheck{SHA: sha, Verdict: verdict, At: time.Unix(epoch, 0), Summary: summary}, err
+			c, err := checks.ReadFullChecks(root)
+			if err != nil || c.Current == nil {
+				return app.FullCheck{}, err
+			}
+			out := app.FullCheck{SHA: c.Current.SHA, Verdict: c.Current.Verdict, At: time.Unix(c.Current.At, 0),
+				Steps: checkSteps(c.Current)}
+			if c.Previous != nil {
+				out.Was = checkSteps(c.Previous)
+			}
+			return out, nil
 		},
 		Run: func(ctx context.Context) (app.NightlyOut, error) {
 			cut, done := make(chan int, 1), make(chan struct{})
@@ -343,10 +351,26 @@ func nightly(o checks.Options) *app.Nightly {
 			default:
 				return out, errors.New(cmp.Or(r.Line, fmt.Sprintf("obor nightly exited %d", r.Code)))
 			}
-			sha, _, _, summary, err := checks.LastFullCheck(root)
-			out.SHA, out.Summary = sha, summary
-			return out, err
+			c, err := checks.ReadFullChecks(root)
+			if err == nil && c.Current == nil {
+				err = errors.New("obor nightly wrote no full check")
+			}
+			if err != nil {
+				return out, err
+			}
+			out.SHA = c.Current.SHA
+			return out, nil
 		}}
+}
+
+// checkSteps is c's step outcomes as serve's nightly reads them.
+func checkSteps(c *checks.FullCheck) []app.CheckStep {
+	out := make([]app.CheckStep, 0, len(c.Steps))
+	for _, s := range c.Steps {
+		out = append(out, app.CheckStep{Name: s.Name, Gating: s.Gating, OK: s.OK, Fails: s.Fails, Report: s.Report,
+			Line: s.Line, Log: s.Log})
+	}
+	return out
 }
 
 // configured: root has an obor config.
