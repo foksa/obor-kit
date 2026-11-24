@@ -47,8 +47,8 @@ func executable(path string) bool {
 // candidate when the watch is made: a test binary, `go run` or a lane's own build (OBOR_NO_SELF_HOST) never follows.
 type Watch struct {
 	Kit, Home string
-	Now       func() time.Time  // nil: time.Now
-	Probe     func(string) bool // a candidate's `version` probe (New: probe); a test answers for the files it makes
+	Now       func() time.Time            // nil: time.Now
+	Probe     func(string) (string, bool) // a candidate's `version` probe and its line (New: probe); a test answers for its files
 
 	self os.FileInfo // the running binary's file (nil: the watch is off)
 	mu   sync.Mutex
@@ -86,47 +86,62 @@ func sameAs(exe, cand string) os.FileInfo {
 // On: the watch follows a binary (the running one was the kit's candidate at New).
 func (w *Watch) On() bool { return w != nil && w.self != nil }
 
-// Changed: the kit's candidate now is another file than the running binary: it exists, is executable, its mtime is
+// Changed: the kit's candidate now is another file than the running binary (Next).
+func (w *Watch) Changed() bool {
+	_, ok := w.Next()
+	return ok
+}
+
+// Bin is a new obor binary the watch saw: its path and the first line its `version` printed.
+type Bin struct{ Path, Version string }
+
+// Next is the kit's candidate when it is another file than the running binary: it exists, is executable, its mtime is
 // at least Quiet old, and `<candidate> version` exits 0 within Probe. A rollback counts as much as an upgrade (no
 // version order); after the exec the running binary is the candidate, so it is false again.
-func (w *Watch) Changed() bool {
+func (w *Watch) Next() (Bin, bool) {
 	if !w.On() {
-		return false
+		return Bin{}, false
 	}
 	cand := Candidate(w.Kit, w.Home)
 	if cand == "" || !executable(cand) {
-		return false
+		return Bin{}, false
 	}
 	fi, err := os.Stat(cand)
 	if err != nil || os.SameFile(fi, w.self) {
-		return false
+		return Bin{}, false
 	}
 	now := time.Now
 	if w.Now != nil {
 		now = w.Now
 	}
 	if now().Sub(fi.ModTime()) < Quiet {
-		return false
+		return Bin{}, false
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.bad != nil && os.SameFile(fi, w.bad) && fi.ModTime().Equal(w.bad.ModTime()) {
-		return false
+		return Bin{}, false
 	}
-	if !w.Probe(cand) {
+	ver, ok := w.Probe(cand)
+	if !ok {
 		w.bad = fi
-		return false
+		return Bin{}, false
 	}
-	return true
+	return Bin{Path: cand, Version: ver}, true
 }
 
-// probe: `<bin> version` exits 0 within Probe.
-func probe(bin string) bool {
+// probe: `<bin> version` exits 0 within Probe; its output's first line (trimmed) is the version it names.
+func probe(bin string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), Probe)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "version")
 	cmd.WaitDelay = time.Second
-	return cmd.Run() == nil
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	line, _, _ := strings.Cut(string(out), "\n")
+	return strings.TrimSpace(line), true
 }
 
 // Shim is kit's shim, <kit>/bin/obor: what Exec runs.

@@ -50,8 +50,8 @@ func (k *kit) bin(path string) {
 }
 
 // passing is the probe of a candidate whose `version` exits 0: it counts the probes.
-func passing(n *int) func(string) bool {
-	return func(string) bool { *n++; return true }
+func passing(n *int) func(string) (string, bool) {
+	return func(string) (string, bool) { *n++; return "obor v1.2.3", true }
 }
 
 // The candidate is the shim's rule: dist/obor when executable, else the fetched binary of the kit's VERSION; no
@@ -154,7 +154,7 @@ func TestChangedFailingProbe(t *testing.T) {
 	w := watchOf(k.root, k.home, k.dev())
 	passes := false
 	probes := 0
-	w.Probe = func(string) bool { probes++; return passes }
+	w.Probe = func(string) (string, bool) { probes++; return "obor v1.2.3", passes }
 	k.bin(k.dev())
 	if w.Changed() {
 		t.Fatal("a candidate whose probe fails: changed, want not")
@@ -217,18 +217,55 @@ func TestChangedQuietPeriod(t *testing.T) {
 	}
 }
 
-// probe runs the binary's `version` and passes on exit 0: the system's true (0) and false (1), signed, so no first-run
-// check of a fresh executable is paid.
+// probe runs the binary's `version` and passes on exit 0, its first output line the version: the system's echo (prints
+// its argument), true (0, no output) and false (1), signed, so no first-run check of a fresh executable is paid.
 func TestProbe(t *testing.T) {
 	for _, c := range []struct {
-		bin  string
-		want bool
-	}{{"/usr/bin/true", true}, {"/usr/bin/false", false}} {
+		bin, ver string
+		want     bool
+	}{{"/bin/echo", "version", true}, {"/usr/bin/true", "", true}, {"/usr/bin/false", "", false}} {
 		if _, err := os.Stat(c.bin); err != nil {
 			t.Fatalf("precondition: %s: %v", c.bin, err)
 		}
-		if got := probe(c.bin); got != c.want {
-			t.Errorf("%s version: probe %v, want %v", c.bin, got, c.want)
+		if ver, got := probe(c.bin); got != c.want || ver != c.ver {
+			t.Errorf("%s version: probe (%q, %v), want (%q, %v)", c.bin, ver, got, c.ver, c.want)
 		}
+	}
+}
+
+// foksa-dev's case (RV-260): a launchd serve runs the fetched binary of the installed kit's VERSION (0.46.0); the kit
+// is checked out at the next tag (VERSION 0.46.1) and the shim fetches its binary. The watch sees that binary, with
+// its path and the version its probe printed; before the fetch there is nothing to see.
+func TestNextSeesTheFetchedRelease(t *testing.T) {
+	k := newKit(t)
+	setVersion := func(v string) {
+		if err := os.WriteFile(filepath.Join(k.root, "VERSION"), []byte(v+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fetched := func(v string) string {
+		return filepath.Join(k.home, ".obor", "bin", "obor-"+v+"-"+runtime.GOOS+"-"+runtime.GOARCH)
+	}
+	setVersion("0.46.0")
+	k.bin(fetched("0.46.0"))
+	w := watchOf(k.root, k.home, fetched("0.46.0"))
+	w.Probe = func(bin string) (string, bool) { return "obor v" + filepath.Base(bin)[5:11] + " (" + bin + ")", true }
+	if !w.On() {
+		t.Fatal("precondition: the serve of the installed kit's fetched binary is watched")
+	}
+	if b, ok := w.Next(); ok {
+		t.Fatalf("the running release: seen %+v, want nothing", b)
+	}
+	setVersion("0.46.1")
+	if b, ok := w.Next(); ok {
+		t.Fatalf("the kit at 0.46.1, its binary not fetched: seen %+v, want nothing", b)
+	}
+	k.bin(fetched("0.46.1"))
+	b, ok := w.Next()
+	if !ok {
+		t.Fatal("0.46.1 fetched: not seen, want seen")
+	}
+	if b.Path != fetched("0.46.1") || b.Version != "obor v0.46.1 ("+fetched("0.46.1")+")" {
+		t.Errorf("seen %+v, want path %s and its version line", b, fetched("0.46.1"))
 	}
 }

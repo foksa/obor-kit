@@ -155,6 +155,11 @@ func (a *App) Status() wire.Status {
 			}
 		}
 		ps.Running = p.runningSteps(intents)
+		if n := len(ps.Running); n > 0 && ps.Running[n-1].Step == event.StepServeRestart {
+			// what the pending restart waits for, as its pass decides it (follow.go); past followWait, the work it cuts
+			holds, cut := a.restartHolds(p, now)
+			ps.Running[n-1].Waits, ps.Running[n-1].Cuts = strings.Join(holds, ", "), strings.Join(cut, ", ")
+		}
 		ps.Pending = p.pendingSteps(intents)
 		ps.Scratch, ps.ScratchQueue = p.scratchQueue()
 		if ps.ScratchQueue == nil {

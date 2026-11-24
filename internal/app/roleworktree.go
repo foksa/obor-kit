@@ -99,8 +99,9 @@ func (p *proj) publishing() bool {
 
 // admit waits until no publish runs, then admits one call: no publish starts until release, called once its commit is
 // in (or it failed). ctx ending the wait: an error naming the publish, nothing admitted. A restart on a new obor binary
-// claimed (p.restartClaim): refused, nothing admitted (the restart would cancel the commit).
-func (a *App) admit(ctx context.Context, p *proj) (release func(), err error) {
+// claimed (p.restartClaim): refused, nothing admitted (the restart would cancel the commit). what names the call
+// (p.admitOps: a pending restart's wait names it).
+func (a *App) admit(ctx context.Context, p *proj, what string) (release func(), err error) {
 	for {
 		a.mu.Lock()
 		if p.restartClaim {
@@ -109,8 +110,9 @@ func (a *App) admit(ctx context.Context, p *proj) (release func(), err error) {
 		}
 		if !p.publishing() {
 			p.admits++
+			p.admitOps.add(what)
 			a.mu.Unlock()
-			return func() { a.unadmit(p) }, nil
+			return func() { a.unadmit(p, what) }, nil
 		}
 		task, done := p.running.Task, p.published
 		a.mu.Unlock()
@@ -122,10 +124,11 @@ func (a *App) admit(ctx context.Context, p *proj) (release func(), err error) {
 	}
 }
 
-// unadmit ends one admission and wakes the loop: a publish it held may start.
-func (a *App) unadmit(p *proj) {
+// unadmit ends one admission (what, as admit named it) and wakes the loop: a publish it held may start.
+func (a *App) unadmit(p *proj, what string) {
 	a.mu.Lock()
 	p.admits--
+	p.admitOps.del(what)
 	a.mu.Unlock()
 	a.wake()
 }

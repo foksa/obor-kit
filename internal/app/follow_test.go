@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,5 +48,36 @@ func TestRestartBusy(t *testing.T) {
 				t.Errorf("restartBusy = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestRestartHolds: a pending restart's wait by name: the admitted writers and verdict calls whatever has run how long,
+// then the work restartBusy counts, each once (the slot step's effect is the slot step); past followWait that work is
+// cut, the writers and verdicts still hold it.
+func TestRestartHolds(t *testing.T) {
+	gate := event.Key{Task: "T-1", Attempt: 1, Step: event.StepGate}
+	test := event.Key{Task: "T-2", Attempt: 1, Step: event.StepTest}
+	seen := time.Unix(1_000_000, 0)
+	p := &proj{running: gate, tests: map[string]event.Key{"T-2": test},
+		exec: map[event.Key]time.Time{gate: {}, test: {}}, night: nightlyState{running: true}, restarting: seen}
+	p.admitOps.add("review close")
+	a := &App{}
+	a.verdictOps.add("accept T-3")
+	holds, cut := a.restartHolds(p, seen.Add(time.Minute))
+	want := "review close (writer), accept T-3 (verdict), nightly check, gate T-1, test T-2"
+	if got := strings.Join(holds, ", "); got != want || len(cut) != 0 {
+		t.Errorf("inside the wait: holds %q, cuts %q; want %q, none", got, cut, want)
+	}
+	holds, cut = a.restartHolds(p, seen.Add(followWait))
+	if got, want := strings.Join(holds, ", "), "review close (writer), accept T-3 (verdict)"; got != want {
+		t.Errorf("past the wait: holds %q, want %q", got, want)
+	}
+	if got, want := strings.Join(cut, ", "), "nightly check, gate T-1, test T-2"; got != want {
+		t.Errorf("past the wait: cuts %q, want %q", got, want)
+	}
+	p.admitOps.del("review close")
+	a.verdictOps.del("accept T-3")
+	if holds, _ := a.restartHolds(p, seen.Add(followWait)); len(holds) != 0 {
+		t.Errorf("writer and verdict ended, past the wait: holds %q, want none", holds)
 	}
 }

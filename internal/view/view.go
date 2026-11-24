@@ -74,6 +74,9 @@ type Running struct {
 	Task    string `json:"task,omitempty"`
 	Command string `json:"command,omitempty"`
 	Since   int64  `json:"since"`
+	// Waits, Cuts: a pending self-restart's wait and the work it cuts past its bound (wire.RunningStep).
+	Waits string `json:"waits,omitempty"`
+	Cuts  string `json:"cuts,omitempty"`
 }
 
 // Serve: serve answered (Up, since when) or not (Error); the project's state in it.
@@ -275,7 +278,7 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 	}
 	for _, r := range ps.Running {
 		v.Running = append(v.Running, Running{Step: r.Step, Task: r.Task, Command: runningCommand(p, r),
-			Since: r.Since})
+			Since: r.Since, Waits: r.Waits, Cuts: r.Cuts})
 	}
 	v.Pending = append(v.Pending, ps.Pending...)
 	v.Serve.Merging, v.Serve.LogError = ps.Merging, ps.LogError

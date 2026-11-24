@@ -65,7 +65,7 @@ func (a *App) configCall(c wire.ConfigSetReq) (string, error) {
 		return "", fmt.Errorf("config: no config writer for %s", p.name)
 	}
 	wait, cancel := context.WithTimeout(a.life, admitWait)
-	release, err := a.admit(wait, p) // a publish running ends first; none starts until the commit is in
+	release, err := a.admit(wait, p, "config_set") // a publish running ends first; none starts until the commit is in
 	cancel()
 	if err != nil {
 		return "", fmt.Errorf("config: %v", err)

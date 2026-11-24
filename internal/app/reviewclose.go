@@ -87,7 +87,7 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 		return "", errors.New("review close: the merge loop has no workflow")
 	}
 	wait, cancel := context.WithTimeout(a.life, admitWait)
-	release, err := a.admit(wait, p) // a publish running ends first; none starts until the commit is in
+	release, err := a.admit(wait, p, "review close") // a publish running ends first; none starts until the commit is in
 	cancel()
 	if err != nil {
 		return "", fmt.Errorf("review close: %v", err)

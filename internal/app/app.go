@@ -34,6 +34,9 @@ const Machine = "local"
 // port.Pane.Ready, for the callers that hold a status.
 func Ready(status string) bool { return (port.Pane{Status: status}).Ready() }
 
+// NewBinary is a new obor binary Options.Binary saw: its path and the first line its `version` printed.
+type NewBinary struct{ Path, Version string }
+
 // Options are the app's bounds and clock; zero fields take the defaults.
 type Options struct {
 	Root  string        // the project this serve serves (its main checkout); obor serve holds its serve.flock
@@ -62,9 +65,10 @@ type Options struct {
 	Inboxed func(agent string) (session string, ok bool)
 	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop; nil: refused).
 	Exit func()
-	// Binary: the obor binary the kit's shim would run now is another file than this serve's (selfexec; nil:
-	// not watched). Asked once per Follow; serve then restarts itself on it (follow.go).
-	Binary func() bool
+	// Binary: the obor binary the kit's shim would run now when it is another file than this serve's (selfexec's
+	// Next: its path and its `version` line; nil: not watched). Asked once per Follow; serve then restarts itself on it
+	// (follow.go).
+	Binary func() (NewBinary, bool)
 	// Follow is how often the binary watch asks Binary (30 s): its own timer, herdr connected or not.
 	Follow time.Duration
 	// Tokens is a session transcript's context size (the keep lane handoff rule; ok false: none read). Nil: the
@@ -135,21 +139,22 @@ type App struct {
 	onStream  int  // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
 	scratched int  // scratch effects started in their own goroutine, for the tests to wait on
 
-	life     context.Context    // the daemon's lifetime: the socket requests' effects run under it
-	stop     context.CancelFunc // ends life (Serve's end)
-	reqs     sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
-	loaded   chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded)
-	loadOnce sync.Once          // closes loaded once
-	verdicts sync.Mutex         // the integrator's verdicts are answered one at a time
-	submitMu sync.Mutex         // a submission's decision and its record are one step (task_done)
-	configMu sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close
-	kick     chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
-	rescan   chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
-	scanned  chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
-	effects  sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
-	admitted int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
-	follow   follow             // the watch of a new obor binary (follow.go; the merge loop's goroutine only)
-	rst      restoreState       // the restore after a reconnect (restore.go; under mu)
+	life       context.Context    // the daemon's lifetime: the socket requests' effects run under it
+	stop       context.CancelFunc // ends life (Serve's end)
+	reqs       sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
+	loaded     chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded)
+	loadOnce   sync.Once          // closes loaded once
+	verdicts   sync.Mutex         // the integrator's verdicts are answered one at a time
+	submitMu   sync.Mutex         // a submission's decision and its record are one step (task_done)
+	configMu   sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close
+	kick       chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
+	rescan     chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
+	scanned    chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
+	effects    sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
+	admitted   int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
+	verdictOps ops                // those calls by name, "<method> <task>" (under mu; follow.go's restart wait names them)
+	follow     follow             // the watch of a new obor binary (follow.go; the merge loop's goroutine only)
+	rst        restoreState       // the restore after a reconnect (restore.go; under mu)
 
 	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }
@@ -228,6 +233,9 @@ type proj struct {
 	// restartClaim: followBinary decided to restart on a new obor binary: admit refuses until it clears (a
 	// failed restart). Under mu.
 	restartClaim bool
+	// restartWaits: what the pending restart waited for at its last pass, as its log line named it ("": nothing
+	// logged yet). The merge loop's goroutine only.
+	restartWaits string
 	// held: the tasks whose selected step runs now (from its start's check to its return, App.next), each with the
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
@@ -251,6 +259,7 @@ type proj struct {
 	// publish starts meanwhile); published: closed when the running publish ends (nil: none runs). Under mu
 	// (roleworktree.go).
 	admits    int
+	admitOps  ops // the admissions by the name admit gave them (a pending restart's wait names them)
 	published chan struct{}
 }
 

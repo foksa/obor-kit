@@ -453,6 +453,10 @@ func TestStatusRunningLine(t *testing.T) {
 		{"restarting serve", []view.Running{{Step: event.StepServeRestart, Since: now.Unix()}},
 			"running: restarting serve"},
 		// the restart holds nothing back: lane tests run beside it, and the line says nothing about waiting.
+		{"restarting serve held by an admitted writer", []view.Running{{Step: event.StepServeRestart, Since: now.Unix(),
+			Waits: "config_set (writer)"}}, "running: restarting serve (waits for config_set (writer))"},
+		{"restarting serve past its wait", []view.Running{{Step: event.StepServeRestart, Since: now.Unix(),
+			Cuts: "gate T-4"}}, "running: restarting serve (cuts gate T-4)"},
 		{"restarting serve beside a lane test", []view.Running{
 			{Step: event.StepTest, Task: "T-5", Command: "make -s check-affected", Since: now.Add(-2 * time.Minute).Unix()},
 			{Step: event.StepServeRestart, Since: now.Unix()}},
