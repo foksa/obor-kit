@@ -49,6 +49,12 @@ func (k *kit) bin(path string) {
 	}
 }
 
+// changed: Next sees a new binary.
+func (w *Watch) changed() bool {
+	_, ok := w.Next()
+	return ok
+}
+
 // passing is the probe of a candidate whose `version` exits 0: it counts the probes.
 func passing(n *int) func(string) (string, bool) {
 	return func(string) (string, bool) { *n++; return "obor v1.2.3", true }
@@ -90,21 +96,21 @@ func TestChangedOnNewInode(t *testing.T) {
 	if !w.On() {
 		t.Fatal("precondition: the watch of the kit's candidate is on")
 	}
-	if w.Changed() {
+	if w.changed() {
 		t.Fatal("the running binary is the candidate: changed, want not")
 	}
 	if probes != 0 {
 		t.Fatal("the running binary was probed")
 	}
 	k.bin(k.dev()) // a rebuild: a new inode at the same path
-	if !w.Changed() {
+	if !w.changed() {
 		t.Error("dist/obor rebuilt: not changed, want changed")
 	}
 	k.bin(k.fetched())
 	if err := os.Remove(k.dev()); err != nil {
 		t.Fatal(err)
 	}
-	if !w.Changed() {
+	if !w.changed() {
 		t.Error("dist/obor gone, the fetched binary there: not changed, want changed")
 	}
 	if probes != 2 {
@@ -114,7 +120,7 @@ func TestChangedOnNewInode(t *testing.T) {
 	k.bin(other)
 	off := watchOf(k.root, k.home, other)
 	off.Probe = passing(&probes)
-	if off.On() || off.Changed() {
+	if off.On() || off.changed() {
 		t.Error("a binary that is not the kit's candidate (a lane or test build): the watch is on, want off")
 	}
 }
@@ -135,14 +141,14 @@ func TestChangedMissingBinary(t *testing.T) {
 	if c := Candidate(k.root, k.home); c == k.fetched() {
 		t.Fatal("precondition: the new VERSION names another binary")
 	}
-	if w.Changed() {
+	if w.changed() {
 		t.Error("the new VERSION's binary is not fetched: changed, want not")
 	}
 	if probes != 0 {
 		t.Fatal("a missing candidate was probed")
 	}
 	k.bin(Candidate(k.root, k.home))
-	if !w.Changed() {
+	if !w.changed() {
 		t.Error("the new VERSION's binary fetched: not changed, want changed")
 	}
 }
@@ -156,7 +162,7 @@ func TestChangedFailingProbe(t *testing.T) {
 	probes := 0
 	w.Probe = func(string) (string, bool) { probes++; return "obor v1.2.3", passes }
 	k.bin(k.dev())
-	if w.Changed() {
+	if w.changed() {
 		t.Fatal("a candidate whose probe fails: changed, want not")
 	}
 	if w.bad == nil {
@@ -174,14 +180,14 @@ func TestChangedFailingProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	passes = true
-	if w.Changed() {
+	if w.changed() {
 		t.Error("the failed candidate unchanged: probed again")
 	}
 	if probes != 1 {
 		t.Errorf("the remembered candidate: %d probes, want 1", probes)
 	}
 	k.bin(k.dev())
-	if !w.Changed() {
+	if !w.changed() {
 		t.Error("a new candidate after a failed one: not changed, want changed")
 	}
 	if probes != 2 {
@@ -202,14 +208,14 @@ func TestChangedQuietPeriod(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.Now = func() time.Time { return fi.ModTime().Add(Quiet - time.Second) }
-	if w.Changed() {
+	if w.changed() {
 		t.Error("a candidate written 4 s ago: changed, want not")
 	}
 	if probes != 0 {
 		t.Error("a candidate inside the quiet period was probed")
 	}
 	w.Now = func() time.Time { return fi.ModTime().Add(Quiet) }
-	if !w.Changed() {
+	if !w.changed() {
 		t.Error("a candidate written 5 s ago: not changed, want changed")
 	}
 	if probes != 1 {

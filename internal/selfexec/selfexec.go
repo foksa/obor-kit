@@ -86,12 +86,6 @@ func sameAs(exe, cand string) os.FileInfo {
 // On: the watch follows a binary (the running one was the kit's candidate at New).
 func (w *Watch) On() bool { return w != nil && w.self != nil }
 
-// Changed: the kit's candidate now is another file than the running binary (Next).
-func (w *Watch) Changed() bool {
-	_, ok := w.Next()
-	return ok
-}
-
 // Bin is a new obor binary the watch saw: its path and the first line its `version` printed.
 type Bin struct{ Path, Version string }
 

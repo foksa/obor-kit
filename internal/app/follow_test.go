@@ -44,15 +44,15 @@ func TestRestartBusy(t *testing.T) {
 	}
 	for _, c := range tests {
 		t.Run(c.name, func(t *testing.T) {
-			if got := c.p.restartBusy(); got != c.want {
-				t.Errorf("restartBusy = %v, want %v", got, c.want)
+			if got := c.p.restartWork(); (len(got) > 0) != c.want {
+				t.Errorf("restartWork = %q, want busy %v", got, c.want)
 			}
 		})
 	}
 }
 
 // TestRestartHolds: a pending restart's wait by name: the admitted writers and verdict calls whatever has run how long,
-// then the work restartBusy counts, each once (the slot step's effect is the slot step); past followWait that work is
+// then the work restartWork counts, each once (the slot step's effect is the slot step); past followWait that work is
 // cut, the writers and verdicts still hold it.
 func TestRestartHolds(t *testing.T) {
 	gate := event.Key{Task: "T-1", Attempt: 1, Step: event.StepGate}
