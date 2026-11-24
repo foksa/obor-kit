@@ -14,7 +14,7 @@ start's own settings; your saved agy settings are not written), so obor's MCP se
 A worker reads its role file under the kit's `templates/` with no file-access prompt. A resume refuses a model
 `agy models` does not list, as a fresh start does.
 
-**Nightly:** a green nightly whose non-gating failures changed sends the lead one line.
+**Nightly:** a green full check (scheduled or by hand) whose non-gating outcomes changed sends the lead one line. The first full check on v0.46.1 writes `.obor/state/full-check.json`; until then serve does not see a check made before the upgrade (a RED one raises its needs-you at the next full check).
 
 ## v0.46.0 (no obor-kind-* binaries; validate checks lane args; OpenCode lanes leave out inline config)
 
