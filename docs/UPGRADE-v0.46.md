@@ -1,5 +1,21 @@
 # Upgrading an obor project from v0.45 to v0.46
 
+## v0.46.1 (agy: lane worktrees trusted, the kit's role files readable, a resume checks its model)
+
+From v0.46.0. Nothing to change in a project.
+
+```sh
+# after updating the kit, in the project
+obor version                     # fetches this release's binary
+```
+
+**agy:** a lane's first start no longer stops at "Trust this folder?" (obor trusts the worktrees it made, in the
+start's own settings; your saved agy settings are not written), so obor's MCP server is there from the first start.
+A worker reads its role file under the kit's `templates/` with no file-access prompt. A resume refuses a model
+`agy models` does not list, as a fresh start does.
+
+**Nightly:** a green nightly whose non-gating failures changed sends the lead one line.
+
 ## v0.46.0 (no obor-kind-* binaries; validate checks lane args; OpenCode lanes leave out inline config)
 
 From v0.45.0. Nothing committed changes; most projects have nothing to do.
