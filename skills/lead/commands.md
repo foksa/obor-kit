@@ -135,6 +135,15 @@ A hand run's verdict settles the needs-you at the next pass while it is in force
 replaces it (the needs-you names the last full check). An acknowledged RED stays ended until a later full check is RED
 again.
 
+A GREEN full check also sends you one line when a non-gating step reports a failure the previous full check did not —
+a step that failed and did not before, or the same step with a different fail count — one line for all of them:
+
+    [obor] nightly GREEN <sha7>: <step> <its summary> (was: <its summary that check | ok>) — log: <serve.log>
+
+The steps are joined by `;`, and the log comes once at the end; `was: ok` is a step that did not fail then. Read the
+log; a cause in obor is a task, one in a tool a watch. The same failure as the previous check sends nothing, and a RED
+check keeps its needs-you alone.
+
 Serve writes it as a setup edit (one commit on main, your `[obor] config: nightly.at …` line) and reads it from
 the next pass: no serve restart. `obor status` shows `nightly check at HH:MM (in …)`, or `nightly: off (obor nightly
 on HH:MM)`.

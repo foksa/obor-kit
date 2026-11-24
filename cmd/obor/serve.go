@@ -319,8 +319,8 @@ func nightly(o checks.Options) *app.Nightly {
 	root := o.Cfg.Root
 	return &app.Nightly{At: o.Cfg.NightlyAt(),
 		Last: func() (app.FullCheck, error) {
-			sha, epoch, verdict, err := checks.LastFullCheck(root)
-			return app.FullCheck{SHA: sha, Verdict: verdict, At: time.Unix(epoch, 0)}, err
+			sha, epoch, verdict, summary, err := checks.LastFullCheck(root)
+			return app.FullCheck{SHA: sha, Verdict: verdict, At: time.Unix(epoch, 0), Summary: summary}, err
 		},
 		Run: func(ctx context.Context) (app.NightlyOut, error) {
 			cut, done := make(chan int, 1), make(chan struct{})
@@ -343,8 +343,8 @@ func nightly(o checks.Options) *app.Nightly {
 			default:
 				return out, errors.New(cmp.Or(r.Line, fmt.Sprintf("obor nightly exited %d", r.Code)))
 			}
-			sha, _, _, err := checks.LastFullCheck(root)
-			out.SHA = sha
+			sha, _, _, summary, err := checks.LastFullCheck(root)
+			out.SHA, out.Summary = sha, summary
 			return out, err
 		}}
 }

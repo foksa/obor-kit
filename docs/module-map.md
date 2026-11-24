@@ -154,6 +154,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `move.go` | `obor dispatch --model` on a working task: a redo dispatch on the same lane and worktree | `App.moveTask` |
 | `mtask.go` | the merge loop's state fold | `proj.foldLoop` |
 | `nightly.go` | the nightly run | `App.nightly` |
+| `nightlygreen.go` | the lead's line for a GREEN full check's new or changed non-gating failure | `nightlyGreenRule` |
 | `openwork.go` | whether a role agent has work open, the restore's question before it restarts the agent's pane | `App.OpenWork` |
 | `panes.go` | herdr events to projects | `App.connect` |
 | `pause.go` | the pause of a model or of all work, the rate-limit evidence | `proj.foldPause` |

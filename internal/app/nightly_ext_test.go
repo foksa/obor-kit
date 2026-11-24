@@ -25,6 +25,7 @@ type nightlyFake struct {
 	sha  string           // Last's sha ("" abc1234def)
 	last string           // Last's verdict ("" none)
 	at   time.Time        // Last's time
+	was  string           // Last's summary (the full check before a run)
 	outs []app.NightlyOut // each run's outcome in turn (the last one again); Verdict "": the run fails
 	runs int
 }
@@ -38,7 +39,7 @@ func (f *nightlyFake) nightly(at string) *app.Nightly {
 			if sha == "" {
 				sha = "abc1234def"
 			}
-			return app.FullCheck{SHA: sha, Verdict: f.last, At: f.at}, nil
+			return app.FullCheck{SHA: sha, Verdict: f.last, At: f.at, Summary: f.was}, nil
 		},
 		Run: func(context.Context) (app.NightlyOut, error) {
 			f.mu.Lock()
@@ -620,6 +621,87 @@ func TestNightlyReplay(t *testing.T) {
 				}
 				if n := r.count("0 intent nightly.2026-11-10"); n != 1 {
 					t.Errorf("intents = %d, want 1 (its key reused)", n)
+				}
+			})
+		})
+	}
+}
+
+// greenLines are the lead's nightly-GREEN lines the rig's inbox posted, in order.
+func greenLines(r *loopRig) []string {
+	r.inbox.mu.Lock()
+	defer r.inbox.mu.Unlock()
+	var out []string
+	for _, p := range r.inbox.posts {
+		if strings.HasPrefix(p, "pj-lead: [obor] nightly GREEN ") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// A GREEN full check lines the lead once when a non-gating step's failure is new, or the same step's fail count
+// changed, naming the step, its summary, the previous summary (ok: it did not fail) and serve's log; the same failure
+// as the previous check lines nothing, a first check with no previous lines its failure with ok, and a RED check keeps
+// its needs-you alone.
+func TestNightlyGreenNonGatingChangeLinesTheLead(t *testing.T) {
+	t.Parallel()
+	const (
+		passing = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
+			"conformance_live (non-gating) agy 1.5.14 live tier skipped, 12s"
+		failing = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
+			"WARN conformance_live (rc 2, non-gating): agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, 0 skip, 0 warn, 12s"
+		fewerFails = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
+			"conformance_live (non-gating) agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn, 12s"
+		live = "agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, 0 skip, 0 warn"
+		was1 = "agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn"
+	)
+	for _, c := range []struct {
+		name    string
+		was     string // last-full-check's summary before the run
+		now     string // the run's summary
+		verdict string
+		want    string // the line after the log path; "": none
+	}{
+		{"a step that failed and did not before", passing, failing, "GREEN",
+			"conformance_live " + live + " (was: ok)"},
+		{"the same step with a different fail count", fewerFails, failing, "GREEN",
+			"conformance_live " + live + " (was: " + was1 + ")"},
+		{"the same failure as the previous check", failing, failing, "GREEN", ""},
+		{"no previous full check", "", failing, "GREEN", "conformance_live " + live + " (was: ok)"},
+		{"a RED check keeps its needs-you", passing, failing, "RED", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			bubble(t, func(t *testing.T) {
+				out := app.NightlyOut{SHA: "abc1234def", Verdict: c.verdict, Summary: c.now}
+				if c.verdict == "RED" {
+					out.Line = "NIGHTLY RED abc1234"
+				} else {
+					out.Line = "NIGHTLY GREEN abc1234"
+				}
+				f := &nightlyFake{last: "GREEN", was: c.was, outs: []app.NightlyOut{out}}
+				r := nightlyRig(t, f, "02:00")
+				r.start()
+				r.waitStep("0 result nightly.2026-11-10")
+				if c.verdict == "RED" {
+					r.waitStep("0 fact needs-you{full-check RED abc1234}")
+				} else {
+					r.passes()
+				}
+				if c.want == "" {
+					r.passes()
+					if lines := greenLines(r); len(lines) != 0 {
+						t.Fatalf("the lead's lines %q, want none", lines)
+					}
+					return
+				}
+				want := "pj-lead: [obor] nightly GREEN abc1234: " + c.want + " — log: " +
+					filepath.Join(r.p.Root, ".obor", "state", "logs", "serve.log")
+				line := strings.TrimPrefix(want, "pj-lead: ")
+				r.waitFor("the lead's line", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+				if lines := greenLines(r); len(lines) != 1 || lines[0] != want {
+					t.Errorf("the lead's lines %q, want one %q", lines, want)
 				}
 			})
 		})

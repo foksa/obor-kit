@@ -5,11 +5,81 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"obor/internal/app/event"
 )
+
+// A full check's non-gating step shifts: a step that failed and did not, or with another fail count; a passing step,
+// the same failure, and a summary that only names a changed pass/skip count are none; a step reporting its fails with
+// rc 0 counts as failed. Its summary's own commas and parentheses are not step boundaries.
+func TestNonGatingShifts(t *testing.T) {
+	t.Parallel()
+	const (
+		live15  = "agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, 0 skip, 0 warn"
+		live14  = "agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn"
+		oneFail = "conformance: 3 pass, 1 fail, 0 skip, 0 warn"
+	)
+	for _, c := range []struct {
+		name     string
+		now, was string
+		want     []nonGatingShift
+	}{
+		{"a step that failed and did not before", "WARN conformance_live (rc 2, non-gating): " + live15 + ", 12s",
+			"conformance_live (non-gating) agy 1.5.14 live tier skipped, 12s",
+			[]nonGatingShift{{step: "conformance_live", summary: live15}}},
+		{"the same step with a different fail count", "WARN conformance_live (rc 2, non-gating): " + live15,
+			"conformance_live (non-gating) " + live14,
+			[]nonGatingShift{{step: "conformance_live", summary: live15, was: live14}}},
+		{"the same fail count, more passes", "WARN conformance_live (rc 2, non-gating): " + oneFail,
+			"WARN conformance_live (rc 2, non-gating): conformance: 1 pass, 1 fail, 0 skip, 0 warn", nil},
+		{"the same failure", "WARN race (rc 2, non-gating): 1 data race report(s), 0 package(s) with failing tests under -race",
+			"WARN race (rc 2, non-gating): 1 data race report(s), 0 package(s) with failing tests under -race", nil},
+		{"a fail count with rc 0", "conformance (non-gating) " + oneFail,
+			"conformance (non-gating) conformance: 4 pass, 0 fail, 0 skip, 0 warn",
+			[]nonGatingShift{{step: "conformance", summary: oneFail}}},
+		{"no previous check", "WARN prune (non-gating): no serve listening", "",
+			[]nonGatingShift{{step: "prune", summary: "no serve listening"}}},
+		{"one shifted step beside a passing one", "conformance (non-gating) conformance: 65 pass, 0 fail, 0 skip, 0 warn, " +
+			"WARN conformance_live (rc 2, non-gating): " + live15 + ", 12s",
+			"conformance (non-gating) conformance: 65 pass, 0 fail, 0 skip, 0 warn, conformance_live (non-gating) agy 1.5.14 live tier skipped, 12s",
+			[]nonGatingShift{{step: "conformance_live", summary: live15}}},
+		{"nothing failed", "check 7 pass, 0 fail, conformance (non-gating) conformance: 65 pass, 0 fail, 0 skip, 0 warn, 12s",
+			"check 7 pass, 0 fail, 12s", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := nonGatingShifts(c.now, c.was); !slices.Equal(got, c.want) {
+				t.Errorf("shifts %+v, want %+v", got, c.want)
+			}
+		})
+	}
+}
+
+// A GREEN check's line names each changed step, its summary, the previous one (ok when it did not fail), and serve's
+// log once; no shift, no line.
+func TestNightlyGreenLine(t *testing.T) {
+	t.Parallel()
+	const now = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
+		"WARN conformance_live (rc 2, non-gating): agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, 0 skip, 0 warn, " +
+		"WARN prune (non-gating): no serve listening, 12s"
+	const was = "check 7 pass, 0 fail, conformance (non-gating) 65 pass, 0 fail, 1 skip, 0 warn, " +
+		"conformance_live (non-gating) agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn, 12s"
+	out := NightlyOut{SHA: "abc1234def", Verdict: "GREEN", Summary: now, Was: was}
+	want := "[obor] nightly GREEN abc1234: conformance_live agy 1.5.15 live tier not recorded: conformance: 11 pass, 8 fail, " +
+		"0 skip, 0 warn (was: agy 1.5.14 live tier not recorded: conformance: 0 pass, 1 fail, 0 skip, 0 warn); " +
+		"prune no serve listening (was: ok) — log: " + filepath.Join("/p", ".obor", "state", "logs", "serve.log")
+	if got := nightlyGreenLine("/p", out); got != want {
+		t.Errorf("line %q, want %q", got, want)
+	}
+	out.Was = now
+	if got := nightlyGreenLine("/p", out); got != "" {
+		t.Errorf("the same failure lined %q, want none", got)
+	}
+}
 
 // replayProj reloads p from its log in a new App, as a restart does.
 func replayProj(t *testing.T, r *concRig, p *proj) (*App, *proj) {
