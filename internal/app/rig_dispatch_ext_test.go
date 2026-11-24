@@ -669,7 +669,7 @@ func (r *loopRig) startsWere(n int, force bool) {
 		r.t.Fatalf("want %d starts of pj-int and no prompt: %+v, prompts %d, %q", n, starts, len(r.prompts()), r.steps())
 	}
 	for _, l := range starts {
-		if !l.Fresh || l.Force != force || l.Prompt != "[obor job T-1/1/review] call the obor job_next tool" {
+		if !l.Fresh || l.Force != force || l.Prompt != "[obor job T-1/1/review] call the obor job_next tool now (connected; it returns your job)" {
 			r.t.Errorf("start %+v: want fresh, force %v, the review job's wake", l, force)
 		}
 	}
@@ -696,7 +696,9 @@ func (r *loopRig) task(task string) wire.TaskStatus {
 }
 
 // wake is the one line typed for job (the Prompter's tag, then the wake).
-func wake(job string) string { return "[obor job " + job + "] call the obor job_next tool" }
+func wake(job string) string {
+	return "[obor job " + job + "] call the obor job_next tool now (connected; it returns your job)"
+}
 
 // call is a job tool's socket request by agent (role, lane) with call id: job_next, or a verdict on T-1; job names the
 // job it answers ("": none).
@@ -1111,7 +1113,7 @@ func (r *loopRig) jobPrompts(job string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, l := range r.launches { // a start's first prompt: the job's wake
-		if l.Agent == "pj-int" && l.Prompt == "[obor job "+job+"] call the obor job_next tool" {
+		if l.Agent == "pj-int" && l.Prompt == "[obor job "+job+"] call the obor job_next tool now (connected; it returns your job)" {
 			n++
 		}
 	}

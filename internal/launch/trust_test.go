@@ -62,7 +62,7 @@ func TestLaunchHeldByTrustDialog(t *testing.T) {
 	})
 	t.Run("a resumed start (its wake typed once up): the failed start, no trust result, the wake not typed", func(t *testing.T) {
 		t.Parallel()
-		const wake = "[obor job T-1/1/fix] call the obor job_next tool"
+		const wake = "[obor job T-1/1/fix] call the obor job_next tool now (connected; it returns your job)"
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.shell("w1:p3", "pj-l-01", "")

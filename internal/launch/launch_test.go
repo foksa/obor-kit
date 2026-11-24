@@ -1201,7 +1201,7 @@ const codexUpdate = "-c features.plugins=false -c features.apps=false -c skills.
 // (nothing typed, no first prompt); an explicit --prompt wins; an agent on no lane is not asked about.
 func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 	t.Parallel()
-	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	const wake = "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)"
 	restart := func(x *fx, job string, req launch.Request) (string, []string) {
 		x.t.Helper()
 		var out bytes.Buffer
@@ -1324,7 +1324,7 @@ func TestRestartIntegratorWithItsJob(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			wake := "[obor job " + c.job + "] call the obor job_next tool"
+			wake := "[obor job " + c.job + "] call the obor job_next tool now (connected; it returns your job)"
 			x := setup(t)
 			x.sid("pj-int", "sid-int")
 			x.shell("w1:p5", "pj-int", "")
@@ -1364,7 +1364,7 @@ func TestRestartIntegratorWithItsJob(t *testing.T) {
 // prompt instead of the FAIL a CLI restart gets.
 func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
 	t.Parallel()
-	const wake = "[obor job T-1/1/fix] call the obor job_next tool"
+	const wake = "[obor job T-1/1/fix] call the obor job_next tool now (connected; it returns your job)"
 	launchIt := func(x *fx) string {
 		x.t.Helper()
 		var out bytes.Buffer

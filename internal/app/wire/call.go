@@ -207,8 +207,9 @@ type ConfigChange struct {
 	Value json.RawMessage `json:"value"`
 }
 
-// WakeText is a job's wake for an agent that fetches it: the line after its [obor job <id>] tag (JobLine).
-const WakeText = "call the obor job_next tool"
+// WakeText is a job's wake for an agent that fetches it: the line after its [obor job <id>] tag (JobLine). It says the
+// tool is connected and is the first step, so the agent calls it before it reads or checks anything.
+const WakeText = "call the obor job_next tool now (connected; it returns your job)"
 
 // JobLine is text as job's prompt: the job tag before it.
 func JobLine(job, text string) string { return "[obor job " + job + "] " + text }

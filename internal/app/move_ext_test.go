@@ -123,7 +123,7 @@ func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 			t.Errorf("the prepares %+v; want the move's a redo on L-01, its branch and target kept", inputs)
 		}
 		ls := r.workerLaunches()
-		if len(ls) != 2 || ls[1].Type != "opus" || !ls[1].Fresh || ls[1].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
+		if len(ls) != 2 || ls[1].Type != "opus" || !ls[1].Fresh || ls[1].Prompt != "[obor job T-1/2/work] call the obor job_next tool now (connected; it returns your job)" {
 			t.Errorf("the worker's launches %+v; want the move's fresh opus start with T-1/2/work's wake", ls)
 		}
 		if row, _, _ := r.laneRow("L-01"); row.Task != "T-1" || row.Type != "opus" {
@@ -176,7 +176,7 @@ func TestMoveReplayedToTheNewModel(t *testing.T) {
 		r.start()
 		r.waitJob("pj-l-01", "T-1/2/work")
 		ls := r.workerLaunches()[before:]
-		if len(ls) != 1 || ls[0].Type != "opus" || ls[0].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
+		if len(ls) != 1 || ls[0].Type != "opus" || ls[0].Prompt != "[obor job T-1/2/work] call the obor job_next tool now (connected; it returns your job)" {
 			t.Errorf("the replay's launches %+v; want one opus start with T-1/2/work's wake", ls)
 		}
 		if ts := r.task("T-1"); ts.Attempt != 2 {

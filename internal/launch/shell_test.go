@@ -141,7 +141,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 // Claude that works on its first prompt (the terminal's start counts it: internal/herdr's TestStartCases).
 func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 	t.Parallel()
-	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	const wake = "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)"
 	probe := func(x *fx, pane, agent string) *mpane {
 		p := x.agent(pane, agent, "claude", "idle")
 		x.f.Set(p.ID, func(p *mpane) {

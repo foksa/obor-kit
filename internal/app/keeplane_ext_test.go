@@ -92,7 +92,7 @@ func TestKeepLaneRunsATaskListInOneSession(t *testing.T) {
 			t.Error("T-1 did not stop the lane's agent serve never started")
 		}
 		if !slices.ContainsFunc(r.prompts(), func(s sent) bool {
-			return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool"
+			return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)"
 		}) {
 			t.Error("T-2/1/work's wake was not typed into pj-l-01's session")
 		}
@@ -103,8 +103,8 @@ func TestKeepLaneRunsATaskListInOneSession(t *testing.T) {
 			t.Errorf("worker stops %q, want T-1's restart and the handoff stop", got)
 		}
 		worker := r.workerLaunches()
-		if len(worker) != 2 || !worker[0].Fresh || worker[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool" ||
-			!worker[1].Fresh || worker[1].Prompt != "[obor job T-3/1/work] call the obor job_next tool" {
+		if len(worker) != 2 || !worker[0].Fresh || worker[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)" ||
+			!worker[1].Fresh || worker[1].Prompt != "[obor job T-3/1/work] call the obor job_next tool now (connected; it returns your job)" {
 			t.Errorf("pj-l-01's launches %+v, want T-1's and T-3's fresh starts, each carrying its wake", worker)
 		}
 		if _, ok := r.record("T-3", event.KindResult, event.StepStartWork); !ok {
@@ -213,14 +213,14 @@ func TestKeepLaneReusesItsAgentOnlyForTheSameModel(t *testing.T) {
 			bubble(t, func(t *testing.T) {
 				r := keepSecond(t, c.sessionless, c.setup, wire.DispatchReq{Types: c.types})
 				launches := r.workerLaunches()
-				if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool" ||
+				if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)" ||
 					launches[0].Type != "sonnet" {
 					t.Fatalf("precondition: T-1's start of sonnet first: %+v", launches)
 				}
 				_, stopped := r.record("T-2", event.KindResult, event.StepWorkerStop)
 				_, started := r.record("T-2", event.KindResult, event.StepStartWork)
 				typed := slices.ContainsFunc(r.prompts(), func(s sent) bool {
-					return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool"
+					return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)"
 				})
 				if !c.restart {
 					if stopped || started || !typed || len(launches) != 1 {
@@ -237,7 +237,7 @@ func TestKeepLaneReusesItsAgentOnlyForTheSameModel(t *testing.T) {
 					t.Errorf("worker stops %q, want T-1's and T-2's", got)
 				}
 				if len(launches) != 2 || !launches[1].Fresh || launches[1].Type != c.typ || launches[1].Effort != c.effort ||
-					launches[1].Prompt != "[obor job T-2/1/work] call the obor job_next tool" {
+					launches[1].Prompt != "[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)" {
 					t.Errorf("launches %+v; want T-2's fresh start of %s effort %q carrying its wake", launches, c.typ, c.effort)
 				}
 				stop, _ := r.record("T-2", event.KindIntent, event.StepWorkerStop)
@@ -277,14 +277,14 @@ func TestKeepLaneRestartsWhenTheConfigChangedSinceItsStart(t *testing.T) {
 			bubble(t, func(t *testing.T) {
 				r := keepSecond(t, false, c.change, wire.DispatchReq{Types: []string{"sonnet"}})
 				launches := r.workerLaunches()
-				if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool" ||
+				if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)" ||
 					launches[0].Type != "sonnet" {
 					t.Fatalf("precondition: T-1's start of sonnet first: %+v", launches)
 				}
 				_, stopped := r.record("T-2", event.KindResult, event.StepWorkerStop)
 				_, started := r.record("T-2", event.KindResult, event.StepStartWork)
 				typed := slices.ContainsFunc(r.prompts(), func(s sent) bool {
-					return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool"
+					return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)"
 				})
 				if !c.restart {
 					if stopped || started || !typed || len(launches) != 1 {
@@ -298,7 +298,7 @@ func TestKeepLaneRestartsWhenTheConfigChangedSinceItsStart(t *testing.T) {
 						stopped, started, typed)
 				}
 				if len(launches) != 2 || !launches[1].Fresh || launches[1].Type != "sonnet" ||
-					launches[1].Prompt != "[obor job T-2/1/work] call the obor job_next tool" {
+					launches[1].Prompt != "[obor job T-2/1/work] call the obor job_next tool now (connected; it returns your job)" {
 					t.Errorf("launches %+v; want T-2's fresh start of sonnet carrying its wake", launches)
 				}
 			})

@@ -90,7 +90,7 @@ var pendingAnswer = Pane{Pane: port.Pane{ID: memID, Status: "unknown"}}
 func TestStartCases(t *testing.T) {
 	t.Parallel()
 	const (
-		wake      = "[obor job T-1/1/work] call the obor job_next tool"
+		wake      = "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)"
 		bound     = 10 * time.Second
 		shortWait = 60 * time.Millisecond
 	)

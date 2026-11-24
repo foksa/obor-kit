@@ -11,7 +11,7 @@ import (
 	"obor/internal/herdr/herdrtest"
 )
 
-const startWake = "[obor job T-1/1/work] call the obor job_next tool"
+const startWake = "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)"
 
 // lines collects a start's Say lines.
 type lines struct {

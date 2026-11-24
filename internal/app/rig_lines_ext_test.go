@@ -71,7 +71,7 @@ func (r *loopRig) waitJob(agent, job string) string {
 // step.
 func (r *loopRig) waitWake(agent, job string) {
 	r.t.Helper()
-	w := "[obor job " + job + "] call the obor job_next tool"
+	w := "[obor job " + job + "] call the obor job_next tool now (connected; it returns your job)"
 	parts := strings.SplitN(job, "/", 3)
 	delivered := func() bool {
 		return slices.ContainsFunc(r.records(), func(rec event.Record) bool {
