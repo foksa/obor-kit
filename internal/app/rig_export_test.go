@@ -95,11 +95,15 @@ func Follows(a *App) int {
 	return a.follows
 }
 
-// Admits is the admissions in force on a's project at root (p.admits).
+// Admits is the admissions in force on a's project at root (p.admitOps, each name's count).
 func Admits(a *App, root string) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.projAt(root).admits
+	n := 0
+	for _, c := range a.projAt(root).admitOps {
+		n += c
+	}
+	return n
 }
 
 // Admit is one admission in force on a's project at root, as a config_set's or a review close's call holds it until

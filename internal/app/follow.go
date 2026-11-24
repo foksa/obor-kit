@@ -42,14 +42,14 @@ func (a *App) followTicks(ctx context.Context) {
 // test whose command hangs, a nightly full check. Past it the restart goes anyway and cuts that work; the log keeps its
 // intent, so the next serve runs the gate, the test or the nightly again. It is longer than the work a project sets for
 // itself (merge.check.timeout is 20 minutes by default), so a slow gate, test or nightly is not cut; nothing cuts a
-// main-checkout writer or a verdict call (p.admits, a.admitted), each bounded by its own request.
+// main-checkout writer or a verdict call (p.admitOps, a.verdictOps), each bounded by its own request.
 const followWait = 30 * time.Minute
 
 // followBinary restarts serve on a new obor binary (Options.Binary): each tick asks, and once one is seen the restart
 // goes at the first pass where serve is idle (p.restartWork: no slot step, no effect, no lane test, no nightly; no
 // verdict call admitted), and at the latest followWait after it was seen. Nothing new is held back for it. A task
 // waiting on a person holds nothing: a needs-you in force is no work of the task's (p.restartWork), so the owner may
-// take hours. Never while a main-checkout writer is admitted (p.admits: a config_set's or a review close's commit),
+// take hours. Never while a main-checkout writer is admitted (p.admitOps: a config_set's or a review close's commit),
 // whatever runs (a writer is bounded by its own request timeout). One a.mu section decides and claims the restart
 // (p.restartClaim): admit refuses while it is claimed, so no writer starts under the restart's cancel. While it waits,
 // p.restarting shows it in obor status with what holds it (restartHolds). The log names the binary once, when it is

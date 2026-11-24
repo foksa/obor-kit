@@ -834,7 +834,7 @@ func (a *App) pickDue(p *proj, mt mtask) step {
 // This is a cheap filter at selection: scratchStep decides the admissions again at the publish's actual start, under
 // the same lock that sets p.running.
 func (a *App) pickAccepted(p *proj, mt mtask) step {
-	if holder, _ := p.scratchWait(mt); holder != "" || p.admits > 0 {
+	if holder, _ := p.scratchWait(mt); holder != "" || p.admitting() {
 		return nil
 	}
 	return func(ctx context.Context, fx *Loop) bool {

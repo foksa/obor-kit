@@ -227,7 +227,7 @@ func TestFollowBinaryWaitsForLaneTest(t *testing.T) {
 	})
 }
 
-// An admitted main-checkout writer (a config_set's or a review close's commit, p.admits) holds the restart as a running
+// An admitted main-checkout writer (a config_set's or a review close's commit, p.admitOps) holds the restart as a running
 // gate does: shown waiting meanwhile, no restart, and once it is unadmitted the next pass restarts.
 func TestFollowBinaryWaitsForAdmittedWriter(t *testing.T) {
 	t.Parallel()
