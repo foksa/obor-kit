@@ -1,6 +1,7 @@
 // nightlygreen.go: the lead's line for a GREEN full check, scheduled or by hand, whose non-gating steps' outcome
-// differs from the previous full check's: a step that fails and did not, or fails with a different fail count. RED
-// keeps its needs-you; the same outcome as the previous check sends nothing.
+// differs from the previous full check's: a step that fails and did not, or fails again with another outcome (its fail
+// count when both reported one, else its report). RED keeps its needs-you; the same outcome as the previous check
+// sends nothing.
 package app
 
 import (
@@ -67,7 +68,7 @@ type stepShift struct {
 }
 
 // changedSteps are the non-gating steps of now that failed while they passed or did not run in was, or failed in both
-// with a different fail count, in the order the check ran them.
+// with a different outcome, in the order the check ran them.
 func changedSteps(now, was []CheckStep) []stepShift {
 	var out []stepShift
 	for _, c := range now {
@@ -80,17 +81,21 @@ func changedSteps(now, was []CheckStep) []stepShift {
 				prev = &was[i]
 			}
 		}
-		if prev == nil || prev.OK || !sameCount(c.Fails, prev.Fails) {
+		if prev == nil || prev.OK || !sameOutcome(c, *prev) {
 			out = append(out, stepShift{now: c, was: prev})
 		}
 	}
 	return out
 }
 
-// sameCount is whether two reported fail counts are the same (none and none are).
-func sameCount(a, b *int) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
+// sameOutcome is whether two failed outcomes of a step are the same: their fail counts when both reported one, else
+// their reports (a count beside none differs, as does another report).
+func sameOutcome(a, b CheckStep) bool {
+	if (a.Fails == nil) != (b.Fails == nil) {
+		return false
 	}
-	return *a == *b
+	if a.Fails != nil {
+		return *a.Fails == *b.Fails
+	}
+	return a.Report == b.Report
 }
