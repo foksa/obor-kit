@@ -4,12 +4,14 @@ package app
 import (
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"strings"
 )
 
 // block is the merge loop's needs-you on a task (mtask.needs): none, due (its phase's own work failed: the cause and
 // why of the needs-you its next pass records, pickDue) or held (the needs-you fact in force: the owner decides). The
 // task's state stays its phase throughout. mtask.block sets one, mtask.unblock clears it: obor resume (resumed), a
-// verdict on the held job, a sendback of the lead's, a merge, a drop.
+// verdict on the held job, a sendback of the lead's, a merge, a drop, the task's worker taking its job (delivered, for a
+// failed delivery's needs-you).
 type block struct {
 	cause, why string       // due: the needs-you to record; held after it: kept, the block is closed
 	fact       event.Record // held: the needs-you fact in force (Seq 0: not recorded)
@@ -36,6 +38,25 @@ func (mt *mtask) block(b block) {
 
 // unblock clears mt's block: its phase goes on.
 func (mt *mtask) unblock() { mt.needs = block{} }
+
+// failedDelivery: b is the needs-you a failed delivery to the task's worker raised: its job's wake was refused
+// ("<step> failed" for work, retry.work, fix, retry.fix) or its job was not fetched in time (causeUndelivered). Another
+// cause (a gate or a start failure, a hold, a stalled job) is not the worker's delivery and stays.
+func (b block) failedDelivery() bool {
+	cause := b.cause
+	if b.held() {
+		cause = b.fact.Fact().Cause
+	}
+	if cause == causeUndelivered {
+		return true
+	}
+	step := strings.TrimSuffix(cause, failedSuffix)
+	if step == cause {
+		return false
+	}
+	step = strings.TrimPrefix(step, stepRetry)
+	return step == event.StepWork || step == event.StepFix
+}
 
 // paused: a block holds mt's phase: due, or held on a phase that has not ended (a merged or rejected task's needs-you
 // changes nothing of its phase: it only waits for obor resume or a drop).

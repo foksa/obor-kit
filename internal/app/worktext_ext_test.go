@@ -46,6 +46,60 @@ func TestDispatchDelivery(t *testing.T) {
 	})
 }
 
+// resumeFailedDelivery is the rig at T-1's needs-you from a resume whose redelivery failed: the work job went
+// undelivered, the resume sent work.2, and its wake was refused (the pane blocked).
+func resumeFailedDelivery(t *testing.T) *loopRig {
+	t.Helper()
+	r := fetchRig(t)
+	r.start()
+	r.mustDispatch("d1")
+	r.waitStep("1 result work")
+	r.workerIs("working")
+	r.later(5 * time.Minute)
+	r.waitStep("1 result retry.work") // the wake typed: not fetched
+	r.promptBlocked("pj-l-01 is blocked")
+	r.later(5 * time.Minute)
+	r.waitStep("1 fact needs-you{job not delivered: T-1/1/work prompted twice to pj-l-01}")
+	r.mustResume("r1", "", "RESUMED T-1: retry (job not delivered)")
+	r.waitPrefix("1 fact needs-you{work.2 failed: ") // work.2 refused: the resume's delivery failed
+	return r
+}
+
+// A resume → the work job's redelivery fails (a needs-you) → the worker restarted fresh takes its job (job_next): the
+// needs-you ends and the task works.
+func TestResumeWorkerTakesItsJobEndsTheNeedsYou(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := resumeFailedDelivery(t)
+		// The worker restarted fresh: a new agent in its pane takes the job.
+		r.promptTaken()
+		r.removePane("w1:p1")
+		r.addPane(agentPane("w1:p1", "pj-l-01", r.lane))
+		r.refresh()
+		if jr := r.workerNext("n1"); jr.Job != "T-1/1/work.2" {
+			t.Fatalf("job_next: %+v, want T-1/1/work.2", jr)
+		}
+		r.waitFor("working", func() bool { return r.taskState() == "working" })
+		if f := r.app.Status().Project.Facts; len(f) != 0 {
+			t.Errorf("needs-you in force after the fetch: %+v", f)
+		}
+	})
+}
+
+// The same needs-you ends when the worker submits (task_done) instead: the submission is the next attempt.
+func TestResumeWorkerSubmitsEndsTheNeedsYou(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := resumeFailedDelivery(t)
+		if reply, err := r.taskDone(report); err != nil || reply != "submitted" {
+			t.Fatalf("task_done: %q, %v", reply, err)
+		}
+		if f := r.app.Status().Project.Facts; len(f) != 0 {
+			t.Errorf("needs-you in force after the submission: %+v", f)
+		}
+	})
+}
+
 // Dispatch's reply warns when a Claude lane's worktree has no enabled obor plugin (its worker would have no obor MCP
 // tools), and still dispatches; a lane with the plugin enabled gets no warning (TestEffortPlainTypeNamesNone).
 func TestDispatchWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {

@@ -122,6 +122,47 @@ func TestUndeliverableLineSaysWhy(t *testing.T) {
 	}
 }
 
+// A resume's line that cannot go out is the project's needs-you after a day; the task's worker then taking its job
+// (fact delivered) settles the line's question: the line retires undelivered and the needs-you ends.
+func TestUndeliveredResumeLineEndsWhenWorkerTakesItsJob(t *testing.T) {
+	t.Parallel()
+	h, p, _ := answerSeed(t, reasonStalled, "", "", true)
+	fx := withAppCfg(h.a, &Loop{Inbox: &kindSpy{}})
+	if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-lead", Role: "lead",
+		CallID: "r1"}, Task: "T-1", Text: "keep the guard"}); err != nil {
+		t.Fatal(err)
+	}
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" }) // busy: the line waits
+	h.now = h.now.Add(msgWait + time.Minute)
+	h.a.deliver(context.Background(), p, fx)
+	needs := func() []string {
+		var out []string
+		for _, f := range h.a.Status().Project.Facts {
+			if f.Task == event.MsgTask && f.Step == event.StepNeedsYou {
+				out = append(out, f.Fact().Reason)
+			}
+		}
+		return out
+	}
+	if got := needs(); len(got) != 1 || !strings.Contains(got[0], "waiting over") {
+		t.Fatalf("precondition: the line's needs-you %q, want one naming its wait", got)
+	}
+	if q := h.lines(); len(q) != 1 {
+		t.Fatalf("precondition: queued %q, want the answer", q)
+	}
+	if !h.a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepDelivered, Kind: event.KindFact},
+		event.FactData{Lane: "L-01", Agent: "pj-l-01", Job: "T-1/1/work", Merge: true}) {
+		t.Fatal("the delivery was not recorded")
+	}
+	h.a.deliver(context.Background(), p, fx)
+	if q := h.lines(); len(q) != 0 {
+		t.Errorf("queued %q after the worker took its job, want none", q)
+	}
+	if got := needs(); len(got) != 0 {
+		t.Errorf("needs-you in force after the worker took its job: %q", got)
+	}
+}
+
 // Unchanged: an answer to a working worker waits (status: it is busy) and is delivered at its next idle.
 func TestAnswerToWorkingWorkerAtNextIdle(t *testing.T) {
 	t.Parallel()
@@ -206,9 +247,9 @@ func settledThenIdle(t *testing.T, h *harness) {
 	}
 }
 
-// An undelivered answer ends when its question is settled another way: the worker submits (task_done), asks again
-// (a new Blocked: report), or the task is unblocked (obor resume of a merge-loop needs-you); a settled answer is
-// never delivered, not even into the session that asks next. One case per trigger.
+// An undelivered answer ends when its question is settled another way: the worker submits, takes its job (job_next),
+// asks again (a new Blocked: report), or the task is unblocked (obor resume of a merge-loop needs-you); a settled
+// answer is never delivered, not even into the session that asks next. One case per trigger.
 func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -218,6 +259,8 @@ func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
 	}{
 		{"submit", event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
 			event.FactData{Lane: "L-01", Agent: "pj-l-01", Merge: true}},
+		{"takes its job", event.Record{Task: "T-1", Attempt: 1, Step: event.StepDelivered, Kind: event.KindFact},
+			event.FactData{Lane: "L-01", Agent: "pj-l-01", Job: "T-1/1/work", Merge: true}},
 		{"re-ask", event.Record{Task: "T-1", Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact},
 			event.FactData{Lane: "L-01", Agent: "pj-l-01", Reason: reasonAsks + "and the probe too?"}},
 		{"unblock", event.Record{Task: "T-1", Attempt: 1, Step: event.StepUnblocked, Kind: event.KindFact},

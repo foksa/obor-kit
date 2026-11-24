@@ -109,6 +109,12 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.specRev = rev
 			}
 		case event.StepDelivered:
+			// The worker took its job: the needs-you a failed delivery to it raised (its wake refused, its job not
+			// fetched in time) is settled. A start's or a gate's failure is not the worker's delivery and stays.
+			if k, ok := mt.workerJob(); ok && JobID(k) == r.Fact().Job && mt.needs.failedDelivery() {
+				mt.unblock()
+				mt.fails = nil
+			}
 			if rev := r.Fact().Rev; rev > 0 {
 				mt.specRev = rev
 			}
