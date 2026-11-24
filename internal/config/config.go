@@ -4,6 +4,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -591,6 +592,13 @@ func readWithLocal(root string, doc []byte, withLocal bool) (*Config, []string, 
 		if b, _ := dropUnknown(files[0], reflect.TypeOf(c.Data), ""); strict(b, &Data{}) != nil {
 			name = "config.json"
 		}
+		if name == "config.json" {
+			if keys := oldShape(files[0]); len(keys) > 0 {
+				return nil, nil, fmt.Errorf("obor: %s: the config is from an older obor than this one can read"+
+					" (old keys: %s); move .obor aside and run obor lead (it runs obor init), then carry over the check"+
+					" command and models by hand", filepath.Join(root, ".obor", name), strings.Join(keys, ", "))
+			}
+		}
 		msg := strings.TrimPrefix(err.Error(), "json: ")
 		if at := badCommand(merged); at != "" {
 			msg = at + ": " + msg
@@ -623,6 +631,40 @@ func badCommand(doc []byte) string {
 		}
 	}
 	return ""
+}
+
+// oldShape is the keys an older obor (the 11-04 shape) kept at doc's top level, in file order: lanes as anything but
+// an object, the roles, difficulty and kinds keys that moved under agents, and a commands key holding one of the seven
+// commands obor runs by a fixed name (shape 2 puts each in its group). A shape-2 file fails the decode with none of
+// them, so a decode error beside one of them is an older obor's file.
+func oldShape(doc []byte) []string {
+	ms, ok := object(doc)
+	if !ok {
+		return nil
+	}
+	var found []string
+	for _, m := range ms {
+		switch m.Key {
+		case "lanes":
+			if t := bytes.TrimSpace(m.Val); len(t) == 0 || t[0] != '{' {
+				found = append(found, m.Key)
+			}
+		case "roles", "difficulty", "kinds":
+			found = append(found, m.Key)
+		case "commands":
+			names, ok := object(m.Val)
+			if !ok {
+				continue
+			}
+			for _, n := range names {
+				if _, fixed := FixedCommands[n.Key]; fixed {
+					found = append(found, m.Key)
+					break
+				}
+			}
+		}
+	}
+	return found
 }
 
 // warnUnknown tells once per process that key (a dotted path) is ignored.
