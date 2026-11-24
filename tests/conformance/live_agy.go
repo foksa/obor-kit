@@ -84,7 +84,9 @@ func agyStatic() {
 //
 // agy trusts a folder by exact path and the kind adds a lane only when the project's root is in the user's saved
 // trustedWorkspaces, which the lab must not write: so the lab adds its scratch dirs to each start's settings file
-// (trustLab), standing in for the owner's trust of the project.
+// (trustLab), standing in for the owner's trust of the project. The lane is dispatched to the lab's agy model
+// (dispatchLane): obor reads a lane agent's kind from its lane row alone, so with none every obor command in the lane
+// (the inbox record, a restart) takes the agent for the default kind.
 func agyLive(l *lab, turn bool) {
 	k := l.kindOf("agy")
 	whereStart, whereMCP := at(agyGo, "func start("), at(agyGo, `case "install"`)
@@ -95,6 +97,10 @@ func agyLive(l *lab, turn bool) {
 	}
 	if err := l.startStubServe(); err != nil {
 		report("FAIL", "AG-L1", err.Error(), whereMCP)
+		return
+	}
+	if err := l.dispatchLane("agy-live"); err != nil {
+		report("FAIL", "AG-L1", "the lane row: "+err.Error(), whereMCP)
 		return
 	}
 	inst, err := agents.InstallOf(k, real, l.lane, nil)
@@ -142,7 +148,7 @@ func agyLive(l *lab, turn bool) {
 		return
 	}
 	const first = "AGY-FIRST-OK"
-	s, ok := l.agyStart(k, pane, agents.Start{Prompt: "Reply with exactly " + first}, "first prompt")
+	s, ok := l.agyStart(k, pane, agents.Start{Prompt: "[obor conf] Reply with exactly " + first}, "first prompt")
 	if !ok {
 		report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		return
@@ -202,13 +208,18 @@ func agyLive(l *lab, turn bool) {
 
 	const resumed = "AGY-RESUMED-OK"
 	if l.agyRelaunch(sid, pane, whereStart) {
-		if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "Reply with exactly " + resumed}, 15*time.Second); err != nil {
+		if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "[obor conf] Reply with exactly " + resumed}, 15*time.Second); err != nil {
 			report("FAIL", "AG-L5", "agent.prompt: "+err.Error(), whereStart)
-		} else if text, ok := waitTranscript(120*time.Second, func() string { return l.agyTranscript(k, sid) }, first, resumed); ok {
+		} else if _, ok := waitTranscript(120*time.Second, func() string {
+			if t := l.agyTranscript(k, sid); agyReplied(t, resumed) {
+				return t
+			}
+			return ""
+		}, first, resumed); ok {
 			report("PASS", "AG-L5", "obor's launcher (obor restart, no --fresh, the agent exited) resumed "+sid+
 				" from the SessionStart hook's record: it answered "+resumed+" into the same transcript", whereStart)
 		} else {
-			report("FAIL", "AG-L5", "--conversation "+sid+": no "+resumed+" in its transcript in 120s: "+tail(text, 2)+"; screen: "+tail(l.screen(pane), 4), whereStart)
+			report("FAIL", "AG-L5", "--conversation "+sid+": no reply "+resumed+" in its transcript in 120s: "+tail(l.agyTranscript(k, sid), 2)+"; screen: "+tail(l.screen(pane), 4), whereStart)
 		}
 		poll(60*time.Second, func() bool { a, err := l.agent(pane); return err == nil && a.Status == "idle" })
 		if _, err := l.quit(pane, stop); err != nil {
@@ -222,7 +233,8 @@ func agyLive(l *lab, turn bool) {
 // agyRelaunch restarts the agent of conversation sid in pane as obor restart does after its exit (launch.Launcher.Launch,
 // no --fresh): the session it resumes is obor's own record, the one the SessionStart hook reported to serve (the stub
 // serve's), never an id handed to the kind. The lab's dirs are trusted through the project's override file (the
-// launcher writes the start's settings file itself). False (AG-L5 reported) when the record is missing, the launcher
+// launcher writes the start's settings file itself). Its kind is the lane row's type (dispatchLane): the pane runs no
+// agent after the quit. False (AG-L5 reported, the pane back at its shell) when the record is missing, the launcher
 // fails, or it started another session than sid.
 func (l *lab) agyRelaunch(sid, pane, where string) bool {
 	rec, ok := l.app.session(sid)
@@ -241,8 +253,9 @@ func (l *lab) agyRelaunch(sid, pane, where string) bool {
 	_, err := ln.Launch(l.ctx, launch.Request{Agent: rec.Agent, Pane: pane})
 	said := out.String()
 	switch {
-	case err != nil:
+	case err != nil: // a start held at a dialog leaves its agent in the pane: P10's env line must meet a shell
 		report("FAIL", "AG-L5", "obor's launcher: "+err.Error()+"; said: "+tail(said, 4), where)
+		l.stopAgent(pane)
 		return false
 	case !strings.Contains(said, "resuming "+sid):
 		report("FAIL", "AG-L5", "obor's launcher did not resume "+sid+": "+tail(said, 4), where)
@@ -250,6 +263,18 @@ func (l *lab) agyRelaunch(sid, pane, where string) bool {
 		return false
 	}
 	return true
+}
+
+// dispatchLane writes the lab lane's row as serve's projection of a dispatch of typ writes it: task T-1 on the lane's
+// branch (makeProject's), typ its model.
+func (l *lab) dispatchLane(typ string) error {
+	db, err := store.OpenRW(store.File(l.main))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return store.WriteLanes(db, []store.LaneRow{{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Type: typ,
+		DispatchedAt: time.Now().Unix()}})
 }
 
 // launcher is obor's one start path in the lab's project: its config and the repository's kit, the throwaway session's
@@ -409,7 +434,7 @@ func declaresServer(path, server string) bool {
 // transcript (the marker twice: the message, as a system message, and the reply).
 func (l *lab) agyPush(k agents.Kind, pane, sid, name string) {
 	where := at(agyDeliverGo, "func deliver(") + ", " + at("internal/guard/session.go", "func CommandRecord(")
-	const ran = "Run exactly this shell command and nothing else: obor whoami  Then reply with exactly: WHOAMI-RAN"
+	const ran = "[obor conf] Run exactly this shell command and nothing else: obor whoami  Then reply with exactly: WHOAMI-RAN"
 	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": ran}, 15*time.Second); err != nil {
 		report("FAIL", "AG-L10", "agent.prompt: "+err.Error(), where)
 		return
@@ -431,13 +456,13 @@ func (l *lab) agyPush(k agents.Kind, pane, sid, name string) {
 	}
 	poll(60*time.Second, func() bool { a, err := l.agent(name); return err == nil && a.Status == "idle" })
 	const push = "AGY-PUSH-OK"
-	d, ok := k.Deliver("Reply with exactly "+push, []byte(in.Record))
+	d, ok := k.Deliver("[obor conf] Reply with exactly "+push, []byte(in.Record))
 	if !ok || !d.Sent {
 		report("FAIL", "AG-L10", fmt.Sprintf("deliver with the record: %+v, %v", d, ok), where)
 		return
 	}
 	text, ok := waitTranscript(120*time.Second, func() string {
-		if t := l.agyTranscript(k, sid); strings.Count(t, push) >= 2 {
+		if t := l.agyTranscript(k, sid); agyReplied(t, push) {
 			return t
 		}
 		return ""
@@ -621,14 +646,14 @@ func (l *lab) trustLab(args []string) error {
 	return os.WriteFile(args[i+1], out, 0o644)
 }
 
-// agyConversation is the conversation of s whose transcript carries marker (herdr's agent_session, else the newest
-// conversation that has it), and its transcript; "" after 120 s.
+// agyConversation is the conversation of s whose transcript has the model's reply carrying marker (agyReplied;
+// herdr's agent_session, else the newest conversation that has it), and its transcript; "" after 120 s.
 func (l *lab) agyConversation(k agents.Kind, s started, marker string) (string, string) {
 	var sid, text string
 	poll(120*time.Second, func() bool {
 		if a, err := l.agent(s.name); err == nil && a.Session != nil && a.Session.Value != "" {
 			id := strings.TrimSuffix(filepath.Base(a.Session.Value), filepath.Ext(a.Session.Value))
-			if t := l.agyTranscript(k, id); strings.Contains(t, marker) {
+			if t := l.agyTranscript(k, id); agyReplied(t, marker) {
 				sid, text = id, t
 				return true
 			}
@@ -638,7 +663,7 @@ func (l *lab) agyConversation(k agents.Kind, s started, marker string) (string, 
 			if fi, err := os.Stat(d); err != nil || time.Since(fi.ModTime()) > 10*time.Minute {
 				continue
 			}
-			if t := l.agyTranscript(k, filepath.Base(d)); strings.Contains(t, marker) {
+			if t := l.agyTranscript(k, filepath.Base(d)); agyReplied(t, marker) {
 				sid, text = filepath.Base(d), t
 				return true
 			}

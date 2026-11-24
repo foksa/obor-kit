@@ -1,13 +1,13 @@
 // Package kind is the Antigravity CLI (agy) as obor's kind protocol answers it (docs/agents/kind-protocol.md), built as
 // the binary obor-kind-agy (kinds/agy). A start is `agy --settings <file> [args] --model … [--effort …] -i <prompt>`
-// (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first (no check on a
-// resume; its `slug<TAB>label` lines kept as the last good list for a check that gives none or fails), the settings file
-// the user's saved settings with the project's override file and obor's entries laid over them (settings.go); obor's
-// MCP server and hooks through the project's committed .agents/mcp_config.json and .agents/hooks.json (install's where:
-// project; the hooks' transport is hook.go); /exit with one Enter; `agy acp`, -p/--print and --prompt denied; prompts
-// typed, lines sent with agentapi to a session an obor command recorded (deliver.go); the context read from the
-// conversation's transcript.jsonl. Handle is one request; the binary runs it on its stdin, a test binary in process
-// (testkit).
+// (a resume: --conversation <id>), the model and effort checked against agy's own `agy models` first (a resume's
+// too: its argv carries the model; the `slug<TAB>label` lines kept as the last good list for a check that gives none
+// or fails), the settings file the user's saved settings with the project's override file and obor's entries laid
+// over them (settings.go); obor's MCP server and hooks through the project's committed .agents/mcp_config.json and
+// .agents/hooks.json (install's where: project; the hooks' transport is hook.go); /exit with one Enter; `agy acp`,
+// -p/--print and --prompt denied; prompts typed, lines sent with agentapi to a session an obor command recorded
+// (deliver.go); the context read from the conversation's transcript.jsonl. Handle is one request; the binary runs it on
+// its stdin, a test binary in process (testkit).
 package kind
 
 import (
@@ -178,11 +178,11 @@ func describe() map[string]any {
 	}
 }
 
-// start: the model and effort checked against agy's list (modelList and checkModel: not in a check, in.Check, nor a
-// resume, which runs the conversation's model), then --settings <the start's settings file>, the type's args but
-// their --model and --effort, the model (with the ref's effort: --model <the slug without its effort word> --effort
-// <effort>; without: the slug alone, or the args' own --effort), --add-dir per write dir, then --conversation <id> for
-// a resume, else -i <prompt> for a first prompt.
+// start: the model and effort checked against agy's list (modelList and checkModel: not in a check, in.Check; a
+// resume's too, whose argv carries --model as a first start's does), then --settings <the start's settings file>, the
+// type's args but their --model and --effort, the model (with the ref's effort: --model <the slug without its effort
+// word> --effort <effort>; without: the slug alone, or the args' own --effort), --add-dir per write dir, then
+// --conversation <id> for a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
 // from the request's HOME), the project's override file and the start. An effort with no model
 // is the start's error: agy's --effort selects a variant of a model named by its base. A model check with no list (a
@@ -210,7 +210,7 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 		}
 	}
 	warn := ""
-	if model != "" && !in.Check && in.Resume == "" {
+	if model != "" && !in.Check {
 		list, from, w, err := modelList(in.Env["HOME"], models, store)
 		if err != nil {
 			return map[string]any{"error": err.Error()}

@@ -307,36 +307,36 @@ func modelsCacheFile(t *testing.T, h, text string) string {
 	return p
 }
 
-// A resume runs no `agy models` (the conversation keeps running the model it ran): the fake agy's marker stays empty
-// and the argv carries --conversation alone. A first start does run it, and keeps its answer as the cached list under
-// the start's HOME.
-func TestStartResumeChecksNoModel(t *testing.T) {
+// A resume runs the model check as a first start does (its argv carries --model): the fake agy's marker is set and
+// the argv carries the model and --conversation; a resume of a model the list does not hold is refused, naming it. A
+// first start keeps the check's answer as the cached list under the start's HOME.
+func TestStartResumeChecksModel(t *testing.T) {
 	k := agy(t, t.TempDir())
 	env := home(t, "")
 	ran := stubAGY(t, stubList, 0)
-	start := func(resume string) []string {
+	start := func(model, resume string) ([]string, error) {
 		t.Helper()
-		argv, _, err := started(t, k, agents.Start{Args: []string{"--model", "gemini-4-neon-high"}, Resume: resume,
+		argv, _, err := started(t, k, agents.Start{Args: []string{"--model", model}, Resume: resume,
 			Env: func(v string) string { return env[v] }})
-		if err != nil {
-			t.Fatalf("start (resume %q): %v", resume, err)
-		}
-		return argv
+		return argv, err
 	}
-	if argv := start(""); !ran() {
-		t.Errorf("precondition: a first start's check ran the fake agy, argv %q", argv)
+	if argv, err := start("gemini-4-neon-high", ""); err != nil || !ran() {
+		t.Errorf("precondition: a first start's check ran the fake agy: argv %q, %v", argv, err)
 	}
 	p := modelsCacheFile(t, env["HOME"], "")
 	if cached, err := os.ReadFile(p); err != nil || string(cached) != stubList {
 		t.Errorf("the check's answer cached at %s: %q, %v; want the stub's list", p, cached, err)
 	}
 	ran = stubAGY(t, stubList, 0)
-	argv := start("c1")
-	if ran() {
-		t.Error("a resume ran agy models")
+	argv, err := start("gemini-4-neon-high", "c1")
+	if err != nil || !ran() {
+		t.Errorf("a resume's check: ran agy models %v, err %v; want it run and the start built", ran(), err)
 	}
 	if want := []string{"--settings", "{settings}", "--model", "gemini-4-neon-high", "--conversation", "c1"}; !slices.Equal(argv, want) {
 		t.Errorf("a resume's argv = %q, want %q", argv, want)
+	}
+	if argv, err := start("gemini-9-bogus", "c1"); err == nil || !strings.Contains(err.Error(), "model gemini-9-bogus is not in agy models") {
+		t.Errorf("a resume of an unlisted model: argv %q, err %v; want refused naming it", argv, err)
 	}
 }
 
