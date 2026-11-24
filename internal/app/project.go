@@ -216,6 +216,21 @@ func (p *proj) has(task, step, reason string) bool {
 	return false
 }
 
+// onAPerson: task has a needs-you in force, of any cause: the watchdog's blocked, agent exited or stalled, the merge
+// loop's failed step or undelivered job, a hold. Someone answers it (obor resume, obor drop), however long that takes.
+// A project key (msg, nightly, …) names no task and is on nobody's person. Under mu.
+func (p *proj) onAPerson(task string) bool {
+	if task == "" || projectKey(task) {
+		return false
+	}
+	for _, f := range p.folded.active[task] {
+		if f.Step == event.StepNeedsYou {
+			return true
+		}
+	}
+	return false
+}
+
 // setLanes installs p's lanes as read now. A task a lane took since the last read starts with no timer running; a
 // task no lane holds open any more (submitted and in the merge loop, lane freed or moved on) has no watchdog in force
 // (nothing recorded). An unknown lane (its read failed) is no observation: it keeps the task it held (keptTask)

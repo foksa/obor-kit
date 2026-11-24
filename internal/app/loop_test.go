@@ -410,7 +410,8 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 		t.Fatalf("restarted %d times with a lane test running or just ended, want 0", n)
 	}
 
-	// T-1's test ends: the first pass where nothing runs, however long it took, and the restart goes.
+	// T-1's test ends: the first pass where nothing runs, and the restart goes (a test still running at followWait
+	// would be cut; these end first).
 	close(f.testRelease)
 	r.waitFor("the restart", func() bool { return calls.Load() == 1 })
 
