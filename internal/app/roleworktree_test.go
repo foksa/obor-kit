@@ -113,7 +113,7 @@ func TestAdmissionDecidedAtPublishStart(t *testing.T) {
 	r := newAdmitRig(t, false)
 	h, ctx := r.h, context.Background()
 	s := r.selectPublish()
-	release, err := h.a.admit(ctx, h.a.p)
+	release, err := h.a.admit(ctx, h.a.p, "config_set")
 	if err != nil {
 		t.Fatal(err)
 	}

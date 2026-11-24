@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"obor/internal/project"
+	"obor/internal/selfexec"
 )
 
 // serve and web follow a new obor binary. These tests replace the package's binaryWatch and selfExec (and
@@ -39,7 +40,12 @@ func (e *execRec) got() [][]string {
 func follows(t *testing.T, changed func() bool, rec *execRec) {
 	t.Helper()
 	w, x := binaryWatch, selfExec
-	binaryWatch = func(project.Env) func() bool { return changed }
+	binaryWatch = func(project.Env) func() (selfexec.Bin, bool) {
+		if changed == nil {
+			return nil
+		}
+		return func() (selfexec.Bin, bool) { return selfexec.Bin{Path: "/kit/obor", Version: "obor v9.9.9"}, changed() }
+	}
 	selfExec = rec.exec
 	t.Cleanup(func() { binaryWatch, selfExec = w, x })
 }

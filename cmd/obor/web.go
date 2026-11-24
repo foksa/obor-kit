@@ -70,7 +70,8 @@ func webCmd(args []string) int {
 		_ = srv.Shutdown(shutCtx)
 	}()
 	var followed atomic.Bool
-	if changed := binaryWatch(project.OSEnv); changed != nil {
+	if next := binaryWatch(project.OSEnv); next != nil {
+		changed := func() bool { _, ok := next(); return ok }
 		go watchBinary(ctx, changed, func() { followed.Store(true); _ = srv.Close() })
 	}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

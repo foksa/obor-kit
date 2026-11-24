@@ -87,6 +87,11 @@ type RunningStep struct {
 	Task    string `json:"task,omitempty"`
 	Command string `json:"command,omitempty"`
 	Since   int64  `json:"since"`
+	// Waits, Cuts: a pending self-restart's (serve_restart) wait by name, ", "-joined — the admitted writers and
+	// verdicts, the slot step, effects, lane tests and nightly that hold it — and, once its wait bound is past, the
+	// work it cuts.
+	Waits string `json:"waits,omitempty"`
+	Cuts  string `json:"cuts,omitempty"`
 }
 
 // PendingStep is one command step whose intent has no result and whose effect does not run now, as obor status'

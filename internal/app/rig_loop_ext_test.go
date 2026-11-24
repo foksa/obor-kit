@@ -131,7 +131,7 @@ type loopRig struct {
 	// restart is the loop's Restart, serve's self-restart (nil: none); set before start
 	restart func(ctx context.Context) error
 	// binary is Options.Binary, a new obor binary there (nil: not watched); set before start
-	binary func() bool
+	binary func() (app.NewBinary, bool)
 	// exit is Options.Exit, the socket's exit request (nil: none); set before start
 	exit func()
 	// tokens is Options.Tokens, a transcript's context size (nil: the file read); set before start

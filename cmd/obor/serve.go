@@ -118,7 +118,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	var a *app.App // the merge loop's launchers ask it, in process: set before serve runs
 	a = app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed,
 		Loop:  mergeLoop(env, term, end, kinds, func() serveApp { return a }),
-		Kinds: kinds.now, Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
+		Kinds: kinds.now, Inboxed: inboxed(root), Exit: stop, Binary: serveBinary(binaryWatch(env)), Tick: serveTick, Follow: serveTick,
 		Info: term.Control.ProcessInfo, Screen: term.Control.Screen},
 		term.Panes, checks.Lanes{})
 	a.SetRestore(restorer(term, paneless(env), a))

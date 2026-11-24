@@ -111,7 +111,7 @@ func Admit(a *App, root string) (release func(), err error) {
 	if p == nil {
 		return nil, errors.New("no served project at " + root)
 	}
-	return a.admit(context.Background(), p)
+	return a.admit(context.Background(), p, "config_set")
 }
 
 // WriteLog appends recs (stamped now) to the event log of root, whose serve is stopped (a crash left them).

@@ -371,7 +371,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 			// serve ends on the restart, as its exec does.
 			Restart: func(context.Context) error { calls.Add(1); r.cancel(); return nil }}), nil
 	}
-	r.a.opt.Binary = func() bool { return true }
+	r.a.opt.Binary = func() (NewBinary, bool) { return NewBinary{Path: "/kit/dist/obor"}, true }
 	r.run()
 	defer r.stop()
 

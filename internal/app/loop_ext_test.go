@@ -921,7 +921,7 @@ func TestPassInResubscribeGapNotCounted(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, noCheck())
-		r.binary = func() bool { return false } // the binary watch wakes the merge loop each tick, herdr connected or not
+		r.binary = func() (app.NewBinary, bool) { return app.NewBinary{}, false } // the binary watch wakes the merge loop each tick, herdr connected or not
 		r.start()
 		r.passes()
 		release, reached := r.holdSubscribe()

@@ -23,14 +23,15 @@ type followRig struct {
 	*loopRig
 	isNew, calls atomic.Int32
 	err          error
+	bin          app.NewBinary // the binary Binary names
 	// in, hold: when hold is set, Restart sends on in once called and waits for hold to close before it acts.
 	in, hold chan struct{}
 }
 
 func newFollowRig(t *testing.T, err error) *followRig {
-	r := &followRig{err: err}
+	r := &followRig{err: err, bin: app.NewBinary{Path: "/kit/.obor/bin/obor-0.46.1-darwin-arm64", Version: "obor v0.46.1"}}
 	r.loopRig = newLoopRig(t)
-	r.binary = func() bool { return r.isNew.Load() != 0 }
+	r.binary = func() (app.NewBinary, bool) { return r.bin, r.isNew.Load() != 0 }
 	r.restart = func(context.Context) error {
 		r.calls.Add(1)
 		if r.hold != nil {
@@ -56,6 +57,23 @@ func (r *followRig) ended() bool {
 		return false
 	}
 }
+
+// restartWaits: obor status' running line's pending self-restart and what it waits for (ok false: none shown).
+func (r *followRig) restartWaits() (waits string, ok bool) {
+	st := r.app.Status()
+	if st.Project == nil {
+		return "", false
+	}
+	for _, s := range st.Project.Running {
+		if s.Step == event.StepServeRestart {
+			return s.Waits, true
+		}
+	}
+	return "", false
+}
+
+// lines is how many lines of serve's log contain s.
+func (r *followRig) lines(s string) int { return strings.Count(r.out.String(), s) }
 
 // restartingShown: obor status' running line shows the pending self-restart.
 func (r *followRig) restartingShown() bool {
@@ -238,6 +256,80 @@ func TestFollowBinaryWaitsForAdmittedWriter(t *testing.T) {
 		if r.calls.Load() != 1 {
 			t.Errorf("unadmitted: restarts %d, want the next pass's 1", r.calls.Load())
 		}
+	})
+}
+
+// A new binary seen: one log line names its path and version, whatever passes and ticks follow while the restart
+// waits; the line of what holds it is logged once per change (the admitted writer, then nothing new while it stays).
+func TestFollowBinaryLogsTheBinaryOnce(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newFollowRig(t, nil)
+		r.start()
+		release, err := app.Admit(r.app, r.p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var once sync.Once
+		unadmit := func() { once.Do(release) }
+		defer unadmit()
+		const seen = "a new obor binary: /kit/.obor/bin/obor-0.46.1-darwin-arm64 (obor v0.46.1)"
+		const waits = "the restart on the new obor binary waits for: config_set (writer)"
+		r.ticks(2)
+		if n := r.lines("a new obor binary"); n != 0 {
+			t.Fatalf("precondition: the same binary, %d lines of a new one", n)
+		}
+		r.isNew.Store(1)
+		r.waitFor("the binary's line", func() bool { return r.lines(seen) > 0 })
+		r.ticks(3)
+		if r.calls.Load() != 0 {
+			t.Fatal("precondition: the writer holds the restart")
+		}
+		if n := r.lines("a new obor binary"); n != 1 {
+			t.Errorf("%d lines of the new binary, want 1: %q", n, r.out.String())
+		}
+		if n := r.lines(waits); n != 1 {
+			t.Errorf("%d lines of the wait for the writer, want 1 (once per change): %q", n, r.out.String())
+		}
+		unadmit()
+		r.waitFor("the restart to end serve", r.ended)
+		r.cancel = nil
+		if n := r.lines("a new obor binary"); n != 1 {
+			t.Errorf("after the restart: %d lines of the new binary, want 1", n)
+		}
+	})
+}
+
+// RV-260 #2: a restart held by an admitted writer says so in obor status: "restarting serve" names the writer, and once
+// it is unadmitted the restart goes.
+func TestFollowBinaryStatusNamesAdmittedWriter(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newFollowRig(t, nil)
+		r.start()
+		if _, ok := r.restartWaits(); ok {
+			t.Fatal("precondition: no restart pending")
+		}
+		release, err := app.Admit(r.app, r.p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var once sync.Once
+		unadmit := func() { once.Do(release) }
+		defer unadmit()
+		r.isNew.Store(1)
+		r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+		r.ticks(1)
+		waits, ok := r.restartWaits()
+		if r.calls.Load() != 0 || !ok {
+			t.Fatalf("an admitted writer: restarts %d, restarting shown %v; want 0, shown", r.calls.Load(), ok)
+		}
+		if waits != "config_set (writer)" {
+			t.Errorf("restarting serve waits for %q, want the admitted writer %q", waits, "config_set (writer)")
+		}
+		unadmit()
+		r.waitFor("the restart to end serve", r.ended)
+		r.cancel = nil
 	})
 }
 
