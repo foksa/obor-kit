@@ -76,6 +76,48 @@ func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 	})
 }
 
+// A resume line waiting for a worker that already fetched its job is settled by its refetch: the worker's job_next of
+// its open work job records fact refetched once, the line retires, its 24 h needs-you ends, and the job's delivered
+// fact stays one. A replay of the log gives the same state.
+func TestRefetchRetiresWaitingAnswer(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := asked(t) // the job fetched, its question in force
+		if reply, err := r.answer("lead", "a1", "yes, edit internal/x.go too"); err != nil ||
+			!strings.HasPrefix(reply, "ANSWERED T-1") {
+			t.Fatalf("answer: %q, %v; want ANSWERED", reply, err)
+		}
+		r.later(25 * time.Hour) // busy: the line waits past msgWait
+		r.waitFor("the undelivered line's needs-you", func() bool {
+			for _, f := range r.app.Status().Project.Facts {
+				if strings.Contains(f.Fact().Reason, "waiting over") {
+					return true
+				}
+			}
+			return false
+		})
+		if q := r.waiting(); len(q) != 1 {
+			t.Fatalf("precondition: queued %v, want the answer", q)
+		}
+		if jr := r.workerNext("n2"); jr.Job != "T-1/1/work" {
+			t.Fatalf("refetch: %+v, want T-1/1/work", jr)
+		}
+		r.waitFor("the refetch's fact", func() bool { return r.count("1 fact refetched") == 1 })
+		r.waitFor("the line retired", func() bool { return len(r.waiting()) == 0 })
+		r.waitFor("the needs-you ended", func() bool { return r.facts() == 0 })
+		eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, "delivered facts")
+		r.stop()
+		r.start()
+		r.passes()
+		if q, n := r.waiting(), r.count("1 fact refetched"); len(q) != 0 || n != 1 {
+			t.Errorf("after a replay: queued %v, refetched facts %d; want none and one", q, n)
+		}
+		if f := r.facts(); f != 0 {
+			t.Errorf("after a replay: %d facts in force, want none", f)
+		}
+	})
+}
+
 // After its Blocked: report the worker stops, the Stop hook makes it take one more turn (seen ready, then working, then
 // ready again) and it waits. That turn is no answer: the question stays in force, its answers' obor resume is accepted
 // and reaches the worker; no stall is recorded while it waits.

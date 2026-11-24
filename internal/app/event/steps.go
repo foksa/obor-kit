@@ -112,6 +112,10 @@ const (
 	StepSpecSet = "spec.set"
 )
 
+// StepRefetched is the fact of a worker's fetch of a job it fetched already, while a failed delivery to it or a waiting
+// line for its task is there: its settlement (data: FactData, Job the job, Agent and Lane its worker's).
+const StepRefetched = "refetched"
+
 // CauseHeld is the integrator's hold, the one cause of a merge-loop needs-you obor status lists as an event of its
 // own ("held T-xx: why"; every cause is in obor status' needs-you line).
 const CauseHeld = "held"

@@ -57,8 +57,10 @@ func (mt *mtask) integratorJob() (event.Key, bool) { return mt.jobKey(), mt.open
 // jobNext answers job_next (row 6): the caller's open job, "none", or superseded{current} when the call names an
 // older job id. The caller is the job's agent: the integrator for its jobs, the lane's worker for a work or fix job
 // (OBOR_LANE, when set, its lane; its pane, when herdr shows it, in the lane). The first fetch of a job is fact
-// delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply. Every fetch keeps
-// its text in the prompts table: a refetch whose text changed adds a row.
+// delivered{job, via: mcp}; a worker's refetch of its own work or fix job, while a failed delivery to it or a waiting
+// line for its task is there, is fact refetched{job} (its settlement); any other repeat records nothing, and a
+// repeated call id gets the stored reply. Every fetch keeps its text in the prompts table: a refetch whose text
+// changed adds a row.
 func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 	a.verdicts.Lock() // two fetches never both record a delivery
 	defer a.verdicts.Unlock()
@@ -82,6 +84,9 @@ func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 	a.mu.Lock()
 	mt, key, ok, err := a.callerJob(p, c)
 	delivered := p.folded.delivered[JobID(key)].seq
+	// A worker's refetch settles what its first delivery could not: the needs-you a failed delivery to it raised
+	// (recorded after that delivery, when the fetch raced it) or a resume line for its task still waiting.
+	settle := delivered != 0 && (mt.needs.failedDelivery() || p.waitingAnswer(key.Task))
 	a.mu.Unlock()
 	if err != nil {
 		return "", err
@@ -97,20 +102,28 @@ func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 			return "", fmt.Errorf("job_next: %s: %v", JobID(key), err)
 		}
 		r = wire.JobReply{State: "job", Job: JobID(key), Task: key.Task, Attempt: key.Attempt, Step: key.Step, Text: text}
+		base, _ := event.StepN(key.Step)
 		agent := mt.agent
-		if base, _ := event.StepN(key.Step); base == event.StepReview || base == event.StepResolve {
+		if base == event.StepReview || base == event.StepResolve {
 			agent = p.integrator
 		}
-		// The first fetch records the delivery; every fetch after it records nothing (the job is delivered) but keeps
-		// the text: a refetch whose text changed since the newest row (a new spec rev, a restart) gets its own row,
-		// an identical one none.
+		// The first fetch records the delivery; every fetch after it keeps the text (a refetch whose text changed since
+		// the newest row — a new spec rev, a restart — gets its own row, an identical one none) and records one
+		// settlement fact when a worker's failed delivery to that job or a waiting line for its task is still there.
 		seq := delivered
-		if seq == 0 {
+		switch {
+		case seq == 0:
 			var ok bool
 			seq, ok = a.recordSeq(p, event.Record{Task: key.Task, Attempt: key.Attempt, Step: event.StepDelivered, Kind: event.KindFact},
 				event.FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
 					Via: viaMCP, Call: c.CallID, Rev: rev})
 			if !ok {
+				return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
+			}
+		case settle && (base == event.StepWork || base == event.StepFix):
+			if !a.record(p, event.Record{Task: key.Task, Attempt: key.Attempt, Step: event.StepRefetched,
+				Kind: event.KindFact}, event.FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent,
+				Job: JobID(key), Merge: true, Via: viaMCP}) {
 				return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
 			}
 		}

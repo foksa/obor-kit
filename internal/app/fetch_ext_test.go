@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -131,6 +132,78 @@ func TestFetchUndelivered(t *testing.T) {
 		r.waitStep("1 fact needs-you{job not delivered: T-1/1/work prompted twice to pj-l-01}")
 		if r.has("1 fact delivered") {
 			t.Errorf("delivered without a fetch: %q", r.steps())
+		}
+	})
+}
+
+// A failed work delivery recorded after the worker's first fetch (the pass that records the needs-you ran late, after
+// the delivered fact) is settled by the worker's refetch: fact refetched ends the block, one delivery fact stays, and a
+// replay keeps the block ended.
+func TestFetchRefetchEndsFailedDeliveryBlock(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := fetchRig(t)
+		r.start()
+		r.mustDispatch("d1")
+		r.waitStep("1 result work")
+		if jr := r.workerNext("n1"); jr.Job != "T-1/1/work" {
+			t.Fatalf("first fetch: %+v, want T-1/1/work", jr)
+		}
+		r.waitFor("working", func() bool { return r.taskState() == "working" })
+		r.stop()
+		if err := app.WriteLog(r.p.Root, r.clock.Now(), event.Record{Task: "T-1", Attempt: 1,
+			Step: event.StepNeedsYou, Kind: event.KindFact,
+			Data: []byte(`{"lane":"L-01","reason":"work failed: herdr: pane busy","merge":true,"cause":"work failed"}`)}); err != nil {
+			t.Fatal(err)
+		}
+		r.start()
+		r.needsYouState()
+		if jr := r.workerNext("n2"); jr.Job != "T-1/1/work" {
+			t.Fatalf("refetch: %+v, want T-1/1/work", jr)
+		}
+		r.waitFor("working again", func() bool { return r.taskState() == "working" })
+		r.waitFor("the block ended", func() bool { return r.facts() == 0 })
+		if n := r.count("1 fact refetched"); n != 1 {
+			t.Errorf("refetched facts %d, want one: %q", n, r.steps())
+		}
+		eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, "delivered facts")
+		r.stop()
+		r.start()
+		r.passes()
+		if st, n := r.taskState(), r.count("1 fact refetched"); st != "working" || n != 1 {
+			t.Errorf("after a replay: T-1 %s, refetched facts %d; want working and one", st, n)
+		}
+		if f := r.facts(); f != 0 {
+			t.Errorf("after a replay: %d facts in force, want none", f)
+		}
+	})
+}
+
+// An integrator's refetch of its own job settles nothing of the worker's: no refetched fact, and the answer line
+// waiting for the task stays queued.
+func TestFetchIntegratorRefetchSettlesNothing(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r, _ := fetched(t) // the review job out and fetched
+		r.stop()
+		if err := app.WriteLog(r.p.Root, r.clock.Now(), event.Record{Task: event.MsgTask, Step: event.StepAnswered,
+			Kind: event.KindFact,
+			Data: []byte(`{"to":"pj-l-01","from":"pj-lead","line":"[obor answer] keep the guard","task":"T-1","call":"r1","reply":"ANSWERED T-1 (attempt 1)"}`)}); err != nil {
+			t.Fatal(err)
+		}
+		// The worker works, so its line waits: the integrator's fetch must not settle it.
+		r.setPane("w1:p1", func(p *port.Pane) { p.Status = "working" })
+		r.start()
+		r.waitFor("the answer queued", func() bool { return len(r.waiting()) == 1 })
+		if jr, _, err := r.jobNext("pj-int", "integrator", "", "i2", ""); err != nil || jr.Job != "T-1/1/review" {
+			t.Fatalf("the integrator's refetch: %+v, %v; want T-1/1/review", jr, err)
+		}
+		r.passes()
+		if n := r.count("1 fact refetched"); n != 0 {
+			t.Errorf("the integrator's fetch recorded %d settlement facts, want none: %q", n, r.steps())
+		}
+		if q := r.waiting(); len(q) != 1 {
+			t.Errorf("queued %v after the integrator's fetch, want the worker's answer", q)
 		}
 	})
 }

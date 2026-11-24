@@ -108,13 +108,14 @@ func (p *proj) foldLoop(r event.Record) {
 			if rev := r.Fact().Rev; rev > mt.specRev { // the newer rev task_done's refusal showed the worker
 				mt.specRev = rev
 			}
+		case event.StepRefetched:
+			// The worker fetched its open job again: the needs-you a failed delivery to it raised, recorded after its
+			// first delivery, ends here. Its line is settled by foldMsg (settles), as a first delivery's is.
+			mt.settleDelivery(r)
 		case event.StepDelivered:
 			// The worker took its job: the needs-you a failed delivery to it raised (its wake refused, its job not
 			// fetched in time) is settled. A start's or a gate's failure is not the worker's delivery and stays.
-			if k, ok := mt.workerJob(); ok && JobID(k) == r.Fact().Job && mt.needs.failedDelivery() {
-				mt.unblock()
-				mt.fails = nil
-			}
+			mt.settleDelivery(r)
 			if rev := r.Fact().Rev; rev > 0 {
 				mt.specRev = rev
 			}
@@ -332,6 +333,16 @@ func (mt *mtask) jobState(open bool) string {
 		return stAwaiting
 	}
 	return stGreen
+}
+
+// settleDelivery ends the needs-you a failed delivery to mt's worker raised when r (a delivered or a refetched fact)
+// names its open job: its wake refused or its job not fetched in time. A start's or a gate's failure is not the
+// worker's delivery and stays.
+func (mt *mtask) settleDelivery(r event.Record) {
+	if k, ok := mt.workerJob(); ok && JobID(k) == r.Fact().Job && mt.needs.failedDelivery() {
+		mt.unblock()
+		mt.fails = nil
+	}
 }
 
 // resumed folds obor resume's d: the block ends, and the failure counts with it; the task goes to resumeTarget's phase

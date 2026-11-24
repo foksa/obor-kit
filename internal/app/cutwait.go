@@ -88,7 +88,7 @@ func (p *proj) cutEndFact(r event.Record) {
 		return
 	}
 	switch r.Step {
-	case event.StepSpecSet, event.StepDelivered:
+	case event.StepSpecSet, event.StepDelivered, event.StepRefetched:
 		return
 	}
 	for key := range p.cuts {
