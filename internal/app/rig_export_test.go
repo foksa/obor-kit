@@ -175,6 +175,9 @@ func WatchedPane(a *App, root, task string) string {
 // WorkerStartSettle is how long the worker start rule waits on a worker's pane at its shell.
 const WorkerStartSettle = workerStartSettle
 
+// FollowWait is the bound on a pending self-restart's wait for running work (follow.go).
+const FollowWait = followWait
+
 // CachedLane is lane name as a's lane table last scanned it in the project at root (ok false: not in it).
 func CachedLane(a *App, root, name string) (l port.Lane, ok bool) {
 	a.mu.Lock()

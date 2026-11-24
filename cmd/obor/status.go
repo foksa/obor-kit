@@ -593,8 +593,9 @@ func writeReviewOpen(w io.Writer, ro *wire.ReviewOpenStatus, now time.Time) {
 
 // writeRunning is the running line right under serve's: what serve does without an agent, each step with the
 // command it runs and its elapsed time (`running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build,
-// 12s)`), or `running: nothing`. A pending self-restart reads "restarting serve" (it goes at the first idle
-// pass, waiting however long); a step without a command (publish, a gate of git alone) its elapsed time only.
+// 12s)`), or `running: nothing`. A pending self-restart reads "restarting serve" beside the steps it waits for (it goes
+// at the first idle pass, at the latest half an hour after serve saw the new binary); a step without a command (publish,
+// a gate of git alone) its elapsed time only.
 func writeRunning(w io.Writer, st view.Project, now time.Time) {
 	if len(st.Running) == 0 {
 		fmt.Fprintln(w, "running: nothing")

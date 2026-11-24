@@ -14,7 +14,8 @@ import (
 )
 
 // serve follows a new obor binary: on its tick it asks Options.Binary and takes the self-restart path (Loop.Restart), at
-// once when idle, else at the first pass where nothing runs (no deadline); status shows it meanwhile.
+// once when idle, else at the first pass where nothing runs, and at the latest followWait after it was seen; status
+// shows what it waits on meanwhile.
 
 // followRig is a loop rig whose Binary says isNew and whose Restart counts its calls and gives err (nil: serve ends
 // gracefully, as a signal ends it).
@@ -64,6 +65,20 @@ func (r *followRig) restartingShown() bool {
 	}
 	for _, s := range st.Project.Running {
 		if s.Step == event.StepServeRestart {
+			return true
+		}
+	}
+	return false
+}
+
+// runningShown: obor status' running line shows step running now.
+func (r *followRig) runningShown(step string) bool {
+	st := r.app.Status()
+	if st.Project == nil {
+		return false
+	}
+	for _, s := range st.Project.Running {
+		if s.Step == step {
 			return true
 		}
 	}
@@ -331,5 +346,81 @@ func TestFollowBinaryStreamLost(t *testing.T) {
 		if r.calls.Load() != 1 || !r.neverBack() {
 			t.Errorf("restarts %d, herdr never back %v; want 1 with herdr down:\n%s", r.calls.Load(), r.neverBack(), r.out)
 		}
+	})
+}
+
+// A task waiting on a person (a needs-you: its worker exited) holds no restart: the new binary's restart goes on the
+// tick it is seen, with no pass spent waiting, and the needs-you is in force after the restart — its log replays it.
+func TestFollowBinaryRestartsPastNeedsYou(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newFollowRig(t, nil)
+		r.start()
+		r.workerExits()
+		r.later(2 * time.Minute) // the watchdog's Gone before its agent-exited needs-you
+		r.waitFor("T-1 needs-you", func() bool { return r.has("0 fact needs-you{agent exited}") })
+		before := r.needsYou()
+		r.isNew.Store(1)
+		r.waitFor("the restart to end serve", r.ended)
+		r.cancel = nil
+		if r.calls.Load() != 1 {
+			t.Fatalf("restarts %d, want 1", r.calls.Load())
+		}
+		if waited := "a new obor binary: restarting serve on it once nothing runs"; strings.Contains(r.out.String(), waited) {
+			t.Errorf("serve waited for idle with a needs-you in force:\n%s", r.out)
+		}
+		r.start()
+		after := r.needsYou()
+		if after.Seq != before.Seq || after.Fact().Reason != before.Fact().Reason {
+			t.Errorf("the needs-you after the restart: %d %q, want %d %q", after.Seq, after.Fact().Reason, before.Seq,
+				before.Fact().Reason)
+		}
+		if got := r.taskStatus("T-1"); got.Task != "T-1" || got.Ended {
+			t.Errorf("T-1 after the restart: %+v, want it open with its needs-you", got)
+		}
+	})
+}
+
+// Work that may last for ever holds a pending restart no longer than followWait: at the bound the restart goes, cutting
+// its work (the log replays it), and obor status shows the test and the pending restart meanwhile.
+func TestFollowBinaryRestartBoundedWait(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newFollowRig(t, nil)
+		started, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		r.scratch.OnTest(func(ctx context.Context, _ string) {
+			once.Do(func() { close(started) })
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		})
+		r.start()
+		r.submit()
+		select {
+		case <-started:
+		case <-time.After(r.patience()):
+			t.Fatalf("the lane test never began: %q", r.steps())
+		}
+		r.isNew.Store(1)
+		r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+		if !r.restartingShown() || !r.runningShown(event.StepTest) {
+			t.Fatalf("status shows restarting %v, the lane test %v; want both", r.restartingShown(),
+				r.runningShown(event.StepTest))
+		}
+		r.clock.Add(app.FollowWait - time.Minute)
+		r.passes()
+		if r.calls.Load() != 0 {
+			t.Fatalf("restarted %d times before the bound, want 0", r.calls.Load())
+		}
+		r.clock.Add(2 * time.Minute)
+		r.waitFor("the restart to end serve", r.ended)
+		r.cancel = nil
+		if r.calls.Load() != 1 || !r.has("1 intent test") || r.has("1 result test") {
+			t.Errorf("restarts %d, the test's intent %v, its result %v; want 1 with the test cut: %q", r.calls.Load(),
+				r.has("1 intent test"), r.has("1 result test"), r.steps())
+		}
+		close(release)
 	})
 }
