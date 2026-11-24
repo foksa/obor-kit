@@ -13,6 +13,8 @@ export interface Running {
   task?: string;
   command?: string;
   since: number;
+  waits?: string; // a pending serve restart: what holds it, ", "-joined
+  cuts?: string; // a pending serve restart past its wait: the work it cuts
 }
 
 export interface Serve {
