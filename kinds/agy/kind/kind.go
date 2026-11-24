@@ -63,7 +63,8 @@ type request struct {
 	Prompt    string            `json:"prompt"`
 	Effort    string            `json:"effort"`
 	TrimUser  bool              `json:"trim_user"`
-	Overrides map[string]string `json:"overrides"` // the project's override files, name → document (OverrideFile)
+	StrictMCP bool              `json:"strict_mcp"` // a lane's start (a worker's or the drive agent's): Settings' lane
+	Overrides map[string]string `json:"overrides"`  // the project's override files, name → document (OverrideFile)
 	WriteDirs []string          `json:"write_dirs"`
 	Dir       string            `json:"dir"`
 	Root      string            `json:"root"`
@@ -184,8 +185,9 @@ func describe() map[string]any {
 // word> --effort <effort>; without: the slug alone, or the args' own --effort), --add-dir per write dir, then
 // --conversation <id> for a resume, else -i <prompt> for a first prompt.
 // The settings file is SettingsFile's name in the state dir, its content Settings of the user's saved settings (read
-// from the request's HOME), the project's override file and the start (its dir, root and kit). An effort with no model
-// is the start's error: agy's --effort selects a variant of a model named by its base. A model check with no list (a
+// from the request's HOME), the project's override file and the start (its dir, root and kit; a lane start's
+// toolPermission always-proceed). An effort with no model is the start's error: agy's --effort selects a variant of a
+// model named by its base. A model check with no list (a
 // live check that gave none and no cached list) is a reply's warning: the ref goes to agy unchecked. A fallback to the
 // cached list is checked, and warned about unless the live check timed out. In an obor project
 // (root) whose start dir's HooksFile, the one agy runs (in.Dir's, root's when in.Dir is empty or the root), does not
@@ -230,7 +232,7 @@ func start(in request, read func(string) ([]byte, error), models func() ([]byte,
 		}
 	}
 	name := SettingsFile(lead(in), in.Dir)
-	settings := Settings(UserSettings(in.Env, read), over, lead(in), in.Dir, in.Root, in.Kit)
+	settings := Settings(UserSettings(in.Env, read), over, lead(in), in.StrictMCP, in.Dir, in.Root, in.Kit)
 	b, _ := json.MarshalIndent(settings, "", "  ")
 	args := append([]string{"--settings", "{file:" + name + "}"}, rest...)
 	switch {

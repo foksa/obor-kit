@@ -238,8 +238,11 @@ whole definition, which OpenCode needs). agy: the start's `--settings` file (`.o
 hash>.json`, one per kind of start and start dir), which agy lays over the user's saved settings by top-level key: each
 key it names is the user's saved value with `settings_override.json` merged over it (whole on a trimmed start; without
 its mode keys `toolPermission` and `agentMode` on a lead's start), then
-obor's entries: `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands with no prompt, and
-its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)` and `command(obor)` (a
+obor's entries: `toolPermission: "always-proceed"` on a lane's start (a worker's or the drive agent's, unless the
+override names that key: agy's allow rules cover no compound command's every part, so its dialog would ask for a lane's
+checks; obor's hooks guard every call), `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands
+with no prompt, and its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains
+`mcp(obor/*)` and `command(obor)` (a
 trimmed start also `read_file(<kit>/templates)`: obor's hook answers a read "ask", agy's own check then asks for a file
 outside the workspace, and the session start names the role text there), and `trustedWorkspaces` gains the start dir
 when it is a worktree obor made (a lane's or a role's: agy loads the workspace's `.agents/mcp_config.json` and hooks only
@@ -1057,9 +1060,12 @@ start's settings file and without its mode keys `toolPermission` and `agentMode`
 project's rules and other keys, never its permission mode, while keeping the user's own settings untrimmed). Allow rules
 do not lift the
 sandboxed first attempt or skip the review: git in a linked worktree (whose git dir sits outside the workspace) and
-tests that dial a unix socket still fail sandboxed, which is why a project's workers may set
-`toolPermission: "always-proceed"` in the override while the lead stays in plain auto mode (where each `obor` call runs
-sandboxed first and then goes through the reviewer's check, 11–36 s). The
+tests that dial a unix socket still fail sandboxed, and a rule covers no compound command's every part, so agy's own
+dialog would ask for a lane's checks and read-only shell (P12). A lane's start (a worker's or the drive agent's, told
+by `strict_mcp`) names `toolPermission: "always-proceed"`, obor's hooks its guard; a project's override that names that
+key wins. A lead's or a role's start sets none of obor's own (the lead stays in plain auto mode, where each `obor` call
+runs sandboxed first and then goes through the reviewer's check, 11–36 s; a role's override may still name one, as
+today). The
 session record is the SessionStart hook's (a new conversation, again after `/clear`; a resume fires none and needs
 none): a restart without `--fresh` resumes it after the agent exited or its pane is gone, and a recorded session of
 another kind (the agent ran one before) is never resumed: herdr's live agy session of the pane, else a new one. A start: `agy --settings <file> [args] --model <id>`, with an effort `--model <the id
