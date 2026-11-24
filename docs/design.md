@@ -239,8 +239,12 @@ hash>.json`, one per kind of start and start dir), which agy lays over the user'
 key it names is the user's saved value with `settings_override.json` merged over it (whole on a trimmed start; without
 its mode keys `toolPermission` and `agentMode` on a lead's start), then
 obor's entries: `agentMode: "auto"` for every agent, a lead too (agy's sandbox runs its commands with no prompt, and
-its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)` and `command(obor)`, and `trustedWorkspaces` gains the start dir
-when the project's root is in the user's saved list (a lane follows the main checkout's trust). agy has no switch for
+its reviewer approves the re-run of one the sandbox refused), `permissions.allow` gains `mcp(obor/*)` and `command(obor)` (a
+trimmed start also `read_file(<kit>/templates)`: obor's hook answers a read "ask", agy's own check then asks for a file
+outside the workspace, and the session start names the role text there), and `trustedWorkspaces` gains the start dir
+when it is a worktree obor made (a lane's or a role's: agy loads the workspace's `.agents/mcp_config.json` and hooks only
+in a folder trusted when it starts, so a lane answered at the dialog would run without obor's server); a start in the
+main checkout leaves trust to the owner's answer to agy's dialog. agy has no switch for
 the user's own plugins, skills and hooks: they stay (MCP servers: below). The trim is best
 effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user config, plugins,
 `~/.config/opencode/skills` and `~/.agents/skills`, stay unless an override file switches them off. The project's own settings and skills stay for Claude and

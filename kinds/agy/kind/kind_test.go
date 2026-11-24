@@ -454,35 +454,37 @@ func TestStartEmptyModelsKeepsCache(t *testing.T) {
 }
 
 // A lead's start (untrimmed) and another agent's (trimmed) write their settings to different files, per start dir:
-// both take obor's MCP and command rules; a trimmed start merges the project's override file whole, its agentMode and
-// toolPermission included, while a lead's start merges it without those two keys: the lead takes the override's rules
-// and other keys, is always auto mode, and (without an override) holds the user's saved permissions plus obor's entries
-// alone.
+// both take obor's MCP and command rules, and a trimmed start the read rule of the start's kit's templates; a trimmed
+// start merges the project's override file whole, its agentMode and toolPermission included, while a lead's start
+// merges it without those two keys: the lead takes the override's rules and other keys, is always auto mode, and
+// (without an override) holds the user's saved permissions plus obor's entries alone. The start dir, a worktree, is
+// trusted either way.
 func TestStartSettingsLeadAndWorker(t *testing.T) {
 	k := agy(t, t.TempDir())
 	env := home(t, `{"colorScheme":"dark","permissions":{"allow":["command(git status)"],"deny":["command(rm)"]}}`)
 	over := map[string]string{kind.OverrideFile: `{"toolPermission":"always-proceed","agentMode":"plan","editorMode":"vim","permissions":{"allow":["command(go test)"]}}`}
 	start := func(trim bool, overrides map[string]string) map[string]any {
 		_, s, err := started(t, k, agents.Start{TrimUser: trim, Overrides: overrides, Dir: "/p/wt/L-01", Root: "/p",
-			Env: func(v string) string { return env[v] }})
+			Kit: "/kit", Env: func(v string) string { return env[v] }})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return s
 	}
-	wantLeadOverride := map[string]any{"agentMode": "auto", "editorMode": "vim",
+	lane := []any{"/p/wt/L-01"}
+	wantLeadOverride := map[string]any{"agentMode": "auto", "editorMode": "vim", "trustedWorkspaces": lane,
 		"permissions": map[string]any{"allow": []any{"command(go test)", kind.MCPRule, kind.CommandRule},
 			"deny": []any{"command(rm)"}}}
 	if leadOver := start(false, over); !reflect.DeepEqual(leadOver, wantLeadOverride) {
 		t.Errorf("a lead's settings with an override = %v, want %v", leadOver, wantLeadOverride)
 	}
 	lead := start(false, nil)
-	if want := (map[string]any{"agentMode": "auto", "permissions": map[string]any{"allow": []any{"command(git status)", kind.MCPRule, kind.CommandRule},
+	if want := (map[string]any{"agentMode": "auto", "trustedWorkspaces": lane, "permissions": map[string]any{"allow": []any{"command(git status)", kind.MCPRule, kind.CommandRule},
 		"deny": []any{"command(rm)"}}}); !reflect.DeepEqual(lead, want) {
 		t.Errorf("a lead's settings without an override = %v, want %v", lead, want)
 	}
-	wantWorker := map[string]any{"toolPermission": "always-proceed", "agentMode": "plan", "editorMode": "vim",
-		"permissions": map[string]any{"allow": []any{"command(go test)", kind.MCPRule, kind.CommandRule},
+	wantWorker := map[string]any{"toolPermission": "always-proceed", "agentMode": "plan", "editorMode": "vim", "trustedWorkspaces": lane,
+		"permissions": map[string]any{"allow": []any{"command(go test)", kind.MCPRule, kind.CommandRule, "read_file(/kit/templates)"},
 			"deny": []any{"command(rm)"}}}
 	if worker := start(true, over); !reflect.DeepEqual(worker, wantWorker) {
 		t.Errorf("a worker's settings = %v, want %v", worker, wantWorker)
@@ -507,13 +509,13 @@ func TestSettingsMerge(t *testing.T) {
 		"permissions": map[string]any{"allow": []any{"command(ls)"}, "ask": []any{"read_url(*)"}}}
 	over := map[string]any{"model": nil, "toolPermission": "request-review", "agentMode": "plan", "editorMode": "vim",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", kind.MCPRule}, "ask": nil}}
-	got := kind.Settings(user, over, false, "", "")
+	got := kind.Settings(user, over, false, "", "", "")
 	want := map[string]any{"toolPermission": "request-review", "agentMode": "plan", "editorMode": "vim",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", kind.MCPRule, kind.CommandRule}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Settings = %v, want %v", got, want)
 	}
-	gotLead := kind.Settings(user, over, true, "", "")
+	gotLead := kind.Settings(user, over, true, "", "", "")
 	wantLead := map[string]any{"agentMode": "auto", "editorMode": "vim",
 		"permissions": map[string]any{"allow": []any{"read_url(proxy.golang.org)", kind.MCPRule, kind.CommandRule}}}
 	if !reflect.DeepEqual(gotLead, wantLead) {
@@ -525,39 +527,65 @@ func TestSettingsMerge(t *testing.T) {
 	if over["toolPermission"] != "request-review" || over["agentMode"] != "plan" {
 		t.Errorf("Settings changed the override: %v", over)
 	}
-	if got := kind.Settings(nil, nil, false, "", ""); !reflect.DeepEqual(got, map[string]any{"agentMode": "auto",
+	if got := kind.Settings(nil, nil, false, "", "", ""); !reflect.DeepEqual(got, map[string]any{"agentMode": "auto",
 		"permissions": map[string]any{"allow": []any{kind.MCPRule, kind.CommandRule}}}) {
 		t.Errorf("Settings with no user file and no override = %v", got)
 	}
-	if got := kind.Settings(map[string]any{"permissions": map[string]any{"allow": []any{"command(ls)", kind.CommandRule}}}, nil, false, "", ""); !reflect.DeepEqual(got, map[string]any{"agentMode": "auto",
+	if got := kind.Settings(map[string]any{"permissions": map[string]any{"allow": []any{"command(ls)", kind.CommandRule}}}, nil, false, "", "", ""); !reflect.DeepEqual(got, map[string]any{"agentMode": "auto",
 		"permissions": map[string]any{"allow": []any{"command(ls)", kind.CommandRule, kind.MCPRule}}}) {
 		t.Errorf("Settings when the user already allows %s = %v", kind.CommandRule, got)
 	}
 }
 
-// Trust (D7): the start dir joins trustedWorkspaces when the project's root is in the user's saved list, the saved
-// list kept; with the root not saved (the owner has not trusted the project) the key is not written, so agy asks; the
-// override's own trusted folders are not the owner's trust of the project.
+// Trust: a start in a worktree obor made (its dir is not the root) trusts it whether or not the owner trusted the
+// project's root, the saved list (or the override's) kept before it; a start in the root, or with no dir, writes no
+// trustedWorkspaces, so the saved value applies and agy asks the owner for an untrusted main checkout.
 func TestSettingsTrust(t *testing.T) {
-	saved := map[string]any{"trustedWorkspaces": []any{"/home/me", "/p/"}}
-	got := kind.Settings(saved, nil, false, "/p/wt/L-01", "/p")
-	if want := []any{"/home/me", "/p/", "/p/wt/L-01"}; !reflect.DeepEqual(got["trustedWorkspaces"], want) {
-		t.Errorf("root saved: trustedWorkspaces = %v, want %v", got["trustedWorkspaces"], want)
-	}
-	if got := kind.Settings(saved, nil, true, "/p", "/p"); !reflect.DeepEqual(got["trustedWorkspaces"], []any{"/home/me", "/p/", "/p"}) {
-		t.Errorf("a lead in the root: trustedWorkspaces = %v, want the saved list and the root", got["trustedWorkspaces"])
-	}
 	for name, c := range map[string]struct {
 		user, over map[string]any
+		want       []any
 	}{
-		"root not saved":              {map[string]any{"trustedWorkspaces": []any{"/home/me"}}, nil},
-		"no saved list":               {nil, nil},
-		"root only in the override":   {nil, map[string]any{"trustedWorkspaces": []any{"/p"}}},
-		"a parent of the root, saved": {map[string]any{"trustedWorkspaces": []any{"/"}}, nil},
+		"root saved":                {map[string]any{"trustedWorkspaces": []any{"/home/me", "/p/"}}, nil, []any{"/home/me", "/p/", "/p/wt/L-01"}},
+		"root not saved":            {map[string]any{"trustedWorkspaces": []any{"/home/me"}}, nil, []any{"/home/me", "/p/wt/L-01"}},
+		"no saved list":             {nil, nil, []any{"/p/wt/L-01"}},
+		"the override's list":       {nil, map[string]any{"trustedWorkspaces": []any{"/x"}}, []any{"/x", "/p/wt/L-01"}},
+		"the lane already in saved": {map[string]any{"trustedWorkspaces": []any{"/p/wt/L-01"}}, nil, []any{"/p/wt/L-01"}},
 	} {
-		got := kind.Settings(c.user, c.over, false, "/p/wt/L-01", "/p")
-		if tw, _ := got["trustedWorkspaces"].([]any); slices.Contains(tw, any("/p/wt/L-01")) {
-			t.Errorf("%s: trustedWorkspaces = %v, want the start dir not trusted", name, tw)
+		if got := kind.Settings(c.user, c.over, false, "/p/wt/L-01/", "/p", ""); !reflect.DeepEqual(got["trustedWorkspaces"], c.want) {
+			t.Errorf("%s: trustedWorkspaces = %v, want %v", name, got["trustedWorkspaces"], c.want)
+		}
+	}
+	saved := map[string]any{"trustedWorkspaces": []any{"/home/me"}}
+	for name, c := range map[string]struct {
+		lead      bool
+		dir, root string
+	}{
+		"a lead in the root":        {true, "/p", "/p"},
+		"an agent in the root":      {false, "/p/", "/p"},
+		"no start dir":              {false, "", "/p"},
+		"no root (not obor's tree)": {false, "/p/wt/L-01", ""},
+	} {
+		if got, ok := kind.Settings(saved, nil, c.lead, c.dir, c.root, "")["trustedWorkspaces"]; ok {
+			t.Errorf("%s: trustedWorkspaces = %v, want the key left to the saved value", name, got)
+		}
+	}
+}
+
+// A trimmed start may read the kit's templates dir with no prompt (TemplatesRule, after obor's rules); a lead's start,
+// or one that names no kit, gets no read rule.
+func TestSettingsTemplatesRule(t *testing.T) {
+	if r := kind.TemplatesRule("/home/me/.obor/kit/"); r != "read_file(/home/me/.obor/kit/templates)" {
+		t.Errorf("TemplatesRule = %q, want read_file of the kit's templates dir", r)
+	}
+	allow := func(lead bool, kit string) []any {
+		return kind.Settings(nil, nil, lead, "/p/wt/L-01", "/p", kit)["permissions"].(map[string]any)["allow"].([]any)
+	}
+	if got, want := allow(false, "/k"), []any{kind.MCPRule, kind.CommandRule, "read_file(/k/templates)"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a trimmed start's allow = %v, want %v", got, want)
+	}
+	for name, got := range map[string][]any{"a lead's start": allow(true, "/k"), "no kit": allow(false, "")} {
+		if want := []any{kind.MCPRule, kind.CommandRule}; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: allow = %v, want obor's rules alone", name, got)
 		}
 	}
 }

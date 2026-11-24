@@ -33,6 +33,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/setup"
+	"obor/kinds/agy/kind"
 )
 
 // liveKinds is each kind's live tier.
@@ -255,7 +256,8 @@ func (l *lab) makeProject() error {
 	}
 	if l.kind == "agy" { // agy's rows start this model (obor init's starter list has no agy entry)
 		models["agy-live"] = config.ModelEntry{Kind: "agy", ID: agyModel()}
-		models["agy-bogus"] = config.ModelEntry{Kind: "agy", ID: "gemini-9-bogus"} // AG-L7: no such model
+		models["agy-bogus"] = config.ModelEntry{Kind: "agy", ID: "gemini-9-bogus"}     // AG-L7: no such model
+		models["agy-bare"] = config.ModelEntry{Kind: "agy", ID: kind.Base(agyModel())} // AG-L16: the bare base
 	}
 	agentsDoc := map[string]any{"models": models}
 	b, err := json.Marshal(agentsDoc)
