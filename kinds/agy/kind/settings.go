@@ -52,10 +52,13 @@ func UserSettings(env map[string]string, read func(string) ([]byte, error)) map[
 //     approve, with no prompt, the re-run of one the sandbox refused: a socket, the network, a write outside the
 //     workspace; docs/research/agy-probes.md P11), obor's hooks (hook.go) guarding every call; a trimmed start's
 //     override names the mode it wants instead, and a lead's never applies (so a lead is always auto);
-//   - permissions, its allow list gaining MCPRule and CommandRule;
-//   - trustedWorkspaces gaining dir, only when root is in the user's saved trustedWorkspaces (the owner trusted the
-//     project in its main checkout; its lanes follow): else the key is left to the saved value, and agy asks.
-func Settings(user, over map[string]any, lead bool, dir, root string) map[string]any {
+//   - permissions, its allow list gaining MCPRule and CommandRule, and on a trimmed start TemplatesRule(kit) (kit "":
+//     none);
+//   - trustedWorkspaces gaining dir when dir is a worktree obor made for the agent (a lane's or a role's: dir is not
+//     root): agy trusts by exact path and loads the workspace's MCP config and hooks only in a folder trusted when it
+//     starts, so a lane at agy's trust dialog would run without obor's server even once it is answered. A start in
+//     root leaves the key to the saved value: trusting the main checkout is the owner's answer to agy's dialog.
+func Settings(user, over map[string]any, lead bool, dir, root, kit string) map[string]any {
 	if lead && len(over) > 0 {
 		over = maps.Clone(over)
 		for _, k := range modeKeys {
@@ -78,12 +81,24 @@ func Settings(user, over map[string]any, lead bool, dir, root string) map[string
 	if perms == nil {
 		perms = map[string]any{}
 	}
-	perms["allow"] = with(perms["allow"], MCPRule, CommandRule)
+	rules := []string{MCPRule, CommandRule}
+	if !lead && kit != "" {
+		rules = append(rules, TemplatesRule(kit))
+	}
+	perms["allow"] = with(perms["allow"], rules...)
 	out["permissions"] = perms
-	if dir != "" && root != "" && slices.Contains(paths(user["trustedWorkspaces"]), filepath.Clean(root)) {
+	if dir != "" && root != "" && filepath.Clean(dir) != filepath.Clean(root) {
 		out["trustedWorkspaces"] = with(merged["trustedWorkspaces"], filepath.Clean(dir))
 	}
 	return out
+}
+
+// TemplatesRule is the permission rule that lets an agent read the kit's templates dir (its role texts, which the
+// session start names for a read) with no prompt: obor's PreToolUse hook answers a read "ask", which hands it to
+// agy's own check, and that asks for a file outside the workspace; a read_file rule naming a dir covers the files
+// under it (docs/research/agy-probes.md P15).
+func TemplatesRule(kit string) string {
+	return "read_file(" + filepath.Join(kit, "templates") + ")"
 }
 
 // with is the list v (a JSON array; anything else: none) with each of add appended that it lacks.
@@ -96,16 +111,4 @@ func with(v any, add ...string) []any {
 		}
 	}
 	return list
-}
-
-// paths are the string members of the JSON array v, each a cleaned path.
-func paths(v any) []string {
-	list, _ := v.([]any)
-	var out []string
-	for _, e := range list {
-		if s, ok := e.(string); ok && s != "" {
-			out = append(out, filepath.Clean(s))
-		}
-	}
-	return out
 }

@@ -27,9 +27,10 @@ import (
 )
 
 const (
-	agyGo        = "kinds/agy/kind/kind.go"    // the agy kind's source
-	agyHookGo    = "kinds/agy/kind/hook.go"    // its hook transport
-	agyDeliverGo = "kinds/agy/kind/deliver.go" // its inbox: deliver through agentapi
+	agyGo         = "kinds/agy/kind/kind.go"     // the agy kind's source
+	agyHookGo     = "kinds/agy/kind/hook.go"     // its hook transport
+	agyDeliverGo  = "kinds/agy/kind/deliver.go"  // its inbox: deliver through agentapi
+	agySettingsGo = "kinds/agy/kind/settings.go" // its start's settings file
 )
 
 // agyModel is the model id the agy rows start (CONF_AGY_MODEL; default the probes' cheap model).
@@ -78,21 +79,28 @@ func agyStatic() {
 // obor's guard denies (a worker's git commit in its lane: the PreToolUse hook's deny, final), AG-L10 the inbox (the
 // agent's own obor command records it; the kind's deliver through agentapi starts a turn in the idle session), AG-L14
 // P13's enumeration against the transport's table (one WARN per tool it has no row for), AG-L5 the
-// resume by the recorded conversation id, and P10 (agy-probes.md): with command(obor), command(go test) and
-// read_url(proxy.golang.org) allowed, whether `obor status`, a test that opens a unix socket and a module download run
-// in auto mode with no prompt.
+// resume by the recorded conversation id, AG-L17 the role text the session start names read with no prompt (the kit
+// holds the shipped worker.md, outside the lane), AG-L16 a start with the bare base of the lab's model (agy runs its
+// default variant), and P10 (agy-probes.md): with command(obor), command(go test) and read_url(proxy.golang.org)
+// allowed, whether `obor status`, a test that opens a unix socket and a module download run in auto mode with no
+// prompt.
 //
-// agy trusts a folder by exact path and the kind adds a lane only when the project's root is in the user's saved
-// trustedWorkspaces, which the lab must not write: so the lab adds its scratch dirs to each start's settings file
-// (trustLab), standing in for the owner's trust of the project. The lane is dispatched to the lab's agy model
-// (dispatchLane): obor reads a lane agent's kind from its lane row alone, so with none every obor command in the lane
-// (the inbox record, a restart) takes the agent for the default kind.
+// AG-L15: the first start is a lane's first in a fresh project (neither the lab's main checkout nor its lane is in the
+// user's saved trustedWorkspaces, which the lab never writes): the kind's settings file trusts the lane and agy shows no
+// trust dialog. The lane is dispatched to the lab's agy model (dispatchLane): obor reads a lane agent's kind from its
+// lane row alone, so with none every obor command in the lane (the inbox record, a restart) takes the agent for the
+// default kind.
 func agyLive(l *lab, turn bool) {
 	k := l.kindOf("agy")
 	whereStart, whereMCP := at(agyGo, "func start("), at(agyGo, `case "install"`)
 	real, err := l.realKit()
 	if err != nil {
 		report("FAIL", "AG-L1", "the repository's own obor is not built: "+err.Error(), whereMCP)
+		return
+	}
+	role, err := agyRoleText(real)
+	if err != nil {
+		report("FAIL", "AG-L1", "the kit's role text: "+err.Error(), whereMCP)
 		return
 	}
 	if err := l.startStubServe(); err != nil {
@@ -136,19 +144,20 @@ func agyLive(l *lab, turn bool) {
 	stop := k.Stop()
 	whereStop := at(agyGo, `"stop"`)
 	if !turn {
-		if s, ok := l.agyStart(k, pane, agents.Start{}, "no prompt"); ok {
+		if s, ok := l.agyStart(k, pane, agents.Start{}, "no prompt", true); ok {
 			l.agyWrongModel(s, pane)
 			agyQuit(l, pane, stop, whereStop)
 		} else {
 			report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		}
-		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "AG-L10", "AG-L14", "P10", "P10-control"} {
+		l.agyBare(k, pane, stop, false)
+		for _, id := range []string{"AG-L2", "AG-L3", "AG-L5", "AG-L6", "AG-L8", "AG-L9", "AG-L10", "AG-L14", "AG-L17", "P10", "P10-control"} {
 			report("SKIP", id, "needs TURN=1 (a model call)", whereStart)
 		}
 		return
 	}
 	const first = "AGY-FIRST-OK"
-	s, ok := l.agyStart(k, pane, agents.Start{Prompt: "[obor conf] Reply with exactly " + first}, "first prompt")
+	s, ok := l.agyStart(k, pane, agents.Start{Prompt: "[obor conf] Reply with exactly " + first}, "first prompt", true)
 	if !ok {
 		report("SKIP", "AG-L7", "no agent runs in the pane (AG-L1's start did not come up): nothing to restart with the lab's bogus model", whereStart)
 		return
@@ -198,6 +207,8 @@ func agyLive(l *lab, turn bool) {
 		report("FAIL", "AG-L6", fmt.Sprintf("turn what: context read %+v, %v from the transcript: %s", c, cok, tail(text, 2)), whereCtx)
 	}
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
+	l.agyRoleRead(k, pane, sid, role)
+	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
 	l.agyToolDrift(k, pane, sid)
 	poll(60*time.Second, func() bool { a, err := l.agent(s.name); return err == nil && a.Status == "idle" })
 	l.agyPush(k, pane, sid, s.name)
@@ -226,15 +237,15 @@ func agyLive(l *lab, turn bool) {
 			l.stopAgent(pane)
 		}
 	}
+	l.agyBare(k, pane, stop, true)
 	agyP10(l, k, pane, stop, true)
 	agyP10(l, k, pane, stop, false)
 }
 
 // agyRelaunch restarts the agent of conversation sid in pane as obor restart does after its exit (launch.Launcher.Launch,
 // no --fresh): the session it resumes is obor's own record, the one the SessionStart hook reported to serve (the stub
-// serve's), never an id handed to the kind. The lab's dirs are trusted through the project's override file (the
-// launcher writes the start's settings file itself). Its kind is the lane row's type (dispatchLane): the pane runs no
-// agent after the quit. False (AG-L5 reported, the pane back at its shell) when the record is missing, the launcher
+// serve's), never an id handed to the kind; the kind's settings file trusts the lane, as on every start. Its kind is
+// the lane row's type (dispatchLane): the pane runs no agent after the quit. False (AG-L5 reported, the pane back at its shell) when the record is missing, the launcher
 // fails, or it started another session than sid.
 func (l *lab) agyRelaunch(sid, pane, where string) bool {
 	rec, ok := l.app.session(sid)
@@ -242,12 +253,6 @@ func (l *lab) agyRelaunch(sid, pane, where string) bool {
 		report("FAIL", "AG-L5", "no SessionStart record of "+sid+" to resume from", where)
 		return false
 	}
-	over := filepath.Join(l.main, ".obor", "agy", "settings_override.json")
-	trust, _ := json.Marshal(map[string]any{"trustedWorkspaces": []string{l.main, l.lane}})
-	if err := os.MkdirAll(filepath.Dir(over), 0o755); err == nil {
-		err = os.WriteFile(over, trust, 0o644)
-	}
-	defer os.Remove(over)
 	var out bytes.Buffer
 	ln := l.launcher(&out, func(agent string) (store.Session, bool) { return rec, agent == rec.Agent })
 	_, err := ln.Launch(l.ctx, launch.Request{Agent: rec.Agent, Pane: pane})
@@ -476,8 +481,10 @@ func (l *lab) agyPush(k agents.Kind, pane, sid, name string) {
 		"send-message woke the idle session: %s", asked, tail(text, 1)), where)
 }
 
-// agyAskRE is a prompt of agy's on the screen: a permission request, a trust dialog.
-var agyAskRE = regexp.MustCompile(`Allow calling this tool\?|Requesting permission for[^\n]*|Do you trust the contents of this project\?`)
+// agyAskRE is a prompt of agy's on the screen: a permission request (a tool, a file outside the workspace), a trust
+// dialog.
+var agyAskRE = regexp.MustCompile(`Allow calling this tool\?|Allow access to this file\?|Requesting permission for[^\n]*|` +
+	`Do you trust the contents of this project\?`)
 
 // writeEntry writes m.Entry at m.Key of m.Path, as obor setup agents does for a project (here the lane's copy, as a
 // commit would give it).
@@ -494,9 +501,9 @@ func writeEntry(m agents.MCPRegistration) error {
 }
 
 // agyStart starts agy in pane as obor's launch builds a worker's start of the lab's agy model (in: the start's prompt
-// or resume), its settings file trusting the lab's dirs (trustLab): AG-L1 (H-L1's fact) when it comes up idle with no
-// prompt of agy's and no wrong-model notice; false (reported) when it does not.
-func (l *lab) agyStart(k agents.Kind, pane string, in agents.Start, mode string) (started, bool) {
+// or resume): AG-L1 (H-L1's fact) when it comes up idle with no prompt of agy's and no wrong-model notice; false
+// (reported) when it does not. first: the lane's first start in the lab, which reports AG-L15 (agyTrust) too.
+func (l *lab) agyStart(k agents.Kind, pane string, in agents.Start, mode string, first bool) (started, bool) {
 	where := at(agyGo, "func start(") + ", " + at(agyGo, "const NotReadyPattern")
 	s, ready, launch, screen, err := l.agyUp(k, pane, "agy-live", in)
 	if err != nil {
@@ -504,6 +511,9 @@ func (l *lab) agyStart(k agents.Kind, pane string, in agents.Start, mode string)
 		return started{}, false
 	}
 	reportStart("agy "+mode, s, ready)
+	if first {
+		l.agyTrust(launch.Args, screen)
+	}
 	switch {
 	case l.atShell(pane):
 		report("FAIL", "AG-L1", mode+": agy did not start: "+tail(screen, 6), where)
@@ -579,9 +589,9 @@ func samePids(before, after []proc) bool {
 	return len(before) > 0
 }
 
-// agyUp starts agy in pane as obor's launch builds a worker's start of model (the lab config's), its settings file
-// trusting the lab's dirs (trustLab), and waits until herdr reports it idle (or 30 s): the start, when it took input
-// (readyAfter), its launch, and the screen then (a few seconds on, for a notice).
+// agyUp starts agy in pane as obor's launch builds a worker's start of model (the lab config's) and waits until herdr
+// reports it idle (or 30 s): the start, when it took input (readyAfter), its launch, and the screen then (a few seconds
+// on, for a notice).
 func (l *lab) agyUp(k agents.Kind, pane, model string, in agents.Start) (started, time.Duration, agents.Launch, string, error) {
 	cfg := l.config()
 	m, ok := cfg.Model(model)
@@ -592,7 +602,7 @@ func (l *lab) agyUp(k agents.Kind, pane, model string, in agents.Start) (started
 	if err != nil {
 		return started{}, 0, agents.Launch{}, "", err
 	}
-	in.Dir, in.Root, in.Env, in.Read = l.lane, l.main, l.envOf, os.ReadFile
+	in.Kit, in.Dir, in.Root, in.Env, in.Read = l.real, l.lane, l.main, l.envOf, os.ReadFile // the kit: obor launch's (kitRoot)
 	in.WriteState = func(name string, data []byte) (string, error) {
 		path := filepath.Join(l.root, "state", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -601,9 +611,6 @@ func (l *lab) agyUp(k agents.Kind, pane, model string, in agents.Start) (started
 		return path, os.WriteFile(path, data, 0o644)
 	}
 	launch, err := m.LaunchOf(k, "worker", over, in)
-	if err == nil {
-		err = l.trustLab(launch.Args)
-	}
 	if err != nil {
 		return started{}, 0, launch, "", err
 	}
@@ -626,24 +633,149 @@ func redactPrompt(args []string) []string {
 	return out
 }
 
-// trustLab adds the lab's main checkout and lane to the trustedWorkspaces of the settings file args name.
-func (l *lab) trustLab(args []string) error {
+// settingsOf is the settings file args name (--settings <file>), parsed.
+func settingsOf(args []string) (map[string]any, error) {
 	i := slices.Index(args, "--settings")
 	if i < 0 || i+1 >= len(args) {
-		return fmt.Errorf("the start names no --settings file: %q", args)
+		return nil, fmt.Errorf("the start names no --settings file: %q", args)
 	}
 	b, err := os.ReadFile(args[i+1])
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var doc map[string]any
-	if err := json.Unmarshal(b, &doc); err != nil {
-		return err
+	return doc, json.Unmarshal(b, &doc)
+}
+
+// agyTrust is AG-L15: the lane's first start in a fresh project, whose main checkout and lane the user's saved
+// trustedWorkspaces does not hold (the precondition: the lab never writes the saved settings), shows no trust dialog,
+// and the start's settings file (args') names the lane in trustedWorkspaces: agy loads the workspace's MCP config and
+// hooks only in a folder trusted when it starts.
+func (l *lab) agyTrust(args []string, screen string) {
+	where := at(agySettingsGo, "func Settings(")
+	saved, _ := kind.UserSettings(map[string]string{"HOME": l.envOf("HOME")}, os.ReadFile)["trustedWorkspaces"].([]any)
+	if slices.Contains(saved, any(l.main)) || slices.Contains(saved, any(l.lane)) {
+		report("FAIL", "AG-L15", "precondition: the user's saved trustedWorkspaces already holds the lab's "+l.main+" or "+l.lane, where)
+		return
 	}
-	tw, _ := doc["trustedWorkspaces"].([]any)
-	doc["trustedWorkspaces"] = append(tw, l.main, l.lane)
-	out, _ := json.MarshalIndent(doc, "", "  ")
-	return os.WriteFile(args[i+1], out, 0o644)
+	doc, err := settingsOf(args)
+	if err != nil {
+		report("FAIL", "AG-L15", "the start's settings file: "+err.Error(), where)
+		return
+	}
+	trusted, _ := doc["trustedWorkspaces"].([]any)
+	switch {
+	case agents.TrustDialog(screen):
+		report("FAIL", "AG-L15", "agy shows its trust dialog in the fresh lane "+l.lane+": "+tail(screen, 4), where)
+	case !slices.Contains(trusted, any(l.lane)):
+		report("FAIL", "AG-L15", fmt.Sprintf("the start's settings file trusts %q, not the lane %s", trusted, l.lane), where)
+	default:
+		report("PASS", "AG-L15", "a fresh lane (the main checkout not trusted): the start's settings file trusts "+l.lane+
+			", no trust dialog", where)
+	}
+}
+
+// agyRoleText writes the kit's shipped worker role text (templates/agents/worker.md) into the lab's kit at real, where
+// obor's session start names it for the worker to read (outside the lane): its path.
+func agyRoleText(real string) (string, error) {
+	b, err := os.ReadFile(filepath.Join("templates", "agents", "worker.md"))
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(real, "templates", "agents", "worker.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	return path, os.WriteFile(path, b, 0o644)
+}
+
+// agyRoleRead is AG-L17: the role text obor's session start names (the kit's worker.md, outside the lane: the session's
+// SessionStart message names it, the precondition) is read with read_file and no prompt of agy's (the start's
+// read_file rule of the kit's templates; obor's hook answers a read "ask"). A prompt that comes is declined (Esc).
+func (l *lab) agyRoleRead(k agents.Kind, pane, sid, role string) {
+	where := at(agySettingsGo, "func TemplatesRule(")
+	const done = "AGY-ROLE-READ"
+	if t := l.agyTranscript(k, sid); !strings.Contains(t, "obor: role text: "+role) {
+		report("FAIL", "AG-L17", "precondition: the session's SessionStart message does not name the role text "+role+": "+tail(t, 2), where)
+		return
+	}
+	prompt := "[obor conf] Read the file " + role + " with one read_file call, then reply " + done + " and its first line."
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": prompt}, 15*time.Second); err != nil {
+		report("FAIL", "AG-L17", "agent.prompt: "+err.Error(), where)
+		return
+	}
+	asked := ""
+	text, ok := waitTranscript(180*time.Second, func() string {
+		if m := agyAskRE.FindString(l.screen(pane)); m != "" && asked == "" {
+			asked = m
+			_ = l.keys(pane, "esc")
+		}
+		if t := l.agyTranscript(k, sid); agyReplied(t, done) || asked != "" {
+			return t + "\n" + done
+		}
+		return ""
+	}, done)
+	read := slices.Contains(agyReadPaths(text), role)
+	switch {
+	case asked != "":
+		report("FAIL", "AG-L17", "read_file "+role+": agy asked: "+asked+" (declined)", where)
+	case !ok || !read:
+		report("FAIL", "AG-L17", fmt.Sprintf("no read_file of %s and reply %s in 180s (reads %q): %s; screen: %s", role, done,
+			agyReadPaths(text), tail(text, 2), tail(l.screen(pane), 4)), where)
+	default:
+		report("PASS", "AG-L17", "read_file "+role+" (the role text the session start names, outside the lane): no prompt of agy's", where)
+	}
+}
+
+// agyBare is AG-L16: the worker started with the bare base of the lab's model (models.agy-bare, the slug without its
+// effort word, a name agy models does not list) is not refused by the kind's model check and comes up with no
+// wrong-model notice; with turn, its reply runs on a variant of that base (the transcript's model: agy's default
+// variant). The agent is quit after.
+func (l *lab) agyBare(k agents.Kind, pane string, stop agents.Stop, turn bool) {
+	where := at(agyGo, "func checkModel(")
+	base := kind.Base(agyModel())
+	if base == agyModel() {
+		report("SKIP", "AG-L16", "the lab's model "+agyModel()+" names no effort: it has no bare base to start", where)
+		return
+	}
+	const marker = "AGY-BARE-OK"
+	in := agents.Start{}
+	if turn {
+		in.Prompt = "[obor conf] Reply with exactly " + marker
+	}
+	s, _, _, screen, err := l.agyUp(k, pane, "agy-bare", in)
+	fail := func(why string) {
+		report("FAIL", "AG-L16", "--model "+base+": "+why, where)
+		l.stopAgent(pane)
+	}
+	switch {
+	case err != nil:
+		report("FAIL", "AG-L16", "--model "+base+": the start: "+err.Error(), where)
+		return
+	case l.atShell(pane):
+		report("FAIL", "AG-L16", "--model "+base+": agy did not start: "+tail(screen, 4), where)
+		return
+	case k.NotReady(screen) != "":
+		fail(k.NotReady(screen) + ": " + tail(screen, 3))
+		return
+	case agyAskRE.MatchString(screen):
+		fail("agy asks on its start screen: " + agyAskRE.FindString(screen))
+		return
+	}
+	ran := "no turn"
+	if turn {
+		sid, text := l.agyConversation(k, s, marker)
+		m, _ := agyReplyModel(text, marker)
+		if sid == "" || !strings.HasPrefix(m, base+"-") {
+			fail(fmt.Sprintf("the reply %s ran on %q (conversation %q), want a variant of %s", marker, m, sid, base))
+			return
+		}
+		ran = "the reply ran on " + m
+	}
+	report("PASS", "AG-L16", "--model "+base+" (a bare base): the start is not refused, no wrong-model notice, "+ran, where)
+	if _, err := l.quit(pane, stop); err != nil {
+		l.stopAgent(pane)
+	}
 }
 
 // agyConversation is the conversation of s whose transcript has the model's reply carrying marker (agyReplied;
@@ -756,7 +888,7 @@ func TestUnixSocket(t *testing.T) {
 	prompt := "[obor conf] Run these shell commands, each as its own run_command call, exactly as written, one after another, " +
 		"even when one fails: " + strings.Join(list, " ") + ". Do not retry or change them. Then reply " + done + "."
 	before := len(l.app.asked())
-	s, ok := l.agyStart(k, pane, agents.Start{Prompt: prompt}, id)
+	s, ok := l.agyStart(k, pane, agents.Start{Prompt: prompt}, id, false)
 	if !ok {
 		report("FAIL", id, "agy did not start with the override file", where)
 		return

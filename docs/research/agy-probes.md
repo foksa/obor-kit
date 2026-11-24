@@ -1,4 +1,4 @@
-# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468; P12: T-1481; P13: T-1497; P14: v0.44.1 deep-dive probe)
+# agy probes: what Antigravity CLI does at run time (T-1458; P10: T-1460; P11: T-1468; P12: T-1481; P13: T-1497; P14: v0.44.1 deep-dive probe; P15: T-1551)
 
 `docs/research/agent-kinds-advice.md` §1.1 lists nine questions (P1 to P9) the agy kind's design rests on, all
 answered from documents so far. This run started agy live and records what it did, with the command or screen that
@@ -52,6 +52,7 @@ Summary:
 | P11 | `enableTerminalSandbox: false` does not take auto mode out of the sandbox (the same refusals; `/config` shows it as "Sandbox Mode", `off` with or without the key). `sandboxMode` is no CLI setting: `--settings` with it (or any unknown key) fails the start. Auto mode is already Claude-like: after a sandbox refusal the model re-ran the command with `BypassSandbox: true` on its own and the reviewer approved the unix socket, the socket test, the module download and the write outside the workspace with no prompt (5 to 12 s each); `rm -rf` of a dir outside the workspace with `BypassSandbox` asked, with the reviewer's reason. | D1: no `enableTerminalSandbox` key; plain auto mode (no `toolPermission`) passes a lane's socket and network commands through the reviewer, and works before obor's hooks; P10's "cannot dial serve" was the first, sandboxed attempt only |
 | P12 | Yes for the prompts: on a `BypassSandbox` re-run agy checks `unsandboxed(<command>)` against `command(…)` rules, and a `permissions.allow` rule covering every part of the command turns the reviewer's ask into a run (`obor send` asked 3 of 3 without `command(obor)`, ran 3 of 3 with it; `rm -rf` of a dir outside the workspace likewise). The rule does not skip or shorten the review (the same 2 to 36 s), does not take the first attempt out of the sandbox, and covers no uncovered part (`… && echo` still asked). Dialog option 3 saves `command(<prefix>)` (`command(obor)` for `obor send`). `command(obor status)` does not cover `obor send`. A deny rule is final on both paths. In a linked worktree every git command fails sandboxed (exit 128), and the model retried none of those failures, nor the socket test's or the download's (10 of 10). | the lead: `command(obor)` in obor's agy settings instead of `always-proceed`; obor-kit's workers keep `always-proceed` + hooks (the sandboxed first attempt, not the prompt, breaks a lane) |
 | P13 | A session is offered 17 tools (the model's list), obor's matchers name 3. Every tool fires PreToolUse, and `*` (or `.*`, `""`, no matcher) catches all; the matcher is a regex on `toolCall.name`; a deny stops any tool. A subagent's and a workflow `agent()`'s tool calls fire the workspace hooks, obor's included, under a new conversationId with no parent field. A `run_workflow` script's own Python and shell fire nothing, and under `always-proceed` run unsandboxed (a write outside the workspace passed). `permissions.deny` refuses `mcp(<server>/*)` and `mcp(*)` even under `always-proceed` and over an allow; entries naming a tool (`run_workflow`, `tool(…)`, `…(*)`) load and do nothing. `call_mcp_tool` carries `ServerName`, `ToolName`, `Arguments`. | W10: a `*` PreToolUse group, deny unmapped tools by name; `run_workflow` is the escape; subagents need telling apart, not denying; other servers through the guard on `ServerName` |
+| P15 | A lane's first start in an untrusted worktree stops at the trust dialog, and the workspace's `.agents/mcp_config.json` does not load: answering it loads the hooks but not the MCP server (`tool job_next is not enabled for server obor`). A start whose `--settings` names the worktree in `trustedWorkspaces` loads it, and an `mcp(<server>/*)` rule runs its tool with no prompt beside a user-level server. With a PreToolUse hook answering `ask`, a `read_file` outside the workspace asks ("File access … outside workspace"); without the hook auto mode reads it. A `read_file(<dir>)` rule covers the files under the dir and nothing beside it. A bare base id (`gemini-4-neon`, `gemini-3.8-flash`) runs agy's default variant with no notice; `failed to apply model override`, `Failed to resolve GeminiDir` and `Not reloading plugin MCP servers` are logged at every start, a full slug's too. | the kind trusts every worktree start; a trimmed start allows `read_file(<kit>/templates)`; a bare id stays accepted |
 
 ## P1: workspace config, plugins.json, worktrees, skills
 
@@ -1089,6 +1090,50 @@ Decides (W7):
   session at its start. `{}` is the harmless answer there.
 - The hook's own parse errors (`cli.log`) are the only place an owner can see that a SessionStart or PreInvocation answer
   was not understood.
+
+## P15: a lane's first start in a fresh project (trust, MCP, the role file, a bare model id)
+
+Question: why an obor lane's agy worker in a freshly initialised project could not call `job_next` ("tool job_next is
+not enabled for server obor"), stopped at the trust dialog, and asked for file access to the kit's role text, when the
+kit's own live tier passed; whether agy takes a bare base model id.
+
+Ran: agy 1.5.16, 2026-11-24. First the user's own `cli.log` files and transcripts of that project's lane starts (read
+only; the project itself was not touched). Then a throwaway herdr session `probe-t1551` (headless, `env -i`), a scratch
+repository outside `$HOME` with a committed `.agents/mcp_config.json` naming a stdio server `probe` (P2's `mcp.py`), a
+linked worktree as the lane, and a scratch kit; agy started in the lane with `--settings` files built like the kind's
+trimmed one (`agentMode` auto, `mcp(probe/*)`, `command(obor)`). The user's saved settings were not written: every trust
+dialog was answered "No, exit", every file prompt "No, deny access". The user's own `~/.gemini/config/mcp_config.json`
+(a personal server) stayed in place, as in the project that failed.
+
+Saw:
+
+- The project's two lanes, first start each: `cli.log` `loaded 1 named hooks from 1 hooks.json file(s)` (the dialog up,
+  nothing of the workspace loaded), then, after the owner chose "Yes, I trust this folder", `loaded 2 named hooks`; no
+  SessionStart message reached the model, and `call_mcp_tool` `obor/job_next` failed with `declaring permissions: model
+  output error: invalid tool call error (invalid_args) tool job_next is not enabled for server obor`. The next start of
+  each lane (now in the saved `trustedWorkspaces`) had the SessionStart message and `job_next` answered.
+- Scratch lane, no `--settings`: the trust dialog. With a `--settings` file naming the lane in `trustedWorkspaces` (the
+  saved list kept before it): no dialog, and `Call the echo tool of the probe MCP server` ran `probe/echo` with no
+  prompt (`● Called 1 MCP tool (probe/echo)`).
+- `read_file` of `~/.obor/kit/templates/agents/worker.md` (outside the workspace) in auto mode: read with no prompt.
+  The same with a workspace `hooks.json` whose PreToolUse handler answers `{"decision":"ask"}` (what obor's transport
+  answers for a read): `File access` / `Read: …/worker.md` / `Reason: outside workspace` / `Allow access to this file?`.
+  With `read_file(~/.obor/kit/templates)` (the absolute path) in `permissions.allow`: no prompt; `read_file` of
+  `~/.obor/kit/VERSION` beside it still asked.
+- `--model gemini-3.8-flash` came up as `auto · Gemini 3.8 Flash · medium`, `--model gemini-4-neon` as `auto · Gemini 4
+  Neon · high`, no notice; `agy models` lists only the `-low/-medium/-high(/-xhigh)` slugs. In the project's starts
+  `cli.log` said `model alias "gemini-4-neon" resolved to "gemini-4-neon-high"` once signed in. The lines logged before
+  sign-in, `failed to apply model override: … is not recognized`, `Failed to resolve GeminiDir ".gemini": … must be an
+  absolute path`, `Not reloading plugin MCP servers: cannot get the signed-in user` (and the monitor's
+  `unsupported_tool: call_mcp_tool`, not a refusal), are in every start's log, the live tier's passing ones with a full
+  slug too.
+- Inside the agent's sandbox `which obor` printed `obor not found` when `obor` on `PATH` is a symlink into `~/.obor`
+  (`ls ~/.obor`: `Operation not permitted`); the MCP server and the hooks run outside the sandbox and were not affected.
+
+Decides: the kind's settings file trusts the start dir of every worktree start, not only when the owner trusted the
+main checkout (a lane at the dialog runs without obor's server even once answered); a trimmed start allows
+`read_file(<kit>/templates)`; a bare base id stays accepted (agy's default variant). The kit's live tier missed it
+because it trusted the lab's dirs itself and its kit held no role text.
 
 ## Not verified
 
