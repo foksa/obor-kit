@@ -53,6 +53,11 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   four fields (`Report`: state, kind, msg, app) and the rules on them (`Word`, `Note`, `Shown`, `TurnEnded`). An
   adapter decodes its terminal's wire into a `Report`; no obor imports.
 - `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
+- `linestream`: a source of lines (a socket, a subprocess's stdout) as a channel of events: one goroutine drains the
+  lines from the start, `Run` applies each with the caller's rules (`Apply`, `End`, an optional quiet timeout), the
+  first error ends the stream once (`Err`, `Close`). The terminal adapters' event streams (`hc`, `rex`) run on it.
+- `osnotify`: a desktop notification for a terminal that has none of its own (`Notifier.Show`: osascript on macOS,
+  a reason elsewhere); `hc` and `rex` answer `port.Panes.Notify` with it.
 - `version`: build version line.
 - `agents/plugin`: a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind
   protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` builds the
@@ -271,6 +276,15 @@ on a file missing from this table or a listed file that is gone); the entry is t
   `WaitStatus` on its own subscription), `port.AgentStarter` (`start.go`: the command line typed at the shell, up by
   the status rule), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built yet), and `contract.go` (what obor
   sends and reads, checked against a committed copy of hc's schema); `hc/hctest` is its fake (test helper).
+- `rex`: the Rex client, the third terminal adapter (`docs/plan/terminal-adapters.md` step 9; no project selects it
+  yet): the `rex` CLI on PATH, one `rex api call` per request and its errors (`client.go`: exit status 4 is no server,
+  Rex's `code=` its answer), a terminal block as a pane (its session's label the group, its label the label, the root
+  `program_status` record as a `progstatus.Report` only while its `owner.pid` is the foreground) and `port.Panes`
+  (`panes.go`; `Notify` by `osnotify`), one `rex events --all --json` with the client lines dropped, synced before
+  the snapshot, its block events applied and its exit a refresh (`stream.go`), and `contract.go` (the methods, params
+  and fields obor uses, checked against a committed copy of `rex api describe`; the stream's event names, which no
+  schema has). Only `cmd/obor/terminal.go` and `tests/conformance` import it; no fake Rex server (the live tier reads
+  a scratch server).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,
@@ -354,7 +368,7 @@ missed, and a shell that runs the programs a test names, with each send and key 
 thin `app.Specs`, `Lanes`, `Poster` adapters and the review git (`reviewGit`, `port.Review`) live here; `workflowOf`
 picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git); `terminal.go`
 builds the project's terminal (`port.Terminal`: herdr, or hc with serve's hold on its core), and no other production file imports
-`internal/herdr` or `internal/hc` (`TestOneTerminalBuilder`). The lead's chat commands are the same CLI (`status`, `dispatch`,
+`internal/herdr`, `internal/hc` or `internal/rex` (`TestOneTerminalBuilder`). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
