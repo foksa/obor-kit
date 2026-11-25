@@ -216,6 +216,12 @@ on a file missing from this table or a listed file that is gone); the entry is t
   tab of which name, or the refusal's text), `Label` (a new tab's name for a kind) and `Home` (whether the caller's pane
   qualifies as the lead's home, from a `Caller`'s facts, else why not). No terminal call: each adapter reads its facts
   into these types and does what the answer says. It imports `app/port` only (`PaneKind`).
+- `app/shellpane` (core, a leaf below `app`): the shell pane model of the terminals that type an agent's command line
+  at a pane's login shell (`hc`, `rex`): `Start` (port.AgentStarter's start: the quoted command line (`CommandLine`)
+  typed after the pane is marked, then up by the status rule, with its refusals and failures as the port's
+  predicates) over a `Terminal` each adapter gives (`Look`: a pane's facts; `Mark`; `Type`), and `WaitStatus` (a wait
+  for an agent's status on the terminal's own `port.Panes` subscription, a refresh subscribed again). It imports
+  `app/port`, `progstatus` and `project` only.
 - `app/event` (core, a leaf below `app`): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
   types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
@@ -275,8 +281,8 @@ on a file missing from this table or a listed file that is gone); the entry is t
   as its group and label, the kind from its status's app, else the `obor.kind` label) and `port.Panes` (`panes.go`),
   one unfiltered `events.subscribe` and its endings (`stream.go`), `port.PaneControl`: its reads (`client.go`) and
   `control.go` (`Prompt`: `terminal.send`, whose native `blocked` answer is `port.Blocked`; `Write`, `SendKeys`,
-  `RenamePane`, `Named` by label, `WaitStatus` on its own subscription), `port.AgentStarter` (`start.go`: the command
-  line typed at the shell, up by the status rule), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built
+  `RenamePane`, `Named` by label, `WaitStatus`: `app/shellpane`'s on its own subscription), `port.AgentStarter`
+  (`start.go`: `app/shellpane`'s start over the terminal record), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built
   yet), and `contract.go` (what obor sends and reads, checked against a committed copy of hc's schema); `hc/hctest` is
   its fake (test helper).
 - `rex`: the Rex client, the third terminal adapter (`docs/plan/terminal-adapters.md` step 9; no project selects it
@@ -284,10 +290,16 @@ on a file missing from this table or a listed file that is gone); the entry is t
   Rex's `code=` its answer), a terminal block as a pane (its session's label the group, its label the label, the root
   `program_status` record as a `progstatus.Report` only while its `owner.pid` is the foreground) and `port.Panes`
   (`panes.go`; `Notify` by `osnotify`), one `rex events --all --json` with the client lines dropped, synced before
-  the snapshot, its block events applied and its exit a refresh (`stream.go`), and `contract.go` (the methods, params
-  and fields obor uses, checked against a committed copy of `rex api describe`; the stream's event names, which no
-  schema has). Only `cmd/obor/terminal.go` and `tests/conformance` import it; no fake Rex server (the live tier reads
-  a scratch server).
+  the snapshot, its block events applied and its exit a refresh (`stream.go`), `port.PaneControl` and
+  `port.AgentStarter` (`control.go`: a block found by its id (`target.resolve`), a paste and `rex send-key` for the
+  typing behind `port.GuardPrompts`, `WaitStatus` and `Start` by `app/shellpane`), `port.TerminalSetup` (`place.go`:
+  one session per project labelled with its name, its windows `app/layout`'s tabs, every window and block unfocused;
+  `setup.go`: the agents, the rename, the close, the lead's home), a block's environment (`env.go`: every block obor
+  makes runs its shell through `env -u` for each pane or session identity name the server's environment holds, read by
+  a probe block), and `contract.go` (the methods, params, options and fields obor uses, checked against a committed
+  copy of `rex api describe`; the stream's event names, which no schema has; the CLI commands; the stream's delivery
+  guarantee). Only `cmd/obor/terminal.go` and `tests/conformance` import it; no fake Rex server (mapping functions are
+  tested on recorded JSON, the live tier reads a scratch server).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,

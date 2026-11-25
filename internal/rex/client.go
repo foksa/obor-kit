@@ -1,8 +1,9 @@
 // Package rex is obor's client of Rex, the third terminal adapter (docs/plan/terminal-adapters.md step 9): the `rex`
 // CLI found on PATH, run once per request (`rex api call <method> '<json>'`), and one long-lived `rex events --all
-// --json` as the event stream. It implements port.Panes (Panes: the snapshot, the stream, Notify). A pane is a
-// terminal block: the block's id is the pane's id, its session's label the pane's group and its own label the pane's
-// label. No project's terminal is Rex yet.
+// --json` as the event stream. It implements port.Panes (Panes: the snapshot, the stream, Notify), port.PaneControl
+// and port.AgentStarter (Client: control.go, the start by internal/app/shellpane) and port.TerminalSetup (Client:
+// setup.go, place.go). A pane is a terminal block: the block's id is the pane's id, its session's label the pane's
+// group and its own label the pane's label (a label Rex made up is none). No project's terminal is Rex yet.
 //
 // Every failure is an *Error: Rex's own answer carries its code (not_found and session_not_found → port.NotFound); a
 // server that does not answer (the CLI's exit status 4: none runs at the address, or it went away) is port.NotRunning.
@@ -33,6 +34,8 @@ type Error struct {
 	down bool
 	// refresh: the stream ended only so the caller reads a new snapshot and subscribes again (port.Refreshed).
 	refresh bool
+	// late: the CLI ran and was cut off (a timeout, a cancel) before it answered: Rex may have acted on the request.
+	late bool
 }
 
 // NotFound, Unavailable, Refreshed and Answered let the core read an *Error without importing rex (port.NotFound,
@@ -118,20 +121,33 @@ func (cl *Client) call(ctx context.Context, out any, method string, params any) 
 // callStarted is call, with started (when set) told the CLI's pid once it runs: the stream's client_joined line names
 // that pid (Panes.Subscribe's sync).
 func (cl *Client) callStarted(ctx context.Context, out any, method string, params any, started func(pid int)) error {
-	ctx, cancel := context.WithTimeout(ctx, cl.timeout())
-	defer cancel()
 	if params == nil {
 		params = struct{}{}
 	}
 	p, _ := json.Marshal(params)
-	cmd, err := cl.command(ctx, method, "api", "call", method, string(p))
-	if err != nil {
+	stdout, err := cl.run(ctx, method, started, "api", "call", method, string(p))
+	if err != nil || out == nil {
 		return err
+	}
+	if err := json.Unmarshal(stdout, out); err != nil {
+		return &Error{Op: method, Msg: "unreadable answer: " + project.FirstLine(strings.TrimSpace(string(stdout)))}
+	}
+	return nil
+}
+
+// run runs the CLI once with args, bounded by the client's timeout, started (when set) told its pid once it runs; its
+// stdout, or its failure as an *Error named op.
+func (cl *Client) run(ctx context.Context, op string, started func(pid int), args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, cl.timeout())
+	defer cancel()
+	cmd, err := cl.command(ctx, op, args...)
+	if err != nil {
+		return nil, err
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
-		return &Error{Op: method, Msg: "rex did not start: " + err.Error()}
+		return nil, &Error{Op: op, Msg: "rex did not start: " + err.Error()}
 	}
 	if started != nil {
 		started(cmd.Process.Pid)
@@ -140,21 +156,15 @@ func (cl *Client) callStarted(ctx context.Context, out any, method string, param
 		var ee *exec.ExitError
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			return &Error{Op: method, Msg: "timed out", down: true}
+			return nil, &Error{Op: op, Msg: "timed out", down: true, late: true}
 		case ctx.Err() != nil:
-			return &Error{Op: method, Msg: ctx.Err().Error(), down: true}
+			return nil, &Error{Op: op, Msg: ctx.Err().Error(), down: true, late: true}
 		case errors.As(err, &ee):
-			return exitError(method, ee.ExitCode(), stderr.String())
+			return nil, exitError(op, ee.ExitCode(), stderr.String())
 		}
-		return &Error{Op: method, Msg: err.Error()}
+		return nil, &Error{Op: op, Msg: err.Error()}
 	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(stdout.Bytes(), out); err != nil {
-		return &Error{Op: method, Msg: "unreadable answer: " + project.FirstLine(strings.TrimSpace(stdout.String()))}
-	}
-	return nil
+	return stdout.Bytes(), nil
 }
 
 // codeRe is the code at the end of Rex's error line: `… (status=404 code=not_found)`; streamRe the CLI's own prefix
@@ -178,7 +188,17 @@ func exitError(op string, code int, stderr string) *Error {
 	return &Error{Op: op, Msg: fmt.Sprintf("%s (exit status %d)", cmp.Or(msg, "rex failed"), code)}
 }
 
-// blockParams are a block method's params: its block, the session that holds it and the method's own (empty) args.
-func blockParams(session, block string) map[string]any {
-	return map[string]any{"session_id": session, "block_id": block, "args": map[string]any{}}
+// blockParams are a block method's params: its block, the session that holds it and the method's own args (nil:
+// none, sent as {}).
+func blockParams(session, block string, args any) map[string]any {
+	if args == nil {
+		args = struct{}{}
+	}
+	return map[string]any{"session_id": session, "block_id": block, "args": args}
+}
+
+// mayHaveActed: err is a call Rex may have carried out (the CLI ran and was cut off before it answered).
+func mayHaveActed(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && e.late
 }

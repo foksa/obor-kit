@@ -20,7 +20,8 @@ type schemaNode struct {
 	Items      *schemaNode            `json:"items"`
 }
 
-// describe is the committed copy of `rex api describe --json` for the methods the client calls.
+// describe is the committed copy of `rex api describe --json` for the methods the client calls (a block method's
+// own args in args_schema), with the shell flavor's options from block_creator.list.
 type describe struct {
 	APIRevision int `json:"api_revision"`
 	Methods     []struct {
@@ -28,11 +29,36 @@ type describe struct {
 			Method string `json:"method"`
 		} `json:"invoke"`
 		Input  *schemaNode `json:"input_schema"`
+		Args   *schemaNode `json:"args_schema"`
 		Output *schemaNode `json:"output_schema"`
 	} `json:"methods"`
+	Flavors []struct {
+		Flavor  string      `json:"flavor"`
+		Options *schemaNode `json:"options_schema"`
+	} `json:"flavors"`
 }
 
+// readDescribe is the copy by method: its input (a block method's: its args), its output; and the shell flavor's
+// options.
 func readDescribe(t *testing.T) map[string][2]*schemaNode {
+	t.Helper()
+	d := readCopy(t)
+	out := map[string][2]*schemaNode{}
+	for _, m := range d.Methods {
+		in := m.Input
+		if m.Args != nil {
+			in = m.Args
+		}
+		out[m.Invoke.Method] = [2]*schemaNode{in, m.Output}
+	}
+	if d.APIRevision != APIRevision || len(out) != len(Sent)+1 {
+		t.Fatalf("precondition: the copy is API revision %d with %d methods, want revision %d with Sent's %d and block.method",
+			d.APIRevision, len(out), APIRevision, len(Sent))
+	}
+	return out
+}
+
+func readCopy(t *testing.T) describe {
 	t.Helper()
 	b, err := os.ReadFile("testdata/rex-api-18.describe.json")
 	if err != nil {
@@ -42,19 +68,23 @@ func readDescribe(t *testing.T) map[string][2]*schemaNode {
 	if err := json.Unmarshal(b, &d); err != nil {
 		t.Fatal(err)
 	}
-	out := map[string][2]*schemaNode{}
-	for _, m := range d.Methods {
-		out[m.Invoke.Method] = [2]*schemaNode{m.Input, m.Output}
+	return d
+}
+
+// schemaHas: node holds each of fields, a dotted one inside its parent's properties.
+func schemaHas(node *schemaNode, field string) bool {
+	for _, step := range strings.Split(field, ".") {
+		if node == nil {
+			return false
+		}
+		node = node.Properties[step]
 	}
-	if d.APIRevision != APIRevision || len(out) != len(Sent)+1 {
-		t.Fatalf("precondition: the copy is API revision %d with %d methods, want revision %d with Sent's %d and block.method",
-			d.APIRevision, len(out), APIRevision, len(Sent))
-	}
-	return out
+	return node != nil
 }
 
 // Every method obor calls is in the copy, with every param obor puts in it: a block method's session_id, block_id
-// and args are block.method's, and its own input takes no params (obor sends args {}).
+// and args are block.method's, and its own args (Args) are in its args schema; the shell flavor's options obor sets
+// (Options) and block.event's event fields (Event) are in theirs.
 func TestSchemaHasSent(t *testing.T) {
 	d := readDescribe(t)
 	for method, params := range Sent {
@@ -65,15 +95,31 @@ func TestSchemaHasSent(t *testing.T) {
 		}
 		in := s[0]
 		if strings.HasPrefix(method, Terminal+".") {
-			if in != nil && len(in.Properties) > 0 {
-				t.Errorf("%s takes params %v; obor sends args {}", method, in.Properties)
+			for _, a := range Args[method] {
+				if !schemaHas(in, a) {
+					t.Errorf("Rex %d's %s takes no arg %s", APIRevision, method, a)
+				}
 			}
 			in = d["block.method"][0]
 		}
 		for _, p := range params {
-			if in == nil || in.Properties[p] == nil {
+			if !schemaHas(in, p) {
 				t.Errorf("Rex %d's %s has no param %s", APIRevision, method, p)
 			}
+		}
+	}
+	for _, f := range Event {
+		if !schemaHas(d["block.event"][0], "event."+f) {
+			t.Errorf("Rex %d's block.event has no event field %s", APIRevision, f)
+		}
+	}
+	c := readCopy(t)
+	if len(c.Flavors) != 1 || c.Flavors[0].Flavor != ShellFlavor {
+		t.Fatalf("precondition: the copy's flavors %+v, want %s's options", c.Flavors, ShellFlavor)
+	}
+	for _, o := range Options {
+		if !schemaHas(c.Flavors[0].Options, o) {
+			t.Errorf("Rex %d's %s takes no option %s", APIRevision, ShellFlavor, o)
 		}
 	}
 }

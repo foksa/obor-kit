@@ -123,8 +123,8 @@ func TestSendKeysNames(t *testing.T) {
 	}
 }
 
-// A wait ends when the report's word is a ready one (progstatus.TurnEnded: the rule's rows are there): one row here
-// that WaitStatus reads it.
+// hc's WaitStatus is shellpane's wait (the rule's rows are there) on hc's own stream: one row that it ends when the
+// agent's report says the turn ended.
 func TestWaitStatusTurnEnds(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -162,42 +162,6 @@ func TestWaitStatusTurnEnds(t *testing.T) {
 			})
 		})
 	}
-}
-
-// A wait ends with an error that says why: its timeout (TimedOut), no agent at all (a shell: not found), the agent
-// exiting to the shell (not found), the terminal finishing (not found).
-func TestWaitStatusFails(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		core := agentCore(&hc.Status{State: "working", App: "claude-code"})
-		c := core.Client()
-		start := time.Now()
-		if err := c.WaitStatus(ctx, "t1", []string{"idle", "done"}, 30*time.Second); !port.TimedOut(err) || time.Since(start) != 30*time.Second {
-			t.Errorf("WaitStatus on a working agent = %v after %s; want TimedOut at 30 s", err, time.Since(start))
-		}
-		if err := shellCore().Client().WaitStatus(ctx, "t1", []string{"idle"}, time.Minute); !port.NotFound(err) || port.TimedOut(err) {
-			t.Errorf("WaitStatus at a shell = %v, want not found at once", err)
-		}
-		for _, end := range []func(){
-			func() { // /exit: status null, the shell back in the foreground
-				core.SetStatus("t1", nil)
-				core.SetForeground("t1", hc.Foreground{PID: 41000, Name: "zsh", Cwd: "/proj"})
-			},
-			func() { core.Exit("t1", 0) },
-		} {
-			core.Update("t1", func(r *hc.Record) {
-				r.State, r.Status = "live", &hc.Status{State: "working"}
-				r.Foreground = &hc.Foreground{PID: 41100, Name: "agent"}
-			})
-			done := make(chan error, 1)
-			go func() { done <- c.WaitStatus(ctx, "t1", []string{"idle", "done"}, time.Minute) }()
-			synctest.Wait()
-			end()
-			if err := <-done; !port.NotFound(err) || port.TimedOut(err) {
-				t.Errorf("WaitStatus when the agent left = %v, want not found", err)
-			}
-		}
-		core.Down()
-	})
 }
 
 // A kept terminal whose shell exits with a code is finished for good (P8): the pane is gone to every read and write

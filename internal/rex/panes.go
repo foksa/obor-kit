@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	"obor/internal/agents"
@@ -33,19 +34,28 @@ type Block struct {
 
 // Process is one process of a terminal block (the process method's child, foreground and ancestors).
 type Process struct {
-	PID  int    `json:"pid"`
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Cwd  string `json:"cwd,omitempty"` // the foreground's only
+	PID   int    `json:"pid"`
+	Name  string `json:"name"` // the process's name, which is not its command: Claude's is its version
+	Path  string `json:"path"`
+	Argv0 string `json:"argv0,omitempty"` // as the process shows it now (claude, -zsh)
+	Cwd   string `json:"cwd,omitempty"`   // the foreground's only
+}
+
+// program is p's name for a person: its argv0 without its path, else its name.
+func (p Process) program() string {
+	return port.Process{Argv0: p.Argv0, Name: p.Name}.Program()
 }
 
 // Processes is the process method's answer: the block's own program (child: nil once it exited), what holds the
-// terminal now (foreground) and the processes between the two, the child first (none when the foreground is the
-// child).
+// terminal now (foreground), the processes between the two, the child first (none when the foreground is the
+// child), and how the program exited (nil while it runs).
 type Processes struct {
 	Child      *Process  `json:"child"`
 	Foreground *Process  `json:"foreground"`
 	Ancestors  []Process `json:"ancestors"`
+	LastExit   *struct {
+		ExitCode int `json:"exit_code"`
+	} `json:"last_exit"`
 }
 
 // Record is one program_status record: an OSC 7501 report as Rex relays it. ID is "" for the root record (left out
@@ -81,13 +91,13 @@ type term struct {
 	Status         *Record
 }
 
-// pane is t as the port sees it: ID and Terminal the block id, Group its session's label, Label the block's, Run the
-// block's own program's pid (child), Cwd the foreground's. The status is the root record's (progstatus.Report: its
+// pane is t as the port sees it: ID and Terminal the block id, Group its session's label, Label the block's (label),
+// Run the block's own program's pid (child), Cwd the foreground's. The status is the root record's (progstatus.Report: its
 // word, its note, its app's kind by agents.ByApp of kinds) only while the record's owner is the foreground (ownerRuns):
 // an agent that exited or was killed leaves its last record behind. Without a record that counts, a foreground other
 // than the block's shell is unknown; the shell itself is no agent.
 func (t term) pane(kinds agents.Kinds) port.Pane {
-	p := port.Pane{ID: t.Block.ID, Terminal: t.Block.ID, Group: t.Group, Label: t.Block.Label}
+	p := port.Pane{ID: t.Block.ID, Terminal: t.Block.ID, Group: t.Group, Label: label(t.Block)}
 	if c := t.Proc.Child; c != nil {
 		p.Run = strconv.Itoa(c.PID)
 	}
@@ -103,6 +113,19 @@ func (t term) pane(kinds agents.Kinds) port.Pane {
 		p.Status = "unknown"
 	}
 	return p
+}
+
+// ShellFlavor is the flavor of the terminal blocks obor makes (the creator's one flavor); its short name is the
+// label a new block gets.
+const ShellFlavor = Terminal + ".shell"
+
+// label is b's label as obor's: "" for a label Rex made up, the flavor's short name a new block starts with ("shell")
+// or the default an empty label restores ("Block " and the id's last 8 characters).
+func label(b Block) string {
+	if b.Label == ShellFlavor[strings.LastIndex(ShellFlavor, ".")+1:] || len(b.ID) >= 8 && b.Label == "Block "+b.ID[len(b.ID)-8:] {
+		return ""
+	}
+	return b.Label
 }
 
 // ownerRuns: the root record's owner holds the foreground now.
@@ -282,13 +305,13 @@ func (r reads) session(ctx context.Context, s Session, known map[string]term) ([
 
 // term reads t's block: its processes and its root record.
 func (cl *Client) term(ctx context.Context, t *term) error {
-	if err := cl.call(ctx, &t.Proc, Terminal+".process", blockParams(t.Session, t.Block.ID)); err != nil {
+	if err := cl.call(ctx, &t.Proc, Terminal+".process", blockParams(t.Session, t.Block.ID, nil)); err != nil {
 		return err
 	}
 	var ps struct {
 		Records []Record `json:"records"`
 	}
-	if err := cl.call(ctx, &ps, Terminal+".program_status", blockParams(t.Session, t.Block.ID)); err != nil {
+	if err := cl.call(ctx, &ps, Terminal+".program_status", blockParams(t.Session, t.Block.ID, nil)); err != nil {
 		return err
 	}
 	t.Status = root(ps.Records)
