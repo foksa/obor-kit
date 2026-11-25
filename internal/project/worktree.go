@@ -120,23 +120,32 @@ func LinkInto(root, dir string, links []string) (linked []string, err error) {
 
 // WithLinks runs change (a checkout, a merge) in the worktree dir with obor's links kept right around it: first each
 // link of dir whose path target tracks is removed (git refuses to overwrite an untracked file, and a link is one:
-// removeTrackedLinks), then change runs, then every link of WorktreeLinks the worktree lacks is made (LinkInto: the
-// path a tracked file took stays that file, the link the target does not track comes back). say gets a line per link
-// removed ("removed link <path>: <target7> tracks it") and per link made ("linked <path>"). change leaves the tree as
-// it was when it fails (a merge that stopped is aborted before it returns), so a failed change puts back the links it
-// removed and gets back git's error as change gave it; so does a failure of the removal, for the links already
-// removed. A link that cannot be made is the error of a change that succeeded. git runs in dir (the removal's status,
+// removeTrackedLinks), then change runs, then the worktree's links are reconciled with its link policy
+// (ReconcileLinks: the path a tracked file took stays that file, the link the target does not track comes back). say
+// gets a line per link removed ("removed link <path>: <target7> tracks it") and per link made ("linked <path>").
+// change leaves the tree as it was when it fails (a merge that stopped is aborted before it returns), so a failed
+// change reconciles the links from the policy and gets back git's error as change gave it; so does a failure of the
+// removal. A link that cannot be made is the error of a change that succeeded. git runs in dir (the removal's status,
 // ls-tree and rev-parse; the link set's queries). The one link handling of the worktrees obor changes with git: a
 // checkout (CheckoutWorktree) and the lane merge (Lane.Sync).
 func WithLinks(cfg *config.Config, dir, target string, git func(dir string, args ...string) (string, error), say func(line string), change func() error) error {
-	removed, err := removeTrackedLinks(cfg.Root, dir, target, git, say)
+	err := removeTrackedLinks(cfg.Root, dir, target, git, say)
 	if err == nil {
 		err = change()
 	}
 	if err != nil {
-		putBack(cfg.Root, dir, removed, say)
+		_ = ReconcileLinks(cfg, dir, git, say) // best effort: the change's own error is the one reported
 		return err
 	}
+	return ReconcileLinks(cfg, dir, git, say)
+}
+
+// ReconcileLinks makes every entry of the worktree dir's link set (WorktreeLinksWith) that the worktree lacks, from
+// the policy alone, and says "linked <path>" for each: a path a tracked file or an ordinary file holds stays as it is
+// (LinkInto never overwrites one). It keeps no memory of an earlier call's removals, so a worktree a crash left
+// without a link its policy wants gets it back. err is the linking's own failure. The one restore of obor's links:
+// after a change that did not take place (WithLinks) and in a lane the sync finds without them (Lane.Sync).
+func ReconcileLinks(cfg *config.Config, dir string, git func(dir string, args ...string) (string, error), say func(line string)) error {
 	linked, err := LinkInto(cfg.Root, dir, WorktreeLinksWith(cfg, dir, git))
 	for _, path := range linked {
 		say("linked " + path)
@@ -145,31 +154,23 @@ func WithLinks(cfg *config.Config, dir, target string, git func(dir string, args
 }
 
 // CheckoutWorktree runs checkout, the caller's git checkout of target in the worktree dir (its arguments stay the
-// caller's: -B, --detach, a branch), with obor's links kept right around it (WithLinks); a failed checkout puts back
-// the links it removed and returns git's error as checkout gave it. The one checkout of every worktree obor makes
-// (lane.prepare, a lane's drop, a lane test's candidate and its restore, the role worktrees' moves, the scratch's).
+// caller's: -B, --detach, a branch), with obor's links kept right around it (WithLinks); a failed checkout puts the
+// links back from the policy (ReconcileLinks) and returns git's error as checkout gave it. The one checkout of every
+// worktree obor makes (lane.prepare, a lane's drop, a lane test's candidate and its restore, the role worktrees'
+// moves, the scratch's).
 func CheckoutWorktree(cfg *config.Config, dir, target string, git func(dir string, args ...string) (string, error), say func(line string), checkout func() error) error {
 	return WithLinks(cfg, dir, target, git, say, checkout)
 }
 
-// putBack links the removed paths again, after a change that did not take place; best effort: the change's own error
-// is the one reported.
-func putBack(root, dir string, removed []string, say func(line string)) {
-	linked, _ := LinkInto(root, dir, removed)
-	for _, path := range linked {
-		say("linked " + path)
-	}
-}
-
 // removeTrackedLinks removes each untracked entry of dir that is obor's link (isLink: a symlink to root's file of the
-// same path) whose path target tracks, and says "removed link <path>: <target7> tracks it" for it. It returns the
-// paths it removed, also with an error (one removed before it). Nothing else is touched: a regular file at such a
-// path is the worktree's and the change fails on it, as git refuses it. git runs in dir (status, ls-tree, and rev-parse
-// for the line's short sha).
-func removeTrackedLinks(root, dir, target string, git func(dir string, args ...string) (string, error), say func(line string)) (removed []string, err error) {
+// same path) whose path target tracks, and says "removed link <path>: <target7> tracks it" for it. err is the
+// removal's own failure; a link removed before it is the caller's to reconcile. Nothing else is touched: a regular
+// file at such a path is the worktree's and the change fails on it, as git refuses it. git runs in dir (status,
+// ls-tree, and rev-parse for the line's short sha).
+func removeTrackedLinks(root, dir, target string, git func(dir string, args ...string) (string, error), say func(line string)) error {
 	out, err := git(dir, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	short := ""
 	for _, entry := range strings.Split(out, "\x00") {
@@ -179,15 +180,14 @@ func removeTrackedLinks(root, dir, target string, git func(dir string, args ...s
 		}
 		tracked, err := git(dir, "ls-tree", "--name-only", target, "--", path)
 		if err != nil {
-			return removed, err
+			return err
 		}
 		if strings.TrimSpace(tracked) == "" {
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, filepath.FromSlash(path))); err != nil {
-			return removed, fmt.Errorf("cannot remove link %s: %v", filepath.Join(dir, path), err)
+			return fmt.Errorf("cannot remove link %s: %v", filepath.Join(dir, path), err)
 		}
-		removed = append(removed, path)
 		if short == "" {
 			short = target
 			if sha, err := git(dir, "rev-parse", "--verify", "--short=7", target+"^{commit}"); err == nil && strings.TrimSpace(sha) != "" {
@@ -196,7 +196,7 @@ func removeTrackedLinks(root, dir, target string, git func(dir string, args ...s
 		}
 		say("removed link " + path + ": " + short + " tracks it")
 	}
-	return removed, nil
+	return nil
 }
 
 // LaneDirt is the uncommitted work in the worktree dir (a lane): the path of each entry git status --porcelain
