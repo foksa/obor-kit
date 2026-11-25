@@ -187,25 +187,13 @@ func (a *App) logWorked(p *proj) {
 	}
 }
 
-// deliver is one pass over p's lines: the seen work of briefs not in the log yet recorded (logWorked's retry), the
-// briefed Codex agents' stops read from their transcripts (roleTurns), the finished briefs' lines recorded (idle, or
-// their agent gone, not while a restore is pending or running; none while a stop is in force), the role agents done
-// with no open work for roleDoneAfter (one line each), the lead's lines posted as one per target when its inbox is
-// recorded, each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the
-// stopped role agents' wakes and alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
-func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
-	a.closeSettled(ctx, p)
-	if fx.Prompter == nil && fx.Inbox == nil {
-		return
-	}
-	now := a.opt.Now()
-	a.logWorked(p)
-	a.roleTurns(ctx, p)
-	stretches := a.doneRoles(fx.Cfg, now) // before the lock: it reads the panes' transcripts
-
+// briefsDone is the finished briefs' pass over p (a step of advance's list): where each open brief's agent is seen
+// noted (noteSeen, on every pass), and each finished brief's line to the lead recorded, in agent order (idle, or its
+// agent gone, not while a restore is pending or running; none while a stop is in force; briefDone). A finished
+// reviewer's line names its review file (finishedReview), read outside mu.
+func (a *App) briefsDone(p *proj, fx *Loop, now time.Time) {
 	a.mu.Lock()
 	var done []event.Message
-	var reminders []event.Message  // the role agents done with no open work (roleDone)
 	var reviewed map[string]string // the finished agents' review files (finishedReview): by agent, the review id + "[-verify]"
 	for agent, b := range p.out.Briefs() {
 		w := a.whereIs(p, agent)
@@ -219,16 +207,6 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 				}
 				reviewed[agent] = file
 			}
-		}
-	}
-	if p.out.Lead() != "" {
-		for agent, since := range stretches {
-			of := event.Of{Kind: roleDone(agent), Seq: since.Unix()}
-			if _, did := p.folded.did[of]; did {
-				continue
-			}
-			reminders = append(reminders, event.Message{To: p.out.Lead(), From: "obor", Of: of,
-				Line: roleDoneLine(agent, now.Sub(since))})
 		}
 	}
 	a.mu.Unlock()
@@ -245,11 +223,12 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	for _, m := range done {
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
 	}
-	sort.Slice(reminders, func(i, j int) bool { return reminders[i].Of.Kind < reminders[j].Of.Kind })
-	for _, m := range reminders {
-		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
-	}
+}
 
+// deliver delivers p's queued lines (a step of advance's list): the lead's lines posted as one per target when its
+// inbox is recorded, then each role agent's oldest line delivered when its pane is idle (posted or typed as its kind
+// takes it).
+func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	var oldest []outbox.Line // each agent's oldest line
 	var targets []string
@@ -285,8 +264,6 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 			a.deliverLine(ctx, p, fx, q, post, target)
 		}
 	}
-	a.roleWakes(ctx, p, fx)
-	a.msgNeedsYou(p, now)
 }
 
 // closeSettled closes unsent every settled open delivery of p: a line whose question was settled
@@ -349,7 +326,7 @@ func (a *App) gone(p *proj, agent string, b *outbox.Brief, w Where, now time.Tim
 
 // briefDone: agent's brief b, its agent resolved now as w, is done (under mu): worked, no stop in force, and its pane
 // identified and ready, or its agent gone while no restore is pending or running (a gone agent's pane may be one the
-// restore restarts). deliver records "<agent> finished" for it, which closes it; status shows it as wire.BriefDone.
+// restore restarts). briefsDone records "<agent> finished" for it, which closes it; status shows it as wire.BriefDone.
 func (a *App) briefDone(p *proj, agent string, b *outbox.Brief, w Where, now time.Time) bool {
 	if !b.Worked() || b.Stop() != nil {
 		return false

@@ -222,7 +222,7 @@ func TestFailedRestoreEndsTheBriefAsGone(t *testing.T) {
 	if !r.open["pj-advisor"] {
 		t.Fatal("precondition: the restore found no open work: it tried no restart")
 	}
-	h.a.deliver(context.Background(), h.proj(), linerLoop(&linerSpy{}))
+	finishBriefs(h.a, h.proj(), linerLoop(&linerSpy{}))
 	if n := finished(h, "pj-advisor"); n != 1 || h.proj().out.Brief("pj-advisor") != nil {
 		t.Errorf("after the restore: %d finished lines, brief open %v; want one, ended", n,
 			h.proj().out.Brief("pj-advisor") != nil)

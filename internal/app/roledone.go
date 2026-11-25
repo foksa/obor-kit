@@ -1,9 +1,13 @@
-// roledone.go: serve's reminder to the lead for a role agent done with no open work, and obor status' hint of the
-// command that stops it. A reminder, never a stop: the lead may still want a follow-up in that session.
+// roledone.go: serve's reminder to the lead for a role agent done with no open work (a rule, rules.go), and obor
+// status' hint of the command that stops it. A reminder, never a stop: the lead may still want a follow-up in that
+// session.
 package app
 
 import (
+	"context"
+	"obor/internal/app/event"
 	"obor/internal/config"
+	"sort"
 	"time"
 
 	"obor/internal/app/describe"
@@ -13,6 +17,41 @@ import (
 // roleDoneAfter is how long a role agent's pane may sit idle or done, with no open work, before the lead hears of it:
 // a constant, no config key.
 const roleDoneAfter = time.Hour
+
+// ruleRoleDone is the done reminder's rule (rules.go); its lines are keyed Of{roleDone(agent), the stretch's start},
+// not by the rule's name.
+const ruleRoleDone = "role.done"
+
+// roleDoneRule is the done reminder: a role agent done for roleDoneAfter with no open work (doneRoles) whose line for
+// this done stretch is not recorded gets the lead's line, keyed Of{roleDone(agent), the stretch's start} (the rule's
+// key that start). One agent a pass, in name order: its recorded line wakes the loop, whose next rule pass lines the
+// next. None without a lead, nor on a pass that cannot post lines (no Prompter and no Inbox: the line steps of
+// advance's list do not run on it either).
+func roleDoneRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
+	if fx == nil || fx.Cfg == nil || (fx.Prompter == nil && fx.Inbox == nil) {
+		return 0, action{}, false
+	}
+	stretches := a.doneRoles(fx.Cfg, now) // before the lock: it reads the panes' transcripts
+	agents := make([]string, 0, len(stretches))
+	for agent := range stretches {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if p.out.Lead() == "" {
+		return 0, action{}, false
+	}
+	for _, agent := range agents {
+		since := stretches[agent]
+		of := event.Of{Kind: roleDone(agent), Seq: since.Unix()}
+		if _, did := p.folded.did[of]; did {
+			continue
+		}
+		return of.Seq, action{line: roleDoneLine(agent, now.Sub(since)), of: of}, true
+	}
+	return 0, action{}, false
+}
 
 // roleDone is the line's Of kind for agent: one kind per agent, its Seq the start of its done stretch (Unix seconds),
 // so the line goes once per done stretch and the log keeps it (folded.did: a replay sends none for the same stretch).

@@ -360,6 +360,7 @@ func TestFreshBriefStopFails(t *testing.T) {
 	s := &freshSpy{stopErr: errors.New("pj-researcher still working 30s after Escape")}
 	fx := withAppCfg(a, &Loop{Agents: s, Prompter: s})
 	a.deliver(context.Background(), p, fx)
+	a.msgNeedsYou(p, now)
 	same(t, len(s.events), 1, "stops tried")
 	same(t, len(s.launches), 0, "starts after a failed stop")
 	a.mu.Lock()
@@ -379,6 +380,7 @@ func TestFreshBriefStopFails(t *testing.T) {
 	now = now.Add(roleStopRetry)
 	s.stopErr = nil
 	a.deliver(context.Background(), p, fx)
+	a.msgNeedsYou(p, now)
 	if len(s.launches) != 1 || s.launches[0].Prompt != "[obor pj-lead] dig" || !s.launches[0].Fresh {
 		t.Errorf("launches %+v, want the fresh start on the brief", s.launches)
 	}
@@ -673,6 +675,7 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	lineStatus(a, "w:rev", "working", now) // the idle reviewer is no done reminder among these lines
 	now = now.Add(msgWait + time.Minute)
 	a.deliver(context.Background(), p, linerLoop(l))
+	a.msgNeedsYou(p, now)
 	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
@@ -711,6 +714,7 @@ func TestRefusedLineReplay(t *testing.T) {
 			a, p := lineApp(t, lineRoot(t), &now)
 			queueLine(t, a, p, kind, now)
 			l := &linerSpy{refuse: true}
+			finishBriefs(a, p, linerLoop(l))
 			a.deliver(context.Background(), p, linerLoop(l))
 			if len(l.calls) != 1 || len(p.out.Queued()) != 1 {
 				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.out.Queued()))
@@ -720,12 +724,15 @@ func TestRefusedLineReplay(t *testing.T) {
 				t.Fatalf("the refused line is not queued after reload: %d", len(q.out.Queued()))
 			}
 			good := &linerSpy{}
+			finishBriefs(b, q, linerLoop(good))
 			b.deliver(context.Background(), q, linerLoop(good))
+			finishBriefs(b, q, linerLoop(good))
 			b.deliver(context.Background(), q, linerLoop(good))
 			if !lineTyped(good.calls, kind) || len(q.out.Queued()) != 0 {
 				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.out.Queued()))
 			}
 			c, s := lineReload(t, b, q, &now)
+			finishBriefs(c, s, linerLoop(good))
 			c.deliver(context.Background(), s, linerLoop(good))
 			if len(good.calls) != 1 {
 				t.Fatalf("typed again after a second reload: %v", good.calls)
@@ -795,10 +802,14 @@ func killedLines(t *testing.T, kind, mode string) []string {
 	if p.out.Lead() != "pj-lead" {
 		t.Fatalf("precondition: lead pj-lead, got %s", p.out.Lead())
 	}
+	finishBriefs(a, p, linerLoop(l))
 	a.deliver(context.Background(), p, linerLoop(l))
+	finishBriefs(a, p, linerLoop(l))
 	a.deliver(context.Background(), p, linerLoop(l))
 	b, q := lineReload(t, a, p, &now)
+	finishBriefs(b, q, linerLoop(l))
 	b.deliver(context.Background(), q, linerLoop(l))
+	finishBriefs(b, q, linerLoop(l))
 	b.deliver(context.Background(), q, linerLoop(l))
 	return l.calls
 }
@@ -820,9 +831,12 @@ func TestRefusedLineKillChild(t *testing.T) {
 	ready := func() { _ = os.WriteFile(filepath.Join(root, "kill-ready"), []byte("ready"), 0o600) }
 	switch os.Getenv("LINE_MODE") {
 	case "refused":
+		finishBriefs(a, p, &Loop{})
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
 	case "retry":
+		finishBriefs(a, p, &Loop{})
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
+		finishBriefs(a, p, &Loop{})
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{hang: ready}))
 	case "worked":
 		if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
@@ -830,6 +844,7 @@ func TestRefusedLineKillChild(t *testing.T) {
 			t.Fatal(err)
 		}
 		lineStatus(a, "w:rev", "working", now)
+		finishBriefs(a, p, &Loop{})
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{}))
 	}
 	ready()
@@ -853,8 +868,8 @@ func TestBriefCompletionReplay(t *testing.T) {
 			l := &linerSpy{}
 			a.deliver(context.Background(), p, linerLoop(l))
 			lineStatus(a, "w:rev", "working", now)
-			a.deliver(context.Background(), p, linerLoop(l)) // the pass that records the work
-			lines := 0                                       // the brief's own line
+			finishBriefs(a, p, linerLoop(l)) // the steps that record the work
+			lines := 0                       // the brief's own line
 			if note != "" {
 				lines = 1
 			}
@@ -866,7 +881,9 @@ func TestBriefCompletionReplay(t *testing.T) {
 				t.Fatal("the brief's observed work is not replayed")
 			}
 			out := &linerSpy{}
+			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
+			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
 			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
 				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
@@ -1252,7 +1269,9 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 				t.Fatal("the brief's observed work is not replayed")
 			}
 			out := &linerSpy{}
+			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
+			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
 			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
 				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
@@ -1290,7 +1309,9 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	now = now.Add(time.Minute)
 	b, q := lineReload(t, a, p, &now) // idle on reconnect, 3 minutes after the typing
 	out := &linerSpy{}
+	finishBriefs(b, q, linerLoop(out))
 	b.deliver(context.Background(), q, linerLoop(out))
+	finishBriefs(b, q, linerLoop(out))
 	b.deliver(context.Background(), q, linerLoop(out))
 	if want := "pj-lead: [obor] pj-rev finished (briefed 3m ago)"; len(out.calls) != 1 || out.calls[0] != want {
 		t.Fatalf("want %q, got %v", want, out.calls)
@@ -1320,7 +1341,8 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			a.opt.Inboxed = func(string) (string, bool) { return "", false }
 			queueLine(t, a, p, kind, now)
 			first := &linerSpy{}
-			a.deliver(context.Background(), p, withAppCfg(a, &Loop{Prompter: first, Inbox: &inboxSpy{}})) // records the finished line
+			finishBriefs(a, p, withAppCfg(a, &Loop{Prompter: first, Inbox: &inboxSpy{}})) // records the finished line
+			a.deliver(context.Background(), p, withAppCfg(a, &Loop{Prompter: first, Inbox: &inboxSpy{}}))
 			if len(first.calls) != 0 || len(p.out.Queued()) != 1 || !p.out.Queued()[0].IsLead() {
 				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.out.Queued()))
 			}
@@ -1712,6 +1734,7 @@ func TestRV90RefusedReason(t *testing.T) {
 	}
 	h.now = h.now.Add(msgWait + time.Minute) // nothing types here: the post is tried again, refused again
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in}))
+	h.a.msgNeedsYou(h.proj(), h.now)
 	var reasons []string
 	for _, f := range h.a.Status().Project.Facts {
 		if f.Task == event.MsgTask && f.Step == event.StepNeedsYou {
@@ -1890,7 +1913,9 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 			}
 			h.now = h.now.Add(msgWait + time.Minute) // it would raise its needs-you if it stayed
 			in, typer := &kindSpy{}, &linerSpy{}
+			h.a.closeSettled(context.Background(), h.proj())
 			h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
+			h.a.msgNeedsYou(h.proj(), h.now)
 			if len(in.calls) != 0 || len(typer.calls) != 0 {
 				t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.calls)
 			}
@@ -1929,6 +1954,7 @@ func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 	}
 	h.now = h.now.Add(msgWait + time.Minute)
 	in, typer := &kindSpy{}, &linerSpy{}
+	a.closeSettled(context.Background(), p)
 	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Inbox: in, Prompter: typer}))
 	if len(in.calls) != 0 || len(typer.calls) != 0 {
 		t.Errorf("posted %q, typed %q; want nothing sent", in.calls, typer.calls)
@@ -2065,4 +2091,11 @@ func relead(t *testing.T, a *App, p *proj, lead string) {
 		o.Fold(r, p.oldLineOf)
 	}
 	p.out = o
+}
+
+// finishBriefs is advance's two steps that end finished briefs, in its order: the seen work logged (logWorked), then
+// the finished briefs' lines recorded (briefsDone).
+func finishBriefs(a *App, p *proj, fx *Loop) {
+	a.logWorked(p)
+	a.briefsDone(p, fx, a.opt.Now())
 }

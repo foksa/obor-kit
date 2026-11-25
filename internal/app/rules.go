@@ -26,10 +26,12 @@ type rule struct {
 // action is a rule's effect: call (nil: none), then the lead's line, recorded with Of{the rule's name, its key} ("":
 // none), then after, a best-effort effect whose failure is logged and dropped (the owner's toast). A failed
 // call records no line, so the next pass runs both again; after runs only once the line is recorded, so it never
-// delays or fails it.
+// delays or fails it. of, when set, is the line's did key in place of Of{the rule's name, its key}: a rule whose
+// lines are keyed by their subject (the done reminder's roleDone(agent)).
 type action struct {
 	call  func(ctx context.Context) error
 	line  string
+	of    event.Of
 	after func(ctx context.Context)
 }
 
@@ -56,6 +58,7 @@ var rules = []rule{
 	{name: ruleIdlePing, when: idlePingRule}, // its line went after the idle line's settle
 	{name: ruleIntegratorStop, when: integratorStopRule},
 	{name: ruleReviewerStop, when: reviewerStopRule},
+	{name: ruleRoleDone, when: roleDoneRule}, // a role agent done with no open work for roleDoneAfter
 	{name: ruleWorkerStart, settle: workerStartSettle, when: workerStartRule},
 	{name: ruleHandoff, when: handoffRule},      // a keep lane's agent past handoff_tokens between tasks
 	{name: ruleVersion, when: versionRule},      // a tool obor drives changed version
@@ -82,6 +85,9 @@ func (a *App) rulePass(ctx context.Context, rs []rule, fx *Loop) {
 			live = ruleLive{key: key, since: now}
 		}
 		of := event.Of{Kind: r.name, Seq: key}
+		if act.of.Kind != "" {
+			of = act.of
+		}
 		_, did := p.folded.did[of]
 		due := ok && !did && now.Sub(live.since) >= r.settle
 		lead := p.out.Lead()

@@ -59,7 +59,7 @@ import (
 // the one it queued each restart a pane at most once.
 //
 // While a restore is pending or running, or waits for a pane between programs, a briefed agent that is gone ends no
-// brief (deliver): its pane may be one the restore restarts, and the restore keeps its pane only while its brief is open
+// brief (briefsDone): its pane may be one the restore restarts, and the restore keeps its pane only while its brief is open
 // (OpenWork). Pending starts under the lock that applies the snapshot the restore follows (connect, or the event's
 // step), so no pass sees its panes at their shells before it, and holds until the run starts; the hold ends when the
 // last run ends (its one more run included). After it a restored agent finishes as any agent does, and a pane whose

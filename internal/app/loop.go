@@ -278,9 +278,13 @@ func (a *App) mergeLoop(ctx context.Context) {
 	}
 }
 
-// advance is one pass over the project when it merges: each task driven as far as it goes now, in passOrder (the
-// waiting ones last: a task they wait for may merge in the same pass). It needs a herdr snapshot (the integrator's pane).
-// It returns the pass's adapters (nil: the pass did not run, or its adapters or checkout failed), the rule pass's.
+// advance is one pass over the project when it merges, its steps in this one list, in order: the lines (settled
+// deliveries closed, then, on a pass that can post lines, the seen work logged, the role turns read, the finished
+// briefs' lines, the deliveries, the role wakes, the lines' needs-you), the worker wakes, the loop's status, then
+// each task driven as far as it goes now, in passOrder (the waiting ones last: a task they wait for may merge in the
+// same pass), then the ticks. It needs a herdr snapshot (the integrator's pane). It returns the pass's adapters (nil:
+// the pass did not run, or its adapters or checkout failed), the rule pass's (mergeLoop runs it right after: its lines,
+// the done reminder's among them, go out at the next pass's deliveries, which their record wakes).
 func (a *App) advance(ctx context.Context) *Loop {
 	a.mu.Lock()
 	p := a.p
@@ -294,7 +298,17 @@ func (a *App) advance(ctx context.Context) *Loop {
 	}
 	fx, err := a.loopOf(p)
 	if err == nil {
-		a.deliver(ctx, p, fx)
+		// First, on every pass: a settled line whose cut delivery closes here is not routed below.
+		a.closeSettled(ctx, p)
+		if fx.Prompter != nil || fx.Inbox != nil { // the line steps: none on a pass that cannot post a line
+			now := a.opt.Now()       // the line steps' one time (briefsDone's and msgNeedsYou's)
+			a.logWorked(p)           // before briefsDone: a brief's worked fact is in the log before its finished line
+			a.roleTurns(ctx, p)      // before briefsDone: a Codex turn's end read now finishes its brief in this pass
+			a.briefsDone(p, fx, now) // before deliver: a finished brief's line goes out in this pass
+			a.deliver(ctx, p, fx)    // the lead's lines, then each role agent's oldest line
+			a.roleWakes(ctx, p, fx)  // after deliver, as ever: the wakes due to stopped role agents
+			a.msgNeedsYou(p, now)    // after deliver: a line delivered in this pass waits no more
+		}
 		a.stopWakes(ctx, p, fx)
 	}
 	a.loopStatus(ctx, p, &p.badLoop, err)
