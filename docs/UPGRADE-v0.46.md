@@ -1,5 +1,18 @@
 # Upgrading an obor project from v0.45 to v0.46
 
+## v0.46.3 (OpenCode's session tools classified)
+
+From v0.46.2. Nothing to run.
+
+```sh
+# after updating the kit, in the project
+obor version                     # fetches this release's binary
+```
+
+**OpenCode 2.2.0's session tools:** `opencode_session_rename` (it only retitles the session) now passes for obor's
+agents; `opencode_session_move` stays denied, now with the reason (an obor agent stays where obor started it) instead
+of "obor has no rule for this tool". OpenCode agents' running sessions pick it up at their next start.
+
 ## v0.46.2 (agy lanes stop asking; serve follows a new binary past waiting tasks)
 
 From v0.46.1. Nothing to run.
