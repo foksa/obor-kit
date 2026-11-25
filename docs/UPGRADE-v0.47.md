@@ -1,5 +1,18 @@
 # Upgrading an obor project from v0.46 to v0.47
 
+## v0.47.1 (fix attempts start from the target; a never-run role agent starts on restart)
+
+From v0.47.0. Nothing to change.
+
+```sh
+# after updating the kit, in the project
+# nothing to do
+```
+
+A sent-back task's next attempt starts from the current integration branch: serve merges it into the lane before the
+fix job (a conflict goes to the worker in that attempt). `obor restart` of a role agent with nothing recorded and no
+agent in its pane starts it fresh instead of asking for `--fresh`.
+
 ## v0.47.0 (Rex as an experimental terminal; agents' own status on hc; one blocked-prompt guard)
 
 From v0.46.x. Nothing to change in a herdr or hc project.
