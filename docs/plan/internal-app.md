@@ -23,5 +23,5 @@ waves, file-split tasks alone in the package. Each task deletes what it replaces
 | 13 | F | Measure where the package's test time goes (no code) | T-1589 |
 | 13a | F | From the measurement: wire deadlines injected; rigs own home, no per-tick config reload; negative waits in bubbles; a flaky test | T-1590..T-1593 |
 | 14 | F | One fake per port (a task per port) | T-1594..T-1597 |
-| 15 | F | One level per behaviour, per topic, largest first | |
+| 15 | F | One level per behaviour, per topic, largest first | T-1599..T-1605 (loop, verdict, resume, brief, fetch, deliver, dispatch) |
 | 16 | G | `internal/app/activity` leaf (optional) | |
