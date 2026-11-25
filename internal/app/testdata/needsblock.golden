@@ -31,7 +31,7 @@
     facts: 
     needs-you: 
     verbs: resume drop move submit
-    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
+    next: lane.sync; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
     resume cmds: obor drop T-1
     input "", decision "", work "", fixed false, fails 0
 == sendbacks past K, due
@@ -67,7 +67,7 @@
     facts: 
     needs-you: 
     verbs: resume drop move submit
-    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
+    next: lane.sync; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
     resume cmds: obor drop T-1
     input "", decision "", work "", fixed false, fails 0
 == resolve rejected, due
@@ -103,7 +103,7 @@
     facts: 
     needs-you: 
     verbs: resume drop move submit
-    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+    next: lane.sync; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
     resume cmds: obor drop T-1
     input "", decision "", work "", fixed false, fails 0
 == gate failure, due
@@ -305,7 +305,7 @@
     facts: 
     needs-you: 
     verbs: resume drop move submit
-    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 1
+    next: lane.sync; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 1
     resume cmds: obor drop T-1
     input "", decision "Lead's decision (obor resume, job not delivered): decided", work "", fixed false, fails 0
 == after-merge step failed
@@ -367,7 +367,7 @@
   facts: 
   needs-you: 
   verbs: resume drop move submit
-  next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+  next: lane.sync; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
   resume cmds: obor drop T-1
   resume --: refused: resume: T-1 is working with nothing to resume (no question, no needs-you)
   resume --regate: refused: resume: T-1 is working with nothing to resume (no question, no needs-you)

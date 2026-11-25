@@ -153,6 +153,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `keeplane.go` | a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens | `App.keepLive` |
 | `lanepick.go` | the lane a dispatch takes and the replies that say why none was free | `App.held` |
 | `lanerows.go` | the `lanes` table projection | `proj.foldLanes` |
+| `lanesync.go` | the target merged into a sent-back attempt's lane before its fix job (`lane.sync`, row 24a), and the fix job's line on it | `App.laneSync` |
 | `lanescan.go` | the lane table as a cached observation: scanned on the tick and by a refresher, never per pane event | `App.scan` |
 | `leadlines.go` | a lead whose kind has no inbox takes its lines through its hooks (`lead_lines` call), recorded as a post's delivery | `App.leadLinesCall` |
 | `log.go` | serve's side of the backup | `App.backup` |

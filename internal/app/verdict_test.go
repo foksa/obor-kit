@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -302,7 +303,9 @@ func TestDropByTaskFreesItsLane(t *testing.T) {
 	f.mu.Lock()
 	frees, stops := append([]port.FreeInput(nil), f.frees...), append([]string(nil), f.stops...)
 	f.mu.Unlock()
-	if len(frees) != 1 || frees[0] != (port.FreeInput{Lane: "L-02", Branch: "task/T-2", Target: "target", Discard: true}) {
+	dir := filepath.Join(filepath.Dir(r.roots["pj"]), "pj-wt", "L-02") // the config's L-02
+	if len(frees) != 1 || frees[0] != (port.FreeInput{Dispatch: port.Dispatch{Lane: "L-02", Dir: dir, Branch: "task/T-2",
+		Target: "target"}, Discard: true}) {
 		t.Errorf("Free calls %+v; want one for L-02's task/T-2 at the target, discarding", frees)
 	}
 	if len(stops) != 1 || stops[0] != "pj-l-02 force=true" {
@@ -774,6 +777,8 @@ var dropStartCases = []struct {
 	{"fix", "pq", "T-7", "prompt", func(r *concRig) {
 		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
 		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
+		// its lane.sync ran (row 24a): the fix job is the selected step
+		r.addAt("pq", "T-7", 2, event.StepSync, event.KindResult, syncOut{Outcome: port.SyncCurrent})
 		r.worker("pq", "w2:p7", "pq-l-07") // for its fix job's wake (an agent no pane proves gets none)
 	}},
 }

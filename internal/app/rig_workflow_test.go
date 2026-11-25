@@ -85,6 +85,7 @@ type FakeWorkflow struct {
 	open       *fakeCommit             // the conflicting merge left open in Dir (nil: none)
 	resolution string                  // the merge the integrator committed in Dir ("": none)
 	previews   map[string]port.Preview // a lane's scripted merge preview (SetPreview)
+	syncs      []port.SyncInput        // each Sync's input
 	n          int
 
 	// The concurrency rig's: a gate of hold, a publish of holdPub, a resolved check of holdResolved block until
@@ -238,8 +239,9 @@ func (s *FakeWorkflow) Commits(task string) int {
 
 // Script makes call's outcome for task outcome, for every call until scripted again ("": unscripted). call is Gate
 // (any input), "Gate lane", "Gate moved" or "Gate resolved" (that input kind's: a conflict is the merge's, never a
-// committed resolution's), Test, Publish (hold, pending) or AfterMerge. outcome is a kind (port.Outcome*, port.Publish*), then its
-// line; a conflict's and a hold's rest is its files (default shared.txt). AfterMerge's outcome is its line.
+// committed resolution's), Test, Publish (hold, pending), AfterMerge or Sync. outcome is a kind (port.Outcome*,
+// port.Publish*, port.Sync*), then its line; a conflict's and a hold's rest is its files (default shared.txt), a
+// sync's conflict's or dirty's its files. AfterMerge's outcome is its line.
 func (s *FakeWorkflow) Script(call, task, outcome string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -263,8 +265,8 @@ func (s *FakeWorkflow) scripted(task string, calls ...string) (string, string) {
 	return "", ""
 }
 
-// Arm makes method (Submit, Gate, Test, Publish, AfterMerge, Landed, Unpin, Prepare, Free, Target, Head, Detach,
-// Close) give fn's error instead of acting (nil:
+// Arm makes method (Submit, Gate, Test, Publish, AfterMerge, Landed, Unpin, Prepare, Free, Sync, Target, Head,
+// Detach, Close) give fn's error instead of acting (nil:
 // heals it); fn returning nil lets the method act.
 func (s *FakeWorkflow) Arm(method string, fn func(ctx context.Context) error) {
 	s.mu.Lock()
@@ -684,6 +686,37 @@ func (s *FakeWorkflow) Prepare(ctx context.Context, in port.PrepareInput) (port.
 		s.lanes[in.Lane] = &fakeLane{dir: in.Dir, branch: in.Branch, base: in.Target, head: in.Target, files: laneFiles(in.Dir)}
 	}
 	return port.Prepared{Base: in.Target}, nil
+}
+
+// Sync is lane.sync's merge of the target into lane in.Lane, as Script("Sync", task, …) says (unscripted: current,
+// the lane untouched); a merged lane's head is a merge commit of its head and in.Target. Each input is kept (Syncs).
+func (s *FakeWorkflow) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) {
+	if err := s.failing(ctx, "Sync"); err != nil {
+		return port.Synced{}, err
+	}
+	kind, rest := s.scripted(in.Task, "Sync")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncs = append(s.syncs, in)
+	switch kind {
+	case "", port.SyncCurrent:
+		return port.Synced{Kind: port.SyncCurrent}, nil
+	case port.SyncMerged:
+		sha := s.sha("sync " + in.Task)
+		if l := s.lanes[in.Lane]; l != nil {
+			s.commits[sha] = fakeCommit{task: in.Task, parents: []string{l.head, in.Target}}
+			l.head = sha
+		}
+		return port.Synced{Kind: port.SyncMerged, SHA: sha}, nil
+	}
+	return port.Synced{Kind: kind, Files: strings.Fields(rest)}, nil
+}
+
+// Syncs is the inputs Sync was given, in order.
+func (s *FakeWorkflow) Syncs() []port.SyncInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.syncs)
 }
 
 // Free gives lane in.Lane back: refused while it has uncommitted changes or commits the target lacks, unless

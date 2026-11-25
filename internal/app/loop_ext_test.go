@@ -40,7 +40,7 @@ func (row failRow) run(t *testing.T) {
 	r.start()
 	r.submit()
 	base, _, _ := strings.Cut(row.step, ".")
-	if strings.HasPrefix(row.step, "start.") || row.step == "agent.stop" {
+	if strings.HasPrefix(row.step, "start.") || row.step == "agent.stop" || row.step == event.StepSync {
 		base = row.step
 	}
 	needs := at + " fact needs-you{" + row.step + " failed: "
@@ -159,6 +159,14 @@ var failRows = map[string]failRow{
 				r.integratorIs("idle") // its turn ended
 			}
 		}, pending: func(r *loopRig) { r.startsWere(3, true) }},
+	"lane.sync (git I/O)": {step: "lane.sync", attempt: 2, red: true,
+		arm: func(r *loopRig, _ *answers) func() {
+			return r.armScratch("Sync")
+		}, pending: func(r *loopRig) {
+			if r.has("2 intent fix") {
+				r.t.Fatalf("the fix job went out before its lane.sync: %q", r.steps())
+			}
+		}, end: "2 result fix"},
 	"fix (agent_blocked)": {step: "fix", attempt: 2, red: true,
 		arm: func(r *loopRig, _ *answers) func() {
 			r.promptBlocked("pj-l-01 is blocked")

@@ -764,7 +764,7 @@ func TestFixJobNamesBothRoleTexts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
+			text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read, "main")
 			if !strings.Contains(text, c.want(p, kit)) {
 				t.Errorf("the fix job has no %q:\n%s", c.want(p, kit), text)
 			}
@@ -781,12 +781,12 @@ func TestFixJobCarriesAChangedRevOnly(t *testing.T) {
 	t.Parallel()
 	row := store.SpecRow{Task: "T-9", Rev: 2, Text: "# T-9 — W\n\nDifficulty: medium\n"}
 	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 1}, row,
-		"read it.")
+		"read it.", "main")
 	if !strings.Contains(text, "The spec of T-9 (rev 2") {
 		t.Errorf("a fix job of a worker at rev 1: %q; want the rev 2 spec", text)
 	}
 	if text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 2}, row,
-		"read it."); strings.Contains(text, "The spec of T-9") {
+		"read it.", "main"); strings.Contains(text, "The spec of T-9") {
 		t.Errorf("a fix job at the spec's rev repeats it: %q", text)
 	}
 }

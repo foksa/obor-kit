@@ -203,6 +203,14 @@ func (d *dispatchFakes) Free(ctx context.Context, in port.FreeInput) (string, er
 	return "", nil
 }
 
+// Sync is a lane.sync that finds the target in the branch already.
+func (d *dispatchFakes) Sync(context.Context, port.SyncInput) (port.Synced, error) {
+	if err := d.enter("sync"); err != nil {
+		return port.Synced{}, err
+	}
+	return port.Synced{Kind: port.SyncCurrent}, nil
+}
+
 // startWorker is pj-l-01's start in its pane: a fresh one a new session (unless keepSession), one without --fresh
 // (the worker start rule's) the session resumed; idle, seen by the app.
 func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.Started, error) {

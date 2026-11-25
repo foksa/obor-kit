@@ -18,7 +18,41 @@ type LaneSetup interface {
 	// in.Target and its branch deleted. Repeating it converges (a missing branch is gone already). Its line says
 	// what it discarded ("" nothing).
 	Free(ctx context.Context, in FreeInput) (line string, err error)
+	// Sync merges in.Target into the task branch the lane at in.Dir has checked out, before a fix attempt's job: a
+	// target already in the branch's history is SyncCurrent (no commit); uncommitted changes are SyncDirty (nothing
+	// touched, never stashed or reset); a conflicting merge is aborted, the lane as it was, SyncConflict naming the
+	// files; else the merge commit is SyncMerged, its sha. A merge an earlier cut Sync left open is aborted first, and
+	// a HEAD that is already the merge of in.Target is SyncMerged: repeating it converges. Git I/O, a lane not on
+	// in.Branch or no lane dir is an error to retry.
+	Sync(ctx context.Context, in SyncInput) (Synced, error)
 }
+
+// SyncInput is one lane.sync step: the task's attempt it starts, its lane and the lane's worktree, the task branch and
+// the target sha read when its intent was recorded.
+type SyncInput struct {
+	Task    string `json:"task"`
+	Attempt int    `json:"attempt"`
+	Lane    string `json:"lane"`
+	Dir     string `json:"dir"`
+	Branch  string `json:"branch"`
+	Target  string `json:"target"`
+}
+
+// Synced is lane.sync's outcome: its kind (Sync*), the merge commit's sha (SyncMerged) and the files a conflict or
+// the lane's uncommitted changes name (SyncConflict, SyncDirty).
+type Synced struct {
+	Kind  string
+	SHA   string
+	Files []string
+}
+
+// The kinds of a lane.sync outcome.
+const (
+	SyncMerged   = "merged"   // the target merged into the branch: SHA is the merge commit
+	SyncCurrent  = "current"  // the branch's history holds the target already: nothing done
+	SyncConflict = "conflict" // the merge conflicts in Files: aborted, the lane as it was
+	SyncDirty    = "dirty"    // the lane has uncommitted changes (Files): nothing done
+)
 
 // Prepared is lane.prepare's outcome: the base sha the task branch is on.
 type Prepared struct{ Base string }

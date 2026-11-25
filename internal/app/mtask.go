@@ -210,6 +210,10 @@ func (p *proj) foldLoop(r event.Record) {
 			default:
 				mt.block(block{cause: causeGate, why: "test: " + d.Line})
 			}
+		case event.StepSync:
+			var d syncOut
+			_ = json.Unmarshal(r.Data, &d)
+			mt.synced = &d
 		case event.StepPrepare:
 			var d prepareOut
 			_ = json.Unmarshal(r.Data, &d)
@@ -299,14 +303,16 @@ func (mt *mtask) sendback(note string) {
 	mt.next(note)
 }
 
-// next starts mt's next attempt on its worker: working, the fix job (note its text) to be sent.
+// next starts mt's next attempt on its worker, the one point every sendback (a red gate's, the integrator's, the
+// lead's) starts it: working, lane.sync merges the target into its lane (row 24a), then the fix job (note its text)
+// is sent. A drive goes back to its owner, never to a worker, and syncs nothing.
 func (mt *mtask) next(note string) {
 	mt.attempt++
+	mt.attemptVars = attemptVars{line: note, sync: !mt.drive}
 	mt.state = stWorking
-	if mt.drive { // a drive goes back to its owner, never to a worker
+	if mt.drive {
 		mt.state = stDriving
 	}
-	mt.attemptVars = attemptVars{line: note}
 }
 
 // jobKey is the key of the attempt's last integrator job.

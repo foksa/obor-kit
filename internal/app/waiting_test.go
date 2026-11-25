@@ -28,6 +28,10 @@ func (staleFx) Prepare(context.Context, port.PrepareInput) (port.Prepared, error
 
 func (staleFx) Free(context.Context, port.FreeInput) (string, error) { return "free", nil }
 
+func (staleFx) Sync(context.Context, port.SyncInput) (port.Synced, error) {
+	return port.Synced{Kind: port.SyncCurrent}, nil
+}
+
 // newStaleRig is pj with the lanes L-01 and L-02, both working on other tasks, specs T-1..T-3 of level medium (sonnet,
 // deepseek), dispatching on.
 func newStaleRig(t *testing.T) (*harness, *Loop) {

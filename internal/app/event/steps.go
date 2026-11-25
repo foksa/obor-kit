@@ -93,6 +93,7 @@ const (
 	StepKept       = "accept.kept"  // fact: the re-gated patch is the one accepted
 	StepSendback   = "sendback"     // fact: the gate is red, back to the worker (data: noteData)
 	StepFix        = "fix"          // prompt intent (P) of the new attempt: the worker's fix job (data: noteData)
+	StepSync       = "lane.sync"    // intent/result (G), once per fix attempt before its fix job: port.SyncInput → syncOut
 	StepPublish    = "publish"      // intent/result (G), publish.N: the candidate → gateOut
 	StepMoved      = "target.moved" // fact: the target moved under the candidate
 	StepMerged     = "merged"       // fact (data: mergedData)
