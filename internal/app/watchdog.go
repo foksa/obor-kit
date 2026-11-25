@@ -357,7 +357,8 @@ func (a *App) evidence(ctx context.Context, p *proj, pane port.Pane) *evidence {
 }
 
 // fact records v's step for task and folds it in (false: the log failed). A needs-you's line and toast go with the
-// next rule pass (rules.go, the needs rule).
+// next rule pass (rules.go, the needs rule). A lane-row write that fails is not its result (the rule at appended): a
+// caller whose reply promises a row value checks laneRowsErr itself (ask).
 func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
 	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Group: v.pane.Group,
 		Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason, Question: v.question,

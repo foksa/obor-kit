@@ -109,6 +109,65 @@ func TestDoContract(t *testing.T) {
 	}
 }
 
+// A lane-row write that fails after do's intent is appended: the error is do's, no effect runs, and the log's claim
+// on the key is released (the intent pending, open). A retry while the write still fails reuses the intent and runs
+// nothing; once the write works the retry writes the rows and runs the effect exactly once, never refused as "its
+// effect is running".
+func TestDoRowErrorReleasesClaim(t *testing.T) {
+	t.Parallel()
+	root := logRoot(t)
+	a, p := blockProjAt(t, root)
+	p.folded.lr.live = true
+	p.folded.lr.rows = map[string]store.LaneRow{"L-01": {Lane: "L-01", Task: "T-1"}} // a row to write: the write fails
+	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: event.StepGate}, Class: event.ClassGit}
+	runs := 0
+	effect := func(context.Context) (any, error) { runs++; return "ok", nil }
+	intents := func() int {
+		recs, err := event.ReadLog(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, r := range recs {
+			if r.Kind == event.KindIntent && r.Key() == in.Key {
+				n++
+			}
+		}
+		return n
+	}
+
+	if _, err := a.do(context.Background(), p, in, effect); err == nil || !strings.Contains(err.Error(), "injected lane-row failure") {
+		t.Fatalf("do on a failing row write = %v, want the lane-row error", err)
+	}
+	if runs != 0 || intents() != 1 || !p.log.Open(in.Key) || len(p.exec) != 0 {
+		t.Fatalf("after the row error: runs %d, intents %d, open %v, running %v; want no run, the intent pending and open",
+			runs, intents(), p.log.Open(in.Key), p.exec)
+	}
+	if _, err := a.do(context.Background(), p, in, effect); err == nil || !strings.Contains(err.Error(), "injected lane-row failure") {
+		t.Fatalf("a retry while the write fails = %v, want the lane-row error", err)
+	}
+	if runs != 0 || intents() != 1 || !p.log.Open(in.Key) {
+		t.Fatalf("after the failing retry: runs %d, intents %d, open %v; want no run, the one intent open",
+			runs, intents(), p.log.Open(in.Key))
+	}
+
+	if _, err := p.log.DB().Exec("DROP TRIGGER lanes_fail"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := a.do(context.Background(), p, in, effect); err != nil || string(got) != `"ok"` || runs != 1 {
+		t.Fatalf("the retry once the write works = %s, %v, runs %d; want the effect's result once", got, err, runs)
+	}
+	if rows, err := store.ReadLanes(p.log.DB()); err != nil || len(rows) != 1 || rows[0].Task != "T-1" {
+		t.Errorf("lanes table after the retry = %+v, %v; want L-01's row", rows, err)
+	}
+	if got, err := a.do(context.Background(), p, in, effect); err != nil || string(got) != `"ok"` || runs != 1 || intents() != 1 {
+		t.Errorf("a repeat = %s, %v, runs %d, intents %d; want the stored result, no run, one intent", got, err, runs, intents())
+	}
+}
+
 // The replay probe (docs/design.md §6.6 rule 2): a store's records folded the way a restart folds them
 // (foldRecord, as load does), the folded state written as text. Run on the same store before and after a change to a
 // fold (a compat branch deleted, a record shape merged), the two texts must be equal: the change folds every record

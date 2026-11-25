@@ -416,7 +416,14 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 //   - cutEndFact on a fact, cutEnd of r's key on a result (its step's result is in the log);
 //   - settleEnded on a merged or dropped fact: the task's pending intents never run (the not-run results it writes
 //     come back here as results, which settle nothing);
-//   - laneRowsErr, always: its error is the result, logged here; the caller decides whether its step goes on.
+//   - laneRowsErr, always: its error is the result, logged here.
+//
+// The rule for a record whose append succeeded and whose lane-row write failed (the log and the lanes table are
+// separate transactions): the record is kept, never appended again; the row error is returned to every caller whose
+// reply promises something a row carries (a step that goes on, an effect that runs, a worker told its question is
+// in force), and that caller retries the write through laneRowsErr before it promises it; an effect claim taken
+// before the append (Log.Begin) is released either way (Finish). A caller whose reply promises no row value logs the
+// error here and goes on: the next change or check writes the rows.
 func (a *App) appended(p *proj, r event.Record) error {
 	if r.Kind != event.KindIntent {
 		a.hook(hookAppended)
@@ -512,10 +519,17 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 		return r, false, err
 	case done:
 		return r, false, nil
-	case wrote: // before the effect: a verdict on a job the prompt just delivered finds it open (a start's try: folded.starts)
-		if err := a.appended(p, r); err != nil {
-			return r, false, err // the intent stays pending: no effect runs on rows not written
-		}
+	}
+	// No effect runs on rows not written. The intent written now is folded before the effect (a verdict on a job the
+	// prompt just delivered finds it open; a start's try: folded.starts); a pending one reused was folded when written.
+	if wrote {
+		err = a.appended(p, r)
+	} else {
+		err = p.laneRowsErr()
+	}
+	if err != nil {
+		p.log.Finish(in.Key, nil, false, a.opt.Now()) // Begin's claim released: the intent stays pending, the next do runs it
+		return r, false, err
 	}
 	p.exec[in.Key] = a.opt.Now() // obor status' running line shows it, elapsed from now
 	return r, true, nil

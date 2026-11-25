@@ -469,6 +469,11 @@ func (a *App) ask(p *proj, task string, l port.Lane, what string) (string, error
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
 	a.wake() // the needs rule lines and toasts it at the next pass
+	// The reply promises the row's blocked (the Stop hook reads it): the row is written first, also when the question
+	// was already in force (the rule at appended); the question stays recorded once.
+	if err := p.laneRowsErr(); err != nil {
+		return "", fmt.Errorf("task_done: the lane table of %s: %v; call task_done again", p.name, err)
+	}
 	return askedReply, nil
 }
 

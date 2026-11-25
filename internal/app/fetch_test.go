@@ -854,3 +854,56 @@ func TestIntegratorJobNamesARoleTextTooLargeToCarry(t *testing.T) {
 		}
 	}
 }
+
+// A Blocked: report whose question is appended while the lane-row write fails is not acknowledged: the reply is the
+// lane-table error and the row stays unblocked, and a repeat of the report (its question already in force) is
+// refused the same way with no second question. Once the write works the same report is acknowledged, the row
+// blocked, one question in the log.
+func TestAskRowErrorNotAcknowledged(t *testing.T) {
+	t.Parallel()
+	h, p := askSeed(t)
+	const what = "may I edit x?"
+	questions := func() int {
+		n := 0
+		for _, r := range h.records() {
+			var d event.FactData
+			_ = json.Unmarshal(r.Data, &d)
+			if r.Step == event.StepNeedsYou && r.Kind == event.KindFact && d.Reason == reasonAsks+what {
+				n++
+			}
+		}
+		return n
+	}
+	blocked := func() bool {
+		t.Helper()
+		row, ok, err := store.ReadLaneAt(h.root, "L-01")
+		if err != nil || !ok || row.Task != "T-1" {
+			t.Fatalf("L-01's row = %+v, present %v, %v; want T-1's", row, ok, err)
+		}
+		return row.Blocked
+	}
+	if blocked() || questions() != 0 {
+		t.Fatalf("precondition: blocked %v, %d questions; want neither", blocked(), questions())
+	}
+	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"the question appended now", "the question already in force"} {
+		reply, err := h.a.ask(p, "T-1", h.lanes.lanes[0], what)
+		if err == nil || !strings.Contains(err.Error(), "injected lane-row failure") || reply != "" {
+			t.Fatalf("%s: ask = %q, %v; want the lane-table error, no reply", c, reply, err)
+		}
+		if blocked() || questions() != 1 {
+			t.Fatalf("%s: blocked %v, %d questions; want the row unchanged, one question", c, blocked(), questions())
+		}
+	}
+	if _, err := p.log.DB().Exec("DROP TRIGGER lanes_fail"); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := h.a.ask(p, "T-1", h.lanes.lanes[0], what); err != nil || reply != askedReply {
+		t.Fatalf("ask once the write works = %q, %v; want %q", reply, err, askedReply)
+	}
+	if !blocked() || questions() != 1 {
+		t.Errorf("after the repair: blocked %v, %d questions; want the row blocked, one question", blocked(), questions())
+	}
+}
