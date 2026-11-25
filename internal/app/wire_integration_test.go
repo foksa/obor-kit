@@ -86,10 +86,29 @@ func fakeApp(t *testing.T, reply func(n int) string) (sock string, seen func() [
 	return sock, seen
 }
 
-// TestWireRetryDeadlines runs the tests of the socket's retries: each waits out a serve restart over seconds on the
-// deadline table's time for its method (nothing in the test binary shortens it, and a blanket deadline would fail
-// these). Its subtests run parallel.
+// shortWaits is the production table shortened, its retries' waits to a few milliseconds: a subtest below waits tens
+// of milliseconds to hundreds where the table has seconds, for the same order and outcomes (client_test.go pins the
+// production values themselves).
+var shortWaits = wire.Waits{
+	Verdict:     500 * time.Millisecond,
+	Turn:        100 * time.Millisecond,
+	StopFailure: 100 * time.Millisecond,
+	LeadLines:   30 * time.Millisecond,
+	Prune:       2 * time.Second,
+	Drive:       2 * time.Second,
+	RetryWait:   5 * time.Millisecond,
+	Margin:      15 * time.Millisecond,
+}
+
+// shortCtx is ctx with shortWaits: every call made under it uses them, not the production table's seconds.
+func shortCtx() context.Context {
+	return context.WithValue(context.Background(), wire.WaitsKey{}, shortWaits)
+}
+
+// TestWireRetryDeadlines runs the tests of the socket's retries: each waits out a serve restart on shortWaits, so the
+// same order and outcomes cost the suite a fraction of a second, not six. Its subtests run parallel.
 func TestWireRetryDeadlines(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		test func(*testing.T)
@@ -150,7 +169,7 @@ func testAskRetriesLostReplyWithSameCallID(t *testing.T) {
 		}
 		return `{"reply":"accepted T-1"}`
 	})
-	reply, err := wire.Verdict(context.Background(), sock, askCall("c1"))
+	reply, err := wire.Verdict(shortCtx(), sock, askCall("c1"))
 	if err != nil || reply != "accepted T-1" {
 		t.Fatalf("Verdict = %q, %v; want the stored reply", reply, err)
 	}
@@ -159,7 +178,7 @@ func testAskRetriesLostReplyWithSameCallID(t *testing.T) {
 	}
 }
 
-// A serve that crashes after recording the call and restarts seconds later: the client keeps the same call id through
+// A serve that crashes after recording the call and restarts shortly later: the client keeps the same call id through
 // the refusals and gets the reply the restarted serve replays from its store (docs/state-model.md, class F, N3).
 func testAskSurvivesServeRestart(t *testing.T) {
 	t.Parallel()
@@ -178,7 +197,7 @@ func testAskSurvivesServeRestart(t *testing.T) {
 		ln.Close()
 		os.Remove(sock)
 	})
-	const restart = time.Second
+	const restart = 15 * time.Millisecond
 	var mu sync.Mutex
 	var ids []string
 	served := make(chan error, 1)
@@ -231,10 +250,8 @@ func testAskSurvivesServeRestart(t *testing.T) {
 		_, _ = c2.Write([]byte(ans + "\n"))
 		served <- nil
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
 	start := time.Now()
-	reply, err := wire.Verdict(ctx, sock, askCall("c1"))
+	reply, err := wire.Verdict(shortCtx(), sock, askCall("c1"))
 	if err != nil || reply != "accepted T-1" {
 		t.Fatalf("Verdict through the restart = %q, %v; want the stored reply", reply, err)
 	}
@@ -255,7 +272,7 @@ func testAskSurvivesServeRestart(t *testing.T) {
 // until the new one answers. `obor status`, a read, fails at once instead.
 func testAskVerdictWaitsForServe(t *testing.T) {
 	t.Parallel()
-	const delay = 300 * time.Millisecond
+	const delay = 15 * time.Millisecond
 	for _, c := range []struct {
 		name string
 		left func(t *testing.T, sock string)
@@ -308,7 +325,7 @@ func testAskVerdictWaitsForServe(t *testing.T) {
 				}
 			}()
 			start := time.Now()
-			reply, err := wire.Verdict(context.Background(), sock, askCall("c1"))
+			reply, err := wire.Verdict(shortCtx(), sock, askCall("c1"))
 			if err != nil || reply != "accepted T-1" {
 				t.Fatalf("Verdict through the restart = %q, %v; want the reply", reply, err)
 			}
@@ -374,14 +391,14 @@ func refused(t *testing.T, sock string) {
 func testAskRetriesStopAtCallerDeadline(t *testing.T) {
 	t.Parallel()
 	sock, seen := fakeApp(t, func(int) string { return "" }) // every connection is dropped unanswered
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(shortCtx(), 40*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	if _, err := wire.Verdict(ctx, sock, askCall("c1")); err == nil {
 		t.Fatal("Verdict answered a call the app never answered")
 	}
-	if d := time.Since(start); d > 2*time.Second {
-		t.Errorf("returned after %v; want at the caller's deadline (500ms)", d)
+	if d := time.Since(start); d > 150*time.Millisecond {
+		t.Errorf("returned after %v; want at the caller's deadline (40ms), not the verdict's %v", d, shortWaits.Verdict)
 	}
 	if ids := seen(); len(ids) < 2 || ids[0] != "c1" || ids[1] != "c1" {
 		t.Errorf("call ids seen = %q; want the same id on the retries", ids)
@@ -524,18 +541,19 @@ func (s *storingApp) counts() (int, map[string]int, []string) {
 	return s.conns, applied, append([]string(nil), s.ids...)
 }
 
-// A verdict made while serve restarts (no socket until the new serve has loaded) is retried inside its 15 s
-// and lands once: one connection, one record.
+// A verdict made while serve restarts (no socket until the new serve has loaded) is retried inside its deadline and
+// lands once: one connection, one record.
 func testVerdictLandsAfterRestartOnce(t *testing.T) {
 	t.Parallel()
+	const restart = 20 * time.Millisecond
 	sock := filepath.Join(sockDir(t), "serve.sock")
-	s := serveStoring(t, sock, 3*time.Second, false)
+	s := serveStoring(t, sock, restart, false)
 	start := time.Now()
-	reply, err := wire.Verdict(context.Background(), sock, askCall("c1"))
+	reply, err := wire.Verdict(shortCtx(), sock, askCall("c1"))
 	if err != nil || reply != "done c1" {
-		t.Fatalf("Verdict through a 3 s restart = %q, %v; want the reply", reply, err)
+		t.Fatalf("Verdict through the %v restart = %q, %v; want the reply", restart, reply, err)
 	}
-	if d := time.Since(start); d < 3*time.Second {
+	if d := time.Since(start); d < restart {
 		t.Fatalf("answered after %v, before the listener was there", d)
 	}
 	if conns, applied, _ := s.counts(); conns != 1 || applied["c1"] != 1 {
@@ -543,28 +561,30 @@ func testVerdictLandsAfterRestartOnce(t *testing.T) {
 	}
 }
 
-// The StopFailure hook's call (5 s) survives a serve back at 4 s: a retry near its deadline lands.
+// The StopFailure hook's call survives a serve that comes back inside its deadline: a retry after the restart lands,
+// and the stop is recorded once.
 func testStopFailureLandsNearItsDeadline(t *testing.T) {
 	t.Parallel()
+	const restart = 40 * time.Millisecond // well inside StopFailure: the retries after it must land
 	sock := filepath.Join(sockDir(t), "serve.sock")
-	s := serveStoring(t, sock, 4*time.Second, false)
+	s := serveStoring(t, sock, restart, false)
 	c := &wire.StoppedReq{Envelope: wire.Envelope{Root: "/r", Agent: "pj-l-01", Role: "worker", CallID: "s1"},
 		Lane:  "L-01",
 		Error: "rate_limit"}
 	start := time.Now()
-	if _, err := wire.Verdict(context.Background(), sock, c); err != nil {
-		t.Fatalf("stop-failure through a 4 s restart: %v; want it recorded", err)
+	if _, err := wire.Verdict(shortCtx(), sock, c); err != nil {
+		t.Fatalf("stop-failure through a %v restart: %v; want it recorded", restart, err)
 	}
-	if d := time.Since(start); d < 4*time.Second || d > 5*time.Second {
-		t.Errorf("answered after %v; want after the 4 s restart, inside the 5 s deadline", d)
+	if d := time.Since(start); d < restart || d > 4*shortWaits.StopFailure {
+		t.Errorf("answered after %v; want after the %v restart, inside the %v deadline", d, restart, shortWaits.StopFailure)
 	}
 	if _, applied, _ := s.counts(); applied["s1"] != 1 {
 		t.Errorf("applied %v; want the stop recorded once", applied)
 	}
 }
 
-// A turn call (8 s) whose serve never comes back fails at its deadline, and a serve that binds afterwards gets
-// nothing: no call is applied after its caller gave up.
+// A turn call whose serve never comes back fails at its deadline, and a serve that binds afterwards gets nothing: no
+// call is applied after its caller gave up.
 func testTurnFailsAtItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
@@ -575,17 +595,25 @@ func testTurnFailsAtItsDeadline(t *testing.T) {
 	// so the fake clock would stall.
 	synctest.Test(t, func(t *testing.T) {
 		start := time.Now()
-		_, err := wire.Verdict(context.Background(), sock, c)
+		_, err := wire.Verdict(shortCtx(), sock, c)
 		d := time.Since(start)
 		if err == nil {
 			t.Fatal("a turn with no serve answered")
 		}
-		if d < 7*time.Second || d > 8500*time.Millisecond {
-			t.Errorf("failed after %v; want at the turn's 8 s deadline", d)
+		if d < shortWaits.Turn-shortWaits.Margin-10*time.Millisecond || d > shortWaits.Turn+5*time.Millisecond {
+			t.Errorf("failed after %v; want the turn's %v deadline, less a %v margin", d, shortWaits.Turn, shortWaits.Margin)
 		}
 	})
 	s := serveStoring(t, sock, 0, false) // the serve is back after the caller gave up
-	time.Sleep(250 * time.Millisecond)   // real: a late listener needs no second, the caller is gone
+	for bound := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(bound) {
+			t.Fatal("precondition: the fake serve never bound its socket")
+		}
+	}
+	time.Sleep(10 * time.Millisecond) // real: the caller's retries would come every 5 ms, so a late one would land here
 	if conns, applied, _ := s.counts(); conns != 0 || len(applied) != 0 {
 		t.Errorf("after the deadline the serve saw %d connections, applied %v; want nothing", conns, applied)
 	}
@@ -605,7 +633,7 @@ func testLostReplyAnsweredFromStore(t *testing.T) {
 			t.Fatal("precondition: the fake serve never bound its socket")
 		}
 	}
-	reply, err := wire.Verdict(context.Background(), sock, askCall("c1"))
+	reply, err := wire.Verdict(shortCtx(), sock, askCall("c1"))
 	if err != nil || reply != "done c1" {
 		t.Fatalf("Verdict after a lost reply = %q, %v; want the stored reply", reply, err)
 	}

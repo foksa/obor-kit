@@ -47,11 +47,12 @@ func NewCallID() string {
 // with this binary's version: its reply line, or the app's refusal as the error. r's JSON is the socket line: the
 // union's keys less the ones no serve reads for its method (request_test.go's drops), never a promise of the old
 // bytes. The call has its method's deadline
-// (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it. A DeadlineReq
+// (callDeadline) or ctx's, the earlier; the waits a test puts on ctx (WaitsKey) replace the table and its retries'
+// waits. A call its deadline ends says serve may still be working on it. A DeadlineReq
 // carries that instant when it is sent, so serve lands nothing a caller that gave up would never see.
 func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	method := r.Method()
-	d := callDeadline(method)
+	w, d := waitsFor(ctx, method)
 	if dl, ok := ctx.Deadline(); ok { // ctx's earlier deadline is the one that ends the call
 		if left := time.Until(dl); left < d {
 			d = max(left, 0)
@@ -68,7 +69,7 @@ func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: %v", method, err)
 	}
-	ans, err := verdictAsk(ctx, path, Request{Method: method, Call: b})
+	ans, err := verdictAsk(ctx, path, Request{Method: method, Call: b}, w)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) && cut(err) {
 			return "", fmt.Errorf("obor serve did not answer %s in %s: it may still be working on it (obor status shows whether it landed)",
@@ -100,10 +101,9 @@ func Once(ctx context.Context, path string, r Req) (string, error) {
 	return ans.Reply, err
 }
 
-// The deadlines of the socket's callers, the one table: a call is retried inside its own deadline, so a serve
-// restart that ends before it loses nothing. The hooks' are under their timeouts (10 s and 15 s); status has none: a
-// read fails at once. OBOR_CALL_DEADLINE, in seconds (fractions allowed: 0.2), is every method's deadline when set: a
-// test's call to a serve that is not running ends in that time, not in the table's; unset, the table.
+// The deadlines of the socket's callers, the table: a call is retried inside its own deadline, so a serve restart
+// that ends before it loses nothing. The hooks' are under their timeouts (10 s and 15 s); status has none: a read
+// fails at once.
 const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
@@ -113,35 +113,72 @@ const (
 	driveDeadline       = 75 * time.Second // obor drive: serve answers once the new drive's lane is prepared (its wait: a minute)
 )
 
-// callDeadline is method's deadline: OBOR_CALL_DEADLINE when it is set to a positive number of seconds, else the table
-// above.
+// The retries' production waits: a call waits RetryWait between attempts, and none starts later than Margin before
+// its deadline, so the last attempt still has time to be answered.
+const (
+	askRetryWait = 500 * time.Millisecond
+	askMargin    = 200 * time.Millisecond
+)
+
+// Waits are a call's deadlines, its retry wait and the margin before its deadline: the production table below, or the
+// shorter ones a test puts on a call's context under WaitsKey, so a serve restart it wants to survive costs it tens of
+// milliseconds instead of seconds.
+type Waits struct {
+	Verdict, Turn, StopFailure, LeadLines, Prune, Drive time.Duration
+	RetryWait, Margin                                   time.Duration
+}
+
+// WaitsKey is the context key of a call's waits: a test gives one call short ones with
+// context.WithValue(ctx, WaitsKey{}, Waits{…}); production never sets it.
+type WaitsKey struct{}
+
+// waits is the production table: the deadlines above with the retries' waits.
+var waits = Waits{
+	Verdict:     verdictDeadline,
+	Turn:        turnDeadline,
+	StopFailure: stopFailureDeadline,
+	LeadLines:   leadLinesDeadline,
+	Prune:       pruneDeadline,
+	Drive:       driveDeadline,
+	RetryWait:   askRetryWait,
+	Margin:      askMargin,
+}
+
+// deadline is a method's deadline in w's table.
+func (w Waits) deadline(method string) time.Duration {
+	switch method {
+	case MethodTurn, MethodSession:
+		return w.Turn
+	case MethodStopped:
+		return w.StopFailure
+	case MethodLeadLines:
+		return w.LeadLines
+	case MethodPrune:
+		return w.Prune
+	case MethodDrive:
+		return w.Drive
+	}
+	return w.Verdict
+}
+
+// waitsFor is a call's waits and its method's deadline: the short ones a test put on ctx, else the production table.
+func waitsFor(ctx context.Context, method string) (Waits, time.Duration) {
+	if w, ok := ctx.Value(WaitsKey{}).(Waits); ok {
+		return w, w.deadline(method)
+	}
+	return waits, callDeadline(method)
+}
+
+// callDeadline is method's deadline: OBOR_CALL_DEADLINE when it is set to a positive number of seconds, else the
+// production table above.
 func callDeadline(method string) time.Duration {
 	if s := os.Getenv("OBOR_CALL_DEADLINE"); s != "" {
 		if secs, err := strconv.ParseFloat(s, 64); err == nil && secs > 0 {
 			return time.Duration(secs * float64(time.Second))
 		}
 	}
-	switch method {
-	case MethodTurn, MethodSession:
-		return turnDeadline
-	case MethodStopped:
-		return stopFailureDeadline
-	case MethodLeadLines:
-		return leadLinesDeadline
-	case MethodPrune:
-		return pruneDeadline
-	case MethodDrive:
-		return driveDeadline
-	}
-	return verdictDeadline
+	return waits.deadline(method)
 }
-
-// ask's retries: every askRetryWait, flat, and none later than askMargin before the call's deadline, so the
-// last attempt still has time to be answered.
-const (
-	askRetryWait = 500 * time.Millisecond
-	askMargin    = 200 * time.Millisecond
-)
 
 // ask sends req once to the app socket at path and reads its answer; an answer's error is the error. It is not
 // retried: obor status reports a serve that is not there at once.
@@ -150,21 +187,21 @@ func ask(ctx context.Context, path string, req Request) (Answer, error) {
 }
 
 // verdictAsk is ask for a verdict's request (a CLI verdict, an MCP tool's, a hook's: task_done, job_next, turn …),
-// retried until ctx's deadline less askMargin while it cannot have done harm: a refused or missing socket carried
+// retried until ctx's deadline less w.Margin while it cannot have done harm: a refused or missing socket carried
 // nothing (serve binds only once its project is loaded, so a restart is a socket not there yet), and a reply lost
 // after the request was written is sent again with the same call id, which the app's stored reply answers
 // (docs/state-model.md, class F). Any other error, the app's refusal included, is returned at once.
-func verdictAsk(ctx context.Context, path string, req Request) (Answer, error) {
-	last := time.Now().Add(-askMargin) // no deadline: one attempt
+func verdictAsk(ctx context.Context, path string, req Request, w Waits) (Answer, error) {
+	last := time.Now().Add(-w.Margin) // no deadline: one attempt
 	if d, ok := ctx.Deadline(); ok {
-		last = d.Add(-askMargin)
+		last = d.Add(-w.Margin)
 	}
 	for {
 		ans, err := askOnce(ctx, path, req)
 		if err == nil || ctx.Err() != nil || !(absent(err) || lostReply(err)) {
 			return ans, err
 		}
-		wait := min(askRetryWait, time.Until(last))
+		wait := min(w.RetryWait, time.Until(last))
 		if wait <= 0 {
 			return Answer{}, err
 		}

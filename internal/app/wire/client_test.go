@@ -13,32 +13,84 @@ import (
 )
 
 // OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset or no
-// number, the table's own. A dispatch (a move is one), a drop and a drive have the verdict deadline: serve answers them
-// at once and stops the worker in its merge loop.
+// number, the table's own. The table's rows are the values, not the constants: a changed constant is a changed
+// deadline here, before any call waits on it. A dispatch (a move is one), a drop and a drive have the verdict deadline:
+// serve answers them at once and stops the worker in its merge loop.
 func TestCallDeadline(t *testing.T) {
 	for _, c := range []struct {
 		env, method string
 		want        time.Duration
 	}{
-		{"", MethodAccept, verdictDeadline},
-		{"", MethodSendback, verdictDeadline},
-		{"", MethodTurn, turnDeadline},
-		{"", MethodSession, turnDeadline},
-		{"", MethodStopped, stopFailureDeadline},
-		{"", MethodLeadLines, leadLinesDeadline}, // under OpenCode's 5 s hook timeout
-		{"", MethodDispatch, verdictDeadline},
-		{"", MethodDrop, verdictDeadline},
-		{"", MethodDrive, driveDeadline}, // serve holds its reply for the new drive's lane
+		{"", MethodAccept, 15 * time.Second},
+		{"", MethodSendback, 15 * time.Second},
+		{"", MethodTurn, 8 * time.Second},
+		{"", MethodSession, 8 * time.Second},
+		{"", MethodStopped, 5 * time.Second},
+		{"", MethodLeadLines, 3 * time.Second}, // under OpenCode's 5 s hook timeout
+		{"", MethodDispatch, 15 * time.Second},
+		{"", MethodDrop, 15 * time.Second},
+		{"", MethodPrune, 90 * time.Second},
+		{"", MethodDrive, 75 * time.Second}, // serve holds its reply for the new drive's lane
 		{"0.2", MethodAccept, 200 * time.Millisecond},
 		{"0.2", MethodTurn, 200 * time.Millisecond},
 		{"0.2", MethodStopped, 200 * time.Millisecond},
 		{"0.2", MethodDrive, 200 * time.Millisecond},
-		{"bogus", MethodAccept, verdictDeadline},
+		{"bogus", MethodAccept, 15 * time.Second},
 	} {
 		t.Setenv("OBOR_CALL_DEADLINE", c.env)
 		if got := callDeadline(c.method); got != c.want {
 			t.Errorf("OBOR_CALL_DEADLINE=%q: callDeadline(%s) = %v, want %v", c.env, c.method, got, c.want)
 		}
+	}
+}
+
+// The retries' production waits, by value: a test that needs shorter ones puts its Waits on the call's context
+// (WaitsKey), and this is where a changed constant is seen.
+func TestRetryWaits(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want time.Duration
+	}{
+		{"the retry wait", waits.RetryWait, 500 * time.Millisecond},
+		{"the margin", waits.Margin, 200 * time.Millisecond},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
+		}
+	}
+}
+
+// A test's Waits on the context are the call's: its own table's deadline for the method, not OBOR_CALL_DEADLINE's nor
+// the production table's. Production sets none, and gets the table.
+func TestWaitsOnContext(t *testing.T) {
+	short := Waits{
+		Verdict: 1 * time.Second, Turn: 60 * time.Millisecond, StopFailure: 40 * time.Millisecond,
+		LeadLines: 30 * time.Millisecond, Prune: 900 * time.Millisecond, Drive: 70 * time.Millisecond,
+		RetryWait: 5 * time.Millisecond, Margin: 2 * time.Millisecond,
+	}
+	ctx := context.WithValue(context.Background(), WaitsKey{}, short)
+	for _, c := range []struct {
+		method string
+		want   time.Duration
+	}{
+		{MethodAccept, 1 * time.Second},
+		{MethodTurn, 60 * time.Millisecond},
+		{MethodStopped, 40 * time.Millisecond},
+		{MethodLeadLines, 30 * time.Millisecond},
+		{MethodPrune, 900 * time.Millisecond},
+		{MethodDrive, 70 * time.Millisecond},
+	} {
+		if w, d := waitsFor(ctx, c.method); w != short || d != c.want {
+			t.Errorf("waitsFor(%s) under a test's waits = %+v, %v; want %+v's %v", c.method, w, d, short, c.want)
+		}
+	}
+	t.Setenv("OBOR_CALL_DEADLINE", "0.2") // the environment's deadline is the production knob; a test's waits are its own
+	if w, d := waitsFor(ctx, MethodAccept); w != short || d != time.Second {
+		t.Errorf("with OBOR_CALL_DEADLINE set: waitsFor = %+v, %v; want the context's %+v and 1s", w, d, short)
+	}
+	t.Setenv("OBOR_CALL_DEADLINE", "")
+	if w, d := waitsFor(context.Background(), MethodAccept); w != waits || d != verdictDeadline {
+		t.Errorf("without a test's waits: waitsFor = %+v, %v; want the production table and %v", w, d, verdictDeadline)
 	}
 }
 
