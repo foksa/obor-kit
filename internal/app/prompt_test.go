@@ -18,8 +18,8 @@ func TestPromptFreshDelivered(t *testing.T) {
 	if !h.step(t, fx) { // work
 		t.Fatal("work job not sent")
 	}
-	if strings.Join(f.jobs, " ") != "T-1/1/work" || !f.clears[0] || h.result(event.StepWork) != `"sent"` {
-		t.Fatalf("prompts %v clears %v result %s; want the work job once, cleared first, sent", f.jobs, f.clears,
+	if strings.Join(f.Jobs(), " ") != "T-1/1/work" || !f.Prompts()[0].Clear || h.result(event.StepWork) != `"sent"` {
+		t.Fatalf("prompts %v calls %v result %s; want the work job once, cleared first, sent", f.Jobs(), f.Prompts(),
 			h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil } // job_next renders the worker prompt from its kit
@@ -44,8 +44,8 @@ func TestPromptResultLost(t *testing.T) {
 		t.Fatal("precondition: the result write failed, the step is not done")
 	}
 	h.step(t, fx)
-	if len(f.jobs) != 1 || h.result(event.StepWork) != `"sent"` || h.count(event.KindFact, event.StepFailed) != 0 {
-		t.Errorf("prompts %v, result %s, failed %d; want one prompt, its result sent, nothing counted", f.jobs,
+	if len(f.Jobs()) != 1 || h.result(event.StepWork) != `"sent"` || h.count(event.KindFact, event.StepFailed) != 0 {
+		t.Errorf("prompts %v, result %s, failed %d; want one prompt, its result sent, nothing counted", f.Jobs(),
 			h.result(event.StepWork), h.count(event.KindFact, event.StepFailed))
 	}
 }
@@ -55,14 +55,14 @@ func TestPromptResultLost(t *testing.T) {
 func TestPromptTransportAfterTyping(t *testing.T) {
 	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
-	f.outcomes = []boxOutcome{{typed: true, err: errors.New("herdr agent.prompt: connection reset")}}
+	f.OnPrompt = scripted(promptOutcome{typed: true, err: errors.New("herdr agent.prompt: connection reset")})
 	if !h.step(t, fx) {
 		t.Fatal("a prompt whose typing began is not a failure")
 	}
 	h.step(t, fx) // the delivery timer: nothing due
-	if len(f.jobs) != 1 || h.result(event.StepWork) != `"sent: herdr agent.prompt: connection reset"` ||
+	if len(f.Jobs()) != 1 || h.result(event.StepWork) != `"sent: herdr agent.prompt: connection reset"` ||
 		h.count(event.KindFact, event.StepFailed) != 0 {
-		t.Errorf("prompts %v, result %s, failed %d; want one prompt, sent with the error, nothing counted", f.jobs,
+		t.Errorf("prompts %v, result %s, failed %d; want one prompt, sent with the error, nothing counted", f.Jobs(),
 			h.result(event.StepWork), h.count(event.KindFact, event.StepFailed))
 	}
 }
@@ -71,17 +71,17 @@ func TestPromptTransportAfterTyping(t *testing.T) {
 func TestPromptRefusedBeforeTyping(t *testing.T) {
 	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
-	f.outcomes = []boxOutcome{{err: errors.New("agent_blocked")}}
+	f.OnPrompt = scripted(promptOutcome{err: errors.New("agent_blocked")})
 	if h.step(t, fx) || h.count(event.KindFact, event.StepFailed) != 1 {
 		t.Fatalf("precondition: the refusal is a counted failure (%d)", h.count(event.KindFact, event.StepFailed))
 	}
 	if !h.step(t, fx) {
 		t.Fatal("the work job not sent again")
 	}
-	if strings.Join(f.jobs, " ") != "T-1/1/work T-1/1/work" || h.count(event.KindIntent, event.StepWork) != 1 ||
-		h.result(event.StepWork) != `"sent"` || f.box["w1:p1"] != "[obor job T-1/1/work]" {
+	if strings.Join(f.Jobs(), " ") != "T-1/1/work T-1/1/work" || h.count(event.KindIntent, event.StepWork) != 1 ||
+		h.result(event.StepWork) != `"sent"` || boxOf(f, "w1:p1", "") != "[obor job T-1/1/work]" {
 		t.Errorf("prompts %v, intents %d, result %s, box %q; want the job twice, one intent, sent, the text once",
-			f.jobs, h.count(event.KindIntent, event.StepWork), h.result(event.StepWork), f.box["w1:p1"])
+			f.Jobs(), h.count(event.KindIntent, event.StepWork), h.result(event.StepWork), boxOf(f, "w1:p1", ""))
 	}
 }
 
@@ -100,10 +100,10 @@ func TestPromptResumeClears(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.step(t, fx) // work.2
-	if strings.Join(f.jobs, " ") != "T-1/1/work T-1/1/work T-1/1/work.2" || !f.clears[1] || !f.clears[2] ||
-		f.box["w1:p1"] != "[obor job T-1/1/work.2]" {
-		t.Errorf("prompts %v, clears %v, box %q; want work, its retry and work.2 each cleared first, the box work.2 once",
-			f.jobs, f.clears, f.box["w1:p1"])
+	if strings.Join(f.Jobs(), " ") != "T-1/1/work T-1/1/work T-1/1/work.2" || !f.Prompts()[1].Clear || !f.Prompts()[2].Clear ||
+		boxOf(f, "w1:p1", "") != "[obor job T-1/1/work.2]" {
+		t.Errorf("prompts %v, calls %v, box %q; want work, its retry and work.2 each cleared first, the box work.2 once",
+			f.Jobs(), f.Prompts(), boxOf(f, "w1:p1", ""))
 	}
 }
 
@@ -128,8 +128,8 @@ func TestPromptReplayResends(t *testing.T) {
 		t.Fatal("the pending wake was not sent again")
 	}
 	h.step(t, fx) // the delivery timer: nothing due
-	if strings.Join(f.jobs, " ") != "T-1/1/work" || h.result(event.StepWork) != `"sent"` {
-		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.jobs, h.result(event.StepWork))
+	if strings.Join(f.Jobs(), " ") != "T-1/1/work" || h.result(event.StepWork) != `"sent"` {
+		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.Jobs(), h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	if _, err := h.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: h.proj().root, Agent: "pj-l-01",
@@ -147,7 +147,7 @@ func TestPromptReplayResends(t *testing.T) {
 func TestPromptIntegratorJob(t *testing.T) {
 	t.Parallel()
 	h, s := seedSched(t, true)
-	f := &boxPrompter{box: map[string]string{"w1:p9": "[obor job T-2/1/review]"}}
+	f := &FakeAgents{} // w1:p9's box holds T-2's unsent review job
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(s), Agents: s, Prompter: f}), nil
 	}
@@ -173,10 +173,10 @@ func TestPromptIntegratorJob(t *testing.T) {
 	h.tick(0) // the check identifies the running integrator by its label
 	h.a.advance(ctx)
 	h.a.advance(ctx)
-	if strings.Join(f.jobs, " ") != "T-1/1/resolve" || !f.clears[0] || f.box["w1:p9"] != "[obor job T-1/1/resolve]" ||
+	if strings.Join(f.Jobs(), " ") != "T-1/1/resolve" || !f.Prompts()[0].Clear || boxOf(f, "w1:p9", "[obor job T-2/1/review]") != "[obor job T-1/1/resolve]" ||
 		h.result(event.StepResolve) != `"sent"` {
-		t.Errorf("prompts %v, clears %v, box %q, result %s; want the resolve job once, cleared first, sent", f.jobs,
-			f.clears, f.box["w1:p9"], h.result(event.StepResolve))
+		t.Errorf("prompts %v, calls %v, box %q, result %s; want the resolve job once, cleared first, sent", f.Jobs(),
+			f.Prompts(), boxOf(f, "w1:p9", "[obor job T-2/1/review]"), h.result(event.StepResolve))
 	}
 }
 
@@ -221,9 +221,9 @@ func TestStartReplay(t *testing.T) {
 			}
 			h.step(t, fx)
 			mt := h.proj().folded.loop["T-1"]
-			if ag.restarts != c.restarts || !strings.Contains(mt.refused, c.refused) ||
+			if len(ag.Launches()) != c.restarts || !strings.Contains(mt.refused, c.refused) ||
 				(c.refused == "") != mt.started {
-				t.Fatalf("restarts %d, refused %q, started %v; want %d, %q", ag.restarts, mt.refused, mt.started,
+				t.Fatalf("restarts %d, refused %q, started %v; want %d, %q", len(ag.Launches()), mt.refused, mt.started,
 					c.restarts, c.refused)
 			}
 			if c.refused != "" {
@@ -242,7 +242,7 @@ func TestStartReplay(t *testing.T) {
 func TestStartResultLost(t *testing.T) {
 	t.Parallel()
 	h, fx, _, ag := promptRig(t, false)
-	ag.lag = true
+	ag.OnLaunch = nil // lag: the snapshot does not show the start yet
 	o := h.a.obs["w1:p1"]
 	o.pane.Session, o.pane.Transcript = "old", ""
 	refuseOnce(h.proj(), event.StepStartWork)
@@ -256,7 +256,7 @@ func TestStartResultLost(t *testing.T) {
 		t.Fatalf("intent %s; want the agent and its session id old recorded", r.Data)
 	}
 	h.step(t, fx)
-	if ag.restarts != 1 || !h.proj().folded.loop["T-1"].started {
-		t.Errorf("restarts %d, started %v; want one start, its result written", ag.restarts, h.proj().folded.loop["T-1"].started)
+	if len(ag.Launches()) != 1 || !h.proj().folded.loop["T-1"].started {
+		t.Errorf("restarts %d, started %v; want one start, its result written", len(ag.Launches()), h.proj().folded.loop["T-1"].started)
 	}
 }

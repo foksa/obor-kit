@@ -42,13 +42,13 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 			}
 			if c.to != "" {
 				h.a.opt.Loop = func(root string) (*Loop, error) {
-					return withCfg(root, &Loop{Workflow: WorkflowOf(&schedScratch{h: h}, &reviewGitFake{head: "base1"}), Agents: &agentsSpy{}}), nil
+					return withCfg(root, &Loop{Workflow: WorkflowOf(newSchedScratch(h), &reviewGitFake{head: "base1"}), Agents: &FakeAgents{}}), nil
 				}
 				if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1",
 					Role: "lead"}, To: c.to, Text: "look"}); err != nil {
 					t.Fatal(err)
 				}
-				f := &schedScratch{h: h}
+				f := newSchedScratch(h)
 				h.a.opt.Loop = func(root string) (*Loop, error) {
 					return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 				}
@@ -156,9 +156,9 @@ func TestPublishDuringAReviewStart(t *testing.T) {
 	if got := h.state("T-1"); got == stMerged {
 		t.Fatalf("precondition: T-1 merged before its publish was released")
 	}
-	if len(r.agents.launches) != 1 || startedHead(t, h) != "base1" || r.git.detachedAt() != "reviewer@base1" {
+	if len(r.agents.Launches()) != 1 || startedHead(t, h) != "base1" || r.git.detachedAt() != "reviewer@base1" {
 		t.Errorf("publish running: %d launches, started on %q, detached %q; want the review started on base1, the"+
-			" reviewer's worktree there", len(r.agents.launches), startedHead(t, h), r.git.detachedAt())
+			" reviewer's worktree there", len(r.agents.Launches()), startedHead(t, h), r.git.detachedAt())
 	}
 	r.released(ctx)
 	if got := h.state("T-1"); got != stMerged {

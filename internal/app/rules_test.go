@@ -249,7 +249,7 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 			if shell == c.runs {
 				t.Fatalf("precondition: pj-l-01's pane at its shell %v, want %v", shell, !c.runs)
 			}
-			spy := &agentsSpy{}
+			spy := &FakeAgents{}
 			key, act, ok := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now)
 			if ok != (c.wake != "") {
 				t.Fatalf("condition %v, want %v", ok, c.wake != "")
@@ -261,8 +261,8 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 				t.Fatalf("action: %v, line %q", err, act.line)
 			}
 			want := port.Launch{Agent: "pj-l-01", Pane: "w1:p1", Prompt: wakeLine(c.wake)}
-			if key != 5 || len(spy.launches) != 1 || spy.launches[0] != want {
-				t.Errorf("key %d, starts %+v; want key 5, one start %+v", key, spy.launches, want)
+			if key != 5 || len(spy.Launches()) != 1 || spy.Launches()[0] != want {
+				t.Errorf("key %d, starts %+v; want key 5, one start %+v", key, spy.Launches(), want)
 			}
 		})
 	}
@@ -593,30 +593,14 @@ func TestOldNotifyRecordsReplay(t *testing.T) {
 	}
 }
 
-// countPoster is a Poster and Liner that counts: the lines posted, and how many were typed.
-type countPoster struct {
-	posts []string
-	typed int
-}
-
-func (c *countPoster) Post(_ context.Context, _, to, line string) (bool, error) {
-	c.posts = append(c.posts, to+": "+line)
-	return true, nil
-}
-
-func (c *countPoster) Prompt(context.Context, string, string, bool) (bool, error) {
-	c.typed++
-	return true, nil
-}
-
 // A needs-you's line whose append succeeds while the lanes table's write fails (record false) stays
 // recorded: a later pass appends no second line, and once the table writes again the lead gets the line once.
 func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
-	in := &countPoster{}
-	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: in})
+	in, typer := &kindSpy{}, &FakeAgents{}
+	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer})
 	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
 	h.connect()
@@ -650,8 +634,8 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	for range 4 {
 		h.a.deliver(context.Background(), p, fx)
 	}
-	if len(in.posts) != 1 || in.typed != 0 {
-		t.Errorf("after the table writes again: posted %d, typed %d; want 1 posted, none typed", len(in.posts), in.typed)
+	if len(in.calls) != 1 || len(typer.Prompts()) != 0 {
+		t.Errorf("after the table writes again: posted %d, typed %d; want 1 posted, none typed", len(in.calls), len(typer.Prompts()))
 	}
 	for _, m := range needsMessages(t, p) {
 		if m.Of != (event.Of{Kind: ruleNeeds, Seq: needsKey(r.Seq, 0)}) || !strings.Contains(m.Line, "prepare failed") {

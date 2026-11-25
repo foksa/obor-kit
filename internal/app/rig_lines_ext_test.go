@@ -83,11 +83,9 @@ func (r *loopRig) waitWake(agent, job string) {
 		for _, p := range r.prompts() {
 			sent = sent || p.to == agent && p.text == w
 		}
-		r.mu.Lock()
-		for _, l := range r.launches {
+		for _, l := range r.agents.Launches() {
 			sent = sent || l.Agent == agent && l.Prompt == w
 		}
-		r.mu.Unlock()
 		return sent && delivered()
 	})
 }
@@ -576,10 +574,8 @@ func (r *loopRig) moveTo(callID string, types ...string) (string, error) {
 
 // workerLaunches is the Agents.Launch calls of pj-l-01, in order.
 func (r *loopRig) workerLaunches() []port.Launch {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	var out []port.Launch
-	for _, l := range r.launches {
+	for _, l := range r.agents.Launches() {
 		if l.Agent == "pj-l-01" {
 			out = append(out, l)
 		}
@@ -813,13 +809,11 @@ func (r *loopRig) woken(agent string) []string {
 			texts = append(texts, p.text)
 		}
 	}
-	r.mu.Lock()
-	for _, l := range r.launches {
+	for _, l := range r.agents.Launches() {
 		if l.Agent == agent {
 			texts = append(texts, l.Prompt+" ")
 		}
 	}
-	r.mu.Unlock()
 	seen := map[string]bool{}
 	for _, text := range texts {
 		if m := jobRe.FindStringSubmatch(text); m != nil && !seen[m[1]] {

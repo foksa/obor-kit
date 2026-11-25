@@ -89,7 +89,7 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 	h.snap.Panes = append(h.snap.Panes,
 		port.Pane{ID: "w1:rev", Group: "pj", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Group: "pj", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
-	f := &schedScratch{h: h}
+	f := newSchedScratch(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 	}
@@ -291,28 +291,6 @@ func eqs(t *testing.T, got, want, what string) {
 	if got != want {
 		t.Errorf("%s:\n got %q\nwant %q", what, got, want)
 	}
-}
-
-// idAgents is an Agents recording each Stop's agent and pane.
-type idAgents struct{ stops []string }
-
-func (f *idAgents) Launch(context.Context, port.Launch) (port.Started, error) {
-	return port.Started{Line: "STARTED"}, nil
-}
-
-func (f *idAgents) Stop(_ context.Context, agent, pane string, _ bool) (string, error) {
-	f.stops = append(f.stops, agent+" "+pane)
-	return "STOPPED " + agent + " (pane " + pane + ")", nil
-}
-
-// stop runs the after-merge stop of pj-l-01 (stopWorker) while lane L-01 holds T-1.
-func (h *harness) stop(f *idAgents) (string, error) {
-	p := h.proj()
-	h.a.mu.Lock()
-	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
-	h.a.mu.Unlock()
-	return h.a.stopWorker(context.Background(), p, withAppCfg(h.a, &Loop{Agents: f}), mtask{task: "T-1", attempt: 1, lane: "L-01",
-		agent: "pj-l-01"})
 }
 
 // wake sends pj-l-01's work job T-1/1/work (send) through fx; true: sent.
@@ -577,7 +555,7 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
 		`"lanes":{"count":1},"agents":{"roles":{"integrator":""}}}`) // L-01: a sendback's lane.sync finds its worktree
-	f := &schedScratch{h: h}
+	f := newSchedScratch(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: "../.."}), nil
 	}

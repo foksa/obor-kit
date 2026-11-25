@@ -17,32 +17,22 @@ import (
 
 // The project's lines survive a restart (orderly and SIGKILL) and an off-target checkout.
 
-// linerSpy is a Prompter and a Poster that records each line typed or posted (the lead's); refuse: refused before
-// typing; hang: typing begins and never returns (the process is killed there).
-type linerSpy struct {
-	calls  []string
-	refuse bool
-	hang   func()
+// refusePrompt is a FakeAgents.OnPrompt that refuses every prompt before typing.
+func refusePrompt(context.Context, string, string, bool) (bool, error) {
+	return false, errors.New("agent_not_ready: no typing")
 }
 
-func (l *linerSpy) Prompt(_ context.Context, agent, text string, _ bool) (bool, error) {
-	l.calls = append(l.calls, agent+": "+text)
-	switch {
-	case l.hang != nil:
-		l.hang()
+// hangPrompt is a FakeAgents.OnPrompt whose typing begins, runs hang and never returns (the process is killed there).
+func hangPrompt(hang func()) func(context.Context, string, string, bool) (bool, error) {
+	return func(context.Context, string, string, bool) (bool, error) {
+		hang()
 		park()
-	case l.refuse:
-		return false, errors.New("agent_not_ready: no typing")
+		return true, nil
 	}
-	return true, nil
-}
-
-func (l *linerSpy) Post(ctx context.Context, _, agent, line string) (bool, error) {
-	return l.Prompt(ctx, agent, line, false)
 }
 
 // linerLoop is a loop whose lines go to l, typed and posted.
-func linerLoop(l *linerSpy) *Loop { return &Loop{Prompter: l, Inbox: l} }
+func linerLoop(l *FakeAgents) *Loop { return &Loop{Prompter: l, Inbox: l} }
 
 // lineRoot is a merging project with a reviewer role.
 func lineRoot(t *testing.T) string {
@@ -218,34 +208,38 @@ const blockTask = "T-1"
 // docs/state-model.md "Prompts" (the wake contract) and row 4's agent.start replay. The first
 // action after the setup is the case's entry.
 
-// boxPrompter is a Prompter whose agents never take a prompt by themselves: what is typed stays in the pane's box (box),
-// so a second typing on top of an unsent one shows. Each call takes the next scripted outcome (then: typed).
-type boxPrompter struct {
-	outcomes []boxOutcome
-	jobs     []string // the job of each call
-	clears   []bool   // its clear
-	box      map[string]string
+// scripted is a FakeAgents.OnPrompt whose calls take the next of outcomes, then type.
+func scripted(outcomes ...promptOutcome) func(context.Context, string, string, bool) (bool, error) {
+	return func(context.Context, string, string, bool) (bool, error) {
+		o := promptOutcome{typed: true}
+		if len(outcomes) > 0 {
+			o, outcomes = outcomes[0], outcomes[1:]
+		}
+		return o.typed, o.err
+	}
 }
 
-type boxOutcome struct {
+type promptOutcome struct {
 	typed bool
 	err   error
 }
 
-func (f *boxPrompter) Prompt(_ context.Context, pane, text string, clear bool) (bool, error) {
-	job := jobOf(text)
-	f.jobs, f.clears = append(f.jobs, job), append(f.clears, clear)
-	o := boxOutcome{typed: true}
-	if len(f.outcomes) > 0 {
-		o, f.outcomes = f.outcomes[0], f.outcomes[1:]
+// boxOf is what f's prompts left in pane's input box, which held before: its agents never take a prompt by themselves,
+// so what is typed stays there and a second typing on top of an unsent one shows.
+func boxOf(f *FakeAgents, pane, before string) string {
+	box := before
+	for _, p := range f.Prompts() {
+		if p.Pane != pane {
+			continue
+		}
+		if p.Clear {
+			box = ""
+		}
+		if p.Began {
+			box += "[obor job " + jobOf(p.Text) + "]"
+		}
 	}
-	if clear {
-		f.box[pane] = ""
-	}
-	if o.typed {
-		f.box[pane] += "[obor job " + job + "]"
-	}
-	return o.typed, o.err
+	return box
 }
 
 // jobOf is the job id in a typed wake's [obor job <id>] tag ("": a line, no job tag).
@@ -258,37 +252,32 @@ func jobOf(text string) string {
 	return job
 }
 
-// startAgents is an Agents whose Launch puts a fresh session (sid, "": none known) into the pane it starts in (its
-// input's; lag: the snapshot does not show it yet).
-type startAgents struct {
-	h        *harness
-	restarts int
-	sid      string
-	lag      bool
-	pane     string // the pane of its last launch
+// startIn is a FakeAgents.OnLaunch that puts a fresh session (sid, "": none known) into the pane it starts in (its
+// input's).
+func startIn(h *harness, sid string) func(context.Context, port.Launch) (port.Started, error) {
+	return func(_ context.Context, in port.Launch) (port.Started, error) {
+		o := h.a.obs[in.Pane]
+		if o == nil {
+			h.t.Fatalf("launch in pane %s, which the snapshot does not have", in.Pane)
+		}
+		o.pane.Agent, o.pane.Session, o.pane.Transcript = "claude", sid, ""
+		return port.Started{Line: "STARTED " + in.Agent}, nil
+	}
 }
 
-func (f *startAgents) Launch(_ context.Context, in port.Launch) (port.Started, error) {
-	f.restarts, f.pane = f.restarts+1, in.Pane
-	if f.lag {
-		return port.Started{Line: "STARTED pj-l-01"}, nil
+// lastPane is the pane of f's last launch ("": none).
+func lastPane(f *FakeAgents) string {
+	l := f.Launches()
+	if len(l) == 0 {
+		return ""
 	}
-	o := f.h.a.obs[in.Pane]
-	if o == nil {
-		f.h.t.Fatalf("launch in pane %s, which the snapshot does not have", in.Pane)
-	}
-	o.pane.Agent, o.pane.Session, o.pane.Transcript = "claude", f.sid, ""
-	return port.Started{Line: "STARTED pj-l-01"}, nil
-}
-
-func (f *startAgents) Stop(context.Context, string, string, bool) (string, error) {
-	return "STOPPED", nil
+	return l[len(l)-1].Pane
 }
 
 // promptRig is T-1 dispatched onto L-01 (lane prepared, rows removed; started: its worker started too), the switch
-// on, with a boxPrompter and startAgents. before, when given, acts on the harness's snapshot before the connect takes
-// it.
-func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness, *Loop, *boxPrompter, *startAgents) {
+// on, with a FakeAgents as its Prompter (boxOf) and one as its Agents (startIn, session new-session). before, when
+// given, acts on the harness's snapshot before the connect takes it.
+func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness, *Loop, *FakeAgents, *FakeAgents) {
 	h, s := seedSched(t, true, before...)
 	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Target: "target", Branch: "task/T-1"})
@@ -298,7 +287,6 @@ func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness
 	}
 	h.a.p.dispatching = true
 	kit, _ := filepath.Abs("../..")
-	f := &boxPrompter{box: map[string]string{}}
-	ag := &startAgents{h: h, sid: "new-session"}
+	f, ag := &FakeAgents{}, &FakeAgents{OnLaunch: startIn(h, "new-session")}
 	return h, withAppCfg(h.a, &Loop{Workflow: WorkflowOf(s), Agents: ag, PlaceLane: h.placeLane, Prompter: f, Kit: kit}), f, ag
 }

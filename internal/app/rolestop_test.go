@@ -21,23 +21,8 @@ import (
 // closes: two rules on the rule pass (rules.go, rolestop.go), whose action runs on an idle pane and is done when the
 // pane is at its shell. A brief to a stopped role agent starts it fresh on the brief.
 
-// stopSpy is startJobFakes that also records every Stop ("<agent> <pane> force=<force>").
-type stopSpy struct {
-	*startJobFakes
-	stops []string
-}
-
-func (s *stopSpy) Stop(_ context.Context, agent, pane string, force bool) (string, error) {
-	s.stops = append(s.stops, fmt.Sprintf("%s %s force=%t", agent, pane, force))
-	return "STOPPED " + agent, nil
-}
-
-func newStopSpy(r *concRig) *stopSpy {
-	return &stopSpy{startJobFakes: &startJobFakes{concFakes: r.fakes["pj"]}}
-}
-
 // runJob runs task's next step (its review job's start) with s as agents and typer.
-func runJob(r *concRig, p *proj, task string, s *stopSpy) bool {
+func runJob(r *concRig, p *proj, task string, s *FakeAgents) bool {
 	r.a.mu.Lock()
 	step := r.a.next(p, p.folded.loop[task], cfgAt(p.root))
 	r.a.mu.Unlock()
@@ -75,7 +60,7 @@ func atAgent(r *concRig) {
 
 // stopRig is a rule harness (a merging project pj with the lead pj-lead) whose snapshot has the integrator's pane
 // w1:int, running and idle, and a stop spy for the rule pass.
-func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
+func stopRig(t *testing.T) (*harness, *FakeAgents) {
 	t.Helper()
 	h := ruleHarness(t)
 	h.snap = port.Snapshot{Panes: []port.Pane{
@@ -90,7 +75,7 @@ func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
 	if p.integrator != "pj-int" || w.State != Identified || !Ready(w.Pane.Status) {
 		t.Fatalf("precondition: the integrator %q at %+v, want pj-int in w1:int idle", p.integrator, w)
 	}
-	return h, &reviewStopSpy{}
+	return h, &FakeAgents{}
 }
 
 // The integrator's stop rule, one table (condition → action). Its pane runs it and is idle, no task has an
@@ -98,37 +83,37 @@ func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
 // pane is at its shell is the action done.
 func TestRoleStopIntegratorRule(t *testing.T) {
 	t.Parallel()
-	type step func(t *testing.T, h *harness, s *reviewStopSpy)
-	pass := func(t *testing.T, h *harness, s *reviewStopSpy) {
+	type step func(t *testing.T, h *harness, s *FakeAgents)
+	pass := func(t *testing.T, h *harness, s *FakeAgents) {
 		h.a.rulePass(context.Background(), rules, withAppCfg(h.a, &Loop{Agents: s}))
 	}
-	submitted := func(t *testing.T, h *harness, _ *reviewStopSpy) { // its task done, no integrator job yet
+	submitted := func(t *testing.T, h *harness, _ *FakeAgents) { // its task done, no integrator job yet
 		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 	}
-	green := func(t *testing.T, h *harness, s *reviewStopSpy) {
+	green := func(t *testing.T, h *harness, s *FakeAgents) {
 		submitted(t, h, s)
 		addRecord(t, h, "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen,
 			Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"}})
 	}
-	jobOut := func(t *testing.T, h *harness, s *reviewStopSpy) { // the review job is out
+	jobOut := func(t *testing.T, h *harness, s *FakeAgents) { // the review job is out
 		green(t, h, s)
 		addRecord(t, h, "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
 	}
-	answered := func(t *testing.T, h *harness, s *reviewStopSpy) { // the job's verdict is in
+	answered := func(t *testing.T, h *harness, s *FakeAgents) { // the job's verdict is in
 		jobOut(t, h, s)
 		addRecord(t, h, "T-1", "accept.c1", event.KindResult, event.VerdictResult{Job: "T-1/1/review", Patch: "p1"})
 	}
-	started := func(t *testing.T, h *harness, s *reviewStopSpy) { // serve starts it again: the verdict is not its start's
+	started := func(t *testing.T, h *harness, s *FakeAgents) { // serve starts it again: the verdict is not its start's
 		answered(t, h, s)
 		addRecord(t, h, "T-1", stepStart+event.StepReview, event.KindResult, event.StartOut{Line: "STARTED pj-int",
 			Agent: "pj-int", Pane: "w1:int", Kind: "claude"})
 	}
 	status := func(id, status, agent string) step {
-		return func(t *testing.T, h *harness, _ *reviewStopSpy) {
+		return func(t *testing.T, h *harness, _ *FakeAgents) {
 			h.status(id, func(p *port.Pane) { p.Status, p.Agent = status, agent })
 		}
 	}
-	secondPane := func(t *testing.T, h *harness, _ *reviewStopSpy) {
+	secondPane := func(t *testing.T, h *harness, _ *FakeAgents) {
 		h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:int2", Group: "pj", Cwd: h.root,
 			Agent: "claude", Label: "pj-int", Status: "idle"})
 		h.a.connect(context.Background(), h.snap, false)
@@ -164,8 +149,8 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 			for _, st := range c.steps {
 				st(t, h, s)
 			}
-			if !slices.Equal(s.stops, c.stops) {
-				t.Errorf("stops %q, want %q", s.stops, c.stops)
+			if !slices.Equal(s.Stops(), c.stops) {
+				t.Errorf("stops %q, want %q", s.Stops(), c.stops)
 			}
 		})
 	}
@@ -177,7 +162,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	s := newStopSpy(r)
+	s := &FakeAgents{}
 	ctx := context.Background()
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runJob(r, p, "T-1", s) {
@@ -186,8 +171,8 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 	acceptJob(r, p, "T-1", "p1", "a1")
 	r.a.rulePass(ctx, rules, withAppCfg(r.a, &Loop{Agents: s}))
 	atShell(r)
-	if len(s.stops) != 1 || r.a.whereIs(p, "pj-int").State != Unavailable {
-		t.Fatalf("precondition: pj-int not stopped: %q", s.stops)
+	if len(s.Stops()) != 1 || r.a.whereIs(p, "pj-int").State != Unavailable {
+		t.Fatalf("precondition: pj-int not stopped: %q", s.Stops())
 	}
 
 	now := r.a.opt.Now().Add(2 * r.a.opt.Gone)
@@ -196,8 +181,8 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 	if !runJob(r, p, "T-5", s) {
 		t.Fatal("T-5's review job not started after the stop")
 	}
-	if n := len(s.launches); n != 2 || !s.launches[1].Fresh || s.launches[1].Prompt != wakeLine("T-5/1/review") {
-		t.Fatalf("launches %+v, want T-5's fresh start with its wake", s.launches)
+	if n := len(s.Launches()); n != 2 || !s.Launches()[1].Fresh || s.Launches()[1].Prompt != wakeLine("T-5/1/review") {
+		t.Fatalf("launches %+v, want T-5's fresh start with its wake", s.Launches())
 	}
 	for _, rec := range readLog(t, p.root) {
 		if rec.Step == event.StepLost || rec.Step == event.StepNeedsYou {
@@ -252,22 +237,22 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			if seq == 0 {
 				t.Fatal("no briefed fact")
 			}
-			f := &startJobFakes{concFakes: newConcFakes("")}
+			f := &FakeAgents{}
 			a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: f, Prompter: f}))
 			line := "[obor pj-lead] why X?"
 			key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + fmt.Sprint(seq)}
 			if c.started {
-				if len(f.launches) != 1 || f.launches[0] != (port.Launch{Agent: "pj-advisor", Pane: "w:adv", Fresh: true,
+				if len(f.Launches()) != 1 || f.Launches()[0] != (port.Launch{Agent: "pj-advisor", Pane: "w:adv", Fresh: true,
 					Prompt: line}) {
-					t.Errorf("launches %+v, want pj-advisor fresh in w:adv with the brief's line", f.launches)
+					t.Errorf("launches %+v, want pj-advisor fresh in w:adv with the brief's line", f.Launches())
 				}
-				same(t, len(f.typed), 0, "lines typed")
+				same(t, len(f.Texts()), 0, "lines typed")
 				same(t, resultOf(p, key), `"`+sentStart+`"`, "the line's delivery")
 				return
 			}
-			same(t, len(f.launches), 0, "starts of a running advisor")
-			if len(f.typed) != 1 || f.typed[0] != line {
-				t.Errorf("typed %q, want the brief's line once", f.typed)
+			same(t, len(f.Launches()), 0, "starts of a running advisor")
+			if len(f.Texts()) != 1 || f.Texts()[0] != line {
+				t.Errorf("typed %q, want the brief's line once", f.Texts())
 			}
 		})
 	}
@@ -296,22 +281,22 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	if !strings.Contains(reply, "serve starts it fresh") {
 		t.Errorf("reply %q, want it started fresh", reply)
 	}
-	f := &startJobFakes{concFakes: newConcFakes("")}
+	f := &FakeAgents{}
 	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: f, Prompter: f}))
-	if want := (port.Launch{Agent: "pj-ux-buddy", Pane: "w:ux", Fresh: true, Prompt: "[obor pj-lead] review the flows"}); len(f.launches) != 1 || f.launches[0] != want {
-		t.Errorf("launches %+v, want %+v", f.launches, want)
+	if want := (port.Launch{Agent: "pj-ux-buddy", Pane: "w:ux", Fresh: true, Prompt: "[obor pj-lead] review the flows"}); len(f.Launches()) != 1 || f.Launches()[0] != want {
+		t.Errorf("launches %+v, want %+v", f.Launches(), want)
 	}
-	s := &reviewStopSpy{}
+	s := &FakeAgents{}
 	now = now.Add(time.Hour)
 	a.rulePass(context.Background(), rules, withAppCfg(a, &Loop{Agents: s, Workflow: WorkflowOf(&reviewGitFake{})}))
-	same(t, len(s.stops), 0, "serve's stops of the custom role")
+	same(t, len(s.Stops()), 0, "serve's stops of the custom role")
 }
 
 // reviewStopRig is a review rig with no review yet (the reviewer pj-rev idle in w:rev) with a stop spy.
-func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
+func reviewStopRig(t *testing.T) (*reviewRig, *FakeAgents) {
 	t.Helper()
 	r := newReviewRigWith(t, false)
-	s := &reviewStopSpy{}
+	s := &FakeAgents{}
 	r.a.mu.Lock()
 	w := r.a.whereIs(r.p, "pj-rev")
 	r.a.mu.Unlock()
@@ -326,20 +311,20 @@ func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
 // then does it stop it, on the first pass after the close, and only once the pane is at its shell is the action done.
 func TestRoleStopReviewerRule(t *testing.T) {
 	t.Parallel()
-	type step func(t *testing.T, r *reviewRig, s *reviewStopSpy)
-	pass := func(t *testing.T, r *reviewRig, s *reviewStopSpy) {
+	type step func(t *testing.T, r *reviewRig, s *FakeAgents)
+	pass := func(t *testing.T, r *reviewRig, s *FakeAgents) {
 		reads := r.git.reads()
 		r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: s}))
 		if n := r.git.reads() - reads; n != 0 {
 			t.Errorf("the rule pass read git %d times, want none (T-926: the close is a fact)", n)
 		}
 	}
-	started := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) { r.started() }
-	closed := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
+	started := func(t *testing.T, r *reviewRig, _ *FakeAgents) { r.started() }
+	closed := func(t *testing.T, r *reviewRig, _ *FakeAgents) {
 		r.closedBy("RV-1", "RV-1 closed · abcdef0 · approved · T-a")
 	}
 	status := func(status, agent string) step {
-		return func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
+		return func(t *testing.T, r *reviewRig, _ *FakeAgents) {
 			pane := r.a.obs["w:rev"].pane
 			pane.Status, pane.Agent = status, agent
 			eventNow(r.a, port.Event{Kind: port.EventStatus, Pane: "w:rev", Status: status,
@@ -347,7 +332,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 		}
 	}
 	later := func(d time.Duration) step {
-		return func(_ *testing.T, r *reviewRig, _ *reviewStopSpy) { r.now = r.now.Add(d) }
+		return func(_ *testing.T, r *reviewRig, _ *FakeAgents) { r.now = r.now.Add(d) }
 	}
 	cases := []struct {
 		name  string
@@ -359,7 +344,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 		{name: "closed: stopped", steps: []step{started, closed, pass},
 			stops: []string{"pj-rev w:rev force=false"}},
 		{name: "closed with its brief open: none", steps: []step{started, closed,
-			func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
+			func(t *testing.T, r *reviewRig, _ *FakeAgents) {
 				if _, err := r.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.p.root, CallID: "b2",
 					Role: "lead", Agent: "pj-lead"}, To: "pj-rev", Text: "check X"}); err != nil {
 					t.Fatal(err)
@@ -387,8 +372,8 @@ func TestRoleStopReviewerRule(t *testing.T) {
 			for _, st := range c.steps {
 				st(t, r, s)
 			}
-			if !slices.Equal(s.stops, c.stops) {
-				t.Errorf("stops %q, want %q", s.stops, c.stops)
+			if !slices.Equal(s.Stops(), c.stops) {
+				t.Errorf("stops %q, want %q", s.Stops(), c.stops)
 			}
 		})
 	}
@@ -402,12 +387,12 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	r, s := reviewStopRig(t)
 	r.started()
 	r.closedBy("RV-1", "RV-1 closed · abcdef0 · approved · T-a")
-	s.err = errors.New("herdr refused the stop")
+	s.OnStop = stopFails(errors.New("herdr refused the stop"))
 	reason := fmt.Sprintf("rule %s failed %d passes in a row (serve's log names the errors)", ruleReviewerStop, ruleFails)
 	for i := 1; i <= ruleFails; i++ {
 		r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: s}))
-		if len(s.stops) != i {
-			t.Fatalf("after pass %d: %d stop attempts, want %d (the closed review was not eligible again)", i, len(s.stops), i)
+		if len(s.Stops()) != i {
+			t.Fatalf("after pass %d: %d stop attempts, want %d (the closed review was not eligible again)", i, len(s.Stops()), i)
 		}
 		if inForce := r.p.has(event.RuleTask, event.StepNeedsYou, reason); inForce != (i == ruleFails) {
 			t.Errorf("after pass %d: the rule's needs-you in force %v, want %v", i, inForce, i == ruleFails)
@@ -450,10 +435,10 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	if strings.Contains(reply, "serve starts it fresh") {
 		t.Errorf("reply %q says the worker is started fresh", reply)
 	}
-	f := &startJobFakes{concFakes: newConcFakes("")}
+	f := &FakeAgents{}
 	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: f, Prompter: f}))
-	same(t, len(f.launches), 0, "starts of the stopped worker")
-	same(t, len(f.typed), 0, "lines typed")
+	same(t, len(f.Launches()), 0, "starts of the stopped worker")
+	same(t, len(f.Texts()), 0, "lines typed")
 	a.mu.Lock()
 	queued := 0
 	for _, q := range p.out.Queued() {

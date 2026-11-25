@@ -595,9 +595,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 				t.Errorf("needs-you with a placement: %q", r.steps())
 			}
 			placed := r.placements()
-			r.mu.Lock()
-			launch := r.launches[0]
-			r.mu.Unlock()
+			launch := r.agents.Launches()[0]
 			if placed[0].lane != "L-01" || launch.Pane != placed[0].pane {
 				t.Errorf("placed %+v, started in %q; want a pane in L-01 started in", placed, launch.Pane)
 			}
@@ -697,10 +695,8 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 				if inputs[0].Agent != row.want {
 					t.Errorf("prepare agent %q, want %q", inputs[0].Agent, row.want)
 				}
-				r.waitFor("the start", func() bool { r.mu.Lock(); defer r.mu.Unlock(); return len(r.launches) > 0 })
-				r.mu.Lock()
-				launch := r.launches[0]
-				r.mu.Unlock()
+				r.waitFor("the start", func() bool { return len(r.agents.Launches()) > 0 })
+				launch := r.agents.Launches()[0]
 				if launch.Agent != row.want || launch.Pane != "w1:p1" {
 					t.Errorf("agent.start launched %q in %q, want %q in w1:p1", launch.Agent, launch.Pane, row.want)
 				}

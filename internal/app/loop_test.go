@@ -396,7 +396,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 
 	var calls atomic.Int32
 	r.a.opt.Loop = func(root string) (*Loop, error) {
-		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit,
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f.agents, Prompter: f.agents, Kit: r.kit,
 			// serve ends on the restart, as its exec does.
 			Restart: func(context.Context) error { calls.Add(1); r.cancel(); return nil }}), nil
 	}

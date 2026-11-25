@@ -97,15 +97,15 @@ func TestReviewOnMergeRule(t *testing.T) {
 	}
 	closeFact := func(t *testing.T, r *reviewRig) {
 		t.Helper()
-		if q := r.p.folded.review; q == nil || q.held != "RV-5" || len(r.agents.launches) != 1 {
+		if q := r.p.folded.review; q == nil || q.held != "RV-5" || len(r.agents.Launches()) != 1 {
 			t.Fatalf("precondition: the rule's request is not waiting on RV-5 after its close commit: %+v, %d launches",
-				q, len(r.agents.launches))
+				q, len(r.agents.Launches()))
 		}
 		r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved · T-a")
 	}
 	startsRV6 := func(t *testing.T, r *reviewRig) {
 		t.Helper()
-		if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
+		if l := r.agents.Launches(); len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
 			!strings.HasSuffix(l[1].Prompt, "\nLead's note: Review: on merge (T-a)") {
 			t.Errorf("launches %+v; want RV-6 started on the rule's request", l)
 		}

@@ -544,7 +544,7 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	panes := &openPanes{fakePanes: h.panes, snap: h.snap}
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }, Tick: 20 * time.Millisecond,
 		Retry: 5 * time.Millisecond, Activity: panes}, panes, h.lanes)
-	g := &groupGate{schedScratch: &schedScratch{h: h}, dir: dir}
+	g := &groupGate{schedScratch: newSchedScratch(h), dir: dir}
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(g), Agents: g.schedScratch, Prompter: g.schedScratch}), nil
 	}

@@ -87,8 +87,8 @@ func TestRereadErrorRecordsNothingAndRetries(t *testing.T) {
 		t.Errorf("the pane's cwd after the retry is %q, want the lane %q", got, h.lane("L-01"))
 	}
 	h.step(t, fx) // the start the re-read found the pane for
-	if ag.restarts != 1 {
-		t.Errorf("starts after the retry: %d, want 1", ag.restarts)
+	if len(ag.Launches()) != 1 {
+		t.Errorf("starts after the retry: %d, want 1", len(ag.Launches()))
 	}
 	if len(h.placed) != 0 {
 		t.Errorf("a pane the read found was not used: placed one in %v", h.placed)
@@ -171,8 +171,8 @@ func TestRereadCanceledAfterItsAnswerRecordsNothing(t *testing.T) {
 	if went {
 		t.Error("the canceled pass went on")
 	}
-	if ag.restarts != 0 {
-		t.Errorf("starts with no pane: %d", ag.restarts)
+	if len(ag.Launches()) != 0 {
+		t.Errorf("starts with no pane: %d", len(ag.Launches()))
 	}
 	h.panes.after = nil
 	if h.step(t, fx) {
@@ -228,8 +228,8 @@ func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
 	if n := noPaneFacts(h); n != 0 {
 		t.Errorf("needs-you{no pane in lane} of a placement: %d, want none", n)
 	}
-	if ag.restarts != 0 {
-		t.Errorf("starts before the placed pane exists: %d", ag.restarts)
+	if len(ag.Launches()) != 0 {
+		t.Errorf("starts before the placed pane exists: %d", len(ag.Launches()))
 	}
 }
 
@@ -262,7 +262,7 @@ func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 
 // relabelRig is T-1's start with the lane's only pane labelled pj-l-02 (lane L-02's worker; lanes: the config's
 // count), past its first pass (the no-pane clock started) and Gone later: the next pass reads herdr's panes again.
-func relabelRig(t *testing.T, lanes int) (*harness, *Loop, *startAgents) {
+func relabelRig(t *testing.T, lanes int) (*harness, *Loop, *FakeAgents) {
 	t.Helper()
 	h, fx, _, ag := promptRig(t, false, func(h *harness) {
 		h.write(filepath.Join(h.root, ".obor", "config.json"), fmt.Sprintf(`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":%d},`+
@@ -299,8 +299,8 @@ func TestRereadSeesAPaneRelabelledToTheLanesAgent(t *testing.T) {
 		t.Errorf("the no-pane clock after a usable re-read is %s, want cleared", got)
 	}
 	h.step(t, fx) // the start the re-read found the pane for
-	if ag.restarts != 1 || ag.pane != "w1:p1" {
-		t.Errorf("launched %d time(s) in %q, want once in w1:p1", ag.restarts, ag.pane)
+	if len(ag.Launches()) != 1 || lastPane(ag) != "w1:p1" {
+		t.Errorf("launched %d time(s) in %q, want once in w1:p1", len(ag.Launches()), lastPane(ag))
 	}
 	if got := since(h); !got.IsZero() {
 		t.Errorf("the no-pane clock started again: %s", got)
@@ -333,8 +333,8 @@ func TestRereadOfAPaneRelabelledToAnotherAgentPlacesAPane(t *testing.T) {
 	if got := since(h); !got.IsZero() {
 		t.Errorf("the no-pane clock after the placement is %s, want cleared", got)
 	}
-	if ag.restarts != 0 {
-		t.Errorf("launches into a pane of another agent: %d", ag.restarts)
+	if len(ag.Launches()) != 0 {
+		t.Errorf("launches into a pane of another agent: %d", len(ag.Launches()))
 	}
 }
 
@@ -366,8 +366,8 @@ func TestLaneWithNoPaneGetsAPanePlaced(t *testing.T) {
 	h.snap.Panes = append(h.snap.Panes, p)
 	eventNow(h.a, port.Event{Kind: port.EventCreated, Pane: p.ID, New: p})
 	h.step(t, fx)
-	if ag.restarts != 1 || ag.pane != "w1:p9" {
-		t.Errorf("launched %d time(s) in %q, want once in the placed pane w1:p9", ag.restarts, ag.pane)
+	if len(ag.Launches()) != 1 || lastPane(ag) != "w1:p9" {
+		t.Errorf("launched %d time(s) in %q, want once in the placed pane w1:p9", len(ag.Launches()), lastPane(ag))
 	}
 	if n := noPaneFacts(h); n != 0 {
 		t.Errorf("needs-you{no pane in lane} once the pane is placed: %d, want 0", n)
@@ -400,8 +400,8 @@ func TestFailedPlacementIsNeedsYou(t *testing.T) {
 			t.Errorf("the needs-you's reason %q does not name %q", reasons[0], want)
 		}
 	}
-	if ag.restarts != 0 {
-		t.Errorf("a start without a pane: %d", ag.restarts)
+	if len(ag.Launches()) != 0 {
+		t.Errorf("a start without a pane: %d", len(ag.Launches()))
 	}
 	if len(h.placed) != 0 {
 		t.Errorf("the harness's own placement ran: %v", h.placed)

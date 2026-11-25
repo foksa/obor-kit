@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -43,7 +42,7 @@ type admitRig struct {
 	h      *harness
 	git    *reviewGitFake
 	s      *gatedScratch
-	agents *agentsSpy
+	agents *FakeAgents
 	fx     *Loop
 }
 
@@ -55,7 +54,7 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 		t.Fatal(err)
 	}
 	h.write(filepath.Join(h.root, "reviews", "RV-5.md"), "# RV-5\n")
-	r := &admitRig{h: h, git: &reviewGitFake{head: "base1"}, agents: &agentsSpy{}}
+	r := &admitRig{h: h, git: &reviewGitFake{head: "base1"}, agents: &FakeAgents{}}
 	r.s = &gatedScratch{schedScratch: f, git: r.git, began: make(chan string, 4)}
 	if gated {
 		r.s.release = make(chan struct{})
@@ -119,7 +118,7 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	f := newConcFakes("")
-	fx := withAppCfg(h.a, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f})
+	fx := withAppCfg(h.a, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f.agents})
 	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, fx), nil }
 	h.connect()
 	p := h.proj()
@@ -185,7 +184,7 @@ func busyAnswered(t *testing.T) *harness {
 	h := staleHerdr(t)
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	in := &kindSpy{}
-	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: &linerSpy{}}))
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: &FakeAgents{}}))
 	if len(in.calls) != 0 || len(h.lines()) != 1 || len(h.a.Status().Project.Messages) != 1 {
 		t.Fatalf("precondition: posted %q, queued %q; want the answer waiting for the busy worker", in.calls, h.lines())
 	}
@@ -257,18 +256,14 @@ func (r *concRig) reload(name string) (*App, *proj) {
 // goroutine and the test at once.
 
 // concFakes is one project's adapters: its Scratch the package's one fake (FakeWorkflow: gates green, a held gate,
-// publish, resolved check or lane test waits for its release), its Agents, Prompter, LaneSetup and Specs.
+// publish, resolved check or lane test waits for its release), its agents (Agents and Prompter, FakeAgents), its
+// LaneSetup and Specs.
 type concFakes struct {
 	*FakeWorkflow
-	restarts int // under the FakeWorkflow's mu
-	// obor drop by lane: the stops (agent, force) and Free inputs; refuse: Free's refusal ("": frees).
-	stops  []string
+	agents *FakeAgents
+	// obor drop by lane: the Free inputs; refuse: Free's refusal ("": frees).
 	frees  []port.FreeInput
 	refuse string
-	// ignoresEsc: the worker keeps working after Escape, as launch.Stop sees it: a stop without force fails.
-	ignoresEsc bool
-	// stopFails: a stop's error by force ("" : none): a quit timeout, a forced stop that fails.
-	stopFails func(force bool) string
 	// freeErrs: how many Free calls fail first, as a cut git does (retried, never a half-done drop).
 	freeErrs int
 }
@@ -278,32 +273,7 @@ type concFakes struct {
 func newConcFakes(hold string) *concFakes {
 	s := NewFakeWorkflow("b")
 	s.hold, s.release, s.entered, s.unbased, s.Checks = hold, make(chan struct{}), make(chan string, 16), true, "check 1 pass"
-	return &concFakes{FakeWorkflow: s}
-}
-
-func (f *concFakes) Launch(context.Context, port.Launch) (port.Started, error) {
-	f.mu.Lock()
-	f.restarts++
-	f.mu.Unlock()
-	return port.Started{Line: "STARTED"}, nil
-}
-
-func (f *concFakes) Stop(_ context.Context, agent, _ string, force bool) (string, error) {
-	f.mu.Lock()
-	f.stops = append(f.stops, fmt.Sprintf("%s force=%t", agent, force))
-	ignores, fails := f.ignoresEsc, f.stopFails
-	f.mu.Unlock()
-	if fails != nil && fails(force) != "" {
-		return "", errors.New(fails(force))
-	}
-	if ignores && !force {
-		return "", needsForceErr(agent + " still working 30s after Escape (--force stops it)")
-	}
-	return "STOPPED", nil
-}
-
-func (f *concFakes) Prompt(context.Context, string, string, bool) (bool, error) {
-	return true, nil
+	return &concFakes{FakeWorkflow: s, agents: &FakeAgents{}}
 }
 
 func (f *concFakes) Prepare(context.Context, port.PrepareInput) (port.Prepared, error) {
@@ -366,7 +336,7 @@ func newConcRig(t *testing.T) *concRig {
 		r.roots[name] = root
 		f := newConcFakes("")
 		r.fakes[name] = f
-		fx := withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit})
+		fx := withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f.agents, Prompter: f.agents, Kit: r.kit})
 		if name == "pj" {
 			fx.Specs = f
 		}
@@ -544,7 +514,16 @@ func (r *concRig) running(name, task string) string {
 }
 
 func (f *concFakes) loopWithSpecs(kit string) *Loop {
-	return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Specs: f, Kit: kit}
+	return &Loop{Workflow: WorkflowOf(f), Agents: f.agents, Prompter: f.agents, Specs: f, Kit: kit}
+}
+
+// ignoresEsc is a FakeAgents.OnStop of a worker that keeps working after Escape, as launch.Stop sees it: a stop without
+// force fails.
+func ignoresEsc(_ context.Context, agent, _ string, force bool) error {
+	if !force {
+		return needsForceErr(agent + " still working 30s after Escape (--force stops it)")
+	}
+	return nil
 }
 
 // needsForceErr is launch's refusal of a stop without force that only force gets past (port.NeedsForce).

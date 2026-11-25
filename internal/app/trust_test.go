@@ -77,11 +77,11 @@ func TestReviewStartHeldByTrustDialog(t *testing.T) {
 	r := newReviewRig(t)
 	sc := &screens{text: map[string]string{"w:rev": trustDialogScreen}}
 	r.a.opt.Screen = sc.Screen
-	r.agents.trust, r.agents.resume = "w:rev", true // a fresh start: held, not failed
+	r.agents.OnLaunch = trustAt("w:rev", true) // a fresh start: held, not failed
 	r.mustCall("r1", nil, "", false)
 	r.pass()
-	if len(r.agents.launches) != 1 {
-		t.Fatalf("precondition: launches %+v, want the reviewer's one", r.agents.launches)
+	if len(r.agents.Launches()) != 1 {
+		t.Fatalf("precondition: launches %+v, want the reviewer's one", r.agents.Launches())
 	}
 	if n := r.facts(event.StepReviewStarted); n != 1 {
 		t.Errorf("review started facts %d, want 1", n)
@@ -129,12 +129,12 @@ func TestReviewStartHeldByTrustDialog(t *testing.T) {
 func TestReviewStartNotReadyIsAFailedStart(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
-	r.agents.launchErr = &port.StartError{Err: errors.New("agent_not_ready"), NotReady: true,
-		Hint: "pj-rev waits at a startup dialog in pane w:rev: answer it there"}
+	r.agents.OnLaunch = launchFails(&port.StartError{Err: errors.New("agent_not_ready"), NotReady: true,
+		Hint: "pj-rev waits at a startup dialog in pane w:rev: answer it there"})
 	r.mustCall("r1", nil, "", false)
 	r.pass()
-	if len(r.agents.launches) != 1 {
-		t.Fatalf("precondition: launches %+v, want the reviewer's one", r.agents.launches)
+	if len(r.agents.Launches()) != 1 {
+		t.Fatalf("precondition: launches %+v, want the reviewer's one", r.agents.Launches())
 	}
 	if n := r.facts(event.StepReviewStarted); n != 0 {
 		t.Errorf("review started facts %d, want none", n)
@@ -158,7 +158,7 @@ func TestWorkerStartHeldByTrustDialog(t *testing.T) {
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	sc := &screens{text: map[string]string{"w1:p2": trustDialogScreen}}
 	r.a.opt.Screen = sc.Screen
-	f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p2", resume: true} // a fresh start: held, not failed
+	f := &FakeAgents{OnLaunch: trustAt("w1:p2", true)} // a fresh start: held, not failed
 	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	mt := *p.folded.loop["T-2"]
 	if mt.started {
@@ -173,8 +173,8 @@ func TestWorkerStartHeldByTrustDialog(t *testing.T) {
 		t.Errorf("start done %v, work job done %v, started %v; want the start and its work job recorded",
 			p.log.Done(start), p.log.Done(work), p.folded.loop[mt.task].started)
 	}
-	if len(f.typed) != 0 {
-		t.Errorf("typed %q into the pane at the dialog, want nothing", f.typed)
+	if len(f.Texts()) != 0 {
+		t.Errorf("typed %q into the pane at the dialog, want nothing", f.Texts())
 	}
 	fs := trustFacts(p)
 	if len(fs) != 1 || fs[0].Pane != "w1:p2" || fs[0].Agent != "pj-l-02" || !strings.Contains(fs[0].Reason, "in pane w1:p2") {
@@ -204,7 +204,7 @@ func TestWorkerStartRuleHeldByTrustDialog(t *testing.T) {
 	p.folded.loop["T-1"] = &mtask{task: "T-1", lane: "L-01", agent: "pj-l-01", attempt: 1, dispSeq: 5, state: stWorking,
 		work: "work", started: true}
 	h.a.mu.Unlock()
-	spy := &agentsSpy{trust: "w1:p1"}
+	spy := &FakeAgents{OnLaunch: trustAt("w1:p1", false)}
 	_, act, ok := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now)
 	if !ok {
 		t.Fatal("precondition: the rule does not hold")
@@ -256,14 +256,14 @@ func TestWorkerStartRuleResumeAtTrustDialogFails(t *testing.T) {
 		work: "work", started: true}
 	h.a.mu.Unlock()
 	before := p.log.LastSeq()
-	spy := &agentsSpy{trust: "w1:p1", resume: true}
+	spy := &FakeAgents{OnLaunch: trustAt("w1:p1", true)}
 	_, act, ok := workerStartRule(context.Background(), h.a, p, withAppCfg(h.a, &Loop{Agents: spy}), h.now)
 	if !ok {
 		t.Fatal("precondition: the rule does not hold")
 	}
 	err := act.call(context.Background())
-	if len(spy.launches) != 1 || spy.launches[0].Fresh {
-		t.Fatalf("precondition: launches %+v, want one that is no --fresh start (a resume)", spy.launches)
+	if len(spy.Launches()) != 1 || spy.Launches()[0].Fresh {
+		t.Fatalf("precondition: launches %+v, want one that is no --fresh start (a resume)", spy.Launches())
 	}
 	if err == nil || !strings.Contains(err.Error(), "start failed in w1:p1") {
 		t.Fatalf("the rule's action: %v, want the failed start", err)
@@ -299,13 +299,13 @@ func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 		r.add("pj", "T-1", "start.review", event.KindIntent, event.Start{Agent: "pj-int"})
 		r.add("pj", "T-1", "start.review", event.KindResult, event.StartOut{Line: "STARTED", Agent: "pj-int", Pane: "w1:p9"})
 		delete(r.a.obs, "w1:p9")
-		f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p9", resume: true}
+		f := &FakeAgents{OnLaunch: trustAt("w1:p9", true)}
 		mt := *p.folded.loop["T-1"]
 		if r.a.job(context.Background(), p, withAppCfg(r.a, &Loop{Agents: f, Prompter: f}), mt, event.StepReview) {
 			t.Error("the job step succeeded, want the failed start")
 		}
-		if len(f.starts) != 1 || f.starts[0].Fresh {
-			t.Fatalf("precondition: starts %+v, want one that is no --fresh start (a resume)", f.starts)
+		if len(f.Launches()) != 1 || f.Launches()[0].Fresh {
+			t.Fatalf("precondition: starts %+v, want one that is no --fresh start (a resume)", f.Launches())
 		}
 		later := event.Key{Task: "T-1", Attempt: 1, Step: "start.review.2"}
 		same(t, p.log.Done(later), false, "start.review.2 done")
@@ -318,7 +318,7 @@ func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 		if fs := trustFacts(p); len(fs) != 0 {
 			t.Errorf("trust needs-you %+v, want none: the start failed", fs)
 		}
-		same(t, len(f.typed), 0, "wakes typed")
+		same(t, len(f.Texts()), 0, "wakes typed")
 	})
 	t.Run("the first start, fresh: started, the trust needs-you", func(t *testing.T) {
 		t.Parallel()
@@ -326,13 +326,13 @@ func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 		p := r.proj("pj")
 		gate(r)
 		delete(r.a.obs, "w1:p9")
-		f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p9", resume: true}
+		f := &FakeAgents{OnLaunch: trustAt("w1:p9", true)}
 		mt := *p.folded.loop["T-1"]
 		if !r.a.job(context.Background(), p, withAppCfg(r.a, &Loop{Agents: f, Prompter: f}), mt, event.StepReview) {
 			t.Fatal("the job step failed, want the start held by the dialog to carry the wake")
 		}
-		if len(f.starts) != 1 || !f.starts[0].Fresh {
-			t.Fatalf("precondition: starts %+v, want one fresh", f.starts)
+		if len(f.Launches()) != 1 || !f.Launches()[0].Fresh {
+			t.Fatalf("precondition: starts %+v, want one fresh", f.Launches())
 		}
 		same(t, p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: "start.review"}), true, "start.review done")
 		same(t, resultOf(p, review), `"sent (start prompt)"`, "the review job's result")

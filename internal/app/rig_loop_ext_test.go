@@ -104,9 +104,10 @@ type loopRig struct {
 	callIDs atomic.Int32 // the rig's own task_done and job_next call ids
 	early   bool         // submit before the first start: T-1's task_done is in the log the start replays
 
-	mu       sync.Mutex
-	stops    []string      // "<agent> <pane>" per Agents.Stop
-	launches []port.Launch // every Agents.Launch, in order
+	// agents is the loop's Agents: it records every start and stop, which act on the rig (startAgent, stopAgent).
+	agents *app.FakeAgents
+
+	mu sync.Mutex
 	// places: the Loop's PlaceLane calls, in order; placeErr: what PlaceLane fails with instead of placing (nil: it
 	// places). placeErr is set before start.
 	places   []placedPane
@@ -192,6 +193,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	p := testkit.NewDir(t)
 	r := &loopRig{term: newTerm(map[string]string{"w1": "proj"}), t: t, p: p, lanes: &laneTable{}, home: t.TempDir(),
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
+	r.agents = &app.FakeAgents{OnLaunch: r.startAgent, OnStop: r.stopAgent}
 	r.lane = p.Lane("L-01", "task/T-1")
 	edits := []func(map[string]any){testkit.Set("agents.roles.integrator", "")}
 	if o.check {
@@ -235,12 +237,10 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	return r
 }
 
-// Launch is the integrator's start: pj-int (session int-1) appears in the project's group and the app sees it (a refresh
-// makes it read a new snapshot) before the start returns, as launch's start returns once the agent is ready.
-func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, error) {
-	r.mu.Lock()
-	r.launches = append(r.launches, req)
-	r.mu.Unlock()
+// startAgent (the agents' OnLaunch) is the integrator's start: pj-int (session int-1) appears in the project's group and
+// the app sees it (a refresh makes it read a new snapshot) before the start returns, as launch's start returns once the
+// agent is ready.
+func (r *loopRig) startAgent(ctx context.Context, req port.Launch) (port.Started, error) {
 	if req.Agent == "pj-l-01" && r.disp != nil {
 		return r.disp.startWorker(ctx, req)
 	}
@@ -281,16 +281,15 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 	return port.Started{}, errors.New("pj-int never seen")
 }
 
-// Stop is the worker's stop: the agent leaves its pane (""; the pane its agent's name is in) in the terminal and the app
-// sees it gone (a refresh makes it read a new snapshot) before the stop returns.
-func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string, error) {
+// stopAgent (the agents' OnStop) is the worker's stop: the agent leaves its pane (""; the pane its agent's name is in) in
+// the terminal and the app sees it gone (a refresh makes it read a new snapshot) before the stop returns.
+func (r *loopRig) stopAgent(ctx context.Context, agent, pane string, _ bool) error {
 	r.mu.Lock()
-	r.stops = append(r.stops, agent+" "+pane)
 	fail := r.onStop
 	r.mu.Unlock()
 	if fail != nil {
 		if err := fail(); err != nil {
-			return "", err
+			return err
 		}
 	}
 	if pane == "" {
@@ -317,18 +316,20 @@ func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string,
 	})
 	switch {
 	case gone:
-		return "STOPPED " + agent, nil
+		return nil
 	case ctx.Err() != nil:
-		return "", ctx.Err()
+		return ctx.Err()
 	}
-	return "", errors.New(agent + " never seen gone")
+	return errors.New(agent + " never seen gone")
 }
 
-// stopped is the Agents.Stop calls so far.
+// stopped is the Agents.Stop calls so far: "<agent> <pane>".
 func (r *loopRig) stopped() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]string(nil), r.stops...)
+	var out []string
+	for _, s := range r.agents.Stops() {
+		out = append(out, s[:strings.LastIndex(s, " force=")])
+	}
+	return out
 }
 
 // placedPane is one Loop.PlaceLane call: the lane, and the pane it answered.
@@ -449,7 +450,7 @@ func (r *loopRig) launch() {
 			if err != nil {
 				return nil, err
 			}
-			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
+			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r.agents, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
 				Inbox: r.inbox, Restart: r.restart, Config: r.config, PlaceLane: r.placeLane}
 			if r.disp != nil {
 				r.disp.loop(fx)

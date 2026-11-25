@@ -954,12 +954,13 @@ func needsMessages(t *testing.T, p *proj) []event.Message {
 	return out
 }
 
-// schedScratch is a fake Scratch and Agents for the scheduling tests: gates are green and logged by task,
-// Resolved logs the input it was given.
+// schedScratch is a fake Scratch for the scheduling tests: gates are green and logged by task, Resolved logs the input
+// it was given; its Agents and Prompter are the package's FakeAgents.
 type schedScratch struct {
-	h        *harness
-	gated    []string // the task of each Gate call
-	resolved []string // the input of each Resolved call
+	*FakeAgents // its starts show the integrator (integratorUp)
+	h           *harness
+	gated       []string // the task of each Gate call
+	resolved    []string // the input of each Resolved call
 }
 
 func (f *schedScratch) Submit(context.Context, string, string, string, string) (string, error) {
@@ -991,18 +992,19 @@ func (f *schedScratch) Unpin(context.Context, string) error { return nil }
 
 func (f *schedScratch) AfterMerge(context.Context, port.Candidate) (string, error) { return "ran", nil }
 
-func (f *schedScratch) Launch(context.Context, port.Launch) (port.Started, error) {
-	f.h.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Group: "pj", Cwd: f.h.root, Label: "pj-int",
-		Agent: "claude", Status: "idle"}, since: f.h.now}
-	return port.Started{Line: "started", Pane: "w1:p9", Kind: "claude"}, nil
+// newSchedScratch is h's schedScratch.
+func newSchedScratch(h *harness) *schedScratch {
+	return &schedScratch{FakeAgents: &FakeAgents{OnLaunch: integratorUp(h)}, h: h}
 }
 
-func (f *schedScratch) Stop(context.Context, string, string, bool) (string, error) {
-	return "stopped", nil
-}
-
-func (f *schedScratch) Prompt(context.Context, string, string, bool) (bool, error) {
-	return true, nil
+// integratorUp is a FakeAgents.OnLaunch whose every start shows the integrator pj-int idle in pane w1:p9 of h's
+// snapshot.
+func integratorUp(h *harness) func(context.Context, port.Launch) (port.Started, error) {
+	return func(context.Context, port.Launch) (port.Started, error) {
+		h.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Group: "pj", Cwd: h.root, Label: "pj-int",
+			Agent: "claude", Status: "idle"}, since: h.now}
+		return port.Started{Line: "started", Pane: "w1:p9", Kind: "claude"}, nil
+	}
 }
 
 // seedSched is project pj with an integrator (serve false: without, so no merge loop), lane L-01's T-1 submitted at
@@ -1014,7 +1016,7 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 		cfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{` + harnessModels + `}}`
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
-	f := &schedScratch{h: h}
+	f := newSchedScratch(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 	}

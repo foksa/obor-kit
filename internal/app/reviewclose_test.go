@@ -125,7 +125,7 @@ func TestReviewCloseUnwritten(t *testing.T) {
 			t.Fatalf("obor review start after the close: %q", got)
 		}
 		r.pass()
-		if l := r.agents.launches; len(l) != 1 || !strings.HasPrefix(l[0].Prompt, "Review RV-6. ") {
+		if l := r.agents.Launches(); len(l) != 1 || !strings.HasPrefix(l[0].Prompt, "Review RV-6. ") {
 			t.Errorf("launches %+v, want the next review RV-6 started", l)
 		}
 	})
@@ -197,11 +197,11 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 		t.Errorf("the repeated call: %q, %v, %d commits; want the stored reply, one commit", again, err, r.commits())
 	}
 
-	s := &reviewStopSpy{}
+	s := &FakeAgents{}
 	reads := r.git.reads()
 	r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: s}))
-	if !slices.Equal(s.stops, []string{"pj-rev w:rev force=false"}) {
-		t.Errorf("stops %q after the close, want the reviewer stopped on the next pass", s.stops)
+	if !slices.Equal(s.Stops(), []string{"pj-rev w:rev force=false"}) {
+		t.Errorf("stops %q after the close, want the reviewer stopped on the next pass", s.Stops())
 	}
 	if n := r.git.reads() - reads; n != 0 {
 		t.Errorf("the rule pass read git %d times, want none", n)
@@ -297,7 +297,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 			t.Fatalf("obor review start after the close: %q", got)
 		}
 		r.pass()
-		if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
+		if l := r.agents.Launches(); len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
 			!strings.Contains(l[1].Prompt, "In scope: no merges;") ||
 			!strings.Contains(l[1].Prompt, "Previous review: RV-5 (its close commit: "+r.git.closes[0].Subject+")") {
 			t.Errorf("launches %+v; want RV-6, RV-5's covered tasks out of scope", l)

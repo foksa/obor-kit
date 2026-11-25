@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/review"
@@ -228,28 +227,6 @@ func (g *reviewGitFake) detachedAt() string {
 	return strings.Join(out, ",")
 }
 
-// agentsSpy is an Agents that records every Launch and starts nothing; launchErr fails each launch, trust (a pane)
-// holds each at a trust dialog there (heldAtTrust: launch's result, by resume).
-type agentsSpy struct {
-	launches  []port.Launch
-	launchErr error
-	trust     string
-	resume    bool // a launch without Fresh resumes a recorded session (heldAtTrust)
-}
-
-func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
-	s.launches = append(s.launches, l)
-	if s.launchErr != nil {
-		return port.Started{}, s.launchErr
-	}
-	if s.trust != "" {
-		return heldAtTrust(l, s.trust, "RESTARTED "+l.Agent, s.resume && !l.Fresh)
-	}
-	return port.Started{Line: "RESTARTED " + l.Agent}, nil
-}
-
-func (s *agentsSpy) Stop(context.Context, string, string, bool) (string, error) { return "", nil }
-
 // reviewRig is a merging project with a reviewer pj-rev (idle, worktree review), reviews.dir and git and agent fakes.
 type reviewRig struct {
 	t      *testing.T
@@ -257,7 +234,7 @@ type reviewRig struct {
 	p      *proj
 	now    time.Time
 	git    *reviewGitFake
-	agents *agentsSpy
+	agents *FakeAgents
 	// seeded is the seq of seed's last record (0: none); next the id the rig's first review starts as.
 	seeded int64
 	next   string
@@ -275,7 +252,7 @@ func newReviewRigWith(t *testing.T, seed bool) *reviewRig {
 		t.Fatal(err)
 	}
 	r := &reviewRig{t: t, now: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), git: &reviewGitFake{
-		files: []string{"internal/app/x.go", "docs/y.md"}}, agents: &agentsSpy{}}
+		files: []string{"internal/app/x.go", "docs/y.md"}}, agents: &FakeAgents{}}
 	r.a, r.p = lineApp(t, root, &r.now)
 	r.wire()
 	r.next = "RV-1"
@@ -329,8 +306,8 @@ func (r *reviewRig) started() {
 	r.t.Helper()
 	r.mustCall("r1", nil, "", false)
 	r.pass()
-	if len(r.agents.launches) != 1 || r.p.folded.rv.Last().ID != r.next {
-		r.t.Fatalf("precondition: %s not started: %+v", r.next, r.agents.launches)
+	if len(r.agents.Launches()) != 1 || r.p.folded.rv.Last().ID != r.next {
+		r.t.Fatalf("precondition: %s not started: %+v", r.next, r.agents.Launches())
 	}
 	lineStatus(r.a, "w:rev", "working", r.now)
 	lineStatus(r.a, "w:rev", "idle", r.now)
@@ -601,10 +578,10 @@ func (r *reviewRig) finish() {
 	if r.p.out.Brief("pj-rev") == nil {
 		r.t.Fatal("precondition: the reviewer has no open brief to finish")
 	}
-	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &FakeAgents{}}))
 	r.working(true)
 	r.working(false)
-	finishBriefs(r.a, r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
+	finishBriefs(r.a, r.p, withAppCfg(r.a, &Loop{Prompter: &FakeAgents{}}))
 	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open after its work")
 	}
@@ -635,28 +612,13 @@ func briefedVerify(t *testing.T) *reviewRig {
 	r.merged("T-a")
 	r.merged("T-b")
 	r.verifyPass()
-	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
+	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &FakeAgents{}}))
 	r.working(true)
 	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.Brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
 		t.Fatalf("precondition: %d verify briefs, brief open %t, pending %q; want one open, T-a,T-b pending", n,
 			r.p.out.Brief("pj-rev") != nil, r.pending())
 	}
 	return r
-}
-
-// reviewStopSpy is agentsSpy that records every Stop; err, when set, is the error every stop fails with.
-type reviewStopSpy struct {
-	agentsSpy
-	stops []string
-	err   error
-}
-
-func (s *reviewStopSpy) Stop(_ context.Context, agent, pane string, force bool) (string, error) {
-	s.stops = append(s.stops, fmt.Sprintf("%s %s force=%t", agent, pane, force))
-	if s.err != nil {
-		return "", s.err
-	}
-	return "STOPPED " + agent, nil
 }
 
 // readLog is root's event log.

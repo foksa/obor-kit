@@ -45,11 +45,11 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			a, p := lineApp(t, lineRoot(t), &now)
 			a.opt.Inboxed = func(string) (string, bool) { return "", false }
 			queueLine(t, a, p, kind, now)
-			first := &linerSpy{}
+			first := &FakeAgents{}
 			finishBriefs(a, p, withAppCfg(a, &Loop{Prompter: first, Inbox: &inboxSpy{}})) // records the finished line
 			a.deliver(context.Background(), p, withAppCfg(a, &Loop{Prompter: first, Inbox: &inboxSpy{}}))
-			if len(first.calls) != 0 || len(p.out.Queued()) != 1 || !p.out.Queued()[0].IsLead() {
-				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.out.Queued()))
+			if len(first.Lines()) != 0 || len(p.out.Queued()) != 1 || !p.out.Queued()[0].IsLead() {
+				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.Lines(), len(p.out.Queued()))
 			}
 
 			registerLead(t, p.root, "pj-new")
@@ -65,19 +65,19 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			}
 
 			b.opt.Inboxed = func(string) (string, bool) { return "", false }
-			lines, posts := &linerSpy{}, &inboxSpy{}
+			lines, posts := &FakeAgents{}, &inboxSpy{}
 			b.deliver(context.Background(), q, withAppCfg(b, &Loop{Prompter: lines, Inbox: posts}))
-			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.out.Queued()) != 1 {
-				t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried, still queued", lines.calls,
+			if len(lines.Lines()) != 0 || len(posts.calls) != 0 || len(q.out.Queued()) != 1 {
+				t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried, still queued", lines.Lines(),
 					posts.calls, len(q.out.Queued()))
 			}
 
 			b.opt.Inboxed = func(string) (string, bool) { return "", true }
 			b.deliver(context.Background(), q, withAppCfg(b, &Loop{Prompter: lines, Inbox: posts}))
 			b.deliver(context.Background(), q, withAppCfg(b, &Loop{Prompter: lines, Inbox: posts}))
-			if len(lines.calls) != 0 || len(posts.calls) != 1 || !strings.HasPrefix(posts.calls[0], "pj-lead: [obor") ||
+			if len(lines.Lines()) != 0 || len(posts.calls) != 1 || !strings.HasPrefix(posts.calls[0], "pj-lead: [obor") ||
 				len(q.out.Queued()) != 0 {
-				t.Errorf("inbox recorded: typed %q, posted %q, queued %d; want posted once, never typed", lines.calls,
+				t.Errorf("inbox recorded: typed %q, posted %q, queued %d; want posted once, never typed", lines.Lines(),
 					posts.calls, len(q.out.Queued()))
 			}
 		})

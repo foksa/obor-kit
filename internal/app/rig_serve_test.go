@@ -104,26 +104,13 @@ func read(t *testing.T, client net.Conn) wire.Answer {
 	return ans
 }
 
-// startJobFakes records the launches and the typed prompts; start runs inside Restart, as an agent that obeys its
-// CLI first prompt before the launch returns.
-type startJobFakes struct {
-	*concFakes
-	start    func(port.Launch)
-	launches []port.Launch
-	typed    []string
-}
-
-func (f *startJobFakes) Launch(_ context.Context, l port.Launch) (port.Started, error) {
-	f.launches = append(f.launches, l)
-	if f.start != nil {
-		f.start(l)
+// obeying is a FakeAgents.OnLaunch that runs start inside each launch before it returns, as an agent that obeys its CLI
+// first prompt before the launch returns.
+func obeying(start func(port.Launch)) func(context.Context, port.Launch) (port.Started, error) {
+	return func(_ context.Context, l port.Launch) (port.Started, error) {
+		start(l)
+		return port.Started{Line: "STARTED " + l.Agent}, nil
 	}
-	return port.Started{Line: "STARTED"}, nil
-}
-
-func (f *startJobFakes) Prompt(_ context.Context, _, text string, _ bool) (bool, error) {
-	f.typed = append(f.typed, text)
-	return true, nil
 }
 
 func resultOf(p *proj, k event.Key) string {
@@ -156,17 +143,6 @@ func same[T comparable](t *testing.T, got, want T, what string) {
 	}
 }
 
-// Probe effects: start runs inside Restart (an agent obeying its CLI first prompt); typed are the Prompter's
-// texts.
-type startEffects struct {
-	*concFakes
-	start  func(port.Launch)
-	typed  []string
-	trust  string // a pane: each start held at a trust dialog there (heldAtTrust: launch's result, by resume)
-	resume bool   // a launch without Fresh resumes a recorded session (heldAtTrust)
-	starts []port.Launch
-}
-
 // heldAtTrust is launch's result for l held by a Claude trust dialog in pane: a fresh start (its prompt in the argv)
 // is its Started with a port.TrustDialog (agents.TrustHint); a resumed one is the failed start launch gives up on.
 func heldAtTrust(l port.Launch, pane, line string, resumed bool) (port.Started, error) {
@@ -177,20 +153,22 @@ func heldAtTrust(l port.Launch, pane, line string, resumed bool) (port.Started, 
 	return port.Started{Line: line, Pane: pane}, &port.TrustDialog{Hint: hint}
 }
 
-func (f *startEffects) Launch(_ context.Context, l port.Launch) (port.Started, error) {
-	f.starts = append(f.starts, l)
-	if f.start != nil {
-		f.start(l)
+// trustAt is a FakeAgents.OnLaunch whose every start is held by a trust dialog in pane (heldAtTrust; resume: a launch
+// without Fresh resumes a recorded session).
+func trustAt(pane string, resume bool) func(context.Context, port.Launch) (port.Started, error) {
+	return func(_ context.Context, l port.Launch) (port.Started, error) {
+		return heldAtTrust(l, pane, "STARTED "+l.Agent, resume && !l.Fresh)
 	}
-	if f.trust != "" {
-		return heldAtTrust(l, f.trust, "STARTED", f.resume && !l.Fresh)
-	}
-	return port.Started{Line: "STARTED"}, nil
 }
 
-func (f *startEffects) Prompt(_ context.Context, agent, text string, clear bool) (bool, error) {
-	f.typed = append(f.typed, text)
-	return true, nil
+// launchFails is a FakeAgents.OnLaunch whose every start fails with err.
+func launchFails(err error) func(context.Context, port.Launch) (port.Started, error) {
+	return func(context.Context, port.Launch) (port.Started, error) { return port.Started{}, err }
+}
+
+// stopFails is a FakeAgents.OnStop whose every stop fails with err.
+func stopFails(err error) func(context.Context, string, string, bool) error {
+	return func(context.Context, string, string, bool) error { return err }
 }
 
 // allVerbs are the task verbs, verbName their names for a failure.

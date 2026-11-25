@@ -29,11 +29,11 @@ func TestEarlyTaskDone(t *testing.T) {
 	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	r.a.lanes.(*fakeLanes).lanes = []port.Lane{{Name: "L-02", Dir: lane, Task: "T-2", Agent: "pj-l-02"}}
-	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	f := &FakeAgents{}
 	var fetched wire.JobReply
 	var doneErr error
 	var during string
-	f.start = func(port.Launch) {
+	f.OnLaunch = obeying(func(port.Launch) {
 		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
 			CallID: "early"}, Lane: "L-02"})
 		if err != nil {
@@ -46,7 +46,7 @@ func TestEarlyTaskDone(t *testing.T) {
 		r.a.mu.Lock()
 		during = p.folded.loop["T-2"].state
 		r.a.mu.Unlock()
-	}
+	})
 	r.a.mu.Lock()
 	step := r.a.next(p, p.folded.loop["T-2"], cfgAt(p.root))
 	r.a.mu.Unlock()
@@ -56,8 +56,8 @@ func TestEarlyTaskDone(t *testing.T) {
 	if !step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})) {
 		t.Fatal("the start step failed")
 	}
-	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
-		t.Fatalf("launches %+v, want one with the work job's wake", f.launches)
+	if len(f.Launches()) != 1 || f.Launches()[0].Prompt != wakeLine("T-2/1/work") {
+		t.Fatalf("launches %+v, want one with the work job's wake", f.Launches())
 	}
 	same(t, fetched.State+" "+fetched.Job, "job T-2/1/work", "job_next during the start")
 	if doneErr != nil {
@@ -69,7 +69,7 @@ func TestEarlyTaskDone(t *testing.T) {
 	r.a.mu.Unlock()
 	same(t, after, stSubmitted, "state after the start")
 	same(t, resultOf(p, event.Key{Task: "T-2", Attempt: 1, Step: event.StepWork}), `"sent (start prompt)"`, "work result")
-	same(t, len(f.typed), 0, "Prompter calls")
+	same(t, len(f.Texts()), 0, "Prompter calls")
 }
 
 // A work job open before a start that was refused stays the job: after obor resume the next start carries the
@@ -87,7 +87,7 @@ func TestStartAgainSameJob(t *testing.T) {
 	r.add("pj", "T-2", event.StepStartWork, event.KindResult, event.StartOut{Refused: "has background tasks"})
 	r.add("pj", "T-2", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeStart, Reason: "start: refused"})
 	r.add("pj", "T-2", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeRetry})
-	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	f := &FakeAgents{}
 	r.a.mu.Lock()
 	step := r.a.next(p, p.folded.loop["T-2"], cfgAt(p.root))
 	r.a.mu.Unlock()
@@ -97,16 +97,16 @@ func TestStartAgainSameJob(t *testing.T) {
 	if !step(context.Background(), withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})) {
 		t.Fatal("the start step failed")
 	}
-	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
-		t.Fatalf("launches %+v, want one carrying T-2/1/work", f.launches)
+	if len(f.Launches()) != 1 || f.Launches()[0].Prompt != wakeLine("T-2/1/work") {
+		t.Fatalf("launches %+v, want one carrying T-2/1/work", f.Launches())
 	}
 	same(t, resultOf(p, event.Key{Task: "T-2", Attempt: 1, Step: event.StepWork}), `"sent (start prompt)"`, "work result")
 	same(t, done(p, event.Key{Task: "T-2", Attempt: 1, Step: nth(event.StepWork, 2)}), false, "work.2 done")
-	same(t, len(f.typed), 0, "Prompter calls")
+	same(t, len(f.Texts()), 0, "Prompter calls")
 }
 
 // runNext runs task's next step in p with f as its agents and typer: whether it ran and returned true.
-func runNext(r *concRig, p *proj, task string, f *startJobFakes) bool {
+func runNext(r *concRig, p *proj, task string, f *FakeAgents) bool {
 	r.a.mu.Lock()
 	step := r.a.next(p, p.folded.loop[task], cfgAt(p.root))
 	r.a.mu.Unlock()
@@ -131,7 +131,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	if w := r.a.whereIs(p, p.integrator); w.State != Identified {
 		t.Fatalf("precondition: the integrator is not identified: %+v", w)
 	}
-	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	f := &FakeAgents{}
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("T-1's review job not started")
@@ -142,7 +142,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	if runNext(r, p, "T-5", f) {
 		t.Error("T-5's job went on while T-1's job is out")
 	}
-	same(t, len(f.launches), 1, "starts while T-1's job is out")
+	same(t, len(f.Launches()), 1, "starts while T-1's job is out")
 	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false, "T-5's review recorded")
 
 	if _, err := r.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-int",
@@ -155,20 +155,20 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	if runNext(r, p, "T-5", f) {
 		t.Error("T-5's job went on while the integrator works")
 	}
-	same(t, len(f.launches), 1, "starts while the integrator works")
+	same(t, len(f.Launches()), 1, "starts while the integrator works")
 
 	setStatus(r, "idle")
 	if !runNext(r, p, "T-5", f) {
 		t.Fatal("T-5's review job not started after T-1's verdict")
 	}
-	for i, l := range f.launches {
+	for i, l := range f.Launches() {
 		job := []string{"T-1/1/review", "T-5/1/review"}[i]
 		if !l.Fresh || l.Force || l.Prompt != wakeLine(job) || l.Agent != "pj-int" {
 			t.Errorf("launch %d: %+v, want a fresh pj-int (no force) with the first prompt %q", i, l, wakeLine(job))
 		}
 	}
-	same(t, len(f.launches), 2, "starts (one per job)")
-	same(t, len(f.typed), 0, "typed wakes")
+	same(t, len(f.Launches()), 2, "starts (one per job)")
+	same(t, len(f.Texts()), 0, "typed wakes")
 	same(t, resultOf(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), `"sent (start prompt)"`, "T-5's review result")
 }
 
@@ -182,11 +182,10 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 	r.a.opt.Now = func() time.Time { return now }
 	var out strings.Builder
 	r.a.opt.Out = &out
-	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	for _, status := range []string{"working", "blocked"} {
 		t.Run(status, func(t *testing.T) {
-			f.launches = nil
+			f := &FakeAgents{}
 			setStatus(r, status)
 			r.a.mu.Lock()
 			p.idleWait = idleWait{}
@@ -195,8 +194,8 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 				t.Fatalf("the job went on at once while the integrator is %s", status)
 			}
 			now = now.Add(r.a.opt.Gone - time.Second)
-			if runNext(r, p, "T-1", f) || len(f.launches) != 0 {
-				t.Fatalf("the job went on before Gone (%s): launches %+v", r.a.opt.Gone, f.launches)
+			if runNext(r, p, "T-1", f) || len(f.Launches()) != 0 {
+				t.Fatalf("the job went on before Gone (%s): launches %+v", r.a.opt.Gone, f.Launches())
 			}
 			if status == "working" {
 				return // the blocked row starts it
@@ -205,9 +204,9 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 			if !runNext(r, p, "T-1", f) {
 				t.Fatal("the job not started past Gone")
 			}
-			if len(f.launches) != 1 || !f.launches[0].Fresh || !f.launches[0].Force ||
-				f.launches[0].Prompt != wakeLine("T-1/1/review") {
-				t.Errorf("launches %+v, want one fresh start with force and the job's wake", f.launches)
+			if len(f.Launches()) != 1 || !f.Launches()[0].Fresh || !f.Launches()[0].Force ||
+				f.Launches()[0].Prompt != wakeLine("T-1/1/review") {
+				t.Errorf("launches %+v, want one fresh start with force and the job's wake", f.Launches())
 			}
 			if n := strings.Count(out.String(), "started fresh with force"); n != 1 {
 				t.Errorf("force log lines %d, want 1:\n%s", n, out.String())
@@ -226,7 +225,7 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 	r.a.opt.Now = func() time.Time { return now }
 	var out strings.Builder
 	r.a.opt.Out = &out
-	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	f := &FakeAgents{}
 	setStatus(r, "working")
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
@@ -241,25 +240,25 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 		}
 		now = now.Add(step)
 	}
-	same(t, len(f.launches), 0, "starts before Gone")
+	same(t, len(f.Launches()), 0, "starts before Gone")
 
 	// Past Gone from that first look, the first job in advance order forces; the other waits for its verdict.
 	now = now.Add(r.a.opt.Gone)
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("T-1's job did not start after Gone")
 	}
-	same(t, len(f.launches), 1, "starts after Gone")
-	if l := f.launches[0]; !l.Fresh || !l.Force || l.Prompt != wakeLine("T-1/1/review") || l.Agent != "pj-int" {
+	same(t, len(f.Launches()), 1, "starts after Gone")
+	if l := f.Launches()[0]; !l.Fresh || !l.Force || l.Prompt != wakeLine("T-1/1/review") || l.Agent != "pj-int" {
 		t.Errorf("launch %+v, want a fresh pj-int with force and T-1's wake", l)
 	}
-	same(t, len(f.typed), 0, "typed wakes")
+	same(t, len(f.Texts()), 0, "typed wakes")
 	if n := strings.Count(out.String(), "started fresh with force"); n != 1 {
 		t.Errorf("force log lines %d, want 1:\n%s", n, out.String())
 	}
 	if runNext(r, p, "T-5", f) {
 		t.Error("T-5's job went on while T-1's job is out")
 	}
-	same(t, len(f.launches), 1, "starts while T-1's job is out")
+	same(t, len(f.Launches()), 1, "starts while T-1's job is out")
 	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false,
 		"T-5's review recorded")
 
@@ -276,10 +275,10 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 	if !runNext(r, p, "T-5", f) {
 		t.Fatal("T-5's review job not started after T-1's verdict")
 	}
-	if len(f.launches) != 2 {
-		t.Fatalf("launches %+v, want two", f.launches)
+	if len(f.Launches()) != 2 {
+		t.Fatalf("launches %+v, want two", f.Launches())
 	}
-	if l := f.launches[1]; !l.Fresh || l.Force || l.Prompt != wakeLine("T-5/1/review") {
+	if l := f.Launches()[1]; !l.Fresh || l.Force || l.Prompt != wakeLine("T-5/1/review") {
 		t.Errorf("launch %+v, want a fresh start (no force) with T-5's wake", l)
 	}
 }
@@ -360,13 +359,13 @@ func TestFreshIntegratorReplay(t *testing.T) {
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
 	r.add("pj", "T-1", "start.review", event.KindIntent, event.Start{Agent: "pj-int"})
-	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	f := &FakeAgents{}
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("the replayed job step failed")
 	}
-	same(t, len(f.launches), 0, "starts on the replay")
+	same(t, len(f.Launches()), 0, "starts on the replay")
 	same(t, done(p, event.Key{Task: "T-1", Attempt: 1, Step: "start.review"}), true, "start.review done")
-	same(t, len(f.typed), 1, "typed wakes")
+	same(t, len(f.Texts()), 1, "typed wakes")
 	same(t, resultOf(p, event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}), `"sent"`, "T-1's review result")
 
 	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: event.CauseHeld, Reason: "held: why"})
@@ -374,8 +373,8 @@ func TestFreshIntegratorReplay(t *testing.T) {
 	if !runNext(r, p, "T-5", f) {
 		t.Fatal("T-5's job held by T-1's needs-you")
 	}
-	if len(f.launches) != 1 || !f.launches[0].Fresh {
-		t.Errorf("launches %+v, want one fresh start for T-5", f.launches)
+	if len(f.Launches()) != 1 || !f.Launches()[0].Fresh {
+		t.Errorf("launches %+v, want one fresh start for T-5", f.Launches())
 	}
 }
 
@@ -422,19 +421,19 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 				r.a.obs["w1:p9"].pane.Session = c.now
 			}
 			r.a.mu.Unlock()
-			f := &startJobFakes{concFakes: r.fakes["pj"]}
+			f := &FakeAgents{}
 			if !runNext(r, p, "T-1", f) {
 				t.Fatal("the pending job step failed")
 			}
 			if c.start {
-				if len(f.launches) != 1 || !f.launches[0].Fresh || f.launches[0].Prompt != wakeLine("T-1/1/review") {
-					t.Errorf("launches %+v, want one fresh start with the job's wake", f.launches)
+				if len(f.Launches()) != 1 || !f.Launches()[0].Fresh || f.Launches()[0].Prompt != wakeLine("T-1/1/review") {
+					t.Errorf("launches %+v, want one fresh start with the job's wake", f.Launches())
 				}
-				same(t, len(f.typed), 0, "typed wakes")
+				same(t, len(f.Texts()), 0, "typed wakes")
 				return
 			}
-			same(t, len(f.launches), 0, "starts")
-			same(t, len(f.typed), 1, "typed wakes")
+			same(t, len(f.Launches()), 0, "starts")
+			same(t, len(f.Texts()), 1, "typed wakes")
 		})
 	}
 }
