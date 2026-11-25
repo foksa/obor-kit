@@ -4,7 +4,7 @@
 // worker start through obor's own hc adapter (internal/hc: Write for the env line, Start, Prompt), in a kept, labelled
 // terminal of a throwaway hc session (hcLab: HC_SESSION=obor-probe-<kind>, scratch XDG dirs, the core started from a
 // scrubbed environment, stopped at the end; never the default session), with the scratch kit's stub as obor (lab's
-// makeKit) and the start args obor's launch builds for the kind's smallest starter model. The terminal gets the person's own
+// makeKit) and the start args obor's launch builds for the model hcModels names. The terminal gets the person's own
 // XDG_CONFIG_HOME and XDG_STATE_HOME back (the scratch core's would hide each CLI's config, P4) and every update check
 // off (an update prompt is answered by the first key or send: T-1351 upgraded Codex so). hc is experimental: these
 // rows do not gate a merge (HD7), and a kind that cannot run SKIPs.
@@ -34,8 +34,9 @@ var hcUpdatesOff = map[string]string{"DISABLE_AUTOUPDATER": "1", "OPENCODE_DISAB
 // hcUpdateArgs are a kind's start args that turn off its update check (Codex reads it from its config).
 var hcUpdateArgs = map[string][]string{"codex": {"-c", "check_for_update_on_startup=false"}}
 
-// hcModels is the model each kind's start runs: its smallest of obor init's starter list (the lab config's models).
-var hcModels = map[string]string{"claude": "haiku", "codex": "luna", "opencode": "deepseek"}
+// hcModels is the model each kind's start runs: its smallest of obor init's starter list (the lab config's models), and
+// agy's, which the starter list has no entry for (the lab's agy-live). The hc and Rex kind drivers share it.
+var hcModels = map[string]string{"claude": "haiku", "codex": "luna", "opencode": "deepseek", "agy": "agy-live"}
 
 // liveOnHC runs each kind's hc rows (HC-T1 the start, HC-T2 the identity its obor server sees, HC-T3 with TURN=1 a
 // turn) in a session of its own.
@@ -127,6 +128,9 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 		return
 	}
 	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane}
+	if kind == "agy" { // its project MCP file and hooks name `obor`: the scratch kit's stub is the obor on the pane's PATH
+		paneEnv["PATH"] = filepath.Join(l.kit, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")
+	}
 	for k, v := range start.Env {
 		paneEnv[k] = v
 	}
@@ -176,7 +180,7 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 	hcQuit(cl, hl, k, pane)
 }
 
-// hcLaunch is a worker's start of kind's smallest starter model (hcModels) as obor's launch builds it, with the scratch kit's
+// hcLaunch is a worker's start of the model hcModels names for kind, as obor's launch builds it, with the scratch kit's
 // stub as obor and the kind's update check off.
 func hcLaunch(l *lab, kind string) (agents.Launch, agents.Kind, error) {
 	cfg, err := config.Load(l.main)

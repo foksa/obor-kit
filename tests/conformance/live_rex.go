@@ -465,7 +465,8 @@ func rexR4(l *rexLab, sid, block string) {
 
 // rexContract: the terminal contract (testkit.Contract) against the Rex adapter on the scratch server, one REX-C row
 // each, on block (a shell in session conf, working in the scratch work dir), the guard in front of its Prompt as the
-// terminal is built. A row that starts an agent is the kinds' (TERMINAL=rex KIND=<kind> proves a start): SKIP here.
+// terminal is built. A row that starts an agent has none here (the server-only run starts no CLI): each kind's workflow
+// runs those rows with its live agent (RX-C, live_rexterm.go).
 func rexContract(l *rexLab, block string) {
 	where := "internal/testkit/terminal.go, on internal/rex (control.go, place.go)"
 	cl := l.cl
@@ -474,7 +475,7 @@ func rexContract(l *rexLab, block string) {
 	for _, row := range testkit.Contract {
 		id := "REX-C " + row.Name
 		if row.Agent {
-			report("SKIP", id, "starts an agent CLI: TERMINAL=rex KIND=<kind> proves a start", where)
+			report("SKIP", id, "starts an agent CLI: TERMINAL=rex KIND=<kind> runs it with the kind's live agent (RX-C)", where)
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
