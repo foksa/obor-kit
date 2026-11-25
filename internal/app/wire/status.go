@@ -46,7 +46,7 @@ type ProjectStatus struct {
 	Watches []WatchStatus `json:"watches,omitempty"`
 	// Idle is the project's idle state: the pipeline is empty and the lead was told; nil when it has work.
 	Idle *IdleStatus `json:"idle,omitempty"`
-	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
+	// Messages is the lines not delivered yet (deliver.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
 	// (review.go; "": neither). The open review's fix round is ReviewOpen's, not this line's.
@@ -55,7 +55,7 @@ type ProjectStatus struct {
 	ReviewRequest *ReviewRequestStatus `json:"review_request,omitempty"`
 	// ReviewOpen is the open review (started, not closed) and its stage (nil: none open).
 	ReviewOpen *ReviewOpenStatus `json:"review_open,omitempty"`
-	// Briefs is the role agents' open briefs (messages.go): the brief each is on, since when and whether its line was
+	// Briefs is the role agents' open briefs (brief.go): the brief each is on, since when and whether its line was
 	// delivered (the view's roles and queue), by agent.
 	Briefs []BriefStatus `json:"briefs,omitempty"`
 	// Answers is, by a needs-you fact's seq, the commands that answer it in its task's state (answerPath; none: "").

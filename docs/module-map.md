@@ -132,21 +132,20 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `activity.go` | the agents' own activity, the watchdogs' evidence: transcripts' last write and last turn, child processes under a pane's agent | `agentFiles.Activity` |
 | `app.go` | types, options | `Ready` |
 | `block.go` | the merge loop's needs-you as a block on a task's phase | `mtask.block` |
+| `brief.go` | the brief lifecycle: a brief recorded, the work serve sees on it, the finished brief's line, its line in `obor status` | `App.recordBrief` |
 | `cfg.go` | where the core reads the project's config: `Loop.Cfg` for a pass and the verbs that take a Loop, `proj.cfgNow` at the other entries | `proj.cfgNow` |
 | `configset.go` | the owner's setup edit from obor web, through the `ConfigFile` port | `App.configCall` |
 | `cutwait.go` | a wait that is cut (uncounted waits, `cutWaits`, `cutEnd`) | `App.uncounted` |
+| `deliver.go` | the lines' delivery pass over `app/outbox`'s state: `deliver`, `route`, `deliverLine`, `deliverLead` | `App.deliver` |
 | `disk.go` | low disk: free space below diskLow is a needs-you that holds the gate and the nightly | `App.diskTick` |
 | `dispatch.go` | `obor dispatch`: the lane and task a dispatch takes | `App.dispatchCall` |
 | `drive.go` | the owner's drive and land: `obor drive`, `obor land`, the driving state | `App.driveCall` |
-| `effects.go` | `JobID` | `JobID` |
 | `feed.go` | the socket's `events` request: the event feed after a seq, streamed with `--follow` | `App.feed` |
 | `fetch.go` | jobs by fetch: the wake, the first fetch's delivered fact, the job a call names | `App.jobNext` |
-| `finish.go` | `awaitsTaskDone` (whose attempt is its worker's and no task_done yet), `inLoop` (what the merge loop holds) | `mtask.awaitsTaskDone` |
-| `fold.go` | a start's result into the identity table: agent, pane, kind, session, model | `proj.foldStart` |
 | `follow.go` | serve follows a new obor binary and takes the self-restart path, preferring an idle moment | `App.followTicks` |
 | `gitprune.go` | `obor prune`: branches and worktrees of ended tasks | `App.pruneCall` |
 | `idle.go` | the idle rules and `obor idle` | `proj.foldIdle` |
-| `jobs.go` | the watch on an open job and its timer | `App.watchJob` |
+| `jobs.go` | the watch on an open job, its timer, and the job's id | `App.watchJob` |
 | `jobstart.go` | job start, texts | `App.job` |
 | `keeplane.go` | a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens | `App.keepLive` |
 | `lanepick.go` | the lane a dispatch takes and the replies that say why none was free | `App.held` |
@@ -154,13 +153,13 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `lanesync.go` | the target merged into a sent-back attempt's lane before its fix job (`lane.sync`, row 24a), and the fix job's line on it | `App.laneSync` |
 | `lanescan.go` | the lane table as a cached observation: scanned on the tick and by a refresher, never per pane event | `App.scan` |
 | `leadlines.go` | a lead whose kind has no inbox takes its lines through its hooks (`lead_lines` call), recorded as a post's delivery | `App.leadLinesCall` |
-| `log.go` | serve's side of the backup | `App.backup` |
 | `logs.go` | a task's step logs go when it ends, and at load for every task the replayed log folds as ended | `App.endTaskLogs` |
 | `loop.go` | the merge loop: wake, advance, record, do, drive, the picks | `App.wake` |
 | `mergewatch.go` | the merge watch: what a set of tasks' merge is waiting on | `proj.foldWatch` |
-| `messages.go` | the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` | `proj.foldMsg` |
+| `messages.go` | the line fold over `app/outbox`'s state, and `obor send`'s line to another project's lead | `proj.foldMsg` |
 | `move.go` | `obor dispatch --model` on a working task: a redo dispatch on the same lane and worktree | `App.moveTask` |
-| `mtask.go` | the merge loop's state fold | `proj.foldLoop` |
+| `mtask.go` | the merge loop's state fold and its accessors (what holds a task) | `proj.foldLoop` |
+| `needs.go` | the needs-you lines: a line waiting too long, the rule that lines the lead about each needs-you in force, the facts `obor status` reads | `needsRule` |
 | `nightly.go` | the nightly run | `App.nightly` |
 | `nightlygreen.go` | the lead's line for a GREEN full check's new or changed non-gating failure | `nightlyGreenRule` |
 | `openwork.go` | whether a role agent has work open, the restore's question before it restarts the agent's pane | `App.OpenWork` |
@@ -170,8 +169,9 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `project.go` | load, log, fold | `App.load` |
 | `prompt.go` | the send of a prompt to an agent and its delivery | `App.send` |
 | `prompts.go` | the `prompts` table's writes and prune | `App.prompt` |
-| `prune.go` | the nightly prune of ended tasks' records and old sessions, 30 days on (`mtask.ended` is the end both it and the logs' removal read) | `App.pruneLog` |
-| `registry.go` | agent identity: `reconcile` collects the proofs the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name | `App.whereIs` |
+| `prune.go` | serve's side of the backup, and the nightly prune of ended tasks' records and old sessions, 30 days on (`mtask.ended` is the end both it and the logs' removal read) | `App.backup` |
+| `registry.go` | agent identity: a start's result folded into the `app/identity` table; `reconcile` collects the proofs the table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name | `App.whereIs` |
+| `report.go` | a worker's report as its readers parse it: its sections, what a missing one refuses, an open question, a `Blocked:` report's ask | `reportRefusal` |
 | `restore.go` | the restore of the project's panes after a lost terminal connection came back, through the `Restorer` port, and at serve's first connect when herdr restarted while serve was down | `App.dropOtherKind` |
 | `resume.go` | `obor resume` | `App.resume` |
 | `review.go` | a review request: `obor review start` records it and the merge loop fires the reviewer's start | `proj.foldReview` |
@@ -241,7 +241,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
   stop, an answered question, a brief's end) for `app`'s `foldMsg` to apply in its fold order. Queries `Lead`, `Brief`,
   `Briefs`, `Line`, `Queued`, `Waits`, `Delivered`, `Post`, `BriefStatus`, `MessageStatus`. Its maps are unexported, so
   only it names them. No lock: under `App.mu`. It imports `app/event` and `app/wire` only, never `app`; delivery
-  stays in `app`'s `messages.go`.
+  stays in `app`'s `deliver.go`.
 - `app/review` (core, a leaf below `app`): a project's review cycle, `State`: the reviews the log started (start,
   finished verifies, close snapshot, close), the kernel's merges and the open verify briefs, and `Fold`: a record
   folded, returning a review fact's data (`Data`) for `app`'s `foldReview` (the requests, a call's stored reply) to

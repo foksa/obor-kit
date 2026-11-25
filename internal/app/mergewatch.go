@@ -19,7 +19,7 @@ import (
 // single task is a set of one. Once every task of the set merged, or the first one is dropped or rejected, the watch
 // rule (watchRule) records the lead line (outcome: "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged
 // (<last short sha>)", "[obor] T-b dropped: <why>" with " (watch T-a,T-b ended)" for a set; fact message{of: watch
-// and the watch's seq}, delivered as every lead line, messages.go); that line recorded (its did key) ends the watch.
+// and the watch's seq}, delivered as every lead line, deliver.go); that line recorded (its did key) ends the watch.
 // A watch may carry the lead's note: what it meant to do when the set ends,
 // which the line, `obor watch` and `obor status` add after the outcome. `obor watch --rm <list>` ends one
 // (fact unwatch); `obor watch` lists the open ones.

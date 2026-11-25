@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
+	"obor/internal/app/event"
 	"obor/internal/app/identity"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -256,4 +258,34 @@ func (a *App) whereReply(c wire.WhereReq) (wire.WhereReply, error) {
 func whereJSON(r wire.WhereReply) (string, error) {
 	b, err := json.Marshal(r)
 	return string(b), err
+}
+
+// foldStart folds a start's result into p's identity table (identity's RecordStart): the agent it placed in its pane,
+// that pane's terminal id, the kind and the session id herdr reported for it, the config revision the start was
+// launched under, and for agent.start the model ref it ran (its attempt's dispatch's). agent.start's
+// (the lane's worker) and start.<job>'s (the integrator) results carry it; a refused start, the integrator's "running",
+// or an older result leaves the rows as they are. Another agent's row on the same pane or terminal goes:
+// the start replaced what ran there. The log holds it, so a replay has it; the table itself is derived (reconcile),
+// never folded. Every agent.start record, intent or result, is also the task's last try to start its lane agent
+// (folded.starts).
+func (p *proj) foldStart(r event.Record) {
+	step, _ := event.StepN(r.Step)
+	if step == event.StepStartWork && r.Kind != event.KindFact {
+		if at := event.RecordTime(r); !at.IsZero() {
+			p.folded.starts[r.Task] = at // serve's try to start the lane's agent, whatever its outcome
+		}
+	}
+	if r.Kind != event.KindResult || step != event.StepStartWork && !strings.HasPrefix(step, stepStart) {
+		return
+	}
+	var out event.StartOut
+	if json.Unmarshal(r.Data, &out) != nil || out.Refused != "" || out.Agent == "" || out.Pane == "" {
+		return
+	}
+	row := identity.StartRow{Pane: out.Pane, Terminal: out.Terminal, Kind: out.Kind, Session: out.Session, Config: out.Config,
+		Task: r.Task, Verdicts: p.folded.verdicts}
+	if mt := p.folded.loop[r.Task]; step == event.StepStartWork && mt != nil && mt.attempt == r.Attempt {
+		row.Ref = mt.disp.Type // the model ref the start ran (startWorker's launch: the dispatch's)
+	}
+	p.reg.RecordStart(out.Agent, row)
 }

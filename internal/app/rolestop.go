@@ -27,7 +27,7 @@ import (
 // A stop runs only on an idle agent (its turn after the verdict ends first); one that fails is tried again on the next
 // pass, and three failures in a row are the rule pass's needs-you. A wrong stop heals through the job's delivery retry.
 // The advisor and the deep dive are the lead's to stop (skills/lead/SKILL.md); a brief to any stopped role agent but
-// the integrator starts it fresh with the brief's line as its first prompt (messages.go, deliverLine). A fresh brief
+// the integrator starts it fresh with the brief's line as its first prompt (deliver.go, deliverLine). A fresh brief
 // (obor brief --fresh) to a running one stops it right before that start, once the brief is recorded: that stop
 // is part of the brief's delivery (freshStop), not a rule.
 

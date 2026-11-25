@@ -325,7 +325,7 @@ func summaryOf(report string) string {
 }
 
 // summarySection is the report's whole Summary section, the merge's body: its heading's own text and every
-// line up to the next section (fetch.go's reportSection; a multi-line Summary with bullets stays whole). A report with
+// line up to the next section (report.go's reportSection; a multi-line Summary with bullets stays whole). A report with
 // no Summary heading: its first paragraph.
 func summarySection(report string) string {
 	if s := reportSection(report, "Summary"); s != "" {

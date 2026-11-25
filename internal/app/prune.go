@@ -6,11 +6,14 @@ package app
 
 import (
 	"database/sql"
+	"fmt"
 	"maps"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/store"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -243,4 +246,24 @@ func startRows(recs []event.Record, skip map[string]bool) map[string]identity.St
 		out[agent], _ = q.reg.Start(agent)
 	}
 	return out
+}
+
+// backup is MethodBackup: the backup of a project this serve has loaded.
+func (a *App) backup(c wire.BackupReq) (string, error) {
+	root := filepath.Clean(c.Root)
+	a.mu.Lock()
+	p := a.projAt(root)
+	a.mu.Unlock()
+	if p == nil {
+		return "", fmt.Errorf("backup: %s is not loaded by this serve", root)
+	}
+	now := a.opt.Now()
+	path, err := store.BackupDaily(p.log.DB(), wire.BackupDir(root), now)
+	if err != nil {
+		return "", err
+	}
+	cfg, _ := p.cfgNow() // the call's one read of the config; one that does not load keeps the role worktree agents last known
+	a.prunePrompts(p, now)
+	a.pruneLog(p, cfg, now) // after the backup, so the night's backup holds every row it deletes
+	return "BACKUP " + path, nil
 }
