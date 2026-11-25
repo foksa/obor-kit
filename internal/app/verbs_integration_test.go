@@ -14,7 +14,8 @@ import (
 
 // The feed: --after N returns N+1 … in order, each once, the same records serve's store holds (the down path reads
 // them with the same FeedSince); a cursor past the end is no record and no error; a follow gets a record appended
-// after it started, and only that one.
+// after it started, and only that one. The test stays outside a bubble: its calls go over serve's unix socket, and
+// the follow blocks in a socket read, which is not durably blocking, so a bubble's clock would stand still.
 func TestEventFeed(t *testing.T) {
 	t.Parallel()
 	r := verbsRig(t)
