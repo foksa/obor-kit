@@ -5,13 +5,16 @@
 // with XDG_RUNTIME_DIR, its socket, state dir and an empty config in a scratch dir and --restore=false; every client
 // (the adapter's and the driver's) gets the same XDG_RUNTIME_DIR and `-S unix://<socket> --autostart=false`; `rex
 // server stop` with the same env and --state-dir ends it, and a kill by PID if it is still up. The driver makes the
-// session and blocks with the CLI itself (the adapter has no write side yet). No agent CLI runs: a block's status
+// session and blocks of the read rows with the CLI itself; the contract rows (REX-C) drive the adapter's write side and
+// placement. No agent CLI runs here (TERMINAL=rex KIND=<kind> starts each kind: live_rexterm.go): a block's status
 // report is a printf of an OSC 7501 sequence. Rex is experimental: these rows do not gate a merge (D7), and without a
 // rex CLI they SKIP.
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,6 +27,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/osnotify"
 	"obor/internal/rex"
 	"obor/internal/testkit"
 )
@@ -38,6 +42,7 @@ const rexBundle = "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Co
 type rexLab struct {
 	bin, root, sock, state string
 	env                    []string // every rex command's and the server's
+	leak                   []string // NAME=VALUE the server alone gets besides env: an identity its blocks must not keep
 	server                 *exec.Cmd
 	cl                     *rex.Client
 }
@@ -132,7 +137,7 @@ func (l *rexLab) rex(args ...string) (string, error) {
 func (l *rexLab) start() error {
 	l.server = exec.Command(l.bin, "server", "run", "--listen", "unix://"+l.sock, "--state-dir", l.state,
 		"--config", filepath.Join(l.root, "init.lua"), "--restore=false")
-	l.server.Env, l.server.Dir = l.env, filepath.Join(l.root, "work")
+	l.server.Env, l.server.Dir = append(append([]string{}, l.env...), l.leak...), filepath.Join(l.root, "work")
 	logf, err := os.Create(filepath.Join(l.root, "server.log"))
 	if err != nil {
 		return err
@@ -341,6 +346,9 @@ func rexR2(l *rexLab, ids string) {
 	}
 	report("PASS", "REX-R2", "relabel, a program (unknown), reports by the foreground (working, done: claude) and no agent once it exited with its done record left, a block created and closed", where)
 
+	rexR4(l, sid, block)
+	rexContract(l, block)
+
 	l.stop()
 	if _, err := await(10*time.Second, func(port.Event) bool { return false }); err == nil || !port.Refreshed(s.Err()) {
 		report("FAIL", "REX-R3", fmt.Sprintf("after the server's stop: %v (Err %v), want the stream ended as a refresh", err, s.Err()), where)
@@ -352,4 +360,130 @@ func rexR2(l *rexLab, ids string) {
 		return
 	}
 	report("PASS", "REX-R3", "the server's stop ends the stream as a refresh ("+firstLine(s.Err().Error())+"); a new subscribe is NotRunning", where)
+}
+
+// rexBurst is the delivery row's reports: n status reports (msg base64 "m<i>"), then an idle one whose msg is "end".
+// One `cat` of them holds the block's foreground for the whole burst, so each report's owner is the foreground (a
+// script forking per report would hand the foreground to its children, and the owner rule would rightly hide those
+// reports).
+func rexBurst(n int) []byte {
+	var b strings.Builder
+	osc := func(state, msg string) {
+		fmt.Fprintf(&b, "\033]7501;state=%s:app=claude-code:msg=%s\007", state, base64.StdEncoding.EncodeToString([]byte(msg)))
+	}
+	for i := 1; i <= n; i++ {
+		osc("working", fmt.Sprintf("m%d", i))
+	}
+	osc("idle", "end")
+	return []byte(b.String())
+}
+
+// rexR4: the stream's delivery (internal/rex/contract.go), on the transport the adapter reads: `rex events --all
+// --json` run as stream.go runs it, its output not read until the block's record says a burst of status reports ended;
+// then every report's event is there, in order. (Read through the adapter's panes, a report counts only while its
+// owner holds the foreground, which a short-lived reporter never does in Rex's eyes: the owner rule, not delivery.) The
+// block is back at its shell when the row ends.
+func rexR4(l *rexLab, sid, block string) {
+	where := "internal/rex/contract.go (the stream's delivery), internal/rex/stream.go (Client.events)"
+	const n = 1000
+	defer poll(15*time.Second, func() bool { p, err := l.cl.Pane(context.Background(), block); return err == nil && p.Status == "" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ev := exec.CommandContext(ctx, l.bin, "-S", "unix://"+l.sock, "--autostart=false", "events", "--all", "--json")
+	ev.Env = l.env
+	stdout, err := ev.StdoutPipe()
+	if err == nil {
+		err = ev.Start()
+	}
+	if err != nil {
+		report("FAIL", "REX-R4", "rex events: "+err.Error(), where)
+		return
+	}
+	defer func() { _ = ev.Process.Kill(); _ = ev.Wait() }()
+	time.Sleep(time.Second) // the stream subscribes before the burst
+	if err := os.WriteFile(filepath.Join(l.root, "work", "burst.txt"), rexBurst(n), 0o600); err != nil {
+		report("FAIL", "REX-R4", err.Error(), where)
+		return
+	}
+	if _, err := l.rex("send", "-b", block, fmt.Sprintf("cat %s\r", shq(filepath.Join(l.root, "work", "burst.txt")))); err != nil {
+		report("FAIL", "REX-R4", err.Error(), where)
+		return
+	}
+	ended := poll(60*time.Second, func() bool { // the stream's output is not read meanwhile
+		b, err := l.rex("api", "call", rex.Terminal+".program_status", fmt.Sprintf(`{"session_id":%q,"block_id":%q,"args":{}}`, sid, block))
+		return err == nil && strings.Contains(b, `"state":"idle"`) && strings.Contains(b, `"msg":"end"`)
+	})
+	if !ended {
+		report("FAIL", "REX-R4", "the burst did not end within 60 s", where)
+		return
+	}
+	got, end := []int{}, false
+	go func() { time.Sleep(30 * time.Second); cancel() }()
+	sc := bufio.NewScanner(stdout)
+	sc.Buffer(nil, 1<<20)
+	for !end && sc.Scan() {
+		var line struct {
+			Payload struct {
+				Event struct {
+					Type    string `json:"type"`
+					Payload struct {
+						Block   string `json:"block_id"`
+						Name    string `json:"name"`
+						Payload struct {
+							Record struct {
+								Msg string `json:"msg"`
+							} `json:"record"`
+						} `json:"payload"`
+					} `json:"payload"`
+				} `json:"event"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &line) != nil {
+			continue
+		}
+		e := line.Payload.Event
+		if e.Type != rex.EventBlock || e.Payload.Block != block || e.Payload.Name != rex.EventStatusChanged {
+			continue
+		}
+		msg := e.Payload.Payload.Record.Msg
+		if msg == "end" {
+			end = true
+		} else if i, err := strconv.Atoi(strings.TrimPrefix(msg, "m")); err == nil && strings.HasPrefix(msg, "m") {
+			got = append(got, i)
+		}
+	}
+	inOrder := len(got) == n
+	for i, v := range got {
+		inOrder = inOrder && v == i+1
+	}
+	if !end || !inOrder {
+		report("FAIL", "REX-R4", fmt.Sprintf("%d of %d reports read (in order %v), the end report read %v", len(got), n, inOrder, end), where)
+		return
+	}
+	report("PASS", "REX-R4", fmt.Sprintf("%d status reports, rex events read only after the burst ended: every one, in order", n), where)
+}
+
+// rexContract: the terminal contract (testkit.Contract) against the Rex adapter on the scratch server, one REX-C row
+// each, on block (a shell in session conf, working in the scratch work dir), the guard in front of its Prompt as the
+// terminal is built. A row that starts an agent is the kinds' (TERMINAL=rex KIND=<kind> proves a start): SKIP here.
+func rexContract(l *rexLab, block string) {
+	where := "internal/testkit/terminal.go, on internal/rex (control.go, place.go)"
+	cl := l.cl
+	panes := rex.Panes{C: cl, Notifier: osnotify.Notifier{Post: func(context.Context, string, string) error { return nil }}}
+	t := testkit.Terminal{Control: port.GuardPrompts(cl), Panes: panes, Setup: cl, Group: "conf", Cwd: filepath.Join(l.root, "work")}
+	for _, row := range testkit.Contract {
+		id := "REX-C " + row.Name
+		if row.Agent {
+			report("SKIP", id, "starts an agent CLI: TERMINAL=rex KIND=<kind> proves a start", where)
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		err := row.Run(ctx, t, block)
+		cancel()
+		if err != nil {
+			report("FAIL", id, err.Error(), where)
+			continue
+		}
+		report("PASS", id, "the Rex adapter keeps the row on a scratch server", where)
+	}
 }

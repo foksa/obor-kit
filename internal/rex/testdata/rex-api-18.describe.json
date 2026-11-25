@@ -1,770 +1,2226 @@
 {
-  "rex_version": "0.1.0-preview.21",
-  "api_revision": 18,
-  "command": "rex api describe --json <method>",
-  "methods": [
-    {
-      "name": "server.version",
-      "description": "Get the version of Rex that the server is running and how it was built.",
-      "invoke": {
-        "method": "server.version"
+ "rex_version": "0.1.0-preview.21",
+ "api_revision": 18,
+ "command": "rex api describe --json <method>",
+ "methods": [
+  {
+   "name": "server.version",
+   "description": "Get the version of Rex that the server is running and how it was built.",
+   "invoke": {
+    "method": "server.version"
+   },
+   "input_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "api_min_revision": {
+      "type": "integer",
+      "description": "The oldest revision of the API the server supports. Left out when it is 0.",
+      "minimum": 0,
+      "maximum": 4294967295
+     },
+     "api_revision": {
+      "type": "integer",
+      "description": "The newest revision of the API the server supports. Left out when it is 0.",
+      "minimum": 0,
+      "maximum": 4294967295
+     },
+     "built_at": {
+      "type": [
+       "null",
+       "string"
+      ],
+      "description": "When the server was built, as an RFC 3339 timestamp. Most builds record the time of their Git commit. Left out when unknown."
+     },
+     "commit": {
+      "type": "string",
+      "description": "The Git commit the server was built from. Left out when unknown."
+     },
+     "dirty": {
+      "type": "boolean",
+      "description": "True if the server was built from source with uncommitted changes."
+     },
+     "platform": {
+      "type": "string",
+      "description": "The operating system and CPU the server was built for, such as darwin_arm64 or linux_amd64."
+     },
+     "rex_version": {
+      "type": "string",
+      "description": "The version of Rex the server runs, as rex version prints it, such as 0.0.1780750825-g9a754d."
+     }
+    },
+    "required": [
+     "rex_version",
+     "platform",
+     "dirty"
+    ],
+    "additionalProperties": false
+   },
+   "response_example": "{\n  \"rex_version\": \"0.0.1780750825-g9a754d\",\n  \"platform\": \"darwin_arm64\",\n  \"commit\": \"9a754d1234567890\",\n  \"built_at\": \"2026-06-06T13:00:25Z\",\n  \"dirty\": false\n}",
+   "validation_notes": [
+    "A missing `api_revision` or `api_min_revision` means 0. Servers from before these fields existed leave both out."
+   ]
+  },
+  {
+   "name": "server.status",
+   "description": "Get the server's identity, session count, configuration, and Tailscale status.",
+   "invoke": {
+    "method": "server.status"
+   },
+   "input_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "api_min_revision": {
+      "type": "integer",
+      "description": "The oldest revision of the API the server supports. Left out when it is 0.",
+      "minimum": 0,
+      "maximum": 4294967295
+     },
+     "api_revision": {
+      "type": "integer",
+      "description": "The newest revision of the API the server supports. Left out when it is 0.",
+      "minimum": 0,
+      "maximum": 4294967295
+     },
+     "config": {
+      "type": "object",
+      "properties": {
+       "generation": {
+        "type": "integer",
+        "description": "How many times the server has loaded its configuration file since it started, counting from 1. It goes up on every load, even one that fails.",
+        "minimum": 0
+       },
+       "hash": {
+        "type": "string",
+        "description": "The SHA-256 of the configuration file and the modules it requires while it loads, in lowercase hexadecimal. Empty if there's no file or it couldn't be read."
+       }
       },
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false
+      "description": "The configuration file the server loaded most recently. Always present, even when there is no file.",
+      "required": [
+       "generation",
+       "hash"
+      ],
+      "additionalProperties": false
+     },
+     "exit_empty": {
+      "type": "boolean",
+      "description": "True if the server stops on its own soon after its last session and last connection close."
+     },
+     "host_id": {
+      "type": "string",
+      "description": "Identifies the machine and account the server runs as. Servers that see the same files report the same value. Left out when the server has no state directory."
+     },
+     "instance_id": {
+      "type": "string",
+      "description": "A random ID for this run of the server. A new value means a new server process, even if pid is the same."
+     },
+     "listeners": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "addresses": {
+         "type": [
+          "null",
+          "array"
+         ],
+         "items": {
+          "type": "string"
+         },
+         "description": "The addresses the listener is bound to, such as a socket path or 127.0.0.1:54321. They show the port that an endpoint like 127.0.0.1:0 got. Left out when the server can't tell."
+        },
+        "admission": {
+         "type": "string",
+         "description": "Which callers the listener lets in: 'peer_credentials', 'anonymous', 'tailscale_owner', 'tailscale_identified', or 'login_server'. Left out when the server can't tell. Show a value you don't know as it is."
+        },
+        "endpoint": {
+         "type": "string",
+         "description": "The endpoint the listener was configured with, such as unix:///run/rex.sock, 127.0.0.1:7297, or tailnet://:7297."
+        },
+        "primary": {
+         "type": "boolean",
+         "description": "True for the server's primary endpoint, where commands such as rex server status and rex server stop look for the server. Left out for the other listeners."
+        },
+        "transport": {
+         "type": "string",
+         "description": "How the listener identifies its callers: 'unix', 'named_pipe', 'tcp', or 'tailscale'. Show a value you don't know as it is."
+        }
+       },
+       "required": [
+        "endpoint",
+        "transport"
+       ],
+       "additionalProperties": false
       },
-      "output_schema": {
+      "description": "Each endpoint the server accepts connections on, primary first. Servers older than API revision 12 leave it out. Doesn't include built-in Tailscale, which the tailscale member describes."
+     },
+     "pid": {
+      "type": "integer",
+      "description": "The server's process ID."
+     },
+     "session_count": {
+      "type": "integer",
+      "description": "How many sessions the server has."
+     },
+     "started_at": {
+      "type": "string",
+      "description": "When the server started, as an RFC 3339 timestamp."
+     },
+     "tailscale": {
+      "type": "object",
+      "properties": {
+       "account": {
         "type": "object",
         "properties": {
-          "api_min_revision": {
-            "type": "integer",
-            "description": "The oldest revision of the API the server supports. Left out when it is 0.",
-            "minimum": 0,
-            "maximum": 4294967295
-          },
-          "api_revision": {
-            "type": "integer",
-            "description": "The newest revision of the API the server supports. Left out when it is 0.",
-            "minimum": 0,
-            "maximum": 4294967295
-          },
-          "built_at": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "description": "When the server was built, as an RFC 3339 timestamp. Most builds record the time of their Git commit. Left out when unknown."
-          },
-          "commit": {
-            "type": "string",
-            "description": "The Git commit the server was built from. Left out when unknown."
-          },
-          "dirty": {
-            "type": "boolean",
-            "description": "True if the server was built from source with uncommitted changes."
-          },
-          "platform": {
-            "type": "string",
-            "description": "The operating system and CPU the server was built for, such as darwin_arm64 or linux_amd64."
-          },
-          "rex_version": {
-            "type": "string",
-            "description": "The version of Rex the server runs, as rex version prints it, such as 0.0.1780750825-g9a754d."
-          }
+         "login_name": {
+          "type": "string",
+          "description": "The Tailscale login name, usually an email address. For display only, because it can change."
+         }
         },
+        "description": "The Tailscale account that signed the device in. Left out until Tailscale reports it.",
         "required": [
-          "rex_version",
-          "platform",
-          "dirty"
+         "login_name"
         ],
         "additionalProperties": false
-      },
-      "response_example": "{\n  \"rex_version\": \"0.0.1780750825-g9a754d\",\n  \"platform\": \"darwin_arm64\",\n  \"commit\": \"9a754d1234567890\",\n  \"built_at\": \"2026-06-06T13:00:25Z\",\n  \"dirty\": false\n}",
-      "validation_notes": [
-        "A missing `api_revision` or `api_min_revision` means 0. Servers from before these fields existed leave both out."
-      ]
-    },
-    {
-      "name": "server.status",
-      "description": "Get the server's identity, session count, configuration, and Tailscale status.",
-      "invoke": {
-        "method": "server.status"
-      },
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false
-      },
-      "output_schema": {
+       },
+       "allow_tailnet_members": {
+        "type": "boolean",
+        "description": "True if anyone your tailnet's access rules allow may connect. False lets in only the Tailscale user who signed the device in."
+       },
+       "auth_url": {
+        "type": "string",
+        "description": "The link to open to sign the device in to Tailscale. Present while state is needs_login, once Tailscale has made the link."
+       },
+       "control_url": {
+        "type": "string",
+        "description": "The control server the device uses, such as a Headscale server. Left out for Tailscale's own, while built-in Tailscale is off, and by older servers."
+       },
+       "dns_name": {
+        "type": "string",
+        "description": "The device's MagicDNS name, such as rex.tail1234.ts.net. Left out until known."
+       },
+       "error": {
+        "type": "string",
+        "description": "Why built-in Tailscale turned off after its HTTPS listener failed. The next enable clears it."
+       },
+       "https": {
         "type": "object",
         "properties": {
-          "api_min_revision": {
-            "type": "integer",
-            "description": "The oldest revision of the API the server supports. Left out when it is 0.",
-            "minimum": 0,
-            "maximum": 4294967295
-          },
-          "api_revision": {
-            "type": "integer",
-            "description": "The newest revision of the API the server supports. Left out when it is 0.",
-            "minimum": 0,
-            "maximum": 4294967295
-          },
-          "config": {
-            "type": "object",
-            "properties": {
-              "generation": {
-                "type": "integer",
-                "description": "How many times the server has loaded its configuration file since it started, counting from 1. It goes up on every load, even one that fails.",
-                "minimum": 0
-              },
-              "hash": {
-                "type": "string",
-                "description": "The SHA-256 of the configuration file and the modules it requires while it loads, in lowercase hexadecimal. Empty if there's no file or it couldn't be read."
-              }
-            },
-            "description": "The configuration file the server loaded most recently. Always present, even when there is no file.",
-            "required": [
-              "generation",
-              "hash"
-            ],
-            "additionalProperties": false
-          },
-          "exit_empty": {
-            "type": "boolean",
-            "description": "True if the server stops on its own soon after its last session and last connection close."
-          },
-          "host_id": {
-            "type": "string",
-            "description": "Identifies the machine and account the server runs as. Servers that see the same files report the same value. Left out when the server has no state directory."
-          },
-          "instance_id": {
-            "type": "string",
-            "description": "A random ID for this run of the server. A new value means a new server process, even if pid is the same."
-          },
-          "listeners": {
+         "state": {
+          "type": "string",
+          "description": "'pending' until the HTTPS listener is ready, then 'available'. The server is reachable over the tailnet only when available. Treat a value you don't know as 'pending'."
+         },
+         "url": {
+          "type": "string",
+          "description": "The server's address on the tailnet, such as https://rex.tail1234.ts.net. Present once HTTPS is available and the device's name is known."
+         }
+        },
+        "description": "The state of the device's HTTPS listener. Left out while built-in Tailscale is off, and by older servers.",
+        "required": [
+         "state"
+        ],
+        "additionalProperties": false
+       },
+       "state": {
+        "type": "string",
+        "description": "'disabled' (off), 'starting', 'needs_login' (see auth_url), 'needs_machine_approval' (a tailnet admin must approve the device), or 'running' (on the tailnet). Treat a value you don't know as 'starting'."
+       },
+       "tags": {
+        "type": [
+         "null",
+         "array"
+        ],
+        "items": {
+         "type": "string"
+        },
+        "description": "The Tailscale tags the device has, such as tag:rex. A tagged device has no owner. Left out when it has none."
+       },
+       "tailnet_name": {
+        "type": "string",
+        "description": "The tailnet's display name, or its domain if it has none. Left out until known."
+       }
+      },
+      "description": "The status of built-in Tailscale. Present only when the server can run it.",
+      "required": [
+       "state",
+       "allow_tailnet_members"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "pid",
+     "instance_id",
+     "started_at",
+     "exit_empty",
+     "session_count",
+     "config"
+    ],
+    "additionalProperties": false
+   },
+   "response_example": "{\n  \"pid\": 1234,\n  \"instance_id\": \"7d7e9aca-9a92-41b1-b849-418e76d8f84b\",\n  \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n  \"started_at\": \"2026-08-13T12:00:00Z\",\n  \"exit_empty\": false,\n  \"session_count\": 2,\n  \"tailscale\": {\n    \"state\": \"running\",\n    \"dns_name\": \"rex.tail1234.ts.net\",\n    \"account\": {\n      \"login_name\": \"alice@example.com\"\n    },\n    \"tailnet_name\": \"Superlogical\",\n    \"allow_tailnet_members\": false,\n    \"https\": {\n      \"state\": \"available\",\n      \"url\": \"https://rex.tail1234.ts.net\"\n    }\n  },\n  \"config\": {\n    \"generation\": 3,\n    \"hash\": \"a3f1c0de5b7e2a94c6d8f0e1b2a3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5\"\n  }\n}",
+   "validation_notes": [
+    "Two servers report the same `host_id` only when they see the same files, as two servers run by one user on one machine usually do. If the values differ, or either one is missing, assume the servers don't share files. The value means nothing else.",
+    "`config` describes the last load of the configuration file. Its `generation` and `hash` match the `config` of a `client.keymap` result taken at the same moment.",
+    "A client that saved a keymap can compare `config.hash` and `instance_id` with the values it saved. If either differs, call `client.keymap` again.",
+    "Later changes to `tailscale` arrive as `tailscale_status_changed` events, which only connections that called `session.attach_all` or `session.bootstrap` receive."
+   ]
+  },
+  {
+   "name": "session.list",
+   "description": "List the sessions on the server.",
+   "invoke": {
+    "method": "session.list"
+   },
+   "input_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "sessions": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string",
+         "description": "The session's label."
+        },
+        "session_id": {
+         "type": "string",
+         "description": "The session's ID."
+        }
+       },
+       "required": [
+        "session_id",
+        "label"
+       ],
+       "additionalProperties": false
+      },
+      "description": "Every session on the server. New sessions go at the end, and session.move changes the order."
+     }
+    },
+    "required": [
+     "sessions"
+    ],
+    "additionalProperties": false
+   },
+   "response_example": "{\n  \"sessions\": [\n    {\n      \"session_id\": \"session:<uuid>\",\n      \"label\": \"work\"\n    }\n  ]\n}",
+   "validation_notes": [
+    "Sessions are listed in the order they were created, until `session.move` changes that order. `session.attach_all` and `session.bootstrap` list them in the same order."
+   ]
+  },
+  {
+   "name": "session.list_blocks",
+   "description": "List every block in the session, including detached blocks.",
+   "invoke": {
+    "method": "session.list_blocks"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "blocks": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "block_id": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "The block's ID."
+        },
+        "creator_name": {
+         "type": "string",
+         "description": "The creator that made the block, such as com.superlogical.terminal."
+        },
+        "flavor": {
+         "type": "string",
+         "description": "The flavor the block was made from, such as com.superlogical.terminal.shell."
+        },
+        "host_id": {
+         "type": "string",
+         "description": "Identifies the machine and account the block runs as. If it equals your local server's host_id, the block sees the same files you do. Otherwise treat the block as remote."
+        },
+        "label": {
+         "type": "string",
+         "description": "The block's label."
+        },
+        "owner": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "The client that owns the block. Left out when the block has no owner."
+        },
+        "placement": {
+         "type": "string",
+         "description": "Whether the block is in a window: 'placed' or 'detached'. Treat a value you don't know as 'detached'."
+        },
+        "window_id": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "The window the block is in. Left out when the block is detached."
+        }
+       },
+       "required": [
+        "block_id",
+        "label",
+        "placement"
+       ],
+       "additionalProperties": false
+      },
+      "description": "Every block in the session, including detached blocks."
+     }
+    },
+    "required": [
+     "blocks"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\"\n}",
+   "response_example": "{\n  \"blocks\": [\n    {\n      \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\",\n      \"label\": \"shell\",\n      \"creator_name\": \"com.superlogical.terminal\",\n      \"flavor\": \"com.superlogical.terminal.shell\",\n      \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n      \"placement\": \"placed\",\n      \"window_id\": \"window:<uuid>\",\n      \"owner\": \"client:<uuid>\"\n    },\n    {\n      \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde2\",\n      \"label\": \"logs\",\n      \"creator_name\": \"com.superlogical.terminal\",\n      \"flavor\": \"com.superlogical.terminal.shell\",\n      \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n      \"placement\": \"detached\"\n    }\n  ]\n}",
+   "validation_notes": [
+    "Treat a `placement` you don't recognize like `detached`. The block exists and you can call its methods, but don't assume where it is shown.",
+    "Blocks are sorted by `block_id`.",
+    "To see where each block sits in its window and which one has focus, call `session.view`."
+   ]
+  },
+  {
+   "name": "session.view",
+   "description": "Get the session's windows, their layouts, and their blocks in one snapshot.",
+   "invoke": {
+    "method": "session.view"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "active_window_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The window the session shows. Left out when the session has no windows."
+     },
+     "label": {
+      "type": "string",
+      "description": "The session's label."
+     },
+     "revision": {
+      "type": "integer",
+      "description": "The view's revision. A larger revision is a newer view of the session, even across a server restart. It goes up by one with each change, and jumps ahead when a restarted server restores the session.",
+      "minimum": 0
+     },
+     "session_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The session's ID."
+     },
+     "windows": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "focused_block_id": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "The window's focused block, which receives typing while the window is active. Left out if the window has none."
+        },
+        "label": {
+         "type": "string",
+         "description": "The window's label."
+        },
+        "layers": {
+         "type": [
+          "null",
+          "array"
+         ],
+         "items": {
+          "type": "object",
+          "properties": {
+           "blocks": {
             "type": [
-              "null",
-              "array"
+             "null",
+             "array"
             ],
             "items": {
-              "type": "object",
-              "properties": {
-                "addresses": {
-                  "type": [
-                    "null",
-                    "array"
-                  ],
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "The addresses the listener is bound to, such as a socket path or 127.0.0.1:54321. They show the port that an endpoint like 127.0.0.1:0 got. Left out when the server can't tell."
-                },
-                "admission": {
-                  "type": "string",
-                  "description": "Which callers the listener lets in: 'peer_credentials', 'anonymous', 'tailscale_owner', 'tailscale_identified', or 'login_server'. Left out when the server can't tell. Show a value you don't know as it is."
-                },
-                "endpoint": {
-                  "type": "string",
-                  "description": "The endpoint the listener was configured with, such as unix:///run/rex.sock, 127.0.0.1:7297, or tailnet://:7297."
-                },
-                "primary": {
-                  "type": "boolean",
-                  "description": "True for the server's primary endpoint, where commands such as rex server status and rex server stop look for the server. Left out for the other listeners."
-                },
-                "transport": {
-                  "type": "string",
-                  "description": "How the listener identifies its callers: 'unix', 'named_pipe', 'tcp', or 'tailscale'. Show a value you don't know as it is."
-                }
+             "type": "object",
+             "properties": {
+              "block_id": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "description": "The block's ID."
               },
-              "required": [
-                "endpoint",
-                "transport"
-              ],
-              "additionalProperties": false
-            },
-            "description": "Each endpoint the server accepts connections on, primary first. Servers older than API revision 12 leave it out. Doesn't include built-in Tailscale, which the tailscale member describes."
-          },
-          "pid": {
-            "type": "integer",
-            "description": "The server's process ID."
-          },
-          "session_count": {
-            "type": "integer",
-            "description": "How many sessions the server has."
-          },
-          "started_at": {
-            "type": "string",
-            "description": "When the server started, as an RFC 3339 timestamp."
-          },
-          "tailscale": {
-            "type": "object",
-            "properties": {
-              "account": {
-                "type": "object",
-                "properties": {
-                  "login_name": {
-                    "type": "string",
-                    "description": "The Tailscale login name, usually an email address. For display only, because it can change."
-                  }
-                },
-                "description": "The Tailscale account that signed the device in. Left out until Tailscale reports it.",
-                "required": [
-                  "login_name"
-                ],
-                "additionalProperties": false
+              "creator_name": {
+               "type": "string",
+               "description": "The creator that made the block, such as com.superlogical.terminal."
               },
-              "allow_tailnet_members": {
-                "type": "boolean",
-                "description": "True if anyone your tailnet's access rules allow may connect. False lets in only the Tailscale user who signed the device in."
+              "flavor": {
+               "type": "string",
+               "description": "The flavor the block was made from, such as com.superlogical.terminal.shell."
               },
-              "auth_url": {
-                "type": "string",
-                "description": "The link to open to sign the device in to Tailscale. Present while state is needs_login, once Tailscale has made the link."
+              "host_id": {
+               "type": "string",
+               "description": "Identifies the machine and account the block runs as. If it equals your local server's host_id, the block sees the same files you do. Otherwise treat the block as remote."
               },
-              "control_url": {
-                "type": "string",
-                "description": "The control server the device uses, such as a Headscale server. Left out for Tailscale's own, while built-in Tailscale is off, and by older servers."
+              "label": {
+               "type": "string",
+               "description": "The block's label."
               },
-              "dns_name": {
-                "type": "string",
-                "description": "The device's MagicDNS name, such as rex.tail1234.ts.net. Left out until known."
-              },
-              "error": {
-                "type": "string",
-                "description": "Why built-in Tailscale turned off after its HTTPS listener failed. The next enable clears it."
-              },
-              "https": {
-                "type": "object",
-                "properties": {
-                  "state": {
-                    "type": "string",
-                    "description": "'pending' until the HTTPS listener is ready, then 'available'. The server is reachable over the tailnet only when available. Treat a value you don't know as 'pending'."
-                  },
-                  "url": {
-                    "type": "string",
-                    "description": "The server's address on the tailnet, such as https://rex.tail1234.ts.net. Present once HTTPS is available and the device's name is known."
-                  }
-                },
-                "description": "The state of the device's HTTPS listener. Left out while built-in Tailscale is off, and by older servers.",
-                "required": [
-                  "state"
-                ],
-                "additionalProperties": false
-              },
-              "state": {
-                "type": "string",
-                "description": "'disabled' (off), 'starting', 'needs_login' (see auth_url), 'needs_machine_approval' (a tailnet admin must approve the device), or 'running' (on the tailnet). Treat a value you don't know as 'starting'."
-              },
-              "tags": {
-                "type": [
-                  "null",
-                  "array"
-                ],
-                "items": {
-                  "type": "string"
-                },
-                "description": "The Tailscale tags the device has, such as tag:rex. A tagged device has no owner. Left out when it has none."
-              },
-              "tailnet_name": {
-                "type": "string",
-                "description": "The tailnet's display name, or its domain if it has none. Left out until known."
+              "owner": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "description": "The client that owns the block. Left out when the block has no owner."
               }
+             },
+             "required": [
+              "block_id"
+             ],
+             "additionalProperties": false
             },
-            "description": "The status of built-in Tailscale. Present only when the server can run it.",
-            "required": [
-              "state",
-              "allow_tailnet_members"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "pid",
-          "instance_id",
-          "started_at",
-          "exit_empty",
-          "session_count",
-          "config"
-        ],
-        "additionalProperties": false
-      },
-      "response_example": "{\n  \"pid\": 1234,\n  \"instance_id\": \"7d7e9aca-9a92-41b1-b849-418e76d8f84b\",\n  \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n  \"started_at\": \"2026-08-13T12:00:00Z\",\n  \"exit_empty\": false,\n  \"session_count\": 2,\n  \"tailscale\": {\n    \"state\": \"running\",\n    \"dns_name\": \"rex.tail1234.ts.net\",\n    \"account\": {\n      \"login_name\": \"alice@example.com\"\n    },\n    \"tailnet_name\": \"Superlogical\",\n    \"allow_tailnet_members\": false,\n    \"https\": {\n      \"state\": \"available\",\n      \"url\": \"https://rex.tail1234.ts.net\"\n    }\n  },\n  \"config\": {\n    \"generation\": 3,\n    \"hash\": \"a3f1c0de5b7e2a94c6d8f0e1b2a3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5\"\n  }\n}",
-      "validation_notes": [
-        "Two servers report the same `host_id` only when they see the same files, as two servers run by one user on one machine usually do. If the values differ, or either one is missing, assume the servers don't share files. The value means nothing else.",
-        "`config` describes the last load of the configuration file. Its `generation` and `hash` match the `config` of a `client.keymap` result taken at the same moment.",
-        "A client that saved a keymap can compare `config.hash` and `instance_id` with the values it saved. If either differs, call `client.keymap` again.",
-        "Later changes to `tailscale` arrive as `tailscale_status_changed` events, which only connections that called `session.attach_all` or `session.bootstrap` receive."
-      ]
-    },
-    {
-      "name": "session.list",
-      "description": "List the sessions on the server.",
-      "invoke": {
-        "method": "session.list"
-      },
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false
-      },
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "sessions": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string",
-                  "description": "The session's label."
-                },
-                "session_id": {
-                  "type": "string",
-                  "description": "The session's ID."
-                }
-              },
-              "required": [
-                "session_id",
-                "label"
-              ],
-              "additionalProperties": false
-            },
-            "description": "Every session on the server. New sessions go at the end, and session.move changes the order."
-          }
-        },
-        "required": [
-          "sessions"
-        ],
-        "additionalProperties": false
-      },
-      "response_example": "{\n  \"sessions\": [\n    {\n      \"session_id\": \"session:<uuid>\",\n      \"label\": \"work\"\n    }\n  ]\n}",
-      "validation_notes": [
-        "Sessions are listed in the order they were created, until `session.move` changes that order. `session.attach_all` and `session.bootstrap` list them in the same order."
-      ]
-    },
-    {
-      "name": "session.list_blocks",
-      "description": "List every block in the session, including detached blocks.",
-      "invoke": {
-        "method": "session.list_blocks"
-      },
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "The session to act on."
-          }
-        },
-        "required": [
-          "session_id"
-        ],
-        "additionalProperties": false
-      },
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "blocks": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "object",
-              "properties": {
-                "block_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "The block's ID."
-                },
-                "creator_name": {
-                  "type": "string",
-                  "description": "The creator that made the block, such as com.superlogical.terminal."
-                },
-                "flavor": {
-                  "type": "string",
-                  "description": "The flavor the block was made from, such as com.superlogical.terminal.shell."
-                },
-                "host_id": {
-                  "type": "string",
-                  "description": "Identifies the machine and account the block runs as. If it equals your local server's host_id, the block sees the same files you do. Otherwise treat the block as remote."
-                },
-                "label": {
-                  "type": "string",
-                  "description": "The block's label."
-                },
-                "owner": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "The client that owns the block. Left out when the block has no owner."
-                },
-                "placement": {
-                  "type": "string",
-                  "description": "Whether the block is in a window: 'placed' or 'detached'. Treat a value you don't know as 'detached'."
-                },
-                "window_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "The window the block is in. Left out when the block is detached."
-                }
-              },
-              "required": [
-                "block_id",
-                "label",
-                "placement"
-              ],
-              "additionalProperties": false
-            },
-            "description": "Every block in the session, including detached blocks."
-          }
-        },
-        "required": [
-          "blocks"
-        ],
-        "additionalProperties": false
-      },
-      "request_example": "{\n  \"session_id\": \"session:<uuid>\"\n}",
-      "response_example": "{\n  \"blocks\": [\n    {\n      \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\",\n      \"label\": \"shell\",\n      \"creator_name\": \"com.superlogical.terminal\",\n      \"flavor\": \"com.superlogical.terminal.shell\",\n      \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n      \"placement\": \"placed\",\n      \"window_id\": \"window:<uuid>\",\n      \"owner\": \"client:<uuid>\"\n    },\n    {\n      \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde2\",\n      \"label\": \"logs\",\n      \"creator_name\": \"com.superlogical.terminal\",\n      \"flavor\": \"com.superlogical.terminal.shell\",\n      \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n      \"placement\": \"detached\"\n    }\n  ]\n}",
-      "validation_notes": [
-        "Treat a `placement` you don't recognize like `detached`. The block exists and you can call its methods, but don't assume where it is shown.",
-        "Blocks are sorted by `block_id`.",
-        "To see where each block sits in its window and which one has focus, call `session.view`."
-      ]
-    },
-    {
-      "name": "block.method",
-      "description": "Call a method that a block provides and return its result.",
-      "invoke": {
-        "method": "block.method"
-      },
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "args": {
-            "description": "The block method's own arguments. Leaving it out is the same as an empty object."
-          },
-          "block_id": {
-            "type": "string",
-            "description": "The block to call the method on."
-          },
-          "method": {
-            "type": "string",
-            "description": "The block method's short name, such as write or format."
-          },
-          "session_id": {
-            "type": "string",
-            "description": "The session that holds the block."
-          }
-        },
-        "required": [
-          "session_id",
-          "block_id",
-          "method"
-        ],
-        "additionalProperties": false
-      },
-      "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"block_id\": \"block:<uuid>\",\n  \"method\": \"write\",\n  \"args\": {\n    \"data\": \"echo hello\\n\"\n  }\n}",
-      "validation_notes": [
-        "Send the block method's short name, such as `write`, in `method`. `help.all` lists the methods each creator's blocks provide under `block_types`, with each method's `args_schema` and `output_schema`.",
-        "Each block method can also be called by its full name, such as `com.superlogical.terminal.write`, with the same `session_id`, `block_id`, and `args`. The full name names the block's creator, so the call works only on a block that creator made. On any other block, it fails with `conflict`.",
-        "The result is the block method's own result, as its `output_schema` describes it. `block.method` has no result schema of its own.",
-        "`block.method` doesn't wait for earlier requests on the same connection, and it can run at the same time as `client.key`. If a call depends on an earlier request, wait for that request's reply first. To call a block method in order with `client.key`, such as from a key binding, use `client.action`.",
-        "If `block_id` is missing, the call fails with `bad_request`. If the session doesn't exist, it fails with `session_not_found`. If `block_id` names a block that isn't in the session, it fails with `not_found`, and if the block has no method named `method`, it fails with `method_not_found`. If `args` is missing a required field or has a value of the wrong type, it fails with `bad_request`."
-      ]
-    },
-    {
-      "name": "process",
-      "description": "Get the processes running in the terminal and how its program exited.",
-      "invoke": {
-        "method": "com.superlogical.terminal.process"
-      },
-      "args_schema": {
-        "type": "object",
-        "additionalProperties": false
-      },
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "ancestors": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "object",
-              "properties": {
-                "argv0": {
-                  "type": "string",
-                  "description": "The first argument as the process shows it now, such as -zsh for a login shell, cut to 256 bytes. Rex never returns the other arguments, because they can hold secrets."
-                },
-                "cwd": {
-                  "type": "string",
-                  "description": "The process's working directory, as an absolute path. Left out if it can't be read, as for another user's process."
-                },
-                "invoked_path": {
-                  "type": "string",
-                  "description": "The absolute path the executable was started through, before symlinks were resolved, such as a link in a bin directory. Present only when Rex can confirm it leads to the same file as path."
-                },
-                "name": {
-                  "type": "string",
-                  "description": "The file name of the executable, such as zsh. When path is left out, the system's own name for the process, which Linux limits to 15 bytes. To label a process, use the first of script, argv0, and name that is present."
-                },
-                "path": {
-                  "type": "string",
-                  "description": "The absolute path of the executable, with symlinks resolved. Left out if it can't be read, as for another user's process on Linux."
-                },
-                "pid": {
-                  "type": "integer",
-                  "description": "The process ID."
-                },
-                "script": {
-                  "type": "string",
-                  "description": "For an interpreter such as node or python, the absolute path of the script it is running, as the user named it. Left out for other programs."
-                },
-                "user": {
-                  "type": "string",
-                  "description": "The name of the account the process runs as. Left out if it can't be looked up."
-                },
-                "user_id": {
-                  "type": "integer",
-                  "description": "The user ID the process runs as on Unix, which shows when a command runs as another user, such as with sudo. Zero on Windows."
-                }
-              },
-              "required": [
-                "pid",
-                "user_id",
-                "name"
-              ],
-              "additionalProperties": false
-            },
-            "description": "The processes between foreground and child, nearest first: the parent of foreground, then its parent, and so on, ending with child. Left out when foreground is child, when there are more than 16, or when one of them has exited."
-          },
-          "child": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "argv0": {
-                "type": "string",
-                "description": "The first argument as the process shows it now, such as -zsh for a login shell, cut to 256 bytes. Rex never returns the other arguments, because they can hold secrets."
-              },
-              "cwd": {
-                "type": "string",
-                "description": "The process's working directory, as an absolute path. Left out if it can't be read, as for another user's process."
-              },
-              "invoked_path": {
-                "type": "string",
-                "description": "The absolute path the executable was started through, before symlinks were resolved, such as a link in a bin directory. Present only when Rex can confirm it leads to the same file as path."
-              },
-              "name": {
-                "type": "string",
-                "description": "The file name of the executable, such as zsh. When path is left out, the system's own name for the process, which Linux limits to 15 bytes. To label a process, use the first of script, argv0, and name that is present."
-              },
-              "path": {
-                "type": "string",
-                "description": "The absolute path of the executable, with symlinks resolved. Left out if it can't be read, as for another user's process on Linux."
-              },
-              "pid": {
-                "type": "integer",
-                "description": "The process ID."
-              },
-              "script": {
-                "type": "string",
-                "description": "For an interpreter such as node or python, the absolute path of the script it is running, as the user named it. Left out for other programs."
-              },
-              "user": {
-                "type": "string",
-                "description": "The name of the account the process runs as. Left out if it can't be looked up."
-              },
-              "user_id": {
-                "type": "integer",
-                "description": "The user ID the process runs as on Unix, which shows when a command runs as another user, such as with sudo. Zero on Windows."
-              }
-            },
-            "description": "The process the terminal started, usually a shell. On macOS a login shell runs under login, and this describes login. Left out if there is no such process or it can't be read.",
-            "required": [
-              "pid",
-              "user_id",
-              "name"
-            ],
-            "additionalProperties": false
-          },
-          "foreground": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "argv0": {
-                "type": "string",
-                "description": "The first argument as the process shows it now, such as -zsh for a login shell, cut to 256 bytes. Rex never returns the other arguments, because they can hold secrets."
-              },
-              "cwd": {
-                "type": "string",
-                "description": "The process's working directory, as an absolute path. Left out if it can't be read, as for another user's process."
-              },
-              "invoked_path": {
-                "type": "string",
-                "description": "The absolute path the executable was started through, before symlinks were resolved, such as a link in a bin directory. Present only when Rex can confirm it leads to the same file as path."
-              },
-              "name": {
-                "type": "string",
-                "description": "The file name of the executable, such as zsh. When path is left out, the system's own name for the process, which Linux limits to 15 bytes. To label a process, use the first of script, argv0, and name that is present."
-              },
-              "path": {
-                "type": "string",
-                "description": "The absolute path of the executable, with symlinks resolved. Left out if it can't be read, as for another user's process on Linux."
-              },
-              "pid": {
-                "type": "integer",
-                "description": "The process ID."
-              },
-              "script": {
-                "type": "string",
-                "description": "For an interpreter such as node or python, the absolute path of the script it is running, as the user named it. Left out for other programs."
-              },
-              "user": {
-                "type": "string",
-                "description": "The name of the account the process runs as. Left out if it can't be looked up."
-              },
-              "user_id": {
-                "type": "integer",
-                "description": "The user ID the process runs as on Unix, which shows when a command runs as another user, such as with sudo. Zero on Windows."
-              }
-            },
-            "description": "The process in the foreground, such as the shell at its prompt or the command it is running. For a wrapper such as sudo, git, or cargo, it is the command the wrapper runs. Left out if it can't be found or read.",
-            "required": [
-              "pid",
-              "user_id",
-              "name"
-            ],
-            "additionalProperties": false
-          },
-          "home": {
-            "type": "string",
-            "description": "The home directory that the terminal's program inherited, for showing and expanding ~ in paths."
-          },
-          "last_exit": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "error": {
-                "type": "string",
-                "description": "Why the program failed, such as 'exit status 1'. Left out when it exited successfully."
-              },
-              "exit_code": {
-                "type": "integer",
-                "description": "The program's exit code, or -1 if it has none, as when a signal ended it."
-              }
-            },
-            "description": "How the terminal's program exited. Null while it is still running, and for a terminal that didn't start a program of its own.",
-            "required": [
-              "exit_code"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "last_exit"
-        ],
-        "additionalProperties": false
-      },
-      "validation_notes": [
-        "Call it as `com.superlogical.terminal.process` with `session_id`, `block_id`, and this method's own arguments under `args`."
-      ]
-    },
-    {
-      "name": "program_status",
-      "description": "List the status that programs in the terminal have reported. Programs report a status, such as working or blocked, with OSC 7501 escape sequences.",
-      "invoke": {
-        "method": "com.superlogical.terminal.program_status"
-      },
-      "args_schema": {
-        "type": "object",
-        "additionalProperties": false
-      },
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "records": {
+            "description": "The blocks in the layer, in layout order. The layout field says where each one sits."
+           },
+           "bounds": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "app": {
-                  "type": "string",
-                  "description": "The program's name, such as cargo or terraform, exactly as it reported it."
-                },
-                "effective_app": {
-                  "type": "string",
-                  "description": "The name of the program the record belongs to: app if it is set, or else the app of the nearest parent record that has one. Left out if no record in the chain has an app."
-                },
-                "id": {
-                  "type": "string",
-                  "description": "The record's ID. A slash separates a parent from a child, as in build/test. Left out for the root record, which holds the reports that give no ID."
-                },
-                "kind": {
-                  "type": "string",
-                  "description": "What a blocked program is waiting for: 'permission', 'question', or 'auth' (a password or other credential). Left out if the program didn't say. Treat a value you don't know as if it were left out."
-                },
-                "msg": {
-                  "type": "string",
-                  "description": "One line of text describing the status. Show it as plain text. A client may shorten it but shouldn't try to interpret it."
-                },
-                "owner": {
-                  "type": [
-                    "null",
-                    "object"
-                  ],
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "description": "The process's name, found the same way as name in the result of process. Compare it as well as pid, because the system reuses process IDs."
-                    },
-                    "pid": {
-                      "type": "integer",
-                      "description": "The process ID."
-                    }
-                  },
-                  "description": "The terminal's foreground process when the report arrived. Left out if the server couldn't tell.",
-                  "required": [
-                    "pid",
-                    "name"
-                  ],
-                  "additionalProperties": false
-                },
-                "progress": {
-                  "type": [
-                    "null",
-                    "integer"
-                  ],
-                  "description": "How far along the program is, as a percentage from 0 to 100. Only working and blocked records have one, and only if the program reported it.",
-                  "minimum": 0,
-                  "maximum": 255
-                },
-                "state": {
-                  "type": "string",
-                  "description": "What the program says it is doing: 'idle', 'working', 'done', 'blocked' (waiting for the user), or 'error'. Treat a value you don't know as 'idle'."
-                },
-                "title": {
-                  "type": "string",
-                  "description": "A short label for the record, such as the name of a task. It comes from the program, so show it as plain text."
-                },
-                "updated_at": {
-                  "type": "string",
-                  "description": "When the report arrived, by the server's clock, as an RFC 3339 timestamp.",
-                  "format": "date-time"
-                }
-              },
-              "required": [
-                "state",
-                "updated_at"
-              ],
-              "additionalProperties": false
+             "type": "number"
             },
-            "description": "Every record, sorted by id. The root record comes first, and each parent comes before its children. Empty if no program has reported a status."
-          }
+            "description": "Where the layer sits, as [x, y, w, h] fractions of the window's width and height.",
+            "minItems": 4,
+            "maxItems": 4
+           },
+           "kind": {
+            "type": "string",
+            "description": "How the layer is placed: 'tiled' for the layer that fills the window, or 'floating' for a floating layer. Draw a kind you don't know as 'floating'."
+           },
+           "layer_id": {
+            "type": [
+             "string",
+             "null"
+            ],
+            "description": "The layer's ID."
+           },
+           "layout": {
+            "type": [
+             "object",
+             "null"
+            ],
+            "properties": {
+             "block_id": {
+              "type": [
+               "string",
+               "null"
+              ],
+              "description": "The block at this node. Set only when split isn't."
+             },
+             "rect": {
+              "type": "array",
+              "items": {
+               "type": "number"
+              },
+              "description": "Where this node sits, as [x, y, w, h] fractions of the window's width and height.",
+              "minItems": 4,
+              "maxItems": 4
+             },
+             "split": {
+              "type": [
+               "object",
+               "null"
+              ],
+              "properties": {
+               "after": {
+                "$ref": "#view-layout-node",
+                "description": "The node on the right or bottom."
+               },
+               "before": {
+                "$ref": "#view-layout-node",
+                "description": "The node on the left or top."
+               },
+               "direction": {
+                "type": "string",
+                "description": "How the space is divided: 'horizontal' puts before on the left and after on the right, and 'vertical' puts before above after. Draw a direction you don't know as 'horizontal'.",
+                "enum": [
+                 "horizontal",
+                 "vertical"
+                ]
+               },
+               "ratio": {
+                "type": "number",
+                "description": "The fraction of the space that before gets, between 0 and 1."
+               },
+               "split_id": {
+                "type": [
+                 "string",
+                 "null"
+                ],
+                "description": "The split's ID. It stays the same while the split exists, so you can match splits across views."
+               }
+              },
+              "description": "How this node divides in two. Set only when block_id isn't.",
+              "required": [
+               "split_id",
+               "direction",
+               "ratio",
+               "before",
+               "after"
+              ]
+             }
+            },
+            "$anchor": "view-layout-node",
+            "description": "How the layer divides its space between blocks, as a tree of splits. Null when the layer is empty.",
+            "required": [
+             "rect"
+            ]
+           },
+           "state": {
+            "type": "string",
+            "description": "How the layer is presented: 'minimized' means don't draw it, though its blocks keep running, and only a floating layer can be minimized. Left out for a normal layer. Draw a state you don't know as normal."
+           }
+          },
+          "required": [
+           "layer_id",
+           "kind",
+           "bounds",
+           "layout",
+           "blocks"
+          ],
+          "additionalProperties": false
+         },
+         "description": "The window's layers, from back to front. The first is the tiled layer, which holds the window's layout and fills the window."
         },
-        "required": [
-          "records"
-        ],
-        "additionalProperties": false
+        "window_id": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "The window's ID."
+        },
+        "zoomed_block_id": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "The block zoomed to fill the window, if any. Layouts keep their normal sizes, so draw this block over the whole window."
+        }
+       },
+       "required": [
+        "window_id",
+        "layers"
+       ],
+       "additionalProperties": false
       },
-      "validation_notes": [
-        "Call it as `com.superlogical.terminal.program_status` with `session_id`, `block_id`, and this method's own arguments under `args`."
+      "description": "The session's windows, in order. Rex.app shows them as tabs in this order."
+     }
+    },
+    "required": [
+     "revision",
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\"\n}",
+   "response_example": "{\n  \"revision\": 7,\n  \"session_id\": \"session:<uuid>\",\n  \"label\": \"work\",\n  \"active_window_id\": \"window:<uuid>\",\n  \"windows\": [\n    {\n      \"window_id\": \"window:<uuid>\",\n      \"label\": \"editor\",\n      \"focused_block_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\",\n      \"layers\": [\n        {\n          \"layer_id\": \"layer:<uuid>\",\n          \"kind\": \"tiled\",\n          \"bounds\": [0, 0, 1, 1],\n          \"layout\": {\n            \"rect\": [0, 0, 1, 1],\n            \"split\": {\n              \"split_id\": \"split:<uuid>\",\n              \"direction\": \"horizontal\",\n              \"ratio\": 0.5,\n              \"before\": {\n                \"rect\": [0, 0, 0.5, 1],\n                \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\"\n              },\n              \"after\": {\n                \"rect\": [0.5, 0, 0.5, 1],\n                \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde2\"\n              }\n            }\n          },\n          \"blocks\": [\n            {\n              \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\",\n              \"label\": \"shell\",\n              \"creator_name\": \"com.superlogical.terminal\",\n              \"flavor\": \"com.superlogical.terminal.shell\",\n              \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n              \"owner\": \"client:<uuid>\"\n            },\n            {\n              \"block_id\": \"block:01234567-89ab-cdef-0123-456789abcde2\",\n              \"label\": \"logs\",\n              \"creator_name\": \"com.superlogical.terminal\",\n              \"flavor\": \"com.superlogical.terminal.shell\",\n              \"host_id\": \"0e9d6c1f-4a3b-4a52-9c85-2f6d3f6f2f10\",\n              \"owner\": \"client:<uuid>\"\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}",
+   "validation_notes": [
+    "`revision` starts at zero for a new session and goes up by one each time the view changes. Compare revisions only within one session, and keep the view with the highest revision.",
+    "A `session_view_changed` event carries only the new revision, not the view. These events can arrive out of revision order, so call `session.view` only when an event's revision is higher than the one in the view you hold.",
+    "`window_created`, `window_closed`, `window_label_changed`, `active_window_changed`, and `session_label_changed` arrive before the `session_view_changed` event for the same change.",
+    "The view holds only blocks that are in a window. `session.list_blocks` also lists detached blocks.",
+    "The view describes structure, not content. To read what a block shows, call one of its own methods, such as `com.superlogical.terminal.format`."
+   ]
+  },
+  {
+   "name": "session.create",
+   "description": "Create a session, optionally with its first windows already in it.",
+   "invoke": {
+    "method": "session.create"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "initial_windows": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "layout": {
+         "type": [
+          "null",
+          "object"
+         ],
+         "description": "The blocks to create in the window and how to arrange them. Required. Each node holds either block, with a flavor and optional options and label, or split, with direction, before, after, and an optional ratio."
+        },
+        "window_label": {
+         "type": "string",
+         "description": "The window's label, up to 128 characters. Leave it out for a label made from the window's ID, such as Window 89abcdef."
+        }
+       },
+       "additionalProperties": false
+      },
+      "description": "Windows to create with the session, in order. The last one becomes the active window. If any of them fails, the server creates no session."
+     },
+     "label": {
+      "type": "string",
+      "description": "The session's label, up to 128 characters. Leave it out to let the server choose one, such as quiet-meadow."
+     }
+    },
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "initial_windows": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "block_ids": {
+         "type": [
+          "null",
+          "array"
+         ],
+         "items": {
+          "type": "string"
+         },
+         "description": "The new blocks' IDs, in layout order: each split's before side comes ahead of its after side."
+        },
+        "revision": {
+         "type": "integer",
+         "description": "The session's revision after the window was created.",
+         "minimum": 0
+        },
+        "window_id": {
+         "type": "string",
+         "description": "The new window's ID."
+        }
+       },
+       "required": [
+        "window_id",
+        "block_ids",
+        "revision"
+       ],
+       "additionalProperties": false
+      },
+      "description": "The windows created with the session, in the order requested."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The new session's ID."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"label\": \"work\",\n  \"initial_windows\": [\n    {\n      \"window_label\": \"editor\",\n      \"layout\": {\n        \"block\": {\n          \"flavor\": \"com.superlogical.terminal.shell\"\n        }\n      }\n    }\n  ]\n}",
+   "response_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"initial_windows\": [\n    {\n      \"window_id\": \"window:<uuid>\",\n      \"block_ids\": [\"block:<uuid>\"],\n      \"revision\": 1\n    }\n  ]\n}",
+   "validation_notes": [
+    "Every argument is optional. With none, the server creates a session with no windows.",
+    "If `label` is left out or empty, the server picks one that no other session has, such as `quiet-meadow`.",
+    "The server sends `session_created` only once every window in `initial_windows` is ready, so no client sees a half-built session. If any window fails, the server closes the session and its blocks, and the call fails.",
+    "The blocks in the initial windows start with no owner, because the calling client can't be attached to a session that doesn't exist yet. To own them, call `session.attach` and then `session.own_block`.",
+    "The call doesn't attach the connection to the new session. Call `session.attach` to receive its events.",
+    "If a layout is malformed, the call fails with `bad_request` before any block is created. A flavor that no creator provides fails with `not_found`.",
+    "If the server already has as many sessions as it allows, the call fails with `conflict`."
+   ]
+  },
+  {
+   "name": "session.new_window",
+   "description": "Create a window and the blocks in its layout. It becomes the active window by default.",
+   "invoke": {
+    "method": "session.new_window"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "focus": {
+      "type": [
+       "null",
+       "boolean"
+      ],
+      "description": "Whether to make the new window the active window. Defaults to true. A session with no active window always makes the new one active."
+     },
+     "layout": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "description": "The blocks to create in the window and how to arrange them. Required. Each node holds either block, with a flavor and optional options and label, or split, with direction, before, after, and an optional ratio."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     },
+     "window_label": {
+      "type": "string",
+      "description": "The window's label, up to 128 characters. Leave it out for a label made from the window's ID, such as Window 89abcdef."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "block_ids": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "description": "The new blocks' IDs, in layout order: each split's before side comes ahead of its after side."
+     },
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision after the window was created.",
+      "minimum": 0
+     },
+     "window_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The new window's ID."
+     }
+    },
+    "required": [
+     "window_id",
+     "block_ids",
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"window_label\": \"server\",\n  \"layout\": {\n    \"split\": {\n      \"direction\": \"horizontal\",\n      \"before\": {\n        \"block\": {\n          \"flavor\": \"com.superlogical.terminal.shell\",\n          \"label\": \"shell\"\n        }\n      },\n      \"after\": {\n        \"block\": {\n          \"flavor\": \"com.superlogical.terminal.shell\",\n          \"label\": \"logs\"\n        }\n      }\n    }\n  }\n}",
+   "response_example": "{\n  \"window_id\": \"window:<uuid>\",\n  \"block_ids\": [\n    \"block:01234567-89ab-cdef-0123-456789abcde1\",\n    \"block:01234567-89ab-cdef-0123-456789abcde2\"\n  ],\n  \"revision\": 42\n}",
+   "validation_notes": [
+    "A `block` node in `layout` starts one new block from a `flavor`, such as `com.superlogical.terminal.shell`. A `split` node divides its space in two and holds another node in each of `before` and `after`.",
+    "In a `split` node, `direction` is `horizontal` to put `before` on the left of `after`, or `vertical` to put it on top. `ratio` is the fraction of the space that `before` gets, greater than 0 and less than 1. It defaults to 0.5.",
+    "`layout` always starts new blocks. To place a detached block that already exists, use `session.move_block`.",
+    "In the new window, the first block in `block_ids` has focus.",
+    "Either the whole layout is created or none of it is. If a block fails to start, the server closes the blocks it already started, and the call fails.",
+    "If the session doesn't exist, the call fails with `session_not_found`. If `layout` is missing or malformed, or a `flavor` is malformed, it fails with `bad_request`, and if no creator provides a `flavor`, it fails with `not_found`.",
+    "If the call would go past a limit on windows per session, blocks per window, or blocks on the server, it fails with `conflict`."
+   ]
+  },
+  {
+   "name": "session.new_split",
+   "description": "Create blocks in a new split beside an existing block or split.",
+   "invoke": {
+    "method": "session.new_split"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "anchor_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The block or split whose space to split. A block ID splits that one block. A split ID puts the new blocks beside that split and everything under it. Leave it out to split the focused block of window_id, or of the active window. Don't send it with window_id."
+     },
+     "direction": {
+      "type": "string",
+      "description": "How to divide the anchor's space: 'horizontal' for side by side or 'vertical' for one above the other.",
+      "enum": [
+       "horizontal",
+       "vertical"
       ]
-    }
-  ]
+     },
+     "focus": {
+      "type": "boolean",
+      "description": "Whether to make the anchor's window active and focus the first new block. Defaults to false."
+     },
+     "layout": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "description": "The blocks to create beside the anchor and how to arrange them. Each node holds either block, with a flavor and optional options and label, or split, with direction, before, after, and an optional ratio."
+     },
+     "ratio": {
+      "type": "number",
+      "description": "The fraction of the space that the before part gets, greater than 0 and less than 1. Defaults to 0.5."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     },
+     "side": {
+      "type": "string",
+      "description": "Where the new blocks go: 'before' for the left or top part, or 'after' for the right or bottom part.",
+      "enum": [
+       "before",
+       "after"
+      ]
+     },
+     "window_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The window whose focused block to split. Send it only when anchor_id is left out."
+     }
+    },
+    "required": [
+     "session_id",
+     "direction",
+     "side",
+     "layout"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "anchor_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The block or split whose space was split. If the request didn't name one, this is the focused block the server used."
+     },
+     "block_ids": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "description": "The new blocks' IDs, in layout order: each split's before side comes ahead of its after side."
+     },
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision after this call.",
+      "minimum": 0
+     },
+     "split_ids": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "description": "The IDs of the splits this call created: first the one at the anchor, then the new layout's own splits in layout order."
+     }
+    },
+    "required": [
+     "anchor_id",
+     "block_ids",
+     "split_ids",
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"anchor_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\",\n  \"direction\": \"horizontal\",\n  \"side\": \"after\",\n  \"layout\": {\n    \"block\": {\n      \"flavor\": \"com.superlogical.terminal.shell\",\n      \"label\": \"logs\"\n    }\n  },\n  \"focus\": true\n}",
+   "response_example": "{\n  \"anchor_id\": \"block:01234567-89ab-cdef-0123-456789abcde1\",\n  \"block_ids\": [\"block:01234567-89ab-cdef-0123-456789abcde2\"],\n  \"split_ids\": [\"split:<uuid>\"],\n  \"revision\": 42\n}",
+   "validation_notes": [
+    "The server picks the block to split before it starts the new blocks, so a focus change while they start doesn't move the split.",
+    "A `block` node in `layout` starts one new block from a `flavor`, such as `com.superlogical.terminal.shell`. A `split` node divides its space in two and holds another node in each of `before` and `after`.",
+    "In a `split` node, `direction` is `horizontal` to put `before` on the left of `after`, or `vertical` to put it on top. `ratio` is the fraction of the space that `before` gets, greater than 0 and less than 1. It defaults to 0.5.",
+    "Any zoom in the window ends, whether or not `focus` is set.",
+    "If `anchor_id` is a split ID, the new split takes that split's place. The old split, with everything under it, goes on one side and `layout` on the other. Anchoring a layer's top split makes the new blocks span the whole layer. A layer with one block has no split, so anchor its block instead.",
+    "Splits that already existed keep their IDs.",
+    "Either the whole layout is created or none of it is. If a block fails to start, the server closes the blocks it already started, and the call fails.",
+    "If the session doesn't exist, the call fails with `session_not_found`. If `window_id` names a window that isn't in the session, or no creator provides a `flavor`, it fails with `not_found`. Sending both `anchor_id` and `window_id`, a bad `ratio`, or a malformed `layout` or `flavor` fail with `bad_request`.",
+    "If `anchor_id` names a block that isn't in a window, including a detached block, or a split that isn't in any window, the call fails with `not_found`. If both `anchor_id` and `window_id` are left out and the session has no windows, it fails with `conflict`.",
+    "If the call would go past a limit on blocks per window or blocks on the server, it fails with `conflict`."
+   ]
+  },
+  {
+   "name": "session.new_block",
+   "description": "Create a block without placing it in a window. Place it later with session.move_block.",
+   "invoke": {
+    "method": "session.new_block"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "flavor": {
+      "type": "string",
+      "description": "The flavor of block to create, such as com.superlogical.terminal.shell. block_creator.list lists them."
+     },
+     "label": {
+      "type": "string",
+      "description": "The block's label, up to 128 characters. Defaults to the flavor's short name, such as shell."
+     },
+     "options": {
+      "description": "Settings for the block's creator, in the shape of the flavor's options_schema from block_creator.list."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     }
+    },
+    "required": [
+     "session_id",
+     "flavor"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "block_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The new block's ID. The block is detached until you place it with session.move_block."
+     },
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision. Creating a detached block doesn't change it.",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "block_id",
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"flavor\": \"com.superlogical.terminal.shell\",\n  \"label\": \"logs\"\n}",
+   "response_example": "{\n  \"block_id\": \"block:<uuid>\",\n  \"revision\": 7\n}",
+   "validation_notes": [
+    "The server passes `options` to the flavor's creator unchanged.",
+    "The block starts detached: it runs, sends events, and answers method calls, but no window shows it. `session.move_block` can place it beside a block that is in a window.",
+    "If the calling client is attached to the session, it becomes the block's owner. Otherwise the block has no owner until an attached client claims it with `session.own_block`.",
+    "A malformed `flavor` or `label` fails with `bad_request`. A flavor that no creator provides fails with `not_found`.",
+    "If the server already has as many blocks as it allows, the call fails with `conflict`."
+   ]
+  },
+  {
+   "name": "session.set_block_label",
+   "description": "Set a block's label.",
+   "invoke": {
+    "method": "session.set_block_label"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "block_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The block to relabel. Required."
+     },
+     "label": {
+      "type": "string",
+      "description": "The new label, up to 128 characters. An empty or missing label restores a default made from the block's ID."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision after this call. It is unchanged if the call changed nothing that session.view shows, unless the method's notes say otherwise.",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"block_id\": \"block:<uuid>\",\n  \"label\": \"shell\"\n}",
+   "response_example": "{\"revision\": 42}",
+   "validation_notes": [
+    "`block_id` is required. Leaving it out fails with `bad_request`.",
+    "The server trims whitespace from both ends of `label`. An empty `label` restores a default made from the block's ID, such as `Block 89abcdef`, rather than the flavor name a new block starts with.",
+    "A label longer than 128 characters, or one that contains a control character, fails with `bad_request`.",
+    "Relabeling a block that is in a window sends `session_view_changed`. A detached block isn't part of the view, so relabeling it sends no event and leaves `revision` unchanged.",
+    "If `block_id` names a block that isn't in the session, the call fails with `not_found`."
+   ]
+  },
+  {
+   "name": "session.set_window_label",
+   "description": "Set a window's label.",
+   "invoke": {
+    "method": "session.set_window_label"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "description": "The new label, up to 128 characters. An empty or missing label restores a default made from the window's ID."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     },
+     "window_id": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The window to relabel."
+     }
+    },
+    "required": [
+     "session_id",
+     "window_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision after this call. It is unchanged if the call changed nothing that session.view shows, unless the method's notes say otherwise.",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"window_id\": \"window:<uuid>\",\n  \"label\": \"editor\"\n}",
+   "response_example": "{\"revision\": 42}",
+   "validation_notes": [
+    "The server trims whitespace from both ends of `label`. An empty `label` restores a default made from the window's ID, such as `Window 89abcdef`.",
+    "A label longer than 128 characters, or one that contains a control character, fails with `bad_request`.",
+    "A new label sends `window_label_changed`, then `session_view_changed`. Setting the label the window already has changes nothing.",
+    "If `window_id` names a window that isn't in the session, the call fails with `not_found`."
+   ]
+  },
+  {
+   "name": "session.set_label",
+   "description": "Set the session's label.",
+   "invoke": {
+    "method": "session.set_label"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "description": "The new label, up to 128 characters. An empty or missing label restores the label the server chose when it created the session."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session to act on."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision after this call. It is unchanged if the call changed nothing that session.view shows, unless the method's notes say otherwise.",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"label\": \"work\"\n}",
+   "response_example": "{\"revision\": 42}",
+   "validation_notes": [
+    "The server trims whitespace from both ends of `label`. An empty `label` restores the label the server chose when it created the session, such as `quiet-meadow`. It does so even if the session was created with a label.",
+    "A label longer than 128 characters, or one that contains a control character, fails with `bad_request`.",
+    "A new label sends `session_label_changed`, then `session_view_changed`. Setting the label the session already has changes nothing."
+   ]
+  },
+  {
+   "name": "session.destroy",
+   "description": "Destroy a session and close every block in it.",
+   "invoke": {
+    "method": "session.destroy"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "session_id": {
+      "type": "string",
+      "description": "The session to destroy. Every block in it closes."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\"\n}",
+   "response_example": "{}",
+   "validation_notes": [
+    "The server closes every window and block in the session. Closing a terminal hangs up the program running in it, as closing a terminal window does.",
+    "The call returns once the session has closed. `session_destroyed` is the last event about the session, though a `client_script_events_dropped` event for it can still follow.",
+    "The connection must be attached to the session, with `session.attach`, `session.bootstrap`, or `session.attach_all`, or the call fails with `conflict`.",
+    "If `session_id` names no session, the call fails with `session_not_found`."
+   ]
+  },
+  {
+   "name": "block.close",
+   "description": "Close a block and end the program running in it.",
+   "invoke": {
+    "method": "block.close"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "block_id": {
+      "type": "string",
+      "description": "The block to close. It may be a detached block. Send this or window_id, not both."
+     },
+     "keep_last": {
+      "type": "boolean",
+      "description": "If true, fail rather than close the only block left in a window, counting floating layers. Ignored for detached blocks."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session that holds the block."
+     },
+     "window_id": {
+      "type": "string",
+      "description": "The window whose focused block to close. It doesn't have to be the active window. Send this or block_id, not both."
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "block_id": {
+      "type": "string",
+      "description": "The block that closed."
+     },
+     "revision": {
+      "type": "integer",
+      "description": "The session's revision after this call. It is unchanged if the block was detached, because a detached block isn't part of the view.",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "block_id",
+     "revision"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"block_id\": \"block:<uuid>\"\n}",
+   "response_example": "{\n  \"block_id\": \"block:<uuid>\",\n  \"revision\": 42\n}",
+   "validation_notes": [
+    "Send exactly one of `block_id` and `window_id`. If you send both, or neither, the call fails with `bad_request`.",
+    "The server sends `block_closed` when the block closes. If it was the last block in its window, the window closes too and the server sends `window_closed`.",
+    "If `keep_last` is true and the block is the only one left in its window, counting blocks in floating layers, the call fails with `bad_request` and closes nothing.",
+    "If the block's creator is still placing it, the call returns at once and the block closes when placement finishes.",
+    "On one connection, `block.close` waits for earlier requests that can change focus, such as `session.new_split` and `session.focus_block`, to finish. A close by `window_id` therefore closes the block those requests left focused.",
+    "If the session doesn't exist, the call fails with `session_not_found`. If `block_id` or `window_id` names something that isn't in the session, or the window has no focused block, it fails with `not_found`."
+   ]
+  },
+  {
+   "name": "block.event",
+   "description": "Send an input event, such as a key press or a paste, to a block.",
+   "invoke": {
+    "method": "block.event"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "block_id": {
+      "type": "string",
+      "description": "The block to send the event to."
+     },
+     "event": {
+      "type": "object",
+      "properties": {
+       "payload": {
+        "description": "The event's fields. Leaving it out is the same as an empty object."
+       },
+       "type": {
+        "type": "string",
+        "description": "The kind of event, such as key, paste, mouse, wheel, or focus."
+       }
+      },
+      "description": "The event to send: its type, such as paste, and its payload.",
+      "required": [
+       "type"
+      ]
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session that holds the block."
+     }
+    },
+    "required": [
+     "session_id",
+     "block_id",
+     "event"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"block_id\": \"block:<uuid>\",\n  \"event\": {\n    \"type\": \"paste\",\n    \"payload\": {\n      \"text\": \"echo hello\\n\"\n    }\n  }\n}",
+   "response_example": "{}",
+   "validation_notes": [
+    "A client may send only `key`, `paste`, `mouse`, `wheel`, and `focus` events. Every other event type is sent only by the server. A `paste` event's `payload` is `{\"text\": \"...\"}`, and a `focus` event's `payload` is `{\"action\": \"in\"}` or `{\"action\": \"out\"}`.",
+    "The event goes straight to the block, so Lua key bindings never see it. To give key bindings the first chance at a key, use `client.key` instead.",
+    "On one connection, `block.event` calls run one at a time, in order with `client.key`, so the block receives events in the order you send them.",
+    "The call returns once the block has received the event, which may be before the block has finished acting on it.",
+    "The call fails with `bad_request` if `event` is missing or its `payload` has the wrong shape for its type. It also fails with `bad_request` if `event.type` is empty, names an event only the server sends, or names an event this server doesn't know.",
+    "If the session doesn't exist, the call fails with `session_not_found`, and if `block_id` names a block that isn't in the session, it fails with `not_found`."
+   ]
+  },
+  {
+   "name": "target.resolve",
+   "description": "Look up sessions, windows, blocks, or clients by ID, label, or position. Each query gets its own result, which says whether it matched one thing, nothing, or several.",
+   "invoke": {
+    "method": "target.resolve"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "context": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "block_id": {
+        "type": "string",
+        "description": "The caller's block, such as the terminal a script runs in. In target.resolve, empty block and window queries default to it and its window."
+       },
+       "client_id": {
+        "type": "string",
+        "description": "The caller's own client. In target.resolve, an empty client query selects it if it's among the clients searched."
+       },
+       "session_id": {
+        "type": "string",
+        "description": "The caller's session. Without scope.session, windows and blocks are searched only in this session, and an empty session query selects it."
+       }
+      },
+      "description": "Where the caller is, such as the terminal a script runs in. IDs in it that no longer exist are ignored.",
+      "additionalProperties": false
+     },
+     "kinds": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "string"
+      },
+      "description": "What each query may name: session, window, block, or client. List each kind once, and list client only on its own."
+     },
+     "queries": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "string"
+      },
+      "description": "The names to look up. Each is a full ID, a label, a window position, the end of an ID, or an empty string for the default."
+     },
+     "scope": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "session": {
+        "type": "string",
+        "description": "The session to search in, named by ID, label, or the end of its ID. A client search then covers only clients attached to it."
+       },
+       "window": {
+        "type": "string",
+        "description": "The window to search in, named by ID, label, position, or the end of its ID. Allowed only when kinds is just block."
+       }
+      },
+      "description": "Limits the search to one session, or a block search to one window. Not allowed when kinds includes session.",
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "kinds",
+     "queries"
+    ],
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "results": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "candidates": {
+         "type": [
+          "null",
+          "array"
+         ],
+         "items": {
+          "type": "object",
+          "properties": {
+           "block_id": {
+            "type": "string",
+            "description": "The block's ID. Set only for blocks."
+           },
+           "client_id": {
+            "type": "string",
+            "description": "The client's ID. Set only for clients."
+           },
+           "kind": {
+            "type": "string",
+            "description": "What this is: session, window, block, or client. Skip a candidate whose kind you don't know."
+           },
+           "label": {
+            "type": "string",
+            "description": "Its label, or an empty string if it has none."
+           },
+           "ordinal": {
+            "type": "integer",
+            "description": "A window's position in its session, counting from 1, in the order session.view lists windows. Left out for everything else."
+           },
+           "session_id": {
+            "type": "string",
+            "description": "The session's ID, or the ID of the session that holds the window or block. Left out for a client."
+           },
+           "where": {
+            "type": "string",
+            "description": "Where it is, for showing to a person, such as 'window 2' or 'detached'. For a client, the program, such as 'Rex.app 1.6.0'. May be empty. Don't parse it."
+           },
+           "window_id": {
+            "type": "string",
+            "description": "The window's ID, or the ID of the window that holds the block. Left out for sessions, clients, and detached blocks."
+           }
+          },
+          "required": [
+           "kind",
+           "label"
+          ],
+          "additionalProperties": false
+         },
+         "description": "When status is ambiguous, the choices for a person to pick from. Check each one's kind."
+        },
+        "query": {
+         "type": "string",
+         "description": "The query this result answers, exactly as sent."
+        },
+        "reason": {
+         "type": "string",
+         "description": "Why the query didn't resolve, for showing to a person. May be empty."
+        },
+        "status": {
+         "type": "string",
+         "description": "Whether the query matched: 'resolved' for one thing, 'not_found' for nothing, or 'ambiguous' for several. Treat a value you don't know as 'not_found'."
+        },
+        "target": {
+         "type": [
+          "null",
+          "object"
+         ],
+         "properties": {
+          "block_id": {
+           "type": "string",
+           "description": "The block's ID. Set only for blocks."
+          },
+          "client_id": {
+           "type": "string",
+           "description": "The client's ID. Set only for clients."
+          },
+          "kind": {
+           "type": "string",
+           "description": "What this is: session, window, block, or client. Skip a candidate whose kind you don't know."
+          },
+          "label": {
+           "type": "string",
+           "description": "Its label, or an empty string if it has none."
+          },
+          "ordinal": {
+           "type": "integer",
+           "description": "A window's position in its session, counting from 1, in the order session.view lists windows. Left out for everything else."
+          },
+          "session_id": {
+           "type": "string",
+           "description": "The session's ID, or the ID of the session that holds the window or block. Left out for a client."
+          },
+          "where": {
+           "type": "string",
+           "description": "Where it is, for showing to a person, such as 'window 2' or 'detached'. For a client, the program, such as 'Rex.app 1.6.0'. May be empty. Don't parse it."
+          },
+          "window_id": {
+           "type": "string",
+           "description": "The window's ID, or the ID of the window that holds the block. Left out for sessions, clients, and detached blocks."
+          }
+         },
+         "description": "What the query matched. Set only when status is resolved.",
+         "required": [
+          "kind",
+          "label"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "required": [
+        "query",
+        "status"
+       ],
+       "additionalProperties": false
+      },
+      "description": "One result for each query, in the same order as queries."
+     }
+    },
+    "required": [
+     "results"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"kinds\": [\"block\"],\n  \"queries\": [\"shell\", \"build\"],\n  \"scope\": { \"session\": \"work\" }\n}",
+   "response_example": "{\n  \"results\": [\n    {\n      \"query\": \"shell\",\n      \"status\": \"resolved\",\n      \"target\": {\n        \"kind\": \"block\",\n        \"session_id\": \"session:<uuid>\",\n        \"window_id\": \"window:<uuid>\",\n        \"block_id\": \"block:<uuid>\",\n        \"label\": \"shell\",\n        \"where\": \"window 1\"\n      }\n    },\n    {\n      \"query\": \"build\",\n      \"status\": \"not_found\"\n    }\n  ]\n}",
+   "validation_notes": [
+    "List at least one kind in `kinds`, each only once, and `client` only on its own, or the call fails with `bad_request`. A kind the server doesn't know fails the same way, which can happen when the server is older than your client.",
+    "Send at least one query, or the call fails with `bad_request`. Each query gets one entry in `results`, in the same order. A query that matches nothing or several things doesn't fail the call: its `status` is `not_found` or `ambiguous`.",
+    "The server tries each query in four steps and stops at the first step that matches anything: full ID, label (ignoring case), window position, then the end of an ID (4 to 32 hexadecimal digits). So a window labeled `2` wins over the second window. If the winning step matches more than one thing, the result is `ambiguous`.",
+    "A query that starts like a full ID, such as `block:`, is only tried as a full ID. Its result is `not_found` if the ID is malformed, if `kinds` doesn't include that kind, or if nothing has that ID.",
+    "Only windows have positions. `1` is the first window in its session, in the order Rex.app shows them as tabs. When several sessions are searched, a position can match a window in each one.",
+    "When `kinds` lists more than one kind, one query can match different kinds of things, such as a session and a window with the same label. The result is then `ambiguous`, and each candidate's `kind` says what it is.",
+    "Without `scope.session`, windows and blocks are searched only in the session named by `context.session_id`. If that's left out or the session no longer exists, every session is searched. This applies to full IDs too, so the full ID of a block in another session is `not_found`.",
+    "If a scope matches nothing or several things, every result gets that `not_found` or `ambiguous` status, and its `reason` says which scope failed. For an ambiguous scope, `candidates` lists what the scope could mean.",
+    "An empty query, or one of only spaces, asks for a default, such as the block a script runs in. When `kinds` lists several kinds, an empty query gets the default for the most specific one: block, then window, then session.",
+    "An empty session query selects `context.session_id`, or the only session if there's just one. With no sessions it's `not_found`, and with several it's `ambiguous`.",
+    "An empty window query selects the window that holds `context.block_id`, or else the active window of the session being searched. If several sessions are searched, it's `ambiguous` even with `context.block_id` set, and `candidates` lists the sessions to choose from.",
+    "An empty block query selects `context.block_id` if that block is among those searched. Otherwise it selects the focused block of the window an empty window query would choose. With `scope.window`, it ignores `context.block_id` and selects that window's focused block.",
+    "Block searches include detached blocks, which are running but aren't placed in any window. `scope.window` leaves them out. A block's `where` reads `window 2` or `detached`. When several sessions are searched, it names the session too, as in `window 2 of work`, and a window's `where` reads `in work`.",
+    "To look up a connected client, such as Rex.app, set `kinds` to `[\"client\"]`. A client query matches a full ID, a label, or the end of an ID, since clients have no positions. Every connected client is searched, unless `scope.session` limits the search to clients attached to that session.",
+    "An empty client query selects `context.client_id` if that client is among those searched. Otherwise it selects the only client that reported its kind as `app` when it connected, such as Rex.app. With no app it's `not_found`, and with several it's `ambiguous`.",
+    "`scope.window` is looked up among the sessions being searched. The call fails with `bad_request` if `kinds` includes `session` and `scope` is sent, even as an empty object, or if `scope.window` is set and `kinds` isn't just `block`. A query or scope that contains a control character, such as a newline, fails the same way."
+   ]
+  },
+  {
+   "name": "block.method",
+   "description": "Call a method that a block provides and return its result.",
+   "invoke": {
+    "method": "block.method"
+   },
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "args": {
+      "description": "The block method's own arguments. Leaving it out is the same as an empty object."
+     },
+     "block_id": {
+      "type": "string",
+      "description": "The block to call the method on."
+     },
+     "method": {
+      "type": "string",
+      "description": "The block method's short name, such as write or format."
+     },
+     "session_id": {
+      "type": "string",
+      "description": "The session that holds the block."
+     }
+    },
+    "required": [
+     "session_id",
+     "block_id",
+     "method"
+    ],
+    "additionalProperties": false
+   },
+   "request_example": "{\n  \"session_id\": \"session:<uuid>\",\n  \"block_id\": \"block:<uuid>\",\n  \"method\": \"write\",\n  \"args\": {\n    \"data\": \"echo hello\\n\"\n  }\n}",
+   "validation_notes": [
+    "Send the block method's short name, such as `write`, in `method`. `help.all` lists the methods each creator's blocks provide under `block_types`, with each method's `args_schema` and `output_schema`.",
+    "Each block method can also be called by its full name, such as `com.superlogical.terminal.write`, with the same `session_id`, `block_id`, and `args`. The full name names the block's creator, so the call works only on a block that creator made. On any other block, it fails with `conflict`.",
+    "The result is the block method's own result, as its `output_schema` describes it. `block.method` has no result schema of its own.",
+    "`block.method` doesn't wait for earlier requests on the same connection, and it can run at the same time as `client.key`. If a call depends on an earlier request, wait for that request's reply first. To call a block method in order with `client.key`, such as from a key binding, use `client.action`.",
+    "If `block_id` is missing, the call fails with `bad_request`. If the session doesn't exist, it fails with `session_not_found`. If `block_id` names a block that isn't in the session, it fails with `not_found`, and if the block has no method named `method`, it fails with `method_not_found`. If `args` is missing a required field or has a value of the wrong type, it fails with `bad_request`."
+   ]
+  },
+  {
+   "name": "process",
+   "description": "Get the processes running in the terminal and how its program exited.",
+   "invoke": {
+    "method": "com.superlogical.terminal.process"
+   },
+   "args_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "ancestors": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "object",
+       "properties": {
+        "argv0": {
+         "type": "string",
+         "description": "The first argument as the process shows it now, such as -zsh for a login shell, cut to 256 bytes. Rex never returns the other arguments, because they can hold secrets."
+        },
+        "cwd": {
+         "type": "string",
+         "description": "The process's working directory, as an absolute path. Left out if it can't be read, as for another user's process."
+        },
+        "invoked_path": {
+         "type": "string",
+         "description": "The absolute path the executable was started through, before symlinks were resolved, such as a link in a bin directory. Present only when Rex can confirm it leads to the same file as path."
+        },
+        "name": {
+         "type": "string",
+         "description": "The file name of the executable, such as zsh. When path is left out, the system's own name for the process, which Linux limits to 15 bytes. To label a process, use the first of script, argv0, and name that is present."
+        },
+        "path": {
+         "type": "string",
+         "description": "The absolute path of the executable, with symlinks resolved. Left out if it can't be read, as for another user's process on Linux."
+        },
+        "pid": {
+         "type": "integer",
+         "description": "The process ID."
+        },
+        "script": {
+         "type": "string",
+         "description": "For an interpreter such as node or python, the absolute path of the script it is running, as the user named it. Left out for other programs."
+        },
+        "user": {
+         "type": "string",
+         "description": "The name of the account the process runs as. Left out if it can't be looked up."
+        },
+        "user_id": {
+         "type": "integer",
+         "description": "The user ID the process runs as on Unix, which shows when a command runs as another user, such as with sudo. Zero on Windows."
+        }
+       },
+       "required": [
+        "pid",
+        "user_id",
+        "name"
+       ],
+       "additionalProperties": false
+      },
+      "description": "The processes between foreground and child, nearest first: the parent of foreground, then its parent, and so on, ending with child. Left out when foreground is child, when there are more than 16, or when one of them has exited."
+     },
+     "child": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "argv0": {
+        "type": "string",
+        "description": "The first argument as the process shows it now, such as -zsh for a login shell, cut to 256 bytes. Rex never returns the other arguments, because they can hold secrets."
+       },
+       "cwd": {
+        "type": "string",
+        "description": "The process's working directory, as an absolute path. Left out if it can't be read, as for another user's process."
+       },
+       "invoked_path": {
+        "type": "string",
+        "description": "The absolute path the executable was started through, before symlinks were resolved, such as a link in a bin directory. Present only when Rex can confirm it leads to the same file as path."
+       },
+       "name": {
+        "type": "string",
+        "description": "The file name of the executable, such as zsh. When path is left out, the system's own name for the process, which Linux limits to 15 bytes. To label a process, use the first of script, argv0, and name that is present."
+       },
+       "path": {
+        "type": "string",
+        "description": "The absolute path of the executable, with symlinks resolved. Left out if it can't be read, as for another user's process on Linux."
+       },
+       "pid": {
+        "type": "integer",
+        "description": "The process ID."
+       },
+       "script": {
+        "type": "string",
+        "description": "For an interpreter such as node or python, the absolute path of the script it is running, as the user named it. Left out for other programs."
+       },
+       "user": {
+        "type": "string",
+        "description": "The name of the account the process runs as. Left out if it can't be looked up."
+       },
+       "user_id": {
+        "type": "integer",
+        "description": "The user ID the process runs as on Unix, which shows when a command runs as another user, such as with sudo. Zero on Windows."
+       }
+      },
+      "description": "The process the terminal started, usually a shell. On macOS a login shell runs under login, and this describes login. Left out if there is no such process or it can't be read.",
+      "required": [
+       "pid",
+       "user_id",
+       "name"
+      ],
+      "additionalProperties": false
+     },
+     "foreground": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "argv0": {
+        "type": "string",
+        "description": "The first argument as the process shows it now, such as -zsh for a login shell, cut to 256 bytes. Rex never returns the other arguments, because they can hold secrets."
+       },
+       "cwd": {
+        "type": "string",
+        "description": "The process's working directory, as an absolute path. Left out if it can't be read, as for another user's process."
+       },
+       "invoked_path": {
+        "type": "string",
+        "description": "The absolute path the executable was started through, before symlinks were resolved, such as a link in a bin directory. Present only when Rex can confirm it leads to the same file as path."
+       },
+       "name": {
+        "type": "string",
+        "description": "The file name of the executable, such as zsh. When path is left out, the system's own name for the process, which Linux limits to 15 bytes. To label a process, use the first of script, argv0, and name that is present."
+       },
+       "path": {
+        "type": "string",
+        "description": "The absolute path of the executable, with symlinks resolved. Left out if it can't be read, as for another user's process on Linux."
+       },
+       "pid": {
+        "type": "integer",
+        "description": "The process ID."
+       },
+       "script": {
+        "type": "string",
+        "description": "For an interpreter such as node or python, the absolute path of the script it is running, as the user named it. Left out for other programs."
+       },
+       "user": {
+        "type": "string",
+        "description": "The name of the account the process runs as. Left out if it can't be looked up."
+       },
+       "user_id": {
+        "type": "integer",
+        "description": "The user ID the process runs as on Unix, which shows when a command runs as another user, such as with sudo. Zero on Windows."
+       }
+      },
+      "description": "The process in the foreground, such as the shell at its prompt or the command it is running. For a wrapper such as sudo, git, or cargo, it is the command the wrapper runs. Left out if it can't be found or read.",
+      "required": [
+       "pid",
+       "user_id",
+       "name"
+      ],
+      "additionalProperties": false
+     },
+     "home": {
+      "type": "string",
+      "description": "The home directory that the terminal's program inherited, for showing and expanding ~ in paths."
+     },
+     "last_exit": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "error": {
+        "type": "string",
+        "description": "Why the program failed, such as 'exit status 1'. Left out when it exited successfully."
+       },
+       "exit_code": {
+        "type": "integer",
+        "description": "The program's exit code, or -1 if it has none, as when a signal ended it."
+       }
+      },
+      "description": "How the terminal's program exited. Null while it is still running, and for a terminal that didn't start a program of its own.",
+      "required": [
+       "exit_code"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "last_exit"
+    ],
+    "additionalProperties": false
+   },
+   "validation_notes": [
+    "Call it as `com.superlogical.terminal.process` with `session_id`, `block_id`, and this method's own arguments under `args`."
+   ]
+  },
+  {
+   "name": "program_status",
+   "description": "List the status that programs in the terminal have reported. Programs report a status, such as working or blocked, with OSC 7501 escape sequences.",
+   "invoke": {
+    "method": "com.superlogical.terminal.program_status"
+   },
+   "args_schema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "records": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "app": {
+         "type": "string",
+         "description": "The program's name, such as cargo or terraform, exactly as it reported it."
+        },
+        "effective_app": {
+         "type": "string",
+         "description": "The name of the program the record belongs to: app if it is set, or else the app of the nearest parent record that has one. Left out if no record in the chain has an app."
+        },
+        "id": {
+         "type": "string",
+         "description": "The record's ID. A slash separates a parent from a child, as in build/test. Left out for the root record, which holds the reports that give no ID."
+        },
+        "kind": {
+         "type": "string",
+         "description": "What a blocked program is waiting for: 'permission', 'question', or 'auth' (a password or other credential). Left out if the program didn't say. Treat a value you don't know as if it were left out."
+        },
+        "msg": {
+         "type": "string",
+         "description": "One line of text describing the status. Show it as plain text. A client may shorten it but shouldn't try to interpret it."
+        },
+        "owner": {
+         "type": [
+          "null",
+          "object"
+         ],
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "The process's name, found the same way as name in the result of process. Compare it as well as pid, because the system reuses process IDs."
+          },
+          "pid": {
+           "type": "integer",
+           "description": "The process ID."
+          }
+         },
+         "description": "The terminal's foreground process when the report arrived. Left out if the server couldn't tell.",
+         "required": [
+          "pid",
+          "name"
+         ],
+         "additionalProperties": false
+        },
+        "progress": {
+         "type": [
+          "null",
+          "integer"
+         ],
+         "description": "How far along the program is, as a percentage from 0 to 100. Only working and blocked records have one, and only if the program reported it.",
+         "minimum": 0,
+         "maximum": 255
+        },
+        "state": {
+         "type": "string",
+         "description": "What the program says it is doing: 'idle', 'working', 'done', 'blocked' (waiting for the user), or 'error'. Treat a value you don't know as 'idle'."
+        },
+        "title": {
+         "type": "string",
+         "description": "A short label for the record, such as the name of a task. It comes from the program, so show it as plain text."
+        },
+        "updated_at": {
+         "type": "string",
+         "description": "When the report arrived, by the server's clock, as an RFC 3339 timestamp.",
+         "format": "date-time"
+        }
+       },
+       "required": [
+        "state",
+        "updated_at"
+       ],
+       "additionalProperties": false
+      },
+      "description": "Every record, sorted by id. The root record comes first, and each parent comes before its children. Empty if no program has reported a status."
+     }
+    },
+    "required": [
+     "records"
+    ],
+    "additionalProperties": false
+   },
+   "validation_notes": [
+    "Call it as `com.superlogical.terminal.program_status` with `session_id`, `block_id`, and this method's own arguments under `args`."
+   ]
+  },
+  {
+   "name": "format",
+   "description": "Get the screen and scrollback as plain text, HTML, or escape sequences.",
+   "invoke": {
+    "method": "com.superlogical.terminal.format"
+   },
+   "args_schema": {
+    "type": "object",
+    "properties": {
+     "extra_charsets": {
+      "type": "boolean",
+      "description": "Include the selected character sets. Only used with the vt format."
+     },
+     "extra_cursor": {
+      "type": "boolean",
+      "description": "Include the cursor position. Only used with the vt format."
+     },
+     "extra_hyperlink": {
+      "type": "boolean",
+      "description": "Include the hyperlink in effect at the cursor. Only used with the vt format."
+     },
+     "extra_keyboard": {
+      "type": "boolean",
+      "description": "Include keyboard modes such as modifyOtherKeys. Only used with the vt format."
+     },
+     "extra_kitty_keyboard": {
+      "type": "boolean",
+      "description": "Include the state of the Kitty keyboard protocol. Only used with the vt format."
+     },
+     "extra_modes": {
+      "type": "boolean",
+      "description": "Include terminal modes that differ from their defaults. Only used with the vt format."
+     },
+     "extra_palette": {
+      "type": "boolean",
+      "description": "Include the color palette. Only used with the vt format."
+     },
+     "extra_protection": {
+      "type": "boolean",
+      "description": "Include the character protection mode. Only used with the vt format."
+     },
+     "extra_pwd": {
+      "type": "boolean",
+      "description": "Include the reported working directory. Only used with the vt format."
+     },
+     "extra_scrolling_region": {
+      "type": "boolean",
+      "description": "Include the scrolling region. Only used with the vt format."
+     },
+     "extra_style": {
+      "type": "boolean",
+      "description": "Include the text style in effect at the cursor. Only used with the vt format."
+     },
+     "extra_tabstops": {
+      "type": "boolean",
+      "description": "Include the tab stops. Only used with the vt format."
+     },
+     "format": {
+      "type": "string",
+      "description": "The format to return: 'text' for plain text, 'html' for HTML with inline styles, or 'vt' for escape sequences that redraw the screen with its colors and styles. Defaults to 'text'."
+     },
+     "max_bytes": {
+      "type": "integer",
+      "description": "The most bytes of content to return, measured once it is encoded as a JSON string. If more output remains, the reply has an id, and you read the rest with blob_read. Values above 983040 (960 KiB) are lowered to that. Zero or left out returns the whole output in one reply, and the call fails with too_large if the output doesn't fit. Must not be negative."
+     },
+     "trim": {
+      "type": "boolean",
+      "description": "Remove spaces from the end of each line."
+     },
+     "unwrap": {
+      "type": "boolean",
+      "description": "Join lines that the terminal wrapped because they were too long, so each line of output is one line the program wrote."
+     }
+    },
+    "additionalProperties": false
+   },
+   "output_schema": {
+    "type": "object",
+    "properties": {
+     "content": {
+      "type": "string",
+      "description": "The screen and scrollback in the requested format. If id is set, this is only the first part."
+     },
+     "eof": {
+      "type": "boolean",
+      "description": "True if content is the whole output. Sent only when the request set max_bytes. Older servers never send it, so check id instead to tell whether more output remains."
+     },
+     "id": {
+      "type": "integer",
+      "description": "Set only when more output remains. To read the rest, call blob_read with this id and with offset set to the length of content in bytes. A reply without id holds the whole output.",
+      "minimum": 0
+     },
+     "total": {
+      "type": "integer",
+      "description": "The length of the whole output in bytes. Sent only when the request set max_bytes, and left out when it is 0."
+     }
+    },
+    "required": [
+     "content"
+    ],
+    "additionalProperties": false
+   },
+   "validation_notes": [
+    "Call it as `com.superlogical.terminal.format` with `session_id`, `block_id`, and this method's own arguments under `args`."
+   ]
+  }
+ ],
+ "flavors": [
+  {
+   "flavor": "com.superlogical.terminal.shell",
+   "command": "rex api call block_creator.list",
+   "options_schema": {
+    "type": "object",
+    "properties": {
+     "shell": {
+      "type": "string",
+      "description": "The shell to start, or to run command through, such as /bin/zsh or fish. Empty uses the user's default shell. Set it to 'none' to start command directly, with no shell."
+     },
+     "command": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "string"
+      },
+      "description": "A program and its arguments, to run instead of an interactive shell. Unless shell is 'none', the shell reads its startup files first, so the program is found on the PATH they set. The arguments reach the program unchanged."
+     },
+     "args": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "string"
+      },
+      "description": "Deprecated: use command instead. Starts shell directly as the terminal's program, with these arguments. Can't be sent together with command."
+     },
+     "login": {
+      "type": [
+       "null",
+       "boolean"
+      ],
+      "description": "Whether to start the shell as a login shell, which reads the account's profile. Left out, it is true. On Windows, it is false unless command runs through a shell."
+     },
+     "interactive": {
+      "type": "boolean",
+      "description": "Whether the shell that command runs through also reads its interactive startup files, such as ~/.zshrc, so the program finds what the user's terminals find. They can print output or ask questions before the program starts. Only applies to command run through a shell."
+     },
+     "cwd": {
+      "type": "string",
+      "description": "The directory to start in. Empty, or a path that isn't a directory on the server's machine, starts in the user's home directory."
+     },
+     "path_prepend": {
+      "type": [
+       "null",
+       "array"
+      ],
+      "items": {
+       "type": "string"
+      },
+      "description": "Directories to put at the front of the program's PATH, in this order. A login shell's startup files can still change PATH."
+     },
+     "size": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "columns": {
+        "type": "integer",
+        "description": "The width in columns, that is, characters per line, from 1 to 65535.",
+        "minimum": 0,
+        "maximum": 4294967295
+       },
+       "rows": {
+        "type": "integer",
+        "description": "The height in rows, from 1 to 65535.",
+        "minimum": 0,
+        "maximum": 4294967295
+       },
+       "cell_width_px": {
+        "type": [
+         "null",
+         "integer"
+        ],
+        "description": "The width of one character cell in pixels, from 1 to 65535. Send it together with cell_height_px, or leave both out to keep the current cell size.",
+        "minimum": 0,
+        "maximum": 4294967295
+       },
+       "cell_height_px": {
+        "type": [
+         "null",
+         "integer"
+        ],
+        "description": "The height of one character cell in pixels, from 1 to 65535. Send it together with cell_width_px, or leave both out to keep the current cell size.",
+        "minimum": 0,
+        "maximum": 4294967295
+       }
+      },
+      "description": "The terminal's starting size. Left out, it starts at 80 columns by 24 rows.",
+      "required": [
+       "columns",
+       "rows"
+      ],
+      "additionalProperties": false
+     },
+     "theme": {
+      "type": "object",
+      "properties": {
+       "foreground": {
+        "type": "string",
+        "description": "The default text color, as hex RRGGBB or #RRGGBB, such as #d6deeb. Empty or left out uses the built-in color."
+       },
+       "background": {
+        "type": "string",
+        "description": "The default background color, as hex RRGGBB or #RRGGBB, such as #011627. Empty or left out uses the built-in color."
+       },
+       "cursor": {
+        "type": "string",
+        "description": "The cursor color, as hex RRGGBB or #RRGGBB, such as #80a4c2. Empty or left out uses the built-in color."
+       },
+       "palette": {
+        "type": [
+         "null",
+         "array"
+        ],
+        "items": {
+         "type": "string"
+        },
+        "description": "Changes to the 256-color palette, each written as index=RRGGBB or index=#RRGGBB with an index from 0 to 255, such as 1=#ef5350. Colors not listed keep their built-in values."
+       },
+       "scheme": {
+        "type": "string",
+        "description": "Whether the theme is 'light' or 'dark', which programs in the terminal can ask for. If empty, the terminal decides from how bright background is, and treats no background as dark."
+       }
+      },
+      "description": "The terminal's default colors, in the same form that set_theme takes. Left out, the terminal uses its built-in colors.",
+      "additionalProperties": false
+     },
+     "initial_input": {
+      "type": "string",
+      "description": "Text to type into the terminal once its program starts, sent exactly as given. No newline is added, so end the text with one to run a command."
+     },
+     "exit": {
+      "type": [
+       "null",
+       "object"
+      ],
+      "properties": {
+       "on_completion": {
+        "type": [
+         "null",
+         "boolean"
+        ],
+        "description": "Whether to close the terminal when its program exits. A quick failure leaves it open either way. Defaults to true.",
+        "default": true
+       },
+       "quick_exit_threshold_ms": {
+        "type": [
+         "null",
+         "integer"
+        ],
+        "description": "The longest run, in milliseconds, that counts as quick. A program that fails within this time leaves the terminal open. Defaults to 250.",
+        "default": 250,
+        "minimum": 0,
+        "maximum": 4294967295
+       }
+      },
+      "description": "When to close the terminal after its program exits. Left out, it closes after most exits but stays open after a quick failure, so the user can read the error.",
+      "additionalProperties": false
+     }
+    },
+    "additionalProperties": false
+   }
+  }
+ ]
 }

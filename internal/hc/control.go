@@ -1,19 +1,13 @@
 package hc
 
 import (
-	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"log"
-	"os"
-	"slices"
 	"strings"
 	"time"
 
 	"obor/internal/app/port"
-	"obor/internal/progstatus"
+	"obor/internal/app/shellpane"
 	"obor/internal/project"
 )
 
@@ -117,129 +111,9 @@ func (cl *Client) Named(ctx context.Context, name string) (port.Pane, error) {
 	return port.Pane{}, &Error{Op: "terminal.list", Kind: "not_found", Msg: "no live agent is labelled " + name}
 }
 
-// timedOut is a wait that ended at its own bound (port.TimedOut).
-type timedOut struct{ msg string }
-
-func (e *timedOut) Error() string  { return e.msg }
-func (e *timedOut) TimedOut() bool { return true }
-
-// WaitStatus waits up to timeout for the agent in pane to be in one of until, on its own events.subscribe: the
-// subscription's snapshot, then the terminal's events (a missed gives a fresh snapshot). hc's `error` is idle, its
-// msg logged. The error matches port.TimedOut at timeout; it is not found when the terminal has none or it finished,
-// or when no agent runs there (no status while the shell holds the foreground: none ran, or it exited), and a lost
-// connection (no line for HeartbeatLost) is NotRunning.
+// WaitStatus waits up to timeout for the agent in pane to be in one of until: shellpane's wait on its own
+// subscription to the core (Panes, no Core: it only dials). A lost connection (no line for HeartbeatLost) is
+// NotRunning.
 func (cl *Client) WaitStatus(ctx context.Context, pane string, until []string, timeout time.Duration) error {
-	wctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	failed := func(err error) error {
-		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
-			return &timedOut{fmt.Sprintf("hc: the agent in %s is not %s after %s", pane, strings.Join(until, " or "), timeout)}
-		}
-		return err
-	}
-	s, err := cl.open(wctx, "events.subscribe")
-	if err != nil {
-		return failed(err)
-	}
-	defer s.c.Close()
-	var sub struct {
-		Terminals []Record `json:"terminals"`
-	}
-	if err := s.call(wctx, "events.subscribe", nil, &sub); err != nil {
-		return failed(err)
-	}
-	r, known := findRecord(sub.Terminals, pane)
-	logged := ""
-	for {
-		switch {
-		case !known:
-			return &Error{Op: "events.subscribe", Kind: "not_found", Msg: "no terminal " + pane}
-		case r.State != "live":
-			return &Error{Op: "events.subscribe", Kind: "finished", Msg: fmt.Sprintf("%s has finished (%s)", pane, r.Reason)}
-		case r.Status == nil && !r.programRuns():
-			return &Error{Op: "events.subscribe", Kind: "not_found", Msg: pane + " runs no agent (no status, its shell in the foreground)"}
-		case r.Status != nil:
-			if r.Status.State == "error" && r.Status.Msg != logged {
-				logged = r.Status.Msg
-				log.Printf("hc: the agent in %s ended its turn on an error: %s", pane, r.Status.Msg)
-			}
-			if progstatus.TurnEnded(r.Status.report().Word(), until) {
-				return nil
-			}
-		}
-		_ = s.c.SetReadDeadline(time.Now().Add(HeartbeatLost))
-		b, err := s.r.ReadBytes('\n')
-		if errors.Is(err, os.ErrDeadlineExceeded) && wctx.Err() == nil {
-			return &Error{Op: "events.subscribe", Msg: fmt.Sprintf("no heartbeat for %s", HeartbeatLost), down: true}
-		}
-		if err != nil {
-			return failed(connError(wctx, "events.subscribe", err))
-		}
-		if r, known, err = waitEvent(b, pane, r, known); err != nil {
-			return err
-		}
-	}
-}
-
-// waitEvent applies one line of a wait's subscription to r, pane's record (known: hc listed it).
-func waitEvent(b []byte, pane string, r Record, known bool) (Record, bool, error) {
-	var n struct {
-		Method string `json:"method"`
-		Params struct {
-			Type      string          `json:"type"`
-			Terminal  string          `json:"terminal"`
-			Data      json.RawMessage `json:"data"`
-			Terminals []Record        `json:"terminals"`
-		} `json:"params"`
-	}
-	if err := json.Unmarshal(b, &n); err != nil {
-		return r, known, &Error{Op: "events.subscribe", Msg: "unreadable event: " + project.FirstLine(string(b))}
-	}
-	switch {
-	case n.Method == "missed":
-		r, known = findRecord(n.Params.Terminals, pane)
-		return r, known, nil
-	case n.Method != "event" || n.Params.Terminal != pane:
-		return r, known, nil
-	}
-	var err error
-	switch n.Params.Type {
-	case "created", "restarted":
-		var rec Record
-		if err = json.Unmarshal(n.Params.Data, &rec); err == nil {
-			r, known = rec, true
-		}
-	case "status":
-		var d struct {
-			Status   *Status `json:"status"`
-			Reported bool    `json:"reported"`
-		}
-		if err = json.Unmarshal(n.Params.Data, &d); err == nil {
-			r.Status, r.Reported = d.Status, d.Reported
-		}
-	case "foreground":
-		var f Foreground
-		if err = json.Unmarshal(n.Params.Data, &f); err == nil {
-			r.Foreground = &f
-		}
-	case "finished", "removed":
-		var d struct {
-			Reason string `json:"reason"`
-		}
-		_ = json.Unmarshal(n.Params.Data, &d)
-		r.State, r.Reason = "finished", cmp.Or(d.Reason, n.Params.Type)
-	}
-	if err != nil {
-		return r, known, &Error{Op: "events.subscribe", Msg: fmt.Sprintf("unreadable %s event of %s: %v", n.Params.Type, pane, err)}
-	}
-	return r, known, nil
-}
-
-// findRecord is the record of address in recs.
-func findRecord(recs []Record, address string) (Record, bool) {
-	i := slices.IndexFunc(recs, func(r Record) bool { return r.Address == address })
-	if i < 0 {
-		return Record{}, false
-	}
-	return recs[i], true
+	return shellpane.WaitStatus(ctx, "hc", Panes{C: cl}, pane, until, timeout)
 }

@@ -3,9 +3,10 @@
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6:
 // docs/research/agent-driver-deep-dive.md §6, the cases' design). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
-// `make conformance [KIND=herdr|claude|codex|opencode|agy|plugin|hc] [TIER=static|live] [TURN=1] [TERMINAL=hc]` (plugin: the
-// kind protocol against a shell-script kind, static only; hc: the hc probes of live_hc.go, live only, run only when
-// named; TERMINAL=hc: the live tier's agent kinds start on hc instead of herdr, live_hcterm.go). Each
+// `make conformance [KIND=herdr|claude|codex|opencode|agy|plugin|hc|rex] [TIER=static|live] [TURN=1]
+// [TERMINAL=hc|rex]` (plugin: the kind protocol against a shell-script kind, static only; hc and rex: the probes of
+// live_hc.go and live_rex.go, live only, run only when named; TERMINAL=hc or rex: the live tier's agent kinds start on hc (live_hcterm.go) or Rex (live_rexterm.go)
+// instead of herdr). Each
 // check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them
 // (CAP: docs/research/agent-cli-and-herdr-capabilities.md, the tools' facts).
 // The exit status is 1 when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no
@@ -118,9 +119,12 @@ func main() {
 		hookTransports()  // one row per hook transport, whichever kinds the run names
 		guardTransports() // the shared row: every transport's answer to the calls the guard must deny
 	case "live":
-		if os.Getenv("TERMINAL") == "hc" { // the kinds' starts on hc (live_hcterm.go); herdr otherwise
+		switch os.Getenv("TERMINAL") { // the kinds' starts on hc (live_hcterm.go) or Rex (live_rexterm.go); herdr otherwise
+		case "hc":
 			liveOnHC(run, turn)
-		} else {
+		case "rex":
+			liveOnRex(run, turn)
+		default:
 			live(run, turn)
 		}
 	default:

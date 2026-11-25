@@ -149,7 +149,7 @@ func TestStreamRecorded(t *testing.T) {
 		}
 	}
 	want := []string{
-		"created B shell@cap ",
+		"created B @cap ", // its label is Rex's default (label): none
 		"status B w1@cap ",
 		"status B w1@capproj ",
 		"created B2 w2@capproj ",
@@ -157,7 +157,7 @@ func TestStreamRecorded(t *testing.T) {
 		"status B2 w2@capproj ",
 		"closed B2",
 		"exited B",
-		"created B3 shell@cap2 ",
+		"created B3 @cap2 ",
 		"closed B3",
 	}
 	// Every milestone, in order; between them only status events of a pane's cwd or foreground.

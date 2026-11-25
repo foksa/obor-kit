@@ -48,6 +48,10 @@
       "full_s": 0.8,
       "git_procs": 0
     },
+    "obor/internal/app/shellpane": {
+      "full_s": 0.6,
+      "git_procs": 0
+    },
     "obor/internal/app/wire": {
       "full_s": 1.3,
       "git_procs": 0
