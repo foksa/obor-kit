@@ -3,6 +3,7 @@
 package checks
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -31,6 +33,131 @@ func syncFx(t *testing.T) (*testkit.Project, Lane, string, string, string) {
 // syncIn is attempt 2's lane.sync of T-01 in L-01 onto target.
 func syncIn(lane, target string) port.SyncInput {
 	return port.SyncInput{Task: "T-01", Attempt: 2, Lane: "L-01", Dir: lane, Branch: "task/T-01", Target: target}
+}
+
+// linkIn is attempt 2's lane.sync of fx's lane: its worker branch, fx.cand the target.
+func linkIn(fx checkoutFx) port.SyncInput {
+	return port.SyncInput{Task: "T-01", Attempt: 2, Lane: "L-01", Dir: fx.lane, Branch: fx.branch, Target: fx.cand}
+}
+
+// lane.sync keeps obor's links the way a checkout does (project.WithLinks): the target that starts tracking a link's
+// path does not stop the merge (the link comes out of its way, the tracked file takes the path); a merge that stops
+// puts the link back; the replay of a merge a crash left open reconciles it; an ordinary untracked file is never
+// removed, and the lane stays as it was.
+func TestLaneSyncKeepsTheLinks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("the target starts tracking the settings link: merged, the tracked file takes it", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, project.PluginSettings)
+		fx.isLink(t, "precondition: the lane's settings link")
+		var out bytes.Buffer
+		l := Lane{Cfg: fx.cfg, Out: &out}
+		s, err := l.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncMerged {
+			t.Fatalf("Sync: %+v, %v; want merged", s, err)
+		}
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != s.SHA {
+			t.Errorf("the merge's sha %s, the lane's HEAD %s", s.SHA, h)
+		}
+		if parents := strings.Fields(fx.p.Git(fx.lane, "rev-list", "--parents", "-n", "1", "HEAD")); len(parents) != 3 ||
+			parents[1] != fx.base || parents[2] != fx.cand {
+			t.Errorf("HEAD's parents %q; want %s and %s", parents, fx.base, fx.cand)
+		}
+		fx.isTracked(t, "after the sync")
+		if want := "removed link " + fx.path + ": " + fx.cand[:7] + " tracks it\n"; out.String() != want {
+			t.Errorf("progress %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("the target starts tracking a lanes.links entry: merged, the entry reconciled", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, "conf/local.env")
+		fx.isLink(t, "precondition: the configured link")
+		s, err := Lane{Cfg: fx.cfg}.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncMerged {
+			t.Fatalf("Sync: %+v, %v; want merged", s, err)
+		}
+		fx.isTracked(t, "after the sync")
+	})
+
+	t.Run("a conflicting merge with the link: aborted, the link restored", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, project.PluginSettings, "shared.txt")
+		fx.p.Write(filepath.Join(fx.lane, "shared.txt"), "the lane's own\n")
+		fx.p.Git(fx.lane, "add", "shared.txt")
+		fx.p.Git(fx.lane, "commit", "-q", "-m", "the lane's shared")
+		head := fx.p.Git(fx.lane, "rev-parse", "HEAD")
+		var out bytes.Buffer
+		l := Lane{Cfg: fx.cfg, Out: &out}
+		s, err := l.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncConflict || !slices.Equal(s.Files, []string{"shared.txt"}) {
+			t.Fatalf("Sync: %+v, %v; want a conflict in shared.txt", s, err)
+		}
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != head {
+			t.Errorf("HEAD %s; want %s, untouched", h, head)
+		}
+		fx.isLink(t, "after the aborted merge")
+		keptRegular(t, filepath.Join(fx.lane, "shared.txt"), "the lane's own\n")
+		if st := fx.p.Git(fx.lane, "status", "--porcelain", "--untracked-files=all"); st != "?? "+fx.path {
+			t.Errorf("the lane's tree after the abort: %q, want only the link", st)
+		}
+		if want := "removed link " + fx.path + ": " + fx.cand[:7] + " tracks it\nlinked " + fx.path + "\n"; out.String() != want {
+			t.Errorf("progress %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a replay after a crash mid-merge: merged, the links reconciled", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, project.PluginSettings)
+		// the crash: the cut sync had removed the link and its merge was left open, uncommitted
+		dst := filepath.Join(fx.lane, project.PluginSettings)
+		if err := os.Remove(dst); err != nil {
+			t.Fatal(err)
+		}
+		fx.p.Git(fx.lane, "merge", "-q", "--no-commit", "--no-ff", fx.cand)
+		if !gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Fatal("precondition: the crash left no MERGE_HEAD")
+		}
+		keptRegular(t, dst, "tracked\n")
+		l := Lane{Cfg: fx.cfg}
+		s, err := l.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncMerged {
+			t.Fatalf("Sync: %+v, %v; want merged", s, err)
+		}
+		fx.isTracked(t, "after the replay")
+		if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Error("the replay left the merge open")
+		}
+		if again, err := l.Sync(ctx, linkIn(fx)); err != nil || again.Kind != s.Kind || again.SHA != s.SHA {
+			t.Errorf("Sync again: %+v, %v; want %+v", again, err, s)
+		}
+	})
+
+	t.Run("an ordinary untracked file where the target tracks the path: not removed, no merge", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, project.PluginSettings)
+		dst := filepath.Join(fx.lane, project.PluginSettings)
+		if err := os.Remove(dst); err != nil {
+			t.Fatal(err)
+		}
+		fx.p.Write(dst, "the lane's own\n")
+		if tracked := fx.p.Git(fx.lane, "ls-tree", "--name-only", fx.cand, "--", project.PluginSettings); tracked == "" {
+			t.Fatal("precondition: the target does not track the path")
+		}
+		if st := fx.p.Git(fx.lane, "status", "--porcelain", "--untracked-files=all"); st != "?? "+project.PluginSettings {
+			t.Fatalf("precondition: the lane's own file's status %q, want it untracked", st)
+		}
+		s, err := Lane{Cfg: fx.cfg}.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncDirty || !slices.Equal(s.Files, []string{project.PluginSettings}) {
+			t.Fatalf("Sync: %+v, %v; want dirty naming %s", s, err, project.PluginSettings)
+		}
+		keptRegular(t, dst, "the lane's own\n")
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.base {
+			t.Errorf("HEAD %s; want %s, untouched", h, fx.base)
+		}
+	})
 }
 
 // lane.sync on real git (port.LaneSetup.Sync): the target merged into the task branch, or the lane left as it was —
