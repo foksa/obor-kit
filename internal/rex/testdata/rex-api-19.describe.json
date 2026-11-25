@@ -1,6 +1,6 @@
 {
- "rex_version": "0.1.0-preview.21",
- "api_revision": 18,
+ "rex_version": "0.1.0-preview.23",
+ "api_revision": 19,
  "command": "rex api describe --json <method>",
  "methods": [
   {
@@ -49,7 +49,7 @@
      },
      "rex_version": {
       "type": "string",
-      "description": "The version of Rex the server runs, as rex version prints it, such as 0.0.1780750825-g9a754d."
+      "description": "The version of Rex the server runs, as rex version prints it, such as 1.2.0-snapshot.214."
      }
     },
     "required": [
@@ -59,7 +59,7 @@
     ],
     "additionalProperties": false
    },
-   "response_example": "{\n  \"rex_version\": \"0.0.1780750825-g9a754d\",\n  \"platform\": \"darwin_arm64\",\n  \"commit\": \"9a754d1234567890\",\n  \"built_at\": \"2026-06-06T13:00:25Z\",\n  \"dirty\": false\n}",
+   "response_example": "{\n  \"rex_version\": \"1.2.0-snapshot.214\",\n  \"platform\": \"darwin_arm64\",\n  \"commit\": \"9a754d1234567890\",\n  \"built_at\": \"2026-06-06T13:00:25Z\",\n  \"dirty\": false\n}",
    "validation_notes": [
     "A missing `api_revision` or `api_min_revision` means 0. Servers from before these fields existed leave both out."
    ]
@@ -1387,7 +1387,7 @@
       "properties": {
        "block_id": {
         "type": "string",
-        "description": "The caller's block, such as the terminal a script runs in. In target.resolve, empty block and window queries default to it and its window."
+        "description": "The caller's block, such as the terminal a script runs in. The session that holds it is the caller's session, even if session_id names another. In target.resolve, empty block and window queries default to it and its window."
        },
        "client_id": {
         "type": "string",
@@ -1395,7 +1395,7 @@
        },
        "session_id": {
         "type": "string",
-        "description": "The caller's session. Without scope.session, windows and blocks are searched only in this session, and an empty session query selects it."
+        "description": "The caller's session. It's used only when block_id is left out or no longer names an open block. Without scope.session, windows and blocks are searched only in the caller's session, and an empty session query selects it."
        }
       },
       "description": "Where the caller is, such as the terminal a script runs in. IDs in it that no longer exist are ignored.",
@@ -1419,7 +1419,7 @@
       "items": {
        "type": "string"
       },
-      "description": "The names to look up. Each is a full ID, a label, a window position, the end of an ID, or an empty string for the default."
+      "description": "The names to look up. Each is a full ID, a label, a window position, the end of an ID, or an empty string for the default. When kinds includes session but not block, the full ID of a block names the session that holds it."
      },
      "scope": {
       "type": [
@@ -1429,7 +1429,7 @@
       "properties": {
        "session": {
         "type": "string",
-        "description": "The session to search in, named by ID, label, or the end of its ID. A client search then covers only clients attached to it."
+        "description": "The session to search in, named by ID, label, or the end of its ID. The full ID of a block, such as $REX_BLOCK, names the session that holds it. A client search then covers only clients attached to it."
        },
        "window": {
         "type": "string",
@@ -1586,13 +1586,14 @@
     "Send at least one query, or the call fails with `bad_request`. Each query gets one entry in `results`, in the same order. A query that matches nothing or several things doesn't fail the call: its `status` is `not_found` or `ambiguous`.",
     "The server tries each query in four steps and stops at the first step that matches anything: full ID, label (ignoring case), window position, then the end of an ID (4 to 32 hexadecimal digits). So a window labeled `2` wins over the second window. If the winning step matches more than one thing, the result is `ambiguous`.",
     "A query that starts like a full ID, such as `block:`, is only tried as a full ID. Its result is `not_found` if the ID is malformed, if `kinds` doesn't include that kind, or if nothing has that ID.",
+    "There's one exception. When `kinds` includes `session` but not `block`, the full ID of a block, such as `$REX_BLOCK`, names the session that holds the block. Every session is searched, even if the context names a different one. `scope.session` accepts a block ID the same way. If no open block has the ID, the result is `not_found`. A block that is closing doesn't count. Only a full block ID works this way. A block's label or the end of its ID never names a session.",
     "Only windows have positions. `1` is the first window in its session, in the order Rex.app shows them as tabs. When several sessions are searched, a position can match a window in each one.",
     "When `kinds` lists more than one kind, one query can match different kinds of things, such as a session and a window with the same label. The result is then `ambiguous`, and each candidate's `kind` says what it is.",
-    "Without `scope.session`, windows and blocks are searched only in the session named by `context.session_id`. If that's left out or the session no longer exists, every session is searched. This applies to full IDs too, so the full ID of a block in another session is `not_found`.",
+    "Without `scope.session`, windows and blocks are searched only in the caller's session. That's the session that holds `context.block_id`, if the block is open, or else the session named by `context.session_id`. The block comes first because it stays with its window when the window moves to another session, while a saved session ID keeps naming the old one. If neither applies, every session is searched. This applies to full IDs too, so a window or block query for the full ID of a block in another session is `not_found`.",
     "If a scope matches nothing or several things, every result gets that `not_found` or `ambiguous` status, and its `reason` says which scope failed. For an ambiguous scope, `candidates` lists what the scope could mean.",
     "An empty query, or one of only spaces, asks for a default, such as the block a script runs in. When `kinds` lists several kinds, an empty query gets the default for the most specific one: block, then window, then session.",
-    "An empty session query selects `context.session_id`, or the only session if there's just one. With no sessions it's `not_found`, and with several it's `ambiguous`.",
-    "An empty window query selects the window that holds `context.block_id`, or else the active window of the session being searched. If several sessions are searched, it's `ambiguous` even with `context.block_id` set, and `candidates` lists the sessions to choose from.",
+    "An empty session query selects the caller's session, or the only session if there's just one. With no sessions it's `not_found`, and with several it's `ambiguous`.",
+    "An empty window query selects the window that holds `context.block_id`. If that block isn't set or is detached, it selects the active window of the session being searched. If several sessions are searched, because neither `scope.session` nor the context names one, it's `ambiguous`, and `candidates` lists the sessions to choose from.",
     "An empty block query selects `context.block_id` if that block is among those searched. Otherwise it selects the focused block of the window an empty window query would choose. With `scope.window`, it ignores `context.block_id` and selects that window's focused block.",
     "Block searches include detached blocks, which are running but aren't placed in any window. `scope.window` leaves them out. A block's `where` reads `window 2` or `detached`. When several sessions are searched, it names the session too, as in `window 2 of work`, and a window's `where` reads `in work`.",
     "To look up a connected client, such as Rex.app, set `kinds` to `[\"client\"]`. A client query matches a full ID, a label, or the end of an ID, since clients have no positions. Every connected client is searched, unless `scope.session` limits the search to clients attached to that session.",
@@ -2097,7 +2098,7 @@
      },
      "cwd": {
       "type": "string",
-      "description": "The directory to start in. Empty, or a path that isn't a directory on the server's machine, starts in the user's home directory."
+      "description": "The directory to start in. If it's empty, doesn't exist on the server's machine, isn't a directory, or is a directory the server's user isn't allowed to enter, the terminal starts in the user's home directory."
      },
      "path_prepend": {
       "type": [

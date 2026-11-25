@@ -23,7 +23,7 @@ func TestCheckFindsRexOnPath(t *testing.T) {
 		t.Errorf("rex on PATH: line %q, error %v; want %q", line, err, "rex CLI "+bin)
 	}
 	const refusal = "rex check: no rex on PATH: Rex's CLI ships in its app bundle, put " +
-		"/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS on PATH"
+		"/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS on PATH"
 	none := &Client{Env: []string{"PATH=" + empty}}
 	if line, err := none.Check(ctx); err == nil || err.Error() != refusal || line != "" {
 		t.Errorf("no rex on PATH: line %q, error %v; want the refusal %q", line, err, refusal)

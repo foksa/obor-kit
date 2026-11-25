@@ -17,7 +17,7 @@ import (
 const Terminal = "com.superlogical.terminal"
 
 // APIRevision is the API revision the client's calls are checked against (testdata's describe copy; contract.go).
-const APIRevision = 18
+const APIRevision = 19
 
 // Session is one entry of session.list.
 type Session struct {

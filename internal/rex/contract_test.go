@@ -60,7 +60,7 @@ func readDescribe(t *testing.T) map[string][2]*schemaNode {
 
 func readCopy(t *testing.T) describe {
 	t.Helper()
-	b, err := os.ReadFile("testdata/rex-api-18.describe.json")
+	b, err := os.ReadFile("testdata/rex-api-19.describe.json")
 	if err != nil {
 		t.Fatal(err)
 	}

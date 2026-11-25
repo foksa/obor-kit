@@ -41,7 +41,7 @@ otherwise.
   `server …` changes are denied in every agent's pane but the lead's; reads (`rex ls`, `capture`, `events`, `wait`,
   `session`/`window`/`block ls` and `inspect`, `api describe`, `--help`) are fine.
 - No `rex` on `PATH` (the CLI ships inside the app bundle) → `obor setup check` and serve fail naming the directory to
-  put on `PATH`: `/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS`.
+  put on `PATH`: `/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS`.
 - A block inherits the Rex server's whole environment, a server started from an obor pane included (2026-11-25) →
   obor's own blocks drop those names; a block you open by hand keeps them: start agents through obor.
 

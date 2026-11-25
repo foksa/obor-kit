@@ -71,6 +71,6 @@ own check (`OK check: …` or `FAIL …`).
   `--standalone` there (`obor config validate` refuses a model without them).
 - **rex** (Rex, experimental): the project is a Rex session labelled with its name, a tab a window, a pane a terminal
   block; obor drives the server the `rex` CLI reaches by default. `obor setup check` (and `obor init`, serve's
-  connect) fails when no `rex` is on `PATH`: put `/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS`
+  connect) fails when no `rex` is on `PATH`: put `/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS`
   there (obor never runs it from the bundle itself). A block inherits the Rex server's whole environment, so every
   block obor makes drops the server's `OBOR_`, `HERDR_`, `HC_` and Claude session names before its own.
