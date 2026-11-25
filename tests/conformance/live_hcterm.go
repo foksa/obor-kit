@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,8 +39,8 @@ var hcUpdateArgs = map[string][]string{"codex": {"-c", "check_for_update_on_star
 // agy's, which the starter list has no entry for (the lab's agy-live). The hc and Rex kind drivers share it.
 var hcModels = map[string]string{"claude": "haiku", "codex": "luna", "opencode": "deepseek", "agy": "agy-live"}
 
-// liveOnHC runs each kind's hc rows (HC-T1 the start, HC-T2 the identity its obor server sees, HC-T3 with TURN=1 a
-// turn) in a session of its own.
+// liveOnHC runs each kind's hc rows (HC-T1 the start, HC-T3 with TURN=1 a turn, then HC-T2 the identity its obor server
+// sees: agy starts that server at its first prompt) in a session of its own.
 func liveOnHC(kinds []string, turn bool) {
 	hcBin, err := exec.LookPath("hc")
 	if err != nil {
@@ -75,7 +76,8 @@ func liveOnHC(kinds []string, turn bool) {
 	}
 }
 
-// hcTermKind is one kind's rows: the scratch project and kit, the session, one terminal, the start, the turn, the quit.
+// hcTermKind is one kind's rows: the scratch project and kit, the session, one terminal, the start, the turn, the
+// identity, the quit.
 func hcTermKind(hcBin, root, kind string, turn bool) {
 	dir := filepath.Join(root, kind)
 	l := &lab{kind: kind, root: dir, kit: filepath.Join(dir, "kit"), main: filepath.Join(dir, "proj"),
@@ -143,18 +145,10 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 
 	where1 := at("internal/hc/start.go", "func (cl *Client) Start") + ", " + hcTermPlan
 	t0 := time.Now()
-	p, err := cl.Start(ctx, port.AgentStart{Pane: pane, Label: "cf-l-01", Kind: kind, Program: agents.Programs(k)[0], Argv: start.Args, Bound: 45 * time.Second})
-	dialog := ""
-	if port.NotReady(err) { // a startup dialog (the scratch dir is new to the CLI): answered as a person would
-		keys := []string{"enter"}
-		if kind == agents.Default && agents.TrustDialog(hl.screen(pane)) { // Claude's default option is "No, exit"
-			keys = []string{"down", "enter"}
-		}
-		dialog = fmt.Sprintf("; a startup dialog (%s) answered with %s", firstLine(err.Error()), strings.Join(keys, ", "))
-		_ = cl.SendKeys(ctx, pane, keys...)
-		if poll(45*time.Second, func() bool { q, e := cl.Pane(ctx, pane); p = q; return e == nil && q.Agent == kind && q.Ready() }) {
-			err = nil
-		}
+	p, answered, err := startPastDialog(ctx, cl, port.AgentStart{Pane: pane, Label: "cf-l-01", Kind: kind, Program: agents.Programs(k)[0],
+		Argv: start.Args, Bound: 45 * time.Second})
+	if answered != "" {
+		answered = "; " + answered
 	}
 	took := time.Since(t0)
 	term := hl.get(pane)
@@ -169,13 +163,17 @@ func hcTermKind(hcBin, root, kind string, turn bool) {
 		app = term.Status.App
 	}
 	report("PASS", "HC-T1", fmt.Sprintf("%s: up in %.1fs through hc.Client.Start: status %s, app %q, pane agent %s%s", kind,
-		took.Seconds(), p.Status, app, p.Agent, dialog), where1)
+		took.Seconds(), p.Status, app, p.Agent, answered), where1)
 
-	hcTermIdentity(l, kind, pane)
 	if turn {
 		hcTermTurn(cl, hl, kind, pane)
 	} else {
 		report("SKIP", "HC-T3", kind+": needs TURN=1 (a model call)", at("internal/hc/control.go", "func (cl *Client) Prompt"))
+	}
+	if mcpAtPrompt[kind] && !turn {
+		report("SKIP", "HC-T2", kind+": starts its MCP servers at its first prompt: needs TURN=1 (a model call)", at("internal/project/pane.go", "func Pane"))
+	} else {
+		hcTermIdentity(l, kind, pane)
 	}
 	hcQuit(cl, hl, k, pane)
 }
@@ -204,6 +202,40 @@ func hcLaunch(l *lab, kind string) (agents.Launch, agents.Kind, error) {
 		Read: os.ReadFile, Env: os.Getenv, Dirs: project.SubDirs, WriteState: project.StateWriter(l.main), StrictMCP: true})
 	return launch, k, err
 }
+
+// startPastDialog starts s through control (its AgentStarter). A start that comes back NotReady (a CLI's startup
+// dialog in the scratch lane, agy's brief "Sign in required") is answered as a person would, then waited for (45 s):
+// Enter, or for Claude's trust dialog, whose default option is "No, exit", down and Enter. answered is that dialog and
+// its keys, for the row's fact ("" when the start needed none). The hc and Rex drivers start every agent through it.
+func startPastDialog(ctx context.Context, control port.PaneControl, s port.AgentStart) (p port.Pane, answered string, err error) {
+	st, ok := control.(port.AgentStarter)
+	if !ok {
+		return port.Pane{}, "", errors.New("the terminal's PaneControl is no AgentStarter")
+	}
+	p, err = st.Start(ctx, s)
+	if !port.NotReady(err) {
+		return p, "", err
+	}
+	screen, _ := control.Screen(ctx, s.Pane, 0)
+	keys := []string{port.KeyEnter}
+	if s.Kind == agents.Default && agents.TrustDialog(screen) {
+		keys = []string{"down", port.KeyEnter}
+	}
+	answered = fmt.Sprintf("a startup dialog (%s) answered with %s", firstLine(err.Error()), strings.Join(keys, ", "))
+	_ = control.SendKeys(ctx, s.Pane, keys...)
+	if poll(45*time.Second, func() bool {
+		q, e := control.Pane(ctx, s.Pane)
+		p = q
+		return e == nil && q.Agent == s.Kind && q.Ready()
+	}) {
+		err = nil
+	}
+	return p, answered, err
+}
+
+// mcpAtPrompt are the kinds that start their MCP servers at the first prompt of a conversation, not when the CLI
+// starts (agy: docs/research/agy-probes.md P2): their identity row needs the turn before it.
+var mcpAtPrompt = map[string]bool{"agy": true}
 
 // hcTermIdentity is HC-T2: the obor server the agent started (the stub) runs in the lane with OBOR_PANE and, when the
 // kind runs it in the terminal's own process tree, HC_TERMINAL_ID naming the terminal; no HERDR_ name; and obor's pane

@@ -13,7 +13,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,8 +34,8 @@ import (
 var rexLeak = []string{"OBOR_ROLE=leak-role", "OBOR_PANE=leak-pane", "HERDR_PANE_ID=leak-pane", "HERDR_ENV=1",
 	"HC_TERMINAL_ID=t-leak", "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=leak-session", "CLAUDE_CODE_ENTRYPOINT=leak"}
 
-// liveOnRex runs each kind's Rex rows (RX-T0 the scrubbed block, RX-T1 the start, RX-T2 the identity its obor server
-// sees, RX-T3 with TURN=1 a turn) on a scratch server of its own.
+// liveOnRex runs each kind's Rex rows (RX-T0 the scrubbed block, RX-T1 the start, RX-T3 with TURN=1 a turn, then RX-T2
+// the identity its obor server sees: agy starts that server at its first prompt) on a scratch server of its own.
 func liveOnRex(kinds []string, turn bool) {
 	bin, err := exec.LookPath("rex")
 	if err != nil {
@@ -76,7 +75,7 @@ func liveOnRex(kinds []string, turn bool) {
 }
 
 // rexTermKind is one kind's rows: the scratch project and kit, the server, the lane's block, the start, the turn, the
-// quit.
+// identity, the quit.
 func rexTermKind(bin, root, kind string, turn bool) {
 	dir := filepath.Join(root, kind)
 	l := &lab{kind: kind, root: dir, kit: filepath.Join(dir, "kit"), main: filepath.Join(dir, "proj"),
@@ -142,21 +141,10 @@ func rexTermKind(bin, root, kind string, turn bool) {
 
 	where1 := at("internal/rex/control.go", "func (cl *Client) Start") + ", internal/app/shellpane (Start), " + rexPlan
 	t0 := time.Now()
-	st := control.(port.AgentStarter)
-	p, err := st.Start(ctx, port.AgentStart{Pane: pane, Label: "cf-l-01", Kind: kind, Program: agents.Programs(k)[0], Argv: start.Args,
-		Bound: 45 * time.Second})
-	dialog := ""
-	if port.NotReady(err) { // a startup dialog (the scratch dir is new to the CLI): answered as a person would
-		screen, _ := cl.Screen(ctx, pane, 0)
-		keys := []string{port.KeyEnter}
-		if kind == agents.Default && agents.TrustDialog(screen) { // Claude's default option is "No, exit"
-			keys = []string{"down", port.KeyEnter}
-		}
-		dialog = fmt.Sprintf("; a startup dialog (%s) answered with %s", firstLine(err.Error()), strings.Join(keys, ", "))
-		_ = cl.SendKeys(ctx, pane, keys...)
-		if poll(45*time.Second, func() bool { q, e := cl.Pane(ctx, pane); p = q; return e == nil && q.Agent == kind && q.Ready() }) {
-			err = nil
-		}
+	p, answered, err := startPastDialog(ctx, control, port.AgentStart{Pane: pane, Label: "cf-l-01", Kind: kind,
+		Program: agents.Programs(k)[0], Argv: start.Args, Bound: 45 * time.Second})
+	if answered != "" {
+		answered = "; " + answered
 	}
 	took := time.Since(t0)
 	if err != nil {
@@ -166,13 +154,18 @@ func rexTermKind(bin, root, kind string, turn bool) {
 		return
 	}
 	report("PASS", "RX-T1", fmt.Sprintf("%s: up in %.1fs through rex.Client.Start: status %s, agent %s, label %s%s", kind,
-		took.Seconds(), p.Status, p.Agent, p.Label, dialog), where1)
+		took.Seconds(), p.Status, p.Agent, p.Label, answered), where1)
 
-	rexTermIdentity(l, kind, pane)
 	if turn {
 		rexTermTurn(cl, control, kind, pane)
 	} else {
 		report("SKIP", "RX-T3", kind+": needs TURN=1 (a model call)", at("internal/rex/control.go", "func (cl *Client) Prompt"))
+	}
+	if mcpAtPrompt[kind] && !turn {
+		report("SKIP", "RX-T2", kind+": starts its MCP servers at its first prompt: needs TURN=1 (a model call)",
+			at("internal/project/pane.go", "func PaneOf"))
+	} else {
+		rexTermIdentity(l, kind, pane)
 	}
 	rexQuit(cl, k, pane)
 	rexTermContract(control, cl, kind, l.lane, pane, start, k)
@@ -207,34 +200,13 @@ func rexTermContract(control port.PaneControl, cl *rex.Client, kind, lane, pane 
 	}
 }
 
-// dialog is a terminal's control as a start sees it: a start that comes back NotReady (a CLI's startup dialog in the
-// scratch lane, agy's brief "Sign in required") is answered as the kind workflows answer one, then waited for. The
+// dialog is a terminal's control as a start sees it: a start's startup dialog is answered (startPastDialog). The
 // contract rows start agents on a terminal whose CLI is new to the scratch dir; obor's launcher answers that dialog, so
 // the rows see the start obor sees.
 type dialog struct{ port.PaneControl }
 
 func (d dialog) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
-	st, ok := d.PaneControl.(port.AgentStarter)
-	if !ok {
-		return port.Pane{}, errors.New("the terminal's PaneControl is no AgentStarter")
-	}
-	p, err := st.Start(ctx, s)
-	if !port.NotReady(err) {
-		return p, err
-	}
-	screen, _ := d.PaneControl.Screen(ctx, s.Pane, 0)
-	keys := []string{port.KeyEnter}
-	if s.Kind == agents.Default && agents.TrustDialog(screen) { // Claude's default option is "No, exit"
-		keys = []string{"down", port.KeyEnter}
-	}
-	_ = d.PaneControl.SendKeys(ctx, s.Pane, keys...)
-	if poll(45*time.Second, func() bool {
-		q, e := d.PaneControl.Pane(ctx, s.Pane)
-		p = q
-		return e == nil && q.Agent == s.Kind && q.Ready()
-	}) {
-		return p, nil
-	}
+	p, _, err := startPastDialog(ctx, d.PaneControl, s)
 	return p, err
 }
 
