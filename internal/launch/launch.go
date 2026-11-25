@@ -20,11 +20,11 @@
 //	         or identity whose cwd is outside this project; a NoStop start into the --pane the caller named takes it at its
 //	         shell whatever its cwd (it runs no agent and carries no other agent's label).
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
-//	         names itself: Claude); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
-//	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude
-//	         sid resumes from the transcript the session itself reported (the SessionStart hook's path); none
-//	         anywhere (never prompted): starts fresh, said. A session of another kind than the dispatch's type
-//	         starts fresh, said.
+//	         names itself: Claude); --fresh: a new one. None: a role agent starts fresh, said; a lane's agent FAILs
+//	         (pass --fresh), checked before anything is stopped. A fresh start of a kind whose sessions obor names
+//	         records the id obor chose before the agent runs. A recorded Claude sid resumes from the transcript the
+//	         session itself reported (the SessionStart hook's path); none anywhere (never prompted): starts fresh,
+//	         said. A session of another kind than the dispatch's type starts fresh, said.
 //	Stop     see Stop; port.Launch.NoStop refuses instead (the agent already running, another agent in its lane
 //	         worktree, another program in its pane), nothing stopped. A child the pane's shell stopped (Ctrl+Z: herdr
 //	         then sees an idle shell) → FAIL with a hint, before anything is stopped or typed: no fg resume.
@@ -742,10 +742,12 @@ type resumption struct {
 //
 // A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the
 // recorded id, and a session with no record is a new one. Nothing recorded and nothing to adopt, with neither req.Fresh
-// nor a first prompt the request carries (carries), is a Fail; a session the rule puts aside (another kind's record, a
-// transcript gone) starts fresh, said. Every session the start resumes, recorded or adopted, is recorded with the start's kind once the agent runs (record): an adopted session becomes the agent's
-// current one whether or not its kind reports sessions or fires a start hook on resume (agy: neither), so the next
-// restart, the keep-lane identity and the context readers read it, not a stale record.
+// nor a first prompt the request carries (carries): a role agent (no lane row; the integrator counts) starts fresh,
+// said; a lane's agent is a Fail (it has lost its context, and a person picks --fresh). A session the rule puts aside
+// (another kind's record, a transcript gone) starts fresh, said. Every session the start resumes, recorded or adopted,
+// is recorded with the start's kind once the agent runs (record): an adopted session becomes the agent's current one
+// whether or not its kind reports sessions or fires a start hook on resume (agy: neither), so the next restart, the
+// keep-lane identity and the context readers read it, not a stale record.
 func (l *Launcher) sessionOf(t *target, req Request) (resumption, error) {
 	kinds := l.Cfg.Kinds()
 	if !kinds.Resumes(t.kind) {
@@ -783,6 +785,9 @@ func (l *Launcher) sessionOf(t *target, req Request) (resumption, error) {
 		r = resumption{sid: live, src: "herdr"}
 	case live != "" && adopts && (t.entry.Agent == t.kind || t.entry.Agent == ""): // no record: herdr's of this kind
 		r = resumption{sid: live, src: "herdr"}
+	case !carries(req) && t.info.Role != "" && t.info.Lane == "": // a role agent never started yet
+		l.say("no session recorded for %s: new session", t.agent)
+		return resumption{}, nil
 	case !carries(req):
 		return resumption{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
 	default:

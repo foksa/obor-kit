@@ -992,6 +992,27 @@ func TestRestartNoSessionFailsFreshStartsNew(t *testing.T) {
 	contains(t, x.startCall(), "pane=w1:p4", "started in the labelled pane")
 }
 
+// A role agent that never ran has no session record: its restart starts it fresh, said, instead of a lane agent's
+// FAIL (a new custom role's first use, after its brief).
+func TestRestartRoleAgentNeverStartedStartsFresh(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("agents.roles",
+		`{"integrator":"opus","lead":"opus","reviewer":"opus","gemini_advisor":"opus"}`))
+	x.shell("w1:p8", "pj-gemini-advisor", "")
+	if x.recorded("pj-gemini-advisor") != "" {
+		t.Fatal("precondition: no recorded session")
+	}
+	out, ok := x.restart(launch.Request{Agent: "pj-gemini-advisor"})
+	if !ok {
+		t.Fatalf("restart of a role agent never started failed:\n%s", out)
+	}
+	restarted(t, last(out), "pj-gemini-advisor", "w1:p8", "new")
+	contains(t, out, "no session recorded for pj-gemini-advisor: new session", "said")
+	contains(t, x.startCall(), "kind=claude", "the start")
+	contains(t, x.startCall(), "--session-id", "a fresh start names its own session")
+	lacks(t, x.startCall(), "--resume", "a fresh start resumes nothing")
+}
+
 // bash restart.test.sh case_unknown_agent_without_sid_fails, case_no_pane_fails, case_where_by_label,
 // case_refuse_foreign_label, case_no_agent_foreground_not_shell_fails
 func TestRestartWhereRefusals(t *testing.T) {
