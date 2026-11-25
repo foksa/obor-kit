@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-// StartIntegrator is startIntegrator for the external tests.
-func StartIntegrator(a *App, ctx context.Context, ag port.Launcher, root string, l port.Launch) (port.Started, error) {
-	return a.startIntegrator(ctx, withAppCfg(a, &Loop{Agents: ag}), root, l)
-}
-
 // JobTimer is the timer of task's integrator job in a's project at root: its job id ("": none), since when the
 // integrator is seen gone (zero: it runs) and the quiet time's baseline (zero: none).
 func JobTimer(a *App, root, task string) (job string, gone, quiet time.Time) {
