@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/agents"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
@@ -211,7 +212,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 		noteSeen(b, w, now) // noted on every pass: where its agent was last seen
 		if a.briefDone(p, agent, b, w, now) {
 			done = append(done, event.Message{To: p.out.Lead(), From: "obor", Ends: agent,
-				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.At())))})
+				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, describe.Age(now.Sub(b.At())))})
 			if file := p.folded.rv.BriefFile(agent, b.Seq()); file != "" {
 				if reviewed == nil {
 					reviewed = map[string]string{}
@@ -469,7 +470,7 @@ func (a *App) freshRoute(p *proj, fx *Loop, q outbox.Line, w Where) (post, targe
 	case !p.roleAgentOf(fx.Cfg, to):
 		return "", "", to + " is no role agent serve starts fresh"
 	case q.Refused() != "" && a.opt.Now().Sub(p.roleFail[to]) < roleStopRetry:
-		return "", "", fmt.Sprintf("its stop failed: tried again %s after the failure", Age(roleStopRetry))
+		return "", "", fmt.Sprintf("its stop failed: tried again %s after the failure", describe.Age(roleStopRetry))
 	}
 	return freshStart, w.Pane.ID, ""
 }
@@ -764,7 +765,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 		}
 		if now.Sub(q.At()) >= msgWait {
 			reason = fmt.Sprintf("line to %s from %s waiting over %s for its delivery: %s", q.Msg().To, q.Msg().From,
-				Age(msgWait), q.Msg().Line)
+				describe.Age(msgWait), q.Msg().Line)
 			if why := q.Why(); why != "" { // why the last pass held it (two panes claiming its agent among
 				// them), or its last refusal
 				reason += " (undelivered: " + why + ")"
@@ -848,29 +849,11 @@ func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int6
 // needsToast is the owner's herdr toast for needs-you fact r: the task and lane, or the project fact's reason alone.
 func needsToast(p *proj, r event.Record) (title, body string) {
 	d := r.Fact()
-	body = NeedsText(d)
+	body = describe.NeedsText(d)
 	if !projectKey(r.Task) {
 		body = fmt.Sprintf("%s in %s: %s", r.Task, d.Lane, body)
 	}
 	return "obor: " + p.name + " needs you", body
-}
-
-// NeedsText is a needs-you fact's text for the lead's line, the owner's toast and the view (obor status, the web):
-// its reason (a blocked pane's note after it, in parentheses), then a blocked pane's question and where a person
-// answers it.
-func NeedsText(d event.FactData) string {
-	text := oneLine(d.Reason)
-	if n := oneLine(d.PaneNote); n != "" {
-		text += " (" + n + ")"
-	}
-	if d.Question == "" {
-		return text
-	}
-	text += ": " + oneLine(d.Question)
-	if d.Pane != "" {
-		text += " (answer in pane " + d.Pane + ")"
-	}
-	return text
 }
 
 // needsYou is p's needs-you facts in force, the one source obor status, the needs rule and the view read: the
@@ -902,12 +885,12 @@ func (p *proj) needsLine(r event.Record, n int, now time.Time) string {
 	if d.Lane != "" {
 		line += " (" + d.Lane + ")"
 	}
-	line += ": " + NeedsText(d)
+	line += ": " + describe.NeedsText(d)
 	if ans := p.answerPath(r); ans != "" {
 		line += " → " + ans
 	}
 	if n > 0 {
-		line += " (again, " + Age(now.Sub(event.RecordTime(r))) + ")"
+		line += " (again, " + describe.Age(now.Sub(event.RecordTime(r))) + ")"
 	}
 	return line
 }
@@ -928,20 +911,6 @@ func (p *proj) oldLineOf(data json.RawMessage) event.Of {
 		return event.Of{Kind: ruleWatch, Seq: old.Watch}
 	}
 	return event.Of{}
-}
-
-// Age is d as obor status writes ages: 42s, 5m, 3h, 2d.
-func Age(d time.Duration) string {
-	s := int64(d / time.Second)
-	switch {
-	case s < 60:
-		return strconv.FormatInt(max(s, 0), 10) + "s"
-	case s < 3600:
-		return strconv.FormatInt(s/60, 10) + "m"
-	case s < 86400:
-		return strconv.FormatInt(s/3600, 10) + "h"
-	}
-	return strconv.FormatInt(s/86400, 10) + "d"
 }
 
 // sendLine is the line obor send posts in the target project: the sender and the text, then the reply in one

@@ -287,8 +287,8 @@ func newReviewRigWith(t *testing.T, seed bool) *reviewRig {
 // (aaaaaaa1, bbbbbbb2): the next review is RV-5, its scope T-a and T-b.
 func (r *reviewRig) seed() {
 	r.t.Helper()
-	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-4", Head: "1111111", Tasks: []string{"T-9"}})
-	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: "RV-4", Reply: review.ClosedReply + "RV-4 closed · 1111111 · approved · T-9"})
+	r.fact(event.ReviewTask, event.StepReviewStarted, review.Data{ID: "RV-4", Head: "1111111", Tasks: []string{"T-9"}})
+	r.fact(event.ReviewTask, event.StepReviewClosed, review.Data{ID: "RV-4", Reply: review.ClosedReply + "RV-4 closed · 1111111 · approved · T-9"})
 	r.mergedAt("T-a", "aaaaaaa1")
 	r.mergedAt("T-b", "bbbbbbb2")
 	recs := readLog(r.t, r.p.root)
@@ -341,7 +341,7 @@ func (r *reviewRig) started() {
 // closedBy is a close as serve's close leaves it: fact review.closed of id, its reply naming subject.
 func (r *reviewRig) closedBy(id, subject string) {
 	r.t.Helper()
-	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: id, Reply: review.ClosedReply + subject})
+	r.fact(event.ReviewTask, event.StepReviewClosed, review.Data{ID: id, Reply: review.ClosedReply + subject})
 }
 
 // close is obor review close's call from the lead (call id id, the summary, its accepted lines, --force).
@@ -445,11 +445,11 @@ func (r *reviewRig) needs() []string {
 // main checkout (port.Review.Close, admitted) and records fact review.closed, which every "is a review open" reads.
 
 // closedFacts is the log's review.closed facts' data since the seed, in order.
-func (r *reviewRig) closedFacts() []ReviewData {
+func (r *reviewRig) closedFacts() []review.Data {
 	r.t.Helper()
-	var out []ReviewData
+	var out []review.Data
 	for _, rec := range readLog(r.t, r.p.root) {
-		var d ReviewData
+		var d review.Data
 		if rec.Task == event.ReviewTask && rec.Step == event.StepReviewClosed && rec.Seq > r.seeded &&
 			json.Unmarshal(rec.Data, &d) == nil {
 			out = append(out, d)
@@ -498,7 +498,7 @@ func openReviewFile(t *testing.T, root string) {
 func startedReview(t *testing.T, r *reviewRig) {
 	t.Helper()
 	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
-		ReviewData{ID: "RV-5", Head: startHead, Tasks: []string{"T-start"}}) {
+		review.Data{ID: "RV-5", Head: startHead, Tasks: []string{"T-start"}}) {
 		t.Fatal("the log refused the review start")
 	}
 }

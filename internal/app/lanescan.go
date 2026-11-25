@@ -8,6 +8,8 @@ package app
 
 import (
 	"context"
+
+	"obor/internal/app/describe"
 	"obor/internal/app/port"
 	"path/filepath"
 	"time"
@@ -114,7 +116,7 @@ func (a *App) lanesNote(p *proj, now time.Time) string {
 	}
 	line := "lane table never read"
 	if !s.at.IsZero() {
-		line = "lane table read " + Age(now.Sub(s.at)) + " ago"
+		line = "lane table read " + describe.Age(now.Sub(s.at)) + " ago"
 	}
 	if s.err != nil {
 		line += " (last scan: " + s.err.Error() + ")"

@@ -97,6 +97,14 @@ func allowed(fromPkg, from, toPkg, to string) bool {
 	case to == bridge:
 		return true
 	}
+	// A record's wording is app/describe's, a leaf: the view, the web and describe itself read a record through it,
+	// never through the core, so a change anywhere in internal/app does not select them.
+	if toPkg == "internal/app" {
+		switch fromPkg {
+		case "internal/view", "internal/web", "internal/app/describe":
+			return false
+		}
+	}
 	// The herdr-app window is hc's second surface: the hc adapter drives it, and the conformance static tier checks
 	// its command contract against the installed app. No other package imports it (docs/module-map.md).
 	if toPkg == "internal/herdrapp" {
@@ -186,7 +194,10 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/config", "internal/agents", true},
 		{"internal/launch", "internal/agents/claude", true},
 		{"internal/app", "internal/agents", true},
-		{"internal/view", "internal/app", true},
+		{"internal/view", "internal/app", false},
+		{"internal/web", "internal/app", false},
+		{"internal/app/describe", "internal/app", false},
+		{"internal/app", "internal/app/describe", true},
 		{"internal/view", "internal/checks", true},
 		{"internal/view", "internal/store", true},
 		{"cmd/obor", "internal/view", true},

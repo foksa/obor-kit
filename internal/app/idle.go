@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -247,7 +248,7 @@ func idlePingRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (
 		return 0, action{}, false
 	}
 	title, body := "obor: "+p.name+" is idle", strings.TrimPrefix(idleLine(n.last), "[obor] ")
-	return n.end, action{line: idleLine(n.last) + " (again, " + Age(now.Sub(lined)) + ")",
+	return n.end, action{line: idleLine(n.last) + " (again, " + describe.Age(now.Sub(lined)) + ")",
 		call: func(ctx context.Context) error { return a.panes.Notify(ctx, title, body) }}, true
 }
 

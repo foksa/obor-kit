@@ -8,6 +8,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/testkit"
@@ -405,14 +406,14 @@ func (lastClose) Closed(context.Context, string, string, string) (string, error)
 // reviewsLog writes the log of a stopped app: RV-4 started and closed, then each of open started (not closed).
 func (r *loopRig) reviewsLog(open ...string) {
 	r.t.Helper()
-	rec := func(step string, d app.ReviewData) event.Record {
+	rec := func(step string, d review.Data) event.Record {
 		raw, _ := json.Marshal(d)
 		return event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact, Data: raw}
 	}
-	recs := []event.Record{rec(event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: "1111111"}),
-		rec(event.StepReviewClosed, app.ReviewData{ID: "RV-4"})}
+	recs := []event.Record{rec(event.StepReviewStarted, review.Data{ID: "RV-4", Head: "1111111"}),
+		rec(event.StepReviewClosed, review.Data{ID: "RV-4"})}
 	for _, id := range open {
-		recs = append(recs, rec(event.StepReviewStarted, app.ReviewData{ID: id, Head: "head0"}))
+		recs = append(recs, rec(event.StepReviewStarted, review.Data{ID: id, Head: "head0"}))
 	}
 	if err := app.WriteLog(r.p.Root, time.Now(), recs...); err != nil {
 		r.t.Fatal(err)

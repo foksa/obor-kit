@@ -5,13 +5,13 @@ import (
 	"sort"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
 // own start, which is no record), its time, its task, its line, whether that line is bad news, and its kind
-// (app.Kind*: the page's filter and icon).
+// (describe.Kind*: the page's filter and icon).
 type Event struct {
 	Seq  int64     `json:"seq"`
 	TS   string    `json:"ts"`
@@ -41,7 +41,7 @@ func events(db *sql.DB, n int, s Serve) []Event {
 		}
 	}
 	if s.Up && !s.SinceTime.IsZero() {
-		out = append(out, Event{TS: s.Since, Line: "serve restarted", Kind: app.KindServe, At: s.SinceTime})
+		out = append(out, Event{TS: s.Since, Line: "serve restarted", Kind: describe.KindServe, At: s.SinceTime})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
 	return out[:min(n, len(out))]
@@ -86,9 +86,9 @@ func NewestSeq(db *sql.DB) (int64, error) {
 	return recs[0].Seq, nil
 }
 
-// eventOf is r as the event list shows it (app.Describe's line; false: a record the list does not word).
+// eventOf is r as the event list shows it (describe.Describe's line; false: a record the list does not word).
 func eventOf(r event.Record) (Event, bool) {
-	d := app.Describe(r)
+	d := describe.Describe(r)
 	if d.Line == "" {
 		return Event{}, false
 	}

@@ -1,10 +1,13 @@
-package app
+package describe
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
+	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 )
 
@@ -143,7 +146,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"fact " + event.StepReviewRequest: func(r event.Record, d *Described) error {
-		var rd ReviewData
+		var rd review.Data
 		if err := decode(r, &rd); err != nil {
 			return err
 		}
@@ -155,7 +158,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"fact " + event.StepReviewStarted: func(r event.Record, d *Described) error {
-		var rd ReviewData
+		var rd review.Data
 		if err := decode(r, &rd); err != nil {
 			return err
 		}
@@ -238,3 +241,38 @@ func noteIn(note string) string {
 	}
 	return ": " + note
 }
+
+// NeedsText is a needs-you fact's text for the lead's line, the owner's toast and the view (obor status, the web):
+// its reason (a blocked pane's note after it, in parentheses), then a blocked pane's question and where a person
+// answers it.
+func NeedsText(d event.FactData) string {
+	text := oneLine(d.Reason)
+	if n := oneLine(d.PaneNote); n != "" {
+		text += " (" + n + ")"
+	}
+	if d.Question == "" {
+		return text
+	}
+	text += ": " + oneLine(d.Question)
+	if d.Pane != "" {
+		text += " (answer in pane " + d.Pane + ")"
+	}
+	return text
+}
+
+// Age is d as obor status writes ages: 42s, 5m, 3h, 2d.
+func Age(d time.Duration) string {
+	s := int64(d / time.Second)
+	switch {
+	case s < 60:
+		return strconv.FormatInt(max(s, 0), 10) + "s"
+	case s < 3600:
+		return strconv.FormatInt(s/60, 10) + "m"
+	case s < 86400:
+		return strconv.FormatInt(s/3600, 10) + "h"
+	}
+	return strconv.FormatInt(s/86400, 10) + "d"
+}
+
+// oneLine is s as one line: its fields joined by one space (internal/launch has the same one for its model lines).
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

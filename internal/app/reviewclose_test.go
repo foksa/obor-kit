@@ -12,6 +12,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 )
 
@@ -91,7 +92,7 @@ func TestReviewCloseUnwritten(t *testing.T) {
 	t.Run("covers no task", func(t *testing.T) {
 		t.Parallel()
 		r := newReviewRig(t)
-		r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-5", Head: startHead}) // covers no task
+		r.fact(event.ReviewTask, event.StepReviewStarted, review.Data{ID: "RV-5", Head: startHead}) // covers no task
 		if r.p.folded.rv.Last().Open() != "RV-5" {
 			t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.Last())
 		}

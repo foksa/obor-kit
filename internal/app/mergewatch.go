@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"sort"
@@ -221,7 +222,7 @@ func (a *App) watchCall(c wire.WatchReq) (string, error) {
 	case end != "":
 		return end, nil
 	case w != nil:
-		return "WATCHING " + c.Task + " (since " + Age(since) + ")", nil
+		return "WATCHING " + c.Task + " (since " + describe.Age(since) + ")", nil
 	}
 	if !a.record(p, event.Record{Task: event.WatchTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("watch: the event log of %s refused it", p.name)
@@ -242,7 +243,7 @@ func (a *App) watchList(p *proj) string {
 	}
 	lines := make([]string, 0, len(sets))
 	for _, set := range sets {
-		line := "WATCH " + set + " since " + Age(now.Sub(p.folded.watches[set].at))
+		line := "WATCH " + set + " since " + describe.Age(now.Sub(p.folded.watches[set].at))
 		if strings.Contains(set, ",") {
 			line += ", waiting " + strings.Join(p.waiting(set), ",")
 		}

@@ -1,7 +1,7 @@
 package view
 
-// the event list, the task page and an agent's lines word one record of each worded kind; the golden is the
-// text the view wrote before app.Describe took over (identical after).
+// the event list, the task page and an agent's lines word one record of each worded kind; the golden pins
+// describe.Describe's text for them.
 
 import (
 	"encoding/json"

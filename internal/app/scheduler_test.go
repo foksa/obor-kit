@@ -10,6 +10,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 )
@@ -243,7 +244,7 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 func startReview(t *testing.T, a *App, p *proj, id string) {
 	t.Helper()
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
-		ReviewData{ID: id, Head: "h1"}) {
+		review.Data{ID: id, Head: "h1"}) {
 		t.Fatalf("the log refused the review start %s", id)
 	}
 }

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/wire"
 	"obor/internal/view"
 )
@@ -206,14 +206,14 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
-	// every event kind serve names is Go's app.Kind*, and EventKind is their union, not a retyped list.
-	wantKinds := []string{app.KindMerge, app.KindGate, app.KindAccept, app.KindSubmit, app.KindDispatch, app.KindDrive,
-		app.KindMessage, app.KindServe, app.KindProblem, app.KindOther}
+	// every event kind serve names is Go's describe.Kind*, and EventKind is their union, not a retyped list.
+	wantKinds := []string{describe.KindMerge, describe.KindGate, describe.KindAccept, describe.KindSubmit, describe.KindDispatch, describe.KindDrive,
+		describe.KindMessage, describe.KindServe, describe.KindProblem, describe.KindOther}
 	if kinds, ok := tsStringSet(format, "export const EVENT_KINDS = [", "]"); !ok || !slices.Equal(kinds, wantKinds) {
-		t.Errorf("format.ts: EVENT_KINDS %v (parsed %v), want %v (app.Kind*)", kinds, ok, wantKinds)
+		t.Errorf("format.ts: EVENT_KINDS %v (parsed %v), want %v (describe.Kind*)", kinds, ok, wantKinds)
 	}
 	if !strings.Contains(format, "export type EventKind = (typeof EVENT_KINDS)[number];") {
-		t.Errorf("format.ts: EventKind is not the union of EVENT_KINDS (app.Kind*)")
+		t.Errorf("format.ts: EventKind is not the union of EVENT_KINDS (describe.Kind*)")
 	}
 	if strings.Contains(format, "export const FREE") {
 		t.Errorf("format.ts retypes the free lane states: the view ships Lane.free (T-883)")

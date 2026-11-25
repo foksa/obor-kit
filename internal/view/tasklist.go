@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 )
 
@@ -80,7 +81,7 @@ func (d Detail) TaskList() []TaskRow {
 		for _, r := range recs { // seq order: the newest wins
 			switch r.Step {
 			case event.StepReviewStarted, event.StepReviewClosed:
-				var rd app.ReviewData
+				var rd review.Data
 				if json.Unmarshal(r.Data, &rd) != nil || rd.ID == "" {
 					continue
 				}
@@ -100,7 +101,7 @@ func (d Detail) TaskList() []TaskRow {
 			f.last = r.Step
 			switch r.Step {
 			case event.StepDispatched:
-				desc := app.Describe(r)
+				desc := describe.Describe(r)
 				f.lane, f.ran = desc.Lane, desc.Type
 			case event.StepMerged:
 				var m event.MergedData

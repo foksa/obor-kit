@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -138,9 +138,9 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	}
 	reached := -1
 	for _, r := range recs { // newest first: the last submission and gate win
-		d := app.Describe(r)
+		d := describe.Describe(r)
 		t.Records, found = append(t.Records, TaskRecord{Seq: r.Seq, TS: r.TS, Step: r.Step, Kind: r.Kind, Line: d.Line,
-			Outcome: d.Outcome, Pass: d.Kind == app.KindGate && d.Outcome == port.OutcomeGreen}), true
+			Outcome: d.Outcome, Pass: d.Kind == describe.KindGate && d.Outcome == port.OutcomeGreen}), true
 		reached = max(reached, recordStep(r, d))
 		base, _ := event.StepN(r.Step)
 		switch {
@@ -246,7 +246,7 @@ func (d Detail) Job(job string) (Prompt, bool) {
 // recordStep is the step record r (described as d) shows its task reached (wire.TaskStep*; -1: none): the dispatch,
 // the job fetched or a sendback (working), the submission, a gate (the gate: its lane test or its review next), a
 // lane test (red: the gate; green: the review), the review job, an accept or a publish (merging). The merged fact is the page's own "every step done".
-func recordStep(r event.Record, d app.Described) int {
+func recordStep(r event.Record, d describe.Described) int {
 	base, _ := event.StepN(r.Step)
 	method, _, _ := strings.Cut(r.Step, ".")
 	switch {
@@ -278,7 +278,7 @@ func agentLines(db *sql.DB, agent string, n int) ([]AgentLine, error) {
 	}
 	out := []AgentLine{}
 	for _, r := range recs {
-		d := app.Describe(r)
+		d := describe.Describe(r)
 		out = append(out, AgentLine{Seq: r.Seq, TS: r.TS, From: d.From, Line: d.Text})
 	}
 	return out, nil

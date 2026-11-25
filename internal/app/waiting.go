@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -211,7 +212,7 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	}
 	if held {
 		a.needsYou(p, &mt, causeAfter, fmt.Sprintf("after: %s is not dispatched for %s since what it waits for merged: %s",
-			mt.task, Age(waitHeld), w.line))
+			mt.task, describe.Age(waitHeld), w.line))
 	}
 	return false
 }

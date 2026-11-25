@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -204,7 +205,7 @@ func laneSection(st view.Project, now time.Time) []string {
 	for _, a := range st.Agents {
 		if a.Lane == "" {
 			line := fmt.Sprintf("agent %s: %s%s %s", app.Dash(a.Name), a.Status, paneNote(a.Note),
-				app.Age(time.Duration(a.Age)*time.Second))
+				describe.Age(time.Duration(a.Age)*time.Second))
 			if a.Hint != "" { // a role agent done with no open work: how the lead stops it
 				line += " → " + a.Hint
 			}
@@ -224,7 +225,7 @@ func laneSection(st view.Project, now time.Time) []string {
 // <description or command> · 15m` for a recorded background call, `  running <command> · 15m` for another.
 func writeBackground(w io.Writer, bs []view.Background) {
 	for _, bg := range bs {
-		fmt.Fprintf(w, "  %s\n", oneLine(bg.Line(app.Age(time.Duration(bg.Age)*time.Second))))
+		fmt.Fprintf(w, "  %s\n", oneLine(bg.Line(describe.Age(time.Duration(bg.Age)*time.Second))))
 	}
 }
 
@@ -242,7 +243,7 @@ func paneNote(note string) string {
 func laneLine(l view.Lane, t view.Task) string {
 	ago := "-"
 	if l.DoneAge != nil {
-		ago = app.Age(time.Duration(*l.DoneAge) * time.Second)
+		ago = describe.Age(time.Duration(*l.DoneAge) * time.Second)
 	}
 	model := l.Type
 	if model == "" {
@@ -298,7 +299,7 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 		return []string{"full check: none yet"}
 	}
 	return []string{fmt.Sprintf("full check: %s %s, %s ago (%s)", fc.Verdict, fc.SHA[:min(7, len(fc.SHA))],
-		app.Age(max(now.Sub(time.Unix(fc.At, 0)), 0)), fc.Summary)}
+		describe.Age(max(now.Sub(time.Unix(fc.At, 0)), 0)), fc.Summary)}
 }
 
 // queueSection is what waits, one line per item, in the order of urgency: a merge open in serve's worktree
@@ -330,7 +331,7 @@ func queueSection(st view.Project, now time.Time) []string {
 		out = append(out, st.Review)
 	}
 	for _, w := range st.Watches {
-		line := "watch " + w.Task + " since " + app.Age(now.Sub(time.Unix(w.Since, 0)))
+		line := "watch " + w.Task + " since " + describe.Age(now.Sub(time.Unix(w.Since, 0)))
 		if w.By != "" {
 			line += " (by " + w.By + ")"
 		}
@@ -340,7 +341,7 @@ func queueSection(st view.Project, now time.Time) []string {
 		out = append(out, line)
 	}
 	for _, o := range q.Outbox {
-		age := app.Age(max(now.Sub(time.Unix(o.Since, 0)), 0))
+		age := describe.Age(max(now.Sub(time.Unix(o.Since, 0)), 0))
 		if o.Kind == view.OutLine {
 			wait := ""
 			if o.Held != "" { // why serve holds it (C7: "held" is the integrator's verdict alone)
@@ -366,7 +367,7 @@ func queueSection(st view.Project, now time.Time) []string {
 		out = append(out, modelPauseLine(m, st.ModelPauses[m]))
 	}
 	if n := q.Nightly; n != nil {
-		out = append(out, fmt.Sprintf("nightly check at %s (in %s)", n.At, app.Age(time.Unix(n.Next, 0).Sub(now))))
+		out = append(out, fmt.Sprintf("nightly check at %s (in %s)", n.At, describe.Age(time.Unix(n.Next, 0).Sub(now))))
 	} else {
 		out = append(out, "nightly: off (obor nightly on HH:MM)") // merge.nightly_at unset
 	}
@@ -427,7 +428,7 @@ func waitLine(w view.WaitItem, t view.Task, now time.Time) string {
 	case view.WaitsNever:
 		line := fmt.Sprintf("spec r%d stored", t.SpecRev)
 		if w.Since != 0 {
-			line += " " + app.Age(max(now.Sub(time.Unix(w.Since, 0)), 0)) + " ago"
+			line += " " + describe.Age(max(now.Sub(time.Unix(w.Since, 0)), 0)) + " ago"
 		}
 		line += ", never dispatched"
 		if t.Title != "" {
@@ -522,7 +523,7 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 		}
 		if !s.SinceTime.IsZero() {
 			line += fmt.Sprintf(" since %s (%s)", s.SinceTime.Local().Format("Jan 2 15:04"),
-				app.Age(now.Sub(s.SinceTime)))
+				describe.Age(now.Sub(s.SinceTime)))
 		}
 		switch {
 		case !s.Project:
@@ -596,7 +597,7 @@ func writeReviewOpen(w io.Writer, ro *wire.ReviewOpenStatus, now time.Time) {
 		who = append(who, strings.TrimSpace(ro.Agent+" "+ro.AgentStatus))
 	}
 	if ro.Since > 0 {
-		who = append(who, app.Age(max(now.Sub(time.Unix(ro.Since, 0)), 0)))
+		who = append(who, describe.Age(max(now.Sub(time.Unix(ro.Since, 0)), 0)))
 	}
 	if len(who) > 0 {
 		line += " (" + strings.Join(who, ", ") + ")"
@@ -652,7 +653,7 @@ func writePending(w io.Writer, st view.Project, now time.Time) {
 			item += " " + p.Task
 		}
 		if p.FailedAt != 0 {
-			item += fmt.Sprintf(" (failed %s ago: %s)", app.Age(now.Sub(time.Unix(p.FailedAt, 0))), shortErr(p.Error))
+			item += fmt.Sprintf(" (failed %s ago: %s)", describe.Age(now.Sub(time.Unix(p.FailedAt, 0))), shortErr(p.Error))
 		} else {
 			item += " (queued)"
 		}

@@ -14,6 +14,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 )
@@ -115,8 +116,8 @@ func (h *history) merge(task string, attempt int, at time.Time, done bool) {
 // supersedeIdleKey is a review request withdrawn at at: a retained end newer than every task's end before it, so none
 // of those tasks holds the idle key the prune keeps whole.
 func (h *history) supersedeIdleKey(at time.Time) {
-	h.add(at, event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, ReviewData{By: "pj-lead"})
-	h.add(at, event.ReviewTask, 0, event.StepReviewRm, event.KindFact, ReviewData{By: "pj-lead"})
+	h.add(at, event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, review.Data{By: "pj-lead"})
+	h.add(at, event.ReviewTask, 0, event.StepReviewRm, event.KindFact, review.Data{By: "pj-lead"})
 }
 
 // dropped is task dispatched and submitted at attempt 1 on lane, dropped at at.
@@ -494,7 +495,7 @@ func TestPruneKeepsPinnedTasksWhole(t *testing.T) {
 	h.merged("T-start", "L-01", daysAgo(33), true)
 	h.add(daysAgo(33), "T-start", 1, event.StepStartWork, event.KindResult,
 		event.StartOut{Agent: "pj-old", Pane: "w9:p1", Terminal: "t9", Kind: "claude", Session: "s9"})
-	h.add(daysAgo(36), event.ReviewTask, 0, event.StepReviewStarted, event.KindFact, ReviewData{ID: "RV-1", Head: "h0"})
+	h.add(daysAgo(36), event.ReviewTask, 0, event.StepReviewStarted, event.KindFact, review.Data{ID: "RV-1", Head: "h0"})
 	h.merged("T-fix", "L-01", daysAgo(32), true) // dispatched after RV-1 started, RV-1 still open
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
@@ -769,8 +770,8 @@ func TestPruneIdleKeySuperseded(t *testing.T) {
 		{"a newer merge", func(h *history) { h.merged("T-new", "L-01", daysAgo(2), true) }},
 		{"a drop", func(h *history) { h.dropped("T-new", "L-01", daysAgo(2)) }},
 		{"a review request's end", func(h *history) {
-			h.add(daysAgo(3), event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, ReviewData{By: "pj-lead"})
-			h.add(daysAgo(2), event.ReviewTask, 0, event.StepReviewRm, event.KindFact, ReviewData{By: "pj-lead"})
+			h.add(daysAgo(3), event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, review.Data{By: "pj-lead"})
+			h.add(daysAgo(2), event.ReviewTask, 0, event.StepReviewRm, event.KindFact, review.Data{By: "pj-lead"})
 		}},
 		{"a brief's end", func(h *history) {
 			h.add(daysAgo(2), event.MsgTask, 0, event.StepMessage, event.KindFact,
@@ -869,7 +870,7 @@ func TestPruneKeepsPreDispatchedFixLinkedByVerify(t *testing.T) {
 	h := newHistory(t, root)
 	h.merged("T-before", "L-01", daysAgo(38), true)
 	h.dispatched("T-pre", 1, "L-01", daysAgo(37))
-	h.add(daysAgo(36), event.ReviewTask, 0, event.StepReviewStarted, event.KindFact, ReviewData{ID: "RV-1", Head: "h0"})
+	h.add(daysAgo(36), event.ReviewTask, 0, event.StepReviewStarted, event.KindFact, review.Data{ID: "RV-1", Head: "h0"})
 	if _, _, err := store.SetSpec(h.l.DB(), "T-pre", "# T-pre — fix\n\nDifficulty: simple\nFixes: RV-1\n\n## Do\nfix it\n",
 		"", "pj-lead", daysAgo(35)); err != nil {
 		t.Fatal(err)
