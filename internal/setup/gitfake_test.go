@@ -130,14 +130,15 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 			}
 		}
 		return fail("error: pathspec '%s' did not match any file(s) known to git", args[3])
-	case len(args) > 4 && args[0] == "ls-tree" && args[1] == "--name-only" && args[2] == "HEAD" && args[3] == "--":
-		// the files of the last commit at or under each path (every worktree sits at it: worktree list)
+	case len(args) > 5 && args[0] == "ls-tree" && args[1] == "-z" && args[2] == "--name-only" && args[3] == "HEAD" && args[4] == "--":
+		// the files of the last commit at or under each path (every worktree sits at it: worktree list), each
+		// NUL-terminated as git's -z prints them
 		if len(r.commits) == 0 {
 			return fail("fatal: Not a valid object name HEAD")
 		}
 		var names []string
 		for name := range r.commits[len(r.commits)-1].files {
-			for _, path := range args[4:] {
+			for _, path := range args[5:] {
 				if p := strings.Trim(path, "/"); name == p || strings.HasPrefix(name, p+"/") {
 					names = append(names, name)
 					break
@@ -145,7 +146,11 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 			}
 		}
 		sort.Strings(names)
-		return strings.Join(names, "\n"), nil
+		var out strings.Builder
+		for _, name := range names {
+			out.WriteString(name + "\x00")
+		}
+		return out.String(), nil
 	case line == "log --format=%s": // newest first
 		var subjects []string
 		for i := len(r.commits) - 1; i >= 0; i-- {

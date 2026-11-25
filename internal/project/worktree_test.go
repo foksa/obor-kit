@@ -159,6 +159,9 @@ func TestWorktreeLinksWithAsksTheQueriesItIsGiven(t *testing.T) {
 				case dir:
 					asked = append(asked, "dir: "+strings.Join(args, " "))
 					if tt.dirTracks {
+						if slices.Contains(args, "-z") { // LinkInto's query: git's NUL-terminated names
+							return PluginSettings + "\x00", nil
+						}
 						return PluginSettings + "\n", nil
 					}
 					return "", nil // ls-tree names nothing for a path HEAD lacks
@@ -235,13 +238,13 @@ func TestLinkIntoAsksHEADOnceOnlyForMissingEntries(t *testing.T) {
 		var asked []string
 		git := func(d string, args ...string) (string, error) {
 			asked = append(asked, d+": "+strings.Join(args, " "))
-			return "tracked.env\nconf/a.env\n", nil
+			return "tracked.env\x00conf/a.env\x00", nil
 		}
 		linked, err := LinkInto(cfg.Root, dir, []string{"tracked.env", "conf/", "free.env", "there.env"}, git)
 		if err != nil || !reflect.DeepEqual(linked, []string{"free.env"}) {
 			t.Errorf("LinkInto = %q, %v; want only free.env linked", linked, err)
 		}
-		if want := []string{dir + ": ls-tree --name-only HEAD -- tracked.env conf/ free.env"}; !reflect.DeepEqual(asked, want) {
+		if want := []string{dir + ": ls-tree -z --name-only HEAD -- tracked.env conf/ free.env"}; !reflect.DeepEqual(asked, want) {
 			t.Errorf("git calls %q, want %q", asked, want)
 		}
 		for _, f := range []string{"tracked.env", "conf"} {
