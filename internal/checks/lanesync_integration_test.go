@@ -81,12 +81,49 @@ exec git "$@"
 	return shim
 }
 
+// untrackFx is newCheckoutFx on the lanes.links entry conf/local.env with the lane's branch tracking it (fx.cand
+// checked out, then a lane commit of work.txt: fx.base is that head) and fx.cand moved to a commit on the
+// candidate that stops tracking it, as main does when it untracks a file the lane's link set names.
+func untrackFx(t *testing.T) checkoutFx {
+	t.Helper()
+	fx := newCheckoutFx(t, "conf/local.env")
+	if err := os.Remove(filepath.Join(fx.lane, fx.path)); err != nil {
+		t.Fatal(err)
+	}
+	fx.p.Git(fx.lane, "checkout", "-q", "-B", fx.branch, fx.cand)
+	fx.p.Write(filepath.Join(fx.lane, "work.txt"), "work\n")
+	fx.p.Git(fx.lane, "add", "work.txt")
+	fx.p.Git(fx.lane, "commit", "-q", "-m", "work in the lane")
+	tracks := fx.cand
+	fx.base = fx.p.Git(fx.lane, "rev-parse", "HEAD")
+	env := append(os.Environ(), "GIT_INDEX_FILE="+filepath.Join(t.TempDir(), "index"))
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := project.GitCtxEnv(context.Background(), fx.p.Root, env, args...)
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(out)
+	}
+	git("read-tree", tracks)
+	git("update-index", "--force-remove", fx.path)
+	fx.cand = git("-c", "user.name=obor test", "-c", "user.email=obor-test@example.invalid", "commit-tree",
+		git("write-tree"), "-p", tracks, "-m", "stops tracking "+fx.path)
+	keptRegular(t, filepath.Join(fx.lane, fx.path), "tracked\n")
+	if tracked := fx.p.Git(fx.lane, "ls-tree", "--name-only", fx.cand, "--", fx.path); tracked != "" {
+		t.Fatalf("precondition: the target still tracks %s", fx.path)
+	}
+	return fx
+}
+
 // lane.sync keeps obor's links the way a checkout does (project.WithLinks): the target that starts tracking a link's
 // path does not stop the merge (the link comes out of its way, the tracked file takes the path); a merge that stops
 // puts the link back; the replay of a merge a crash left open reconciles it; an ordinary untracked file is never
 // removed, and the lane stays as it was. A cut that left the link out does not outlive the sync either: a replay whose
 // retry conflicts, a cut after the removal before the merge, and a merge commit that fails all put it back
-// (project.ReconcileLinks).
+// (project.ReconcileLinks). A link never blocks an abort: when the target stops tracking a linked path, a failed merge
+// commit is aborted before the link comes back, and the replay of a merge a cut left open with the link at a path
+// HEAD tracks takes the link out of the abort's way.
 func TestLaneSyncKeepsTheLinks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -240,6 +277,71 @@ func TestLaneSyncKeepsTheLinks(t *testing.T) {
 		}
 		if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
 			t.Error("the failed commit's abort left the merge open")
+		}
+	})
+
+	t.Run("the target stops tracking a linked path and the commit fails: aborted, the file back; the next sync merges, the link", func(t *testing.T) {
+		t.Parallel()
+		fx := untrackFx(t)
+		_, err := Lane{Cfg: fx.cfg, Git: commitFailShim(t)}.Sync(ctx, linkIn(fx))
+		if err == nil || !strings.Contains(err.Error(), "commit the merge") || strings.Contains(err.Error(), "merge --abort") {
+			t.Fatalf("Sync: %v; want the merge commit's failure alone, the abort fine", err)
+		}
+		if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Error("the failed commit's abort left the merge open")
+		}
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != fx.base {
+			t.Errorf("HEAD %s; want %s, the abort's", h, fx.base)
+		}
+		fx.isTracked(t, "after the failed merge commit")
+		s, err := Lane{Cfg: fx.cfg}.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncMerged {
+			t.Fatalf("the next Sync: %+v, %v; want merged", s, err)
+		}
+		if parents := strings.Fields(fx.p.Git(fx.lane, "rev-list", "--parents", "-n", "1", "HEAD")); len(parents) != 3 ||
+			parents[1] != fx.base || parents[2] != fx.cand {
+			t.Errorf("HEAD's parents %q; want %s and %s", parents, fx.base, fx.cand)
+		}
+		fx.isLink(t, "after the next sync")
+		if st := fx.p.Git(fx.lane, "status", "--porcelain", "--untracked-files=all"); st != "?? "+fx.path {
+			t.Errorf("the lane's tree after the merge: %q, want only the link", st)
+		}
+	})
+
+	t.Run("a cut left the merge open with the link at a path HEAD tracks: the replay aborts and merges", func(t *testing.T) {
+		t.Parallel()
+		fx := untrackFx(t)
+		// the cut: the merge removed the tracked file, the reconcile put the link there, the commit never came
+		fx.p.Git(fx.lane, "merge", "-q", "--no-commit", "--no-ff", fx.cand)
+		dst := filepath.Join(fx.lane, fx.path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(fx.p.Root, fx.path), dst); err != nil {
+			t.Fatal(err)
+		}
+		if !gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Fatal("precondition: the cut left no MERGE_HEAD")
+		}
+		if tracked := fx.p.Git(fx.lane, "ls-tree", "--name-only", "HEAD", "--", fx.path); tracked != fx.path {
+			t.Fatalf("precondition: HEAD does not track %s (%q)", fx.path, tracked)
+		}
+		fx.isLink(t, "precondition: the link at the path HEAD tracks")
+		l := Lane{Cfg: fx.cfg}
+		s, err := l.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncMerged {
+			t.Fatalf("Sync: %+v, %v; want merged", s, err)
+		}
+		if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Error("the replay left the merge open")
+		}
+		if parents := strings.Fields(fx.p.Git(fx.lane, "rev-list", "--parents", "-n", "1", "HEAD")); len(parents) != 3 ||
+			parents[1] != fx.base || parents[2] != fx.cand {
+			t.Errorf("HEAD's parents %q; want %s and %s", parents, fx.base, fx.cand)
+		}
+		fx.isLink(t, "after the replay")
+		if st := fx.p.Git(fx.lane, "status", "--porcelain", "--untracked-files=all"); st != "?? "+fx.path {
+			t.Errorf("the lane's tree after the replay: %q, want only the link", st)
 		}
 	})
 
