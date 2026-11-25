@@ -561,22 +561,25 @@ func testVerdictLandsAfterRestartOnce(t *testing.T) {
 	}
 }
 
-// The StopFailure hook's call survives a serve that comes back inside its deadline: a retry after the restart lands,
-// and the stop is recorded once.
+// The StopFailure hook's call survives a serve that comes back near the end of its retry window: a retry after the
+// restart lands, and the stop is recorded once.
 func testStopFailureLandsNearItsDeadline(t *testing.T) {
 	t.Parallel()
-	const restart = 40 * time.Millisecond // well inside StopFailure: the retries after it must land
+	w := shortWaits
+	w.StopFailure = 300 * time.Millisecond // room for a restart near the end of the window on a loaded gate
+	const restart = 240 * time.Millisecond // 80% of the deadline, inside the retries' window (deadline less its margin)
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, restart, false)
 	c := &wire.StoppedReq{Envelope: wire.Envelope{Root: "/r", Agent: "pj-l-01", Role: "worker", CallID: "s1"},
 		Lane:  "L-01",
 		Error: "rate_limit"}
+	ctx := context.WithValue(context.Background(), wire.WaitsKey{}, w)
 	start := time.Now()
-	if _, err := wire.Verdict(shortCtx(), sock, c); err != nil {
+	if _, err := wire.Verdict(ctx, sock, c); err != nil {
 		t.Fatalf("stop-failure through a %v restart: %v; want it recorded", restart, err)
 	}
-	if d := time.Since(start); d < restart || d > 4*shortWaits.StopFailure {
-		t.Errorf("answered after %v; want after the %v restart, inside the %v deadline", d, restart, shortWaits.StopFailure)
+	if d := time.Since(start); d < restart || d > w.StopFailure {
+		t.Errorf("answered after %v; want after the %v restart, inside the %v deadline", d, restart, w.StopFailure)
 	}
 	if _, applied, _ := s.counts(); applied["s1"] != 1 {
 		t.Errorf("applied %v; want the stop recorded once", applied)
