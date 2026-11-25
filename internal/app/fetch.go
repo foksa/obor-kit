@@ -386,7 +386,8 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	case c.Agent == "" || c.Agent != mt.agent && c.Agent != l.Agent || c.Lane != "" && c.Lane != mt.lane:
 		return "", fmt.Errorf("task_done: not your task (%s is %s's in lane %s, not %s's)", c.Task, mt.agent, mt.lane,
 			Dash(c.Agent))
-	case !mt.may(vSubmit) || mt.is(stDispatched) && mt.base == "" && dispatching: // no dispatch adapters: no prepare runs
+	// no dispatch adapters: no prepare runs, an unprepared lane takes a submission
+	case !mt.may(vSubmit) || mt.is(stDispatched) && !mt.foldStage().laneReady() && dispatching:
 		return "", fmt.Errorf("task_done: %s is %s, not open for a submission", c.Task, mt.shown())
 	case busy != "":
 		return "", busyErr("task_done", c.Task, busy)

@@ -49,7 +49,8 @@ func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time
 		if !open && mt.is(stWorking) && mt.work == "" { // a sendback's fix job, not sent to a worker at its shell
 			job, open = event.Key{Task: task, Attempt: mt.attempt, Step: nth(event.StepFix, mt.fixes+1)}, true
 		}
-		if !open || mt.agent == "" || !(mt.is(stDispatched) && mt.started || mt.is(stWorking)) || p.busy(task) != "" {
+		if !open || mt.agent == "" || !(mt.is(stDispatched) && mt.foldStage().started() || mt.is(stWorking)) ||
+			p.busy(task) != "" {
 			continue
 		}
 		pane, ok := a.labelledShell(p, mt.agent)
@@ -74,31 +75,99 @@ func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time
 	return 0, action{}, false
 }
 
-// nextDispatch is a dispatched task's next step (under mu): a move's stop of the old worker (pickStop), prepare the
-// lane, start the worker, send the work job, then watch it until it is delivered. A keep lane with a live agent
+// dispStage is where a dispatched task is: the step nextDispatch takes next, derived from the fold
+// (mtask.dispatchStage), never recorded. In the order a dispatch passes them.
+type dispStage uint8
+
+const (
+	dsHalting      dispStage = iota + 1 // a move's stop of the old worker, first (pickStop)
+	dsPrepare                           // lane.prepare
+	dsLaneRefused                       // lane.prepare refused: its needs-you
+	dsKept                              // a keep lane's live agent takes the work job: its wake typed, no start
+	dsStart                             // agent.start, no start tried yet
+	dsStartRefused                      // agent.start refused: its needs-you
+	dsStartAgain                        // agent.start again, under the work job a start tried before opened
+	dsWork                              // the started session gets the work job's wake
+	dsResend                            // the work job's prompt failed: sent again under its key
+	dsWatch                             // the work job is out: watched until it is delivered
+)
+
+// dispatchStage is mt's stage (state dispatched; under mu): a move's halt first, then a refusal (lane.prepare's, no
+// base yet; else agent.start's), lane.prepare, the start (none for a keep lane's live agent: kept), the work job's
+// wake, its resend while its intent has no result, else its watch. kept is whether the keep lane's live agent takes
+// the work job (App.kept), asked only once the lane is prepared and no start started the agent; workOpen whether the
+// work job's intent has no result, asked only once one is recorded. A kept lane whose agent is gone once its work
+// job is out is started (dsStartAgain).
+func (mt *mtask) dispatchStage(kept, workOpen func() bool) dispStage {
+	switch {
+	case mt.halting():
+		return dsHalting
+	case mt.refused != "" && mt.base == "":
+		return dsLaneRefused
+	case mt.refused != "":
+		return dsStartRefused
+	case mt.base == "":
+		return dsPrepare
+	case !mt.started && !kept():
+		if mt.work == "" {
+			return dsStart
+		}
+		return dsStartAgain
+	case !mt.started && mt.work == "":
+		return dsKept
+	case mt.work == "":
+		return dsWork
+	case workOpen():
+		return dsResend
+	}
+	return dsWatch
+}
+
+// foldStage is mt's dispatch stage from the fold alone, for the readers outside the pick: no keep lane's agent is
+// asked for (a kept dispatch reads as its start's stage) and no work job's intent is read (a resend reads as the
+// watch).
+func (mt *mtask) foldStage() dispStage {
+	no := func() bool { return false }
+	return mt.dispatchStage(no, no)
+}
+
+// laneReady: the dispatch's lane is prepared (lane.prepare's base in).
+func (s dispStage) laneReady() bool { return s > dsLaneRefused }
+
+// beforeStart: no start of the dispatch's agent was tried and no work job sent (the lane's agent is not the task's
+// yet).
+func (s dispStage) beforeStart() bool { return s <= dsStart }
+
+// started (of a foldStage): the dispatch's own agent.start started its agent.
+func (s dispStage) started() bool { return s >= dsWork }
+
+// nextDispatch is a dispatched task's next step (under mu): its stage's (dispatchStage). A keep lane with a live agent
 // (keeplane.go) starts none: the work job's wake goes to that session, after the handoff rule stopped one past
 // handoff_tokens. Nothing without the dispatch adapters.
 func (a *App) nextDispatch(p *proj, mt mtask, cfg *config.Config) step {
 	if !p.dispatching {
 		return nil
 	}
-	if s := a.pickStop(p, mt); s != nil || mt.halt.pending() { // a move's: the old worker stopped first
-		return s
-	}
-	switch {
-	case mt.refused != "":
-		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, mt.refusedCause(), mt.refused) }
-	case mt.base == "":
+	kept := func() bool { return a.kept(p, mt, cfg) }
+	workOpen := func() bool { return p.log.Open(event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}) }
+	switch mt.dispatchStage(kept, workOpen) {
+	case dsHalting:
+		return a.pickStop(p, mt)
+	case dsLaneRefused:
+		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, causeLane, mt.refused) }
+	case dsStartRefused:
+		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, causeStart, mt.refused) }
+	case dsPrepare:
 		return func(ctx context.Context, fx *Loop) bool { return a.prepare(ctx, p, fx, mt) }
-	case !mt.started && mt.work == "" && a.kept(p, mt, cfg): // a keep lane's live agent: its wake typed, no start
-		return a.keptWork(p, mt, cfg) // a session past handoff_tokens waits for the handoff rule's stop
-	case !mt.started && !a.kept(p, mt, cfg):
+	case dsKept: // a session past handoff_tokens waits for the handoff rule's stop
+		return a.keptWork(p, mt, cfg)
+	case dsStart, dsStartAgain:
 		return a.nextStart(p, mt, cfg)
-	case mt.work == "": // started: the wake typed into its session
+	case dsWork:
 		return func(ctx context.Context, fx *Loop) bool {
 			return a.sendWork(ctx, p, fx, mt, nth(event.StepWork, mt.works+1))
 		}
-	case p.log.Open(event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}): // its prompt failed: sent again under its key
+	case dsResend:
 		return func(ctx context.Context, fx *Loop) bool { return a.sendWork(ctx, p, fx, mt, mt.work) }
 	}
 	return a.watchWork(p, mt)

@@ -472,14 +472,6 @@ func unbridged(cfg *config.Config, typ string) string {
 	return ""
 }
 
-// refusedCause is the cause of mt's refused dispatch step: the lane's prepare (no base yet), else the agent's start.
-func (m *mtask) refusedCause() string {
-	if m.base == "" {
-		return causeLane
-	}
-	return causeStart
-}
-
 // dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), a drive, also while a
 // needs-you holds one.
 func (m *mtask) dispatching() bool {

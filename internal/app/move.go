@@ -58,7 +58,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 		return "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	case mt.task == "":
 		return "", fmt.Errorf("dispatch %s: %s is not open in obor serve", c.Task, c.Task)
-	case mt.drive || !mt.may(vMove) || mt.is(stDispatched) && mt.base == "":
+	case mt.drive || !mt.may(vMove) || mt.is(stDispatched) && !mt.foldStage().laneReady():
 		return "", fmt.Errorf("dispatch %s: %s is %s: obor dispatch --model moves a task its worker works on, not "+
 			"one gating, merging or under review", c.Task, c.Task, mt.shown())
 	case busy != "":

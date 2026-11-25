@@ -180,7 +180,7 @@ type mtask struct {
 	afterAt  time.Time
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's); lane.prepare's
-	// base (""), its refusal or agent.start's (refused; its cause: refusedCause); the step counters (the last N used); agent.start done.
+	// base (""), its refusal or agent.start's (refused; dispatchStage tells them apart); the step counters (the last N used); agent.start done.
 	disp                    event.Dispatch
 	at                      time.Time
 	dispSeq                 int64

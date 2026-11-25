@@ -38,6 +38,20 @@ func (h *halt) ask(agent string, force bool) { *h = halt{agent: agent, force: fo
 // pending: a stop is asked for and not done (running, due, or refused).
 func (h halt) pending() bool { return h.agent != "" && !h.done }
 
+// running: a stop is asked for, not done and not refused: its worker.stop runs or is due (a refused one is settled:
+// its needs-you).
+func (h halt) running() bool { return h.pending() && h.refused == "" }
+
+// retry: a refused stop runs again under its next key (obor resume).
+func (h *halt) retry() { h.refused = "" }
+
+// stoppedOf: agent's stop is asked for and done.
+func (h halt) stoppedOf(agent string) bool { return h.done && h.agent == agent }
+
+// halting: the stop of mt's worker its move or drop asked for is not done (running, due, or refused): the pick's stop
+// entry (pickStop) comes before every other step of the task.
+func (mt *mtask) halting() bool { return mt.halt.pending() }
+
 // stopOut is worker.stop's result: why it was not stopped and how to retry (Refused, final: a needs-you). A done stop
 // records just that; its line and the agent gone are not read, so they are not written.
 type stopOut struct {
@@ -62,22 +76,20 @@ func (mt *mtask) stopKey(n int) event.Key {
 	return event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepWorkerStop, n)}
 }
 
-// pickStop is mt's stop step while its halt needs one (under mu; nil: none, the state's next step goes on): the stop,
-// then for a refused stop its needs-you (its own lead line, "[obor] needs-you T-xx (L-nn): <agent> not stopped: <why> →
-// …", is the one); a done stop sends no line.
+// pickStop is the one entry of a halt in the pick (under mu): mt's stop step while it is halting, nil exactly when it
+// is not (the state's next step goes on): the stop, then for a refused stop its needs-you (its own lead line,
+// "[obor] needs-you T-xx (L-nn): <agent> not stopped: <why> → …", is the one); a done stop sends no line.
 func (a *App) pickStop(p *proj, mt mtask) step {
 	h := mt.halt
 	switch {
-	case h.agent == "":
+	case !mt.halting():
 		return nil
-	case !h.done && h.refused == "":
+	case h.running():
 		return func(ctx context.Context, fx *Loop) bool { return a.stopStep(ctx, p, fx, mt) }
-	case !h.done:
-		return func(context.Context, *Loop) bool {
-			return a.needsYou(p, &mt, causeStop, h.agent+" not stopped: "+h.refused)
-		}
 	}
-	return nil
+	return func(context.Context, *Loop) bool {
+		return a.needsYou(p, &mt, causeStop, h.agent+" not stopped: "+h.refused)
+	}
 }
 
 // stopStep stops mt's worker (halt.agent, with halt.force) through serve's identity of it (stopAgent; a stop that says
@@ -144,7 +156,7 @@ func (mt *mtask) foldDropping(r event.Record) {
 	mt.unblock()
 	mt.state, mt.drop, mt.fails = stDropping, d, nil
 	mt.refused = ""
-	if !again || !mt.halt.done || mt.halt.agent != d.Worker {
+	if !again || !mt.halt.stoppedOf(d.Worker) {
 		mt.halt.ask(d.Worker, d.Force)
 	}
 }
@@ -152,7 +164,7 @@ func (mt *mtask) foldDropping(r event.Record) {
 // pickDropping is a dropping task's next step (under mu): its worker's stop (pickStop), then lane.free (a refusal: the
 // needs-you, obor drop --discard or obor resume retries), then fact dropped.
 func (a *App) pickDropping(p *proj, mt mtask) step {
-	if s := a.pickStop(p, mt); s != nil || mt.halt.pending() {
+	if s := a.pickStop(p, mt); s != nil {
 		return s
 	}
 	switch {

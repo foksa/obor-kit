@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -453,6 +454,61 @@ func TestKeptWorkReadsTheSizeOutsideTheLock(t *testing.T) {
 			if ran != c.wantSent || (work != "") != c.wantSent {
 				t.Errorf("T-2's step = %v, its work job %q; want sent %v", ran, work, c.wantSent)
 			}
+		})
+	}
+}
+
+// keepBetween from the records: a keep lane is between tasks while its last keep task ended and its next dispatch
+// has not reached the agent (no start tried, no work job sent, no needs-you holding it); a dispatch that did, or one a
+// needs-you holds (a refused prepare or move's stop), keeps the lane's agent.
+func TestKeepBetween(t *testing.T) {
+	t.Parallel()
+	rec := func(task, step, kind string, d any) event.Record {
+		raw, _ := json.Marshal(d)
+		return event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}
+	}
+	ended := []event.Record{
+		rec("T-0", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Agent: "pj-l-01", Keep: true}),
+		rec("T-0", event.StepMerged, event.KindFact, event.MergedData{Head: "m1"}),
+	}
+	disp := func(stop string) []event.Record {
+		return []event.Record{rec("T-1", event.StepDispatched, event.KindFact,
+			event.Dispatch{Lane: "L-01", Agent: "pj-l-01", Keep: true, Stop: stop})}
+	}
+	result := func(step string, out any) []event.Record {
+		return []event.Record{rec("T-1", step, event.KindIntent, nil), rec("T-1", step, event.KindResult, out)}
+	}
+	needs := func(cause string) []event.Record {
+		return []event.Record{rec("T-1", event.StepNeedsYou, event.KindFact,
+			event.FactData{Lane: "L-01", Machine: Machine, Reason: "why", Merge: true, Cause: cause})}
+	}
+	prepared := slices.Concat(disp(""), result(event.StepPrepare, event.PrepareOut{Base: "base"}))
+	for _, c := range []struct {
+		name    string
+		recs    []event.Record
+		between bool
+	}{
+		{"the next dispatch before its prepare", disp(""), true},
+		{"the next dispatch prepared, no start tried", prepared, true},
+		{"a move's stop of the old worker pending", disp("pj-l-01"), true},
+		{"a refused prepare, its needs-you not recorded yet",
+			slices.Concat(disp(""), result(event.StepPrepare, event.PrepareOut{Refused: "dirty"})), true},
+		{"a refused prepare, its needs-you held",
+			slices.Concat(disp(""), result(event.StepPrepare, event.PrepareOut{Refused: "dirty"}), needs(causeLane)), false},
+		{"a move's refused stop, its needs-you held",
+			slices.Concat(disp("pj-l-01"), result(event.StepWorkerStop, stopOut{Refused: "busy"}), needs(causeStop)), false},
+		{"a start tried", slices.Concat(prepared, []event.Record{rec("T-1", event.StepWork, event.KindIntent, nil)}), false},
+		{"its agent started", slices.Concat(prepared, result(event.StepStartWork, event.StartOut{Agent: "pj-l-01"})), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			_, p := blockProj(t, slices.Concat(ended, c.recs))
+			if mt := p.folded.loop["T-1"]; mt == nil || mt.state != stDispatched {
+				t.Fatalf("precondition: T-1 dispatched, got %+v", mt)
+			}
+			key, between := p.keepBetween("L-01")
+			same(t, between, c.between, "between tasks")
+			same(t, key != 0, c.between, "keyed by T-0's merge")
 		})
 	}
 }
