@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
@@ -41,21 +42,109 @@ func freshServe(t *testing.T, h *harness) {
 	h.connect()
 }
 
-// deliverOnce is one of serve's line passes over pj: the lead's lines posted to a fake inbox.
-func deliverOnce(t *testing.T, h *harness) {
-	t.Helper()
-	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}}))
+// remindFx is a pass's adapters that can post lines (the done rule runs on such a pass only).
+func remindFx(h *harness) *Loop {
+	return withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}})
 }
 
-// The done reminder, one table: a role agent idle or done for roleDoneAfter with no open work gets one line to the
-// lead, once per done stretch; a short stretch, open work, a stop and a restart send none; a lane's worker and the
-// lead never.
+// remindOnce is one of serve's passes over pj and the passes its lines wake: the done rule alone, run until it lines no
+// more (one agent a pass; each line it records wakes the loop).
+func remindOnce(t *testing.T, h *harness) {
+	t.Helper()
+	for i := 0; ; i++ {
+		n := len(doneLines(t, h))
+		h.a.rulePass(context.Background(), []rule{{name: ruleRoleDone, when: roleDoneRule}}, remindFx(h))
+		if len(doneLines(t, h)) == n {
+			return
+		}
+		if i > 10 {
+			t.Fatal("the done rule keeps lining")
+		}
+	}
+}
+
+// doneMsgs is pj's done reminder messages in the log's order.
+func doneMsgs(t *testing.T, h *harness) []event.Message {
+	t.Helper()
+	var out []event.Message
+	for _, r := range readLog(t, h.root) {
+		var m event.Message
+		if r.Step == event.StepMessage && json.Unmarshal(r.Data, &m) == nil && strings.HasPrefix(m.Of.Kind, "role.done.") {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// The done rule, one table at rule level: while its condition holds (a role agent done for roleDoneAfter with no open
+// work, on a pass that can post lines) a pass records one line to the lead with today's text and its key
+// Of{roleDone(agent), the stretch's start}, one agent a pass in name order; once each agent's line is recorded the
+// condition lines none.
+func TestRoleDoneRule(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		after  time.Duration
+		fx     func(h *harness) *Loop
+		passes int
+		lines  []string // the agents lined, in order
+		more   bool     // the condition still holds after the passes
+	}{
+		{name: "done 59 min: none", after: 59 * time.Minute, passes: 1},
+		{name: "done 61 min: one line", after: 61 * time.Minute, passes: 1, lines: []string{"pj-advisor"}, more: true},
+		{name: "the next pass: the next agent's line", after: 61 * time.Minute, passes: 2,
+			lines: []string{"pj-advisor", "pj-int"}},
+		{name: "recorded: none", after: 61 * time.Minute, passes: 4, lines: []string{"pj-advisor", "pj-int"}},
+		{name: "a pass that cannot post lines: none", after: 61 * time.Minute, passes: 1,
+			fx: func(h *harness) *Loop { return withAppCfg(h.a, &Loop{}) }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := doneRig(t)
+			t0 := h.now
+			if got := doneMsgs(t, h); len(got) != 0 {
+				t.Fatalf("precondition: done lines %+v before any pass", got)
+			}
+			h.now = h.now.Add(c.after)
+			fx := remindFx(h)
+			if c.fx != nil {
+				fx = c.fx(h)
+			}
+			for range c.passes {
+				h.a.rulePass(context.Background(), []rule{{name: ruleRoleDone, when: roleDoneRule}}, fx)
+			}
+			got := doneMsgs(t, h)
+			var agents []string
+			for _, m := range got {
+				agent := strings.TrimPrefix(m.Of.Kind, "role.done.")
+				agents = append(agents, agent)
+				if want := (event.Of{Kind: roleDone(agent), Seq: t0.Unix()}); m.Of != want {
+					t.Errorf("%s's line key %+v, want %+v", agent, m.Of, want)
+				}
+				if want := roleDoneLine(agent, c.after); m.Line != want || m.To != "pj-lead" || m.From != "obor" {
+					t.Errorf("%s's line %q to %s from %s, want %q to pj-lead from obor", agent, m.Line, m.To, m.From, want)
+				}
+			}
+			if !slices.Equal(agents, c.lines) {
+				t.Errorf("lined %q, want %q", agents, c.lines)
+			}
+			if _, _, ok := roleDoneRule(context.Background(), h.a, h.proj(), fx, h.now); ok != c.more {
+				t.Errorf("the condition holds %t after the passes, want %t", ok, c.more)
+			}
+		})
+	}
+}
+
+// The done reminder's condition through the rule's passes: a role agent idle or done for roleDoneAfter with no open
+// work gets one line to the lead, once per done stretch; a short stretch, open work and a stop send none; a lane's
+// worker and the lead never.
 func TestRoleDoneReminder(t *testing.T) {
 	t.Parallel()
 	pass := func(d time.Duration) lineStep {
 		return func(t *testing.T, h *harness) {
 			h.now = h.now.Add(d)
-			deliverOnce(t, h)
+			remindOnce(t, h)
 		}
 	}
 	brief := func(t *testing.T, h *harness) {
@@ -80,7 +169,7 @@ func TestRoleDoneReminder(t *testing.T) {
 		for _, id := range []string{"w1:p3", "w1:p5"} {
 			h.status(id, func(p *port.Pane) { p.Status = "done" })
 		}
-		deliverOnce(t, h)
+		remindOnce(t, h)
 	}
 	cases := []struct {
 		name  string
@@ -88,8 +177,6 @@ func TestRoleDoneReminder(t *testing.T) {
 		lines []string // the role agents' done lines, in order
 	}{
 		{name: "done 59 min: none", steps: []lineStep{pass(59 * time.Minute)}},
-		{name: "done 61 min: one line, once", steps: []lineStep{pass(61 * time.Minute), pass(0), pass(time.Hour)},
-			lines: []string{"pj-advisor", "pj-int"}},
 		{name: "open work (an unfinished brief): none", steps: []lineStep{brief, pass(61 * time.Minute)},
 			lines: []string{"pj-int"}},
 		{name: "works again, then done another hour: a second line",
@@ -97,8 +184,6 @@ func TestRoleDoneReminder(t *testing.T) {
 			lines: []string{"pj-advisor", "pj-int", "pj-advisor", "pj-int"}},
 		{name: "stopped: none", steps: []lineStep{stopped, pass(61 * time.Minute)}, lines: []string{"pj-int"}},
 		{name: "an idle/done flip is one stretch", steps: []lineStep{flip, pass(31 * time.Minute)},
-			lines: []string{"pj-advisor", "pj-int"}},
-		{name: "a restart sends none again", steps: []lineStep{pass(61 * time.Minute), restartRig, pass(0)},
 			lines: []string{"pj-advisor", "pj-int"}},
 	}
 	for _, c := range cases {
@@ -213,13 +298,13 @@ func TestRoleDoneStretchOutlivesServe(t *testing.T) {
 		t.Parallel()
 		h := doneRig(t)
 		h.now = h.now.Add(roleDoneAfter + time.Minute)
-		deliverOnce(t, h)
+		remindOnce(t, h)
 		if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
 			t.Fatalf("the first pass's lines %q, want one per role agent", got)
 		}
 		freshServe(t, h)
 		h.now = h.now.Add(roleDoneAfter + time.Minute)
-		deliverOnce(t, h)
+		remindOnce(t, h)
 		if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
 			t.Errorf("after a fresh serve and another hour: lines %q, want no second line for the same stretch", got)
 		}
@@ -231,7 +316,7 @@ func TestRoleDoneStretchOutlivesServe(t *testing.T) {
 		for i := 1; i <= 4; i++ {
 			h.now = t0.Add(time.Duration(i) * 30 * time.Minute)
 			freshServe(t, h)
-			deliverOnce(t, h)
+			remindOnce(t, h)
 			if i == 1 {
 				if got := doneLines(t, h); len(got) != 0 {
 					t.Fatalf("after 30 min and a restart: lines %q, want none", got)
@@ -249,7 +334,7 @@ func TestRoleDoneStretchOutlivesServe(t *testing.T) {
 		t.Parallel()
 		h := doneRig(t)
 		h.now = h.now.Add(roleDoneAfter + time.Minute)
-		deliverOnce(t, h)
+		remindOnce(t, h)
 		h.panes.last = h.now // the transcript is written: a new stretch starts here
 		h.work("w1:p3", true)
 		h.work("w1:p5", true)
@@ -257,7 +342,7 @@ func TestRoleDoneStretchOutlivesServe(t *testing.T) {
 		h.work("w1:p5", false)
 		freshServe(t, h)
 		h.now = h.now.Add(roleDoneAfter + time.Minute)
-		deliverOnce(t, h)
+		remindOnce(t, h)
 		want := []string{"pj-advisor", "pj-int", "pj-advisor", "pj-int"}
 		if got := doneLines(t, h); !slices.Equal(got, want) {
 			t.Errorf("lines %q, want a second per role agent: %q", got, want)
@@ -269,7 +354,7 @@ func TestRoleDoneStretchOutlivesServe(t *testing.T) {
 		h.panes.last = time.Time{} // a kind whose transcripts obor cannot read
 		h.now = h.now.Add(roleDoneAfter + time.Minute)
 		freshServe(t, h)
-		deliverOnce(t, h)
+		remindOnce(t, h)
 		if got := doneLines(t, h); len(got) != 0 {
 			t.Errorf("lines %q, want none for unknown activity", got)
 		}
@@ -289,7 +374,7 @@ func TestRoleDoneDisconnected(t *testing.T) {
 	h.a.mu.Lock()
 	h.a.connected = false
 	h.a.mu.Unlock()
-	deliverOnce(t, h)
+	remindOnce(t, h)
 	if got := doneLines(t, h); len(got) != 0 {
 		t.Errorf("lines while disconnected %q, want none", got)
 	}
@@ -317,7 +402,7 @@ func TestRoleDoneDisconnected(t *testing.T) {
 	if got := hintsOf(t, h); got["pj-advisor"] != "" || got["pj-int"] != "" {
 		t.Errorf("hints right after the reconnect %q, want none: the stretch starts at the new activity", got)
 	}
-	deliverOnce(t, h)
+	remindOnce(t, h)
 	if got := doneLines(t, h); len(got) != 0 {
 		t.Errorf("lines right after the reconnect %q, want none", got)
 	}
@@ -325,7 +410,7 @@ func TestRoleDoneDisconnected(t *testing.T) {
 	if got := hintsOf(t, h); got["pj-advisor"] != "obor restart pj-advisor --stop" {
 		t.Errorf("hint an hour after the reconnect %q, want the stop command", got["pj-advisor"])
 	}
-	deliverOnce(t, h)
+	remindOnce(t, h)
 	if got := doneLines(t, h); !slices.Equal(got, []string{"pj-advisor", "pj-int"}) {
 		t.Errorf("lines an hour after the reconnect %q, want one per role agent", got)
 	}
@@ -370,7 +455,7 @@ func TestRoleDoneOpenCodeRecordedTranscript(t *testing.T) {
 	if hints := hintsOf(t, h); hints["pj-advisor"] != "obor restart pj-advisor --stop" {
 		t.Errorf("pj-advisor hint %q, want the stop command", hints["pj-advisor"])
 	}
-	deliverOnce(t, h)
+	remindOnce(t, h)
 	if lines := doneLines(t, h); !slices.Equal(lines, []string{"pj-advisor"}) {
 		t.Errorf("done lines %q, want [pj-advisor]", lines)
 	}

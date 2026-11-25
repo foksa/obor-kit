@@ -111,6 +111,7 @@ func TestUndeliverableLineSaysWhy(t *testing.T) {
 	}
 	h.now = h.now.Add(msgWait + time.Minute)
 	h.a.deliver(context.Background(), h.proj(), fx)
+	h.a.msgNeedsYou(h.proj(), h.now)
 	var reasons []string
 	for _, f := range h.a.Status().Project.Facts {
 		if f.Task == event.MsgTask && f.Step == event.StepNeedsYou {

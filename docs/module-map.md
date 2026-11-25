@@ -179,7 +179,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `reviewclose.go` | a review's close is a call to serve, which commits it and records `review.closed` | `App.reviewCloseCall` |
 | `reviewonmerge.go` | the Review: on merge rule: a hard or risky task's spec asks for a review at its merge | `reviewOnMergeRule` |
 | `reviewverify.go` | a review's fix round and its verify, briefed in the reviewer's session | `verifyRule` |
-| `roledone.go` | a role agent that is done: the `role.done` fact, its line and the stop hint | `roleDone` |
+| `roledone.go` | a role agent that is done: the done reminder's rule (`role.done`), its line and the stop hint | `roleDoneRule` |
 | `rolestop.go` | the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop | `integratorStopRule` |
 | `roleworktree.go` | role worktrees: serve moves the reviewer's and the deep dive's to the head it hands them | `App.briefMove` |
 | `rules.go` | the rule pass: rule-tier steps | `App.rulePass` |

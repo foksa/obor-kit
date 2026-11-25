@@ -193,11 +193,16 @@ func (r *turnRig) setKind() {
 	eventNow(r.a, port.Event{Kind: port.EventStatus, Pane: pane.ID, Status: pane.Status, Agent: r.kind, New: pane})
 }
 
-// deliver is one delivery pass, the rollout's last turn r.turn (Codex).
+// deliver is the line steps of advance's list a turn goes through, in its order (the seen work logged, the role
+// turns read, the finished briefs' lines, the deliveries), the rollout's last turn r.turn (Codex).
 func (r *turnRig) deliver() {
 	f := r.a.activity.(*fakePanes)
 	f.turn, f.turned = r.turn, r.kind == "codex" && r.turn.ID != ""
-	r.a.deliver(context.Background(), r.p, linerLoop(r.out))
+	fx := linerLoop(r.out)
+	r.a.logWorked(r.p)
+	r.a.roleTurns(context.Background(), r.p)
+	r.a.briefsDone(r.p, fx, r.a.opt.Now())
+	r.a.deliver(context.Background(), r.p, fx)
 }
 
 // status is pj-rev's pane status as herdr reports it.

@@ -332,7 +332,7 @@ func (r *reviewRig) started() {
 	}
 	lineStatus(r.a, "w:rev", "working", r.now)
 	lineStatus(r.a, "w:rev", "idle", r.now)
-	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Inbox: &inboxSpy{}})) // records the finished line
+	finishBriefs(r.a, r.p, withAppCfg(r.a, &Loop{Inbox: &inboxSpy{}})) // records the finished line
 	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open")
 	}
@@ -600,7 +600,7 @@ func (r *reviewRig) finish() {
 	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
 	r.working(true)
 	r.working(false)
-	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
+	finishBriefs(r.a, r.p, withAppCfg(r.a, &Loop{Prompter: &linerSpy{}}))
 	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open after its work")
 	}

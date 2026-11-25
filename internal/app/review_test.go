@@ -514,7 +514,7 @@ func TestReviewOpenStages(t *testing.T) {
 	r.now = r.now.Add(5 * time.Minute)
 	written := r.now
 	lineStatus(r.a, "w:rev", "idle", r.now)
-	r.a.deliver(context.Background(), r.p, withAppCfg(r.a, &Loop{Inbox: &inboxSpy{}})) // the finished line ends the brief
+	finishBriefs(r.a, r.p, withAppCfg(r.a, &Loop{Inbox: &inboxSpy{}})) // the finished line ends the brief
 	if r.p.out.Brief("pj-rev") != nil {
 		t.Fatal("precondition: the reviewer's brief is still open")
 	}
