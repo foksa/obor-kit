@@ -27,7 +27,7 @@ func movedGreen(t *testing.T, h *harness, gate, kind string, rev int) {
 }
 
 // pickGreenOnce runs the step pickGreen selects for T-1 (live, or after a replay of the log).
-func pickGreenOnce(t *testing.T, h *harness, f *schedScratch, replay bool) *mtask {
+func pickGreenOnce(t *testing.T, h *harness, f *sched, replay bool) *mtask {
 	t.Helper()
 	p := h.a.p
 	if replay {

@@ -17,7 +17,7 @@ func TestStatusStartedIsTheLastStartTry(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
-		r.disp.set(func(d *dispatchFakes) {
+		r.disp.set(func(d *dispatch) {
 			d.fail["start"] = func() error { return errors.New("pj-l-01 has background tasks (--force stops them)") }
 		})
 		r.start()
@@ -29,7 +29,7 @@ func TestStatusStartedIsTheLastStartTry(t *testing.T) {
 			t.Fatalf("after the refused start: started %d, want the try's time %d", got, first)
 		}
 		r.clock.Add(10 * time.Minute)
-		r.disp.set(func(d *dispatchFakes) { delete(d.fail, "start") })
+		r.disp.set(func(d *dispatch) { delete(d.fail, "start") })
 		retry := r.clock.Now().Unix()
 		r.mustResume("r1", "", "RESUMED T-1: retry (start)")
 		r.waitStep("1 result agent.start.2")

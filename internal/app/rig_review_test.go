@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -126,105 +124,11 @@ func taskMerged(task, head string) lineStep {
 // obor review start records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is the tests' one port.Review: head the integration branch's head ("": headSHA), which a
-// gated publish moves (admit_test.go); files the fixed answer; detachErr fails the detach, detached every Detach as
-// <dir>@<sha>. onHead runs once, inside the next Head read. closes is every close committed (Closed finds its
-// subject), closeErr refuses one; closeGate, when set, holds a close until it is closed and closeBegan gets a value
-// when one reaches it; reads counts the Closed reads, headReads the Head reads. What merged and what a review covered are the log's
-// mu guards every field a method touches (a publish runs beside the admission tests' calls).
-type reviewGitFake struct {
-	mu         sync.Mutex
-	head       string
-	files      []string
-	detachErr  error
-	detached   []string
-	onHead     func()
-	closes     []port.ReviewCommit
-	closeErr   error
-	closeGate  chan struct{}
-	closeBegan chan struct{}
-	closedRead int
-	headReads  int
-}
-
-func (g *reviewGitFake) Head(context.Context, string) (string, error) {
-	g.mu.Lock()
-	hook := g.onHead
-	g.onHead = nil
-	g.mu.Unlock()
-	if hook != nil {
-		hook()
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.headReads++
-	return cmp.Or(g.head, "abcdef0123456789abcdef0123456789abcdef01"), nil
-}
-
-func (g *reviewGitFake) Files(context.Context, string, string) ([]string, error) { return g.files, nil }
-
-func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.detachErr != nil {
-		return g.detachErr
-	}
-	g.detached = append(g.detached, dir+"@"+sha)
-	return nil
-}
-
-func (g *reviewGitFake) Close(ctx context.Context, c port.ReviewCommit) error {
-	g.mu.Lock()
-	gate, began := g.closeGate, g.closeBegan
-	g.mu.Unlock()
-	if gate != nil { // a close in flight inside configMu
-		if began != nil {
-			began <- struct{}{}
-		}
-		select {
-		case <-gate:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.closeErr != nil {
-		return g.closeErr
-	}
-	g.closes = append(g.closes, c)
-	return nil
-}
-
-// Closed is the newest committed close of id (its subject; "": none).
-func (g *reviewGitFake) Closed(_ context.Context, _, _, id string) (string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.closedRead++
-	for i := len(g.closes) - 1; i >= 0; i-- {
-		if g.closes[i].ID == id {
-			return g.closes[i].Subject, nil
-		}
-	}
-	return "", nil
-}
-
-// reads is how many times Closed was read.
-func (g *reviewGitFake) reads() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.closedRead
-}
-
-// detachedAt is every Detach so far, as <worktree base name>@<sha>.
-func (g *reviewGitFake) detachedAt() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	var out []string
-	for _, d := range g.detached {
-		out = append(out, filepath.Base(d))
-	}
-	return strings.Join(out, ",")
+// reviewFake is a FakeWorkflow whose integration branch is at head ("" : headSHA), the tests' review git.
+func reviewFake(head string) *FakeWorkflow {
+	f := NewFakeWorkflow("")
+	f.SetHead(head)
+	return f
 }
 
 // reviewRig is a merging project with a reviewer pj-rev (idle, worktree review), reviews.dir and git and agent fakes.
@@ -233,7 +137,7 @@ type reviewRig struct {
 	a      *App
 	p      *proj
 	now    time.Time
-	git    *reviewGitFake
+	git    *FakeWorkflow
 	agents *FakeAgents
 	// seeded is the seq of seed's last record (0: none); next the id the rig's first review starts as.
 	seeded int64
@@ -251,8 +155,9 @@ func newReviewRigWith(t *testing.T, seed bool) *reviewRig {
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r := &reviewRig{t: t, now: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), git: &reviewGitFake{
-		files: []string{"internal/app/x.go", "docs/y.md"}}, agents: &FakeAgents{}}
+	git := reviewFake("")
+	git.SetFiles("internal/app/x.go", "docs/y.md")
+	r := &reviewRig{t: t, now: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), git: git, agents: &FakeAgents{}}
 	r.a, r.p = lineApp(t, root, &r.now)
 	r.wire()
 	r.next = "RV-1"
@@ -456,7 +361,7 @@ func tasksOf(ms []review.Merge) []string {
 // rule: once every linked task merged (or ended unmerged) and the reviewer is idle, serve detaches the reviewer's
 // worktree at the integration head and briefs the verify in the same session; only the finished line covers the tasks.
 
-// headSHA is the rig's integration branch head (reviewGitFake.Head).
+// headSHA is the rig's integration branch head (FakeWorkflow.Head).
 const headSHA = "abcdef0123456789abcdef0123456789abcdef01"
 
 // startHead is the head the open review started at (startedReview).

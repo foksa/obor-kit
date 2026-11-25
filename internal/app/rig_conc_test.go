@@ -16,11 +16,10 @@ import (
 	"time"
 )
 
-// gatedScratch is schedScratch whose Publish reports its task on began, then waits for release (nil: no wait) before
-// it moves the head.
+// gatedScratch is the scheduling rig (sched) whose Publish reports its task on began, then waits for release (nil: no
+// wait) before it moves the head (the workflow fake's integration branch).
 type gatedScratch struct {
-	*schedScratch
-	git     *reviewGitFake
+	*sched
 	began   chan string
 	release chan struct{}
 }
@@ -30,9 +29,7 @@ func (s *gatedScratch) Publish(_ context.Context, c port.Candidate) (port.Publis
 	if s.release != nil {
 		<-s.release
 	}
-	s.git.mu.Lock()
-	s.git.head = c.SHA
-	s.git.mu.Unlock()
+	s.SetHead(c.SHA)
 	return port.PublishOutcome{Kind: port.PublishMerged}, nil
 }
 
@@ -40,7 +37,7 @@ func (s *gatedScratch) Publish(_ context.Context, c port.Candidate) (port.Publis
 // with reviews.dir, RV-5 open (its file written in the main checkout), its review git (head base1) and a gated publish.
 type admitRig struct {
 	h      *harness
-	git    *reviewGitFake
+	git    *FakeWorkflow // the workflow fake's review git
 	s      *gatedScratch
 	agents *FakeAgents
 	fx     *Loop
@@ -54,12 +51,13 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 		t.Fatal(err)
 	}
 	h.write(filepath.Join(h.root, "reviews", "RV-5.md"), "# RV-5\n")
-	r := &admitRig{h: h, git: &reviewGitFake{head: "base1"}, agents: &FakeAgents{}}
-	r.s = &gatedScratch{schedScratch: f, git: r.git, began: make(chan string, 4)}
+	f.SetHead("base1")
+	r := &admitRig{h: h, git: f.FakeWorkflow, agents: &FakeAgents{}}
+	r.s = &gatedScratch{sched: f, began: make(chan string, 4)}
 	if gated {
 		r.s.release = make(chan struct{})
 	}
-	r.fx = withCfg(h.root, &Loop{Workflow: WorkflowOf(r.s, r.git), Agents: r.agents, Prompter: f})
+	r.fx = withCfg(h.root, &Loop{Workflow: WorkflowOf(r.s), Agents: r.agents, Prompter: f})
 	h.a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, r.fx), nil }
 	return r
 }

@@ -192,7 +192,7 @@ func TestStartPromptDelivery(t *testing.T) {
 			bubble(t, func(t *testing.T) {
 				r := fetchRig(t)
 				gate := make(chan struct{})
-				r.disp.set(func(d *dispatchFakes) { d.gate = gate })
+				r.disp.set(func(d *dispatch) { d.gate = gate })
 				r.start()
 				r.mustDispatch("d1")
 				r.waitStep("1 intent agent.start")
@@ -222,15 +222,15 @@ func TestStartPromptDelivery(t *testing.T) {
 		{"replay after the start, seen started: work sent (start prompt), nothing typed", func(t *testing.T) {
 			bubble(t, func(t *testing.T) {
 				r := fetchRig(t)
-				r.disp.set(func(d *dispatchFakes) { d.cut["start"] = "after" })
+				r.cut("start", "after")
 				r.start()
 				r.mustDispatch("d1")
-				r.waitFor("the start cut", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.hit["start"] })
+				r.waitFor("the start cut", func() bool { return r.cutHit("start") })
 				r.stop()
 				if !r.has("1 intent agent.start") || r.has("1 result agent.start") {
 					t.Fatalf("precondition: the start pending: %q", r.steps())
 				}
-				r.disp.set(func(d *dispatchFakes) { delete(d.cut, "start") })
+				r.cut("start", "")
 				r.start()
 				r.waitStep("1 result work")
 				r.passes()

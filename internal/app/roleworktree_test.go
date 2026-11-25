@@ -41,14 +41,16 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 				h.work(c.pane, true)
 			}
 			if c.to != "" {
+				rv := newSched(h) // the scheduling rig, its review branch at base1
+				rv.SetHead("base1")
 				h.a.opt.Loop = func(root string) (*Loop, error) {
-					return withCfg(root, &Loop{Workflow: WorkflowOf(newSchedScratch(h), &reviewGitFake{head: "base1"}), Agents: &FakeAgents{}}), nil
+					return withCfg(root, &Loop{Workflow: WorkflowOf(rv), Agents: &FakeAgents{}}), nil
 				}
 				if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1",
 					Role: "lead"}, To: c.to, Text: "look"}); err != nil {
 					t.Fatal(err)
 				}
-				f := newSchedScratch(h)
+				f := newSched(h)
 				h.a.opt.Loop = func(root string) (*Loop, error) {
 					return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 				}

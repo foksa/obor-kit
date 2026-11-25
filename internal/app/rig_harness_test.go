@@ -28,7 +28,7 @@ import (
 // (the candidate is reviewed again), even when the patch is the same; the same rev and patch keep it (row 20).
 
 // acceptAt gates T-1 green (kind, spec rev, candidate sha), sends its review job and accepts it.
-func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev int, sha string) {
+func acceptAt(t *testing.T, h *harness, f *sched, gate, kind string, rev int, sha string) {
 	t.Helper()
 	ctx := context.Background()
 	addRecord(t, h, "T-1", gate, event.KindIntent, event.GateIn{Kind: kind, Input: "s1"})
@@ -82,7 +82,7 @@ const admitCfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agen
 
 // seedRoles is seedSched's project with a reviewer (pane w1:rev) and a deep dive (pane w1:dd), both idle in their
 // role worktrees, and T-1 accepted.
-func seedRoles(t *testing.T) (*harness, *schedScratch) {
+func seedRoles(t *testing.T) (*harness, *sched) {
 	t.Helper()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
@@ -90,7 +90,7 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 	h.snap.Panes = append(h.snap.Panes,
 		port.Pane{ID: "w1:rev", Group: "pj", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Group: "pj", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
-	f := newSchedScratch(h)
+	f := newSched(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 	}
@@ -551,12 +551,12 @@ func (h *harness) has(s string) bool {
 // in it: the integrator decides the ones inside the spec's goal and holds the rest for the lead.
 
 // seedQuestions is project pj with an integrator, lane L-01's T-1 submitted with report and its lane gate green.
-func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
+func seedQuestions(t *testing.T, report string) (*harness, *sched) {
 	t.Helper()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
 		`"lanes":{"count":1},"agents":{"roles":{"integrator":""}}}`) // L-01: a sendback's lane.sync finds its worktree
-	f := newSchedScratch(h)
+	f := newSched(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: "../.."}), nil
 	}
@@ -580,7 +580,7 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 }
 
 // pickGreenStep runs the step pickGreen selects for T-1 (live, or after a replay of the log).
-func pickGreenStep(t *testing.T, h *harness, f *schedScratch, replay bool) *mtask {
+func pickGreenStep(t *testing.T, h *harness, f *sched, replay bool) *mtask {
 	t.Helper()
 	p := h.a.p
 	if replay {

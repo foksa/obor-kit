@@ -34,7 +34,7 @@ func (s *FakeWorkflow) MergePreview(ctx context.Context, lane string) (port.Prev
 	if p, ok := s.previews[lane]; ok {
 		return p, nil
 	}
-	return port.Preview{Target: "main", TargetSHA: s.head}, nil
+	return port.Preview{Target: "main", TargetSHA: s.target}, nil
 }
 
 // SetPreview scripts lane's merge preview.
@@ -47,18 +47,26 @@ func (s *FakeWorkflow) SetPreview(lane string, p port.Preview) {
 	s.previews[lane] = p
 }
 
-// FakeWorkflow is the package's one port.Workflow for tests (as FakeScratch): the loop rig's (app_test)
-// and the concurrency rig's, and the in-memory row of the workflow contract table (testkit.WorkflowContract). It runs
-// no git and no command: shas are made up, the target is a head the test moves (Move, Land), pins and lane commits are
-// maps. It keeps port.Workflow's contract (port/workflow.go): an outcome is final for its step, an
-// error is "not decided". Outcomes are scripted per call and task (Script); unscripted, a gate is green, a lane test
-// green and a publish merges while the target is still the candidate's. The git behaviour behind each outcome (a real
-// conflict, a moved merge, a held fast-forward) is internal/checks' to test, over real git.
+// FakeWorkflow is the package's one fake for port.Workflow's ports (Scratch, LaneSetup, Review, Target and
+// MergePreview): the loop rig's (app_test), the concurrency rig's, the harness tests' (sched) and the in-memory row of
+// the workflow contract table (testkit.WorkflowContract). It runs no git and no command: shas are made up, the target
+// is a head the test moves (Move, Land), pins and lane commits are maps. It keeps port.Workflow's contract
+// (port/workflow.go): an outcome is final for its step, an error is "not decided". Outcomes are scripted per call and
+// task (Script); unscripted, a gate is green, a lane test green and a publish merges while the target is still the
+// candidate's. The git behaviour behind each outcome (a real conflict, a moved merge, a held fast-forward) is
+// internal/checks' to test, over real git.
 //
 // It knows only what it is told: a lane it was given (AddLane, Prepare) has a committed snapshot of its dir, so Submit
 // commits what changed there and Test refuses it dirty; an unknown lane, sha or resolution is taken as it comes (the
-// concurrency rig's records name lanes and shas the fake never saw). Its review git has the one target (Head of any
-// branch is its head) and records the role worktrees it detached and the closes it committed. A test's own fake of one part is combined with it by WorkflowOf.
+// concurrency rig's records name lanes and shas the fake never saw). Its review git is the integration branch's head
+// (Head, SetHead) and records the role worktrees it detached and the closes it committed. A test's own fake of one part
+// is combined with it by WorkflowOf.
+//
+// The knobs a test scripts it with: Arm (a method's error), Cut (a lane prepare that holds), Script (an outcome),
+// OnTest (a hook in each lane test), OnPrepare (a hook after a lane prepare), SetAhead (Target's ahead with no lane),
+// SetHead, SetFiles, SetDetachErr, SetPreview; it keeps what each call was given and made (inputs, gated, resolved,
+// prepares, frees, syncs, subjects, pins, merges, detached, closes, headReads, closedRead), which a test reads under its
+// lock or through Prepares, Frees, Syncs, Inputs, Subjects, Pins, Merges, Detached, Called, Hit.
 type FakeWorkflow struct {
 	Dir    string // serve's worktree, the one a conflict names (nothing is written there)
 	Checks string // a green lane test's checks summary ("": "rc=0", merge.check ran)
@@ -66,7 +74,7 @@ type FakeWorkflow struct {
 	Submits, Gates, Tests, Publishes, AfterMerges atomic.Int32 // calls, a failed one too
 
 	mu         sync.Mutex
-	head       string                // the target's head
+	target     string                // the target's head
 	history    map[string]bool       // every sha the target held (a published candidate's is "already")
 	commits    map[string]fakeCommit // what the fake made: lane commits, merges, resolutions
 	lanes      map[string]*fakeLane
@@ -76,17 +84,42 @@ type FakeWorkflow struct {
 	published  map[string]port.Candidate
 	script     map[string]string // "<call> <task>" → its outcome (Script)
 	fail       map[string]func(ctx context.Context) error
+	cut        map[string]string // method → "before" or "after": it blocks there until its ctx ends
+	hit        map[string]bool   // a method reached its cut
+	calls      map[string]int    // each method's calls, a failed or cut one too
 	onTest     func(ctx context.Context, dir string)
 	inputs     []port.GateInput
+	gated      []string // the task of each Gate call
+	resolved   []string // the input of each Resolved call
+	prepares   []port.PrepareInput
+	frees      []port.FreeInput
+	base       string // Prepare's Base ("": in.Target)
+	prepared   func(port.PrepareInput)
 	subjects   []string // each Submit's lane commit subject ("<task>: <summary>"), a pinned one too
 	afterRuns  map[string]int
-	detached   map[string]string       // a role worktree's dir → the sha Detach put it on
+	detached   []string                // each Detach's dir@sha, in order
 	closes     []port.ReviewCommit     // the review closes committed, in order
 	open       *fakeCommit             // the conflicting merge left open in Dir (nil: none)
 	resolution string                  // the merge the integrator committed in Dir ("": none)
 	previews   map[string]port.Preview // a lane's scripted merge preview (SetPreview)
 	syncs      []port.SyncInput        // each Sync's input
 	n          int
+	ahead      bool // Target's ahead, whatever the fake's lanes hold (a test with no lane)
+	plain      bool // a green candidate is "c-<task>" with patch "p" (a test that wants no made-up hash)
+
+	// The review git: head (the integration branch's, "" is headSHA), which a gated publish moves; files the fixed
+	// answer; detachErr fails the detach; onHead runs once, inside the next Head read; closeErr refuses a close;
+	// closeGate, when set, holds a close until it is closed and closeBegan gets a value when one reaches it; the
+	// closedRead and headReads counters count the reads.
+	head       string
+	files      []string
+	detachErr  error
+	onHead     func()
+	closeErr   error
+	closeGate  chan struct{}
+	closeBegan chan struct{}
+	closedRead int
+	headReads  int
 
 	// The concurrency rig's: a gate of hold, a publish of holdPub, a resolved check of holdResolved block until
 	// release is closed (or their ctx ends), holdTest's lane test until testRelease is (release when nil); entered gets
@@ -124,12 +157,12 @@ func NewFakeWorkflow(head string) *FakeWorkflow {
 	s := &FakeWorkflow{history: map[string]bool{}, commits: map[string]fakeCommit{}, lanes: map[string]*fakeLane{},
 		pins: map[string]string{}, landed: map[string]bool{}, published: map[string]port.Candidate{},
 		script: map[string]string{}, fail: map[string]func(context.Context) error{}, afterRuns: map[string]int{},
-		detached: map[string]string{},
-		gates:    map[string]int{}, tests: map[string]int{}, pubs: map[string]int{}}
+		cut: map[string]string{}, hit: map[string]bool{}, calls: map[string]int{},
+		gates: map[string]int{}, tests: map[string]int{}, pubs: map[string]int{}}
 	if head == "" {
 		head = s.sha("target")
 	}
-	s.head, s.history[head] = head, true
+	s.target, s.history[head] = head, true
 	return s
 }
 
@@ -168,7 +201,7 @@ func laneFiles(dir string) map[string]string {
 func (s *FakeWorkflow) AddLane(name, dir, branch string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lanes[name] = &fakeLane{dir: dir, branch: branch, base: s.head, head: s.head, files: laneFiles(dir)}
+	s.lanes[name] = &fakeLane{dir: dir, branch: branch, base: s.target, head: s.target, files: laneFiles(dir)}
 }
 
 // commit commits what changed in lane l since its head (under mu): the new head, or the old one when nothing did.
@@ -295,9 +328,9 @@ func (s *FakeWorkflow) OnTest(fn func(ctx context.Context, dir string)) {
 func (s *FakeWorkflow) Move() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.head = s.sha("move")
-	s.history[s.head] = true
-	return s.head
+	s.target = s.sha("move")
+	s.history[s.target] = true
+	return s.target
 }
 
 // Land is task merged onto the target outside the app (obor merge by hand, "Merge <task>: by hand"): its new head.
@@ -311,7 +344,7 @@ func (s *FakeWorkflow) Land(task string) string {
 }
 
 // TargetHead is the target's head.
-func (s *FakeWorkflow) TargetHead() string { s.mu.Lock(); defer s.mu.Unlock(); return s.head }
+func (s *FakeWorkflow) TargetHead() string { s.mu.Lock(); defer s.mu.Unlock(); return s.target }
 
 // Parents is sha's parents (a merge: the target, then the submitted sha; nil: a sha the fake did not make).
 func (s *FakeWorkflow) Parents(sha string) []string {
@@ -463,6 +496,7 @@ func (s *FakeWorkflow) Gate(ctx context.Context, in port.GateInput) (port.GateOu
 	s.Gates.Add(1)
 	s.mu.Lock()
 	s.gates[in.Task]++
+	s.gated = append(s.gated, in.Task)
 	s.mu.Unlock()
 	if err := s.failing(ctx, "Gate"); err != nil {
 		return port.GateOutcome{}, err
@@ -479,7 +513,7 @@ func (s *FakeWorkflow) Gate(ctx context.Context, in port.GateInput) (port.GateOu
 	kind, rest := s.scripted(in.Task, "Gate "+in.Kind, "Gate")
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	target, submitted := s.head, in.Input
+	target, submitted := s.target, in.Input
 	if c, ok := s.commits[in.Input]; ok && in.Kind == port.InputResolved && len(c.parents) == 2 {
 		target, submitted = c.parents[0], c.parents[1]
 	}
@@ -513,6 +547,9 @@ func (s *FakeWorkflow) Gate(ctx context.Context, in port.GateInput) (port.GateOu
 	c.Stat, c.Diff = strings.Join(stat, "\n"), strings.Join(diff, "\n")
 	sum := sha256.Sum256([]byte(cmp.Or(c.Diff, submitted)))
 	c.Patch = hex.EncodeToString(sum[:])
+	if s.plain {
+		c.SHA, c.Patch = "c-"+in.Task, "p"
+	}
 	if !s.unbased {
 		c.Base = cmp.Or(sub.base, "b0")
 	}
@@ -580,6 +617,7 @@ func (s *FakeWorkflow) Resolved(ctx context.Context, task, input string, _ *port
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.resolved = append(s.resolved, input)
 	switch c := s.commits[s.resolution]; {
 	case s.open != nil:
 		return "", port.Refused{Line: "the merge in " + s.Dir + " is not committed"}
@@ -616,14 +654,14 @@ func (s *FakeWorkflow) Publish(ctx context.Context, c port.Candidate) (port.Publ
 	case s.history[c.SHA]:
 		s.unpin(c.Task)
 		return port.PublishOutcome{Kind: port.PublishAlready}, nil
-	case s.head != c.Target:
-		return port.PublishOutcome{Kind: port.PublishMoved, Head: s.head}, nil
+	case s.target != c.Target:
+		return port.PublishOutcome{Kind: port.PublishMoved, Head: s.target}, nil
 	case kind == port.PublishHold:
 		return port.PublishOutcome{Kind: port.PublishHold, Files: strings.Fields(cmp.Or(rest, "shared.txt"))}, nil
 	case kind == port.PublishPending: // the merge asked for, not done: Land is the forge's merge
 		return port.PublishOutcome{Kind: port.PublishPending}, nil
 	}
-	s.head, s.history[c.SHA], s.landed[c.Task] = c.SHA, true, true
+	s.target, s.history[c.SHA], s.landed[c.Task] = c.SHA, true, true
 	s.merges, s.published[c.Task] = append(s.merges, c.Task), c
 	s.unpin(c.Task)
 	return port.PublishOutcome{Kind: port.PublishMerged}, nil
@@ -671,26 +709,112 @@ func (s *FakeWorkflow) unpin(task string) {
 	}
 }
 
-// Prepare puts lane in.Lane at in.Dir on in.Branch at in.Target (in.Redo, a lane it knows: kept as it is), committed
-// as its dir is now; no lane dir is a final refusal, as checks.Lane's. The base is in.Target.
+// Prepare puts an unknown lane in.Lane at in.Dir on in.Branch at in.Target, its dir as it is now committed. A lane it
+// knows goes back to in.Target, its commits dropped, a redo keeping it as it is. No lane dir is a final refusal, as
+// checks.Lane's. The base is in.Target (Base when set).
 func (s *FakeWorkflow) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
+	s.countCall("Prepare")
 	if err := s.failing(ctx, "Prepare"); err != nil {
+		return port.Prepared{}, err
+	}
+	if err := s.cutHold(ctx, "Prepare", "before"); err != nil {
 		return port.Prepared{}, err
 	}
 	if st, err := os.Stat(in.Dir); err != nil || !st.IsDir() {
 		return port.Prepared{}, port.Refused{Line: "no lane dir " + in.Dir}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if l := s.lanes[in.Lane]; !in.Redo || l == nil {
+	if l, ok := s.lanes[in.Lane]; ok && !in.Redo { // a fresh prepare: the lane back at the target, its work dropped
+		l.base, l.head = in.Target, in.Target
+	} else if !ok {
 		s.lanes[in.Lane] = &fakeLane{dir: in.Dir, branch: in.Branch, base: in.Target, head: in.Target, files: laneFiles(in.Dir)}
 	}
-	return port.Prepared{Base: in.Target}, nil
+	s.prepares = append(s.prepares, in)
+	base, hook := cmp.Or(s.base, in.Target), s.prepared
+	s.mu.Unlock()
+	if hook != nil {
+		hook(in)
+	}
+	if err := s.cutHold(ctx, "Prepare", "after"); err != nil {
+		return port.Prepared{}, err
+	}
+	return port.Prepared{Base: base}, nil
+}
+
+// Prepares is every Prepare input, in order.
+func (s *FakeWorkflow) Prepares() []port.PrepareInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.prepares)
+}
+
+// Frees is every Free input, in order.
+func (s *FakeWorkflow) Frees() []port.FreeInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.frees)
+}
+
+// OnPrepare runs in each Prepare after it applied, with its input (nil: none): the lane table a test keeps, the rows
+// the real prepare writes.
+func (s *FakeWorkflow) OnPrepare(fn func(port.PrepareInput)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prepared = fn
+}
+
+// Called is how many calls method (Prepare, Free, Sync) took, a failed or cut one too.
+func (s *FakeWorkflow) Called(method string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls[method]
+}
+
+// Cut makes method's call (a lane method's name) block at where ("before" or "after" it applies) until its ctx ends;
+// "" heals it.
+func (s *FakeWorkflow) Cut(method, where string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if where == "" {
+		delete(s.cut, method)
+		return
+	}
+	s.cut[method] = where
+}
+
+// Hit is whether method reached its cut.
+func (s *FakeWorkflow) Hit(method string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hit[method]
+}
+
+// countCall counts a call of method.
+func (s *FakeWorkflow) countCall(method string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls[method]++
+}
+
+// cutHold blocks until ctx ends when method is cut at where.
+func (s *FakeWorkflow) cutHold(ctx context.Context, method, where string) error {
+	s.mu.Lock()
+	cut := s.cut[method] == where
+	if cut {
+		s.hit[method] = true
+	}
+	s.mu.Unlock()
+	if !cut {
+		return nil
+	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 // Sync is lane.sync's merge of the target into lane in.Lane, as Script("Sync", task, …) says (unscripted: current,
 // the lane untouched); a merged lane's head is a merge commit of its head and in.Target. Each input is kept (Syncs).
 func (s *FakeWorkflow) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) {
+	s.countCall("Sync")
 	if err := s.failing(ctx, "Sync"); err != nil {
 		return port.Synced{}, err
 	}
@@ -712,6 +836,27 @@ func (s *FakeWorkflow) Sync(ctx context.Context, in port.SyncInput) (port.Synced
 	return port.Synced{Kind: kind, Files: strings.Fields(rest)}, nil
 }
 
+// recordGate keeps a gate call's task (a test's own Gate does, as Gate does).
+func (s *FakeWorkflow) recordGate(task string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gated = append(s.gated, task)
+}
+
+// Gated is the task of each Gate call, in order.
+func (s *FakeWorkflow) Gated() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.gated)
+}
+
+// ResolvedInputs is the input of each Resolved call, in order.
+func (s *FakeWorkflow) ResolvedInputs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.resolved)
+}
+
 // Syncs is the inputs Sync was given, in order.
 func (s *FakeWorkflow) Syncs() []port.SyncInput {
 	s.mu.Lock()
@@ -722,11 +867,13 @@ func (s *FakeWorkflow) Syncs() []port.SyncInput {
 // Free gives lane in.Lane back: refused while it has uncommitted changes or commits the target lacks, unless
 // in.Discard; then the fake forgets it (an unknown lane is gone already). Its line names what it discarded.
 func (s *FakeWorkflow) Free(ctx context.Context, in port.FreeInput) (string, error) {
+	s.countCall("Free")
 	if err := s.failing(ctx, "Free"); err != nil {
 		return "", err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.frees = append(s.frees, in)
 	l := s.lanes[in.Lane]
 	if l == nil {
 		return "", nil
@@ -735,7 +882,7 @@ func (s *FakeWorkflow) Free(ctx context.Context, in port.FreeInput) (string, err
 	if !maps.Equal(laneFiles(l.dir), l.files) {
 		lost = append(lost, "uncommitted changes")
 	}
-	if s.ahead(l) {
+	if s.aheadOf(l) {
 		lost = append(lost, "commits not in the target")
 	}
 	if len(lost) > 0 && !in.Discard {
@@ -758,7 +905,7 @@ func (s *FakeWorkflow) Free(ctx context.Context, in port.FreeInput) (string, err
 
 // ahead: lane l's head has commits the target lacks (under mu): a commit past its base no merge on the target took,
 // and its task not landed by hand.
-func (s *FakeWorkflow) ahead(l *fakeLane) bool {
+func (s *FakeWorkflow) aheadOf(l *fakeLane) bool {
 	if l.head == l.base || s.landed[s.commits[l.head].task] {
 		return false
 	}
@@ -770,34 +917,65 @@ func (s *FakeWorkflow) ahead(l *fakeLane) bool {
 	return true
 }
 
-// Target is the target's head; ahead: a lane on task's branch (task/<task>) has commits the target lacks.
+// Target is the target's head; ahead: a lane on task's branch (task/<task>) has commits the target lacks, or the test
+// said so (SetAhead).
 func (s *FakeWorkflow) Target(ctx context.Context, task string) (string, bool, error) {
 	if err := s.failing(ctx, "Target"); err != nil {
 		return "", false, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.ahead {
+		return s.target, true, nil
+	}
 	for _, l := range s.lanes {
-		if l.branch == "task/"+task && s.ahead(l) {
-			return s.head, true, nil
+		if l.branch == "task/"+task && s.aheadOf(l) {
+			return s.target, true, nil
 		}
 	}
-	return s.head, false, nil
+	return s.target, false, nil
 }
 
-// Head is the target's head, whatever branch is asked for (the fake has one target).
+// SetAhead makes Target report task's branch ahead, whatever the fake's lanes hold.
+func (s *FakeWorkflow) SetAhead(ahead bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ahead = ahead
+}
+
+// Head is the integration branch's head (set, else headSHA): every branch is that one head.
 func (s *FakeWorkflow) Head(ctx context.Context, _ string) (string, error) {
 	if err := s.failing(ctx, "Head"); err != nil {
 		return "", err
 	}
-	return s.TargetHead(), nil
+	s.mu.Lock()
+	hook := s.onHead
+	s.onHead = nil
+	s.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.headReads++
+	return cmp.Or(s.head, headSHA), nil
 }
 
-// Files is the files the task diffs merged from from to to changed: to's first parents back to from (from "": as far
-// as the fake made them).
+// SetHead is the integration branch's head Head reports ("" : headSHA).
+func (s *FakeWorkflow) SetHead(sha string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.head = sha
+}
+
+// Files is the configured files (ReviewFiles), else the files the task diffs merged from from to to changed: to's first
+// parents back to from (from "": as far as the fake made them).
 func (s *FakeWorkflow) Files(_ context.Context, from, to string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.files != nil {
+		return slices.Clone(s.files), nil
+	}
 	files := map[string]bool{}
 	for sha := to; sha != "" && sha != from; {
 		c, ok := s.commits[sha]
@@ -812,14 +990,24 @@ func (s *FakeWorkflow) Files(_ context.Context, from, to string) ([]string, erro
 	return slices.Sorted(maps.Keys(files)), nil
 }
 
-// Detach records role worktree dir at sha.
+// SetFiles is Files' answer.
+func (s *FakeWorkflow) SetFiles(files ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.files = files
+}
+
+// Detach records role worktree dir at sha (detachErr fails it).
 func (s *FakeWorkflow) Detach(ctx context.Context, dir, sha string) error {
 	if err := s.failing(ctx, "Detach"); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.detached[dir] = sha
+	if s.detachErr != nil {
+		return s.detachErr
+	}
+	s.detached = append(s.detached, dir+"@"+sha)
 	return nil
 }
 
@@ -827,16 +1015,56 @@ func (s *FakeWorkflow) Detach(ctx context.Context, dir, sha string) error {
 func (s *FakeWorkflow) Detached(dir string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.detached[dir]
+	for i := len(s.detached) - 1; i >= 0; i-- {
+		if d, sha, ok := strings.Cut(s.detached[i], "@"); ok && d == dir {
+			return sha
+		}
+	}
+	return ""
 }
 
-// Close commits review close c: recorded, its subject Closed's answer for its id from then on.
+// detachedAt is every Detach so far, as <worktree base name>@<sha>.
+func (s *FakeWorkflow) detachedAt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, d := range s.detached {
+		out = append(out, filepath.Base(d))
+	}
+	return strings.Join(out, ",")
+}
+
+// SetDetachErr makes Detach fail with err (nil: it detaches).
+func (s *FakeWorkflow) SetDetachErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.detachErr = err
+}
+
+// Close commits review close c: recorded, its subject Closed's answer for its id from then on. closeGate, when set,
+// holds the close until it closes; closeErr refuses it.
 func (s *FakeWorkflow) Close(ctx context.Context, c port.ReviewCommit) error {
 	if err := s.failing(ctx, "Close"); err != nil {
 		return err
 	}
 	s.mu.Lock()
+	gate, began := s.closeGate, s.closeBegan
+	s.mu.Unlock()
+	if gate != nil {
+		if began != nil {
+			began <- struct{}{}
+		}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closeErr != nil {
+		return s.closeErr
+	}
 	s.closes = append(s.closes, c)
 	return nil
 }
@@ -845,12 +1073,20 @@ func (s *FakeWorkflow) Close(ctx context.Context, c port.ReviewCommit) error {
 func (s *FakeWorkflow) Closed(_ context.Context, _, _, id string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closedRead++
 	for i := len(s.closes) - 1; i >= 0; i-- {
 		if s.closes[i].ID == id {
 			return s.closes[i].Subject, nil
 		}
 	}
 	return "", nil
+}
+
+// reads is how many times Closed was read.
+func (s *FakeWorkflow) reads() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closedRead
 }
 
 var _ port.Workflow = (*FakeWorkflow)(nil)
@@ -954,47 +1190,19 @@ func needsMessages(t *testing.T, p *proj) []event.Message {
 	return out
 }
 
-// schedScratch is a fake Scratch for the scheduling tests: gates are green and logged by task, Resolved logs the input
-// it was given; its Agents and Prompter are the package's FakeAgents.
-type schedScratch struct {
-	*FakeAgents // its starts show the integrator (integratorUp)
-	h           *harness
-	gated       []string // the task of each Gate call
-	resolved    []string // the input of each Resolved call
+// sched is the scheduling tests' rig fake: the package's workflow fake (FakeWorkflow) and its agents (FakeAgents), one
+// Loop's Workflow, Agents and Prompter.
+type sched struct {
+	*FakeWorkflow
+	*FakeAgents
 }
 
-func (f *schedScratch) Submit(context.Context, string, string, string, string) (string, error) {
-	return "submitted", nil
-}
-
-func (f *schedScratch) Gate(_ context.Context, in port.GateInput) (port.GateOutcome, error) {
-	f.gated = append(f.gated, in.Task)
-	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
-		Target: "b", Patch: "p"}}, nil
-}
-
-func (f *schedScratch) Test(_ context.Context, in port.TestInput) (port.TestOutcome, error) {
-	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task, Checks: "check 1 pass"}, nil
-}
-
-func (f *schedScratch) Resolved(_ context.Context, _, input string, _ *port.Mismatch) (string, error) {
-	f.resolved = append(f.resolved, input)
-	return "resolution", nil
-}
-
-func (f *schedScratch) Publish(context.Context, port.Candidate) (port.PublishOutcome, error) {
-	return port.PublishOutcome{Kind: port.PublishMerged}, nil
-}
-
-func (f *schedScratch) Landed(context.Context, string) (bool, error) { return false, nil }
-
-func (f *schedScratch) Unpin(context.Context, string) error { return nil }
-
-func (f *schedScratch) AfterMerge(context.Context, port.Candidate) (string, error) { return "ran", nil }
-
-// newSchedScratch is h's schedScratch.
-func newSchedScratch(h *harness) *schedScratch {
-	return &schedScratch{FakeAgents: &FakeAgents{OnLaunch: integratorUp(h)}, h: h}
+// newSched is h's sched: a workflow fake whose target is base1 and whose candidates are unbased (a green gate is green
+// at once), gate and resolution calls kept, and whose every start shows the integrator pj-int idle in w1:p9.
+func newSched(h *harness) *sched {
+	s := NewFakeWorkflow("base1") // the target the harness tests' candidates name
+	s.unbased, s.plain, s.Checks = true, true, "check 1 pass"
+	return &sched{FakeWorkflow: s, FakeAgents: &FakeAgents{OnLaunch: integratorUp(h)}}
 }
 
 // integratorUp is a FakeAgents.OnLaunch whose every start shows the integrator pj-int idle in pane w1:p9 of h's
@@ -1009,14 +1217,14 @@ func integratorUp(h *harness) func(context.Context, port.Launch) (port.Started, 
 
 // seedSched is project pj with an integrator (serve false: without, so no merge loop), lane L-01's T-1 submitted at
 // sha s1 and gated into a conflict. before, when given, acts on the harness's snapshot before the connect takes it.
-func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, *schedScratch) {
+func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, *sched) {
 	h := newHarness(t)
 	cfg := `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""},` + harnessModels + `}}`
 	if !serve {
 		cfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{` + harnessModels + `}}`
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
-	f := newSchedScratch(h)
+	f := newSched(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 	}

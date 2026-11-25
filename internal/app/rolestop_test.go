@@ -288,7 +288,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	}
 	s := &FakeAgents{}
 	now = now.Add(time.Hour)
-	a.rulePass(context.Background(), rules, withAppCfg(a, &Loop{Agents: s, Workflow: WorkflowOf(&reviewGitFake{})}))
+	a.rulePass(context.Background(), rules, withAppCfg(a, &Loop{Agents: s, Workflow: WorkflowOf(reviewFake(""))}))
 	same(t, len(s.Stops()), 0, "serve's stops of the custom role")
 }
 

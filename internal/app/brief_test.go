@@ -111,7 +111,7 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 	}}, false)
 	// An idle deep dive's brief moves its role worktree first.
 	a.opt.Loop = func(root string) (*Loop, error) {
-		return withCfg(root, &Loop{Workflow: WorkflowOf(&reviewGitFake{head: "base1"})}), nil
+		return withCfg(root, &Loop{Workflow: WorkflowOf(reviewFake("base1"))}), nil
 	}
 	return a, p
 }

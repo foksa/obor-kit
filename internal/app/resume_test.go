@@ -313,7 +313,7 @@ func TestSettledAnswerEndsOnReplay(t *testing.T) {
 }
 
 // fixStep runs the step pickWorking selects for T-1 (the fix job of the attempt): fatal when there is none or it fails.
-func fixStep(t *testing.T, h *harness, f *schedScratch) {
+func fixStep(t *testing.T, h *harness, f *sched) {
 	t.Helper()
 	p := h.a.p
 	for !p.folded.loop["T-1"].fixed { // lane.sync first (row 24a), then the fix job

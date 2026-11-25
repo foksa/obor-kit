@@ -115,9 +115,7 @@ func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 			ts := r.task("T-1")
 			return ts.State == "working" && ts.Attempt == 2
 		})
-		r.disp.mu.Lock()
-		inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
-		r.disp.mu.Unlock()
+		inputs := r.scratch.Prepares()
 		if len(inputs) != 2 || !inputs[1].Redo || inputs[1].Lane != "L-01" || inputs[1].Branch != inputs[0].Branch ||
 			inputs[1].Target != inputs[0].Target {
 			t.Errorf("the prepares %+v; want the move's a redo on L-01, its branch and target kept", inputs)
@@ -161,18 +159,18 @@ func TestMoveReplayedToTheNewModel(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, working())
-		r.disp.set(func(d *dispatchFakes) { d.cut["start"] = "before" })
+		r.cut("start", "before")
 		if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01: sonnet → opus") {
 			t.Fatalf("move: %q, %v", reply, err)
 		}
-		r.waitFor("the move's start cut", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.hit["start"] })
+		r.waitFor("the move's start cut", func() bool { return r.cutHit("start") })
 		r.stop()
 		if !r.has("2 result worker.stop") || !r.has("2 intent agent.start") || r.has("2 result agent.start") {
 			t.Fatalf("precondition: the worker stopped, the move's start pending: %q", r.steps())
 		}
 		stops := r.workerStops()
 		before := len(r.workerLaunches())
-		r.disp.set(func(d *dispatchFakes) { delete(d.cut, "start") })
+		r.cut("start", "")
 		r.start()
 		r.waitJob("pj-l-01", "T-1/2/work")
 		ls := r.workerLaunches()[before:]
@@ -238,9 +236,7 @@ func TestMoveAfterSendbackKeepsTheDispatch(t *testing.T) {
 					t.Fatalf("move: %q, %v; want %q (the old model read from the kept dispatch)", reply, err, want)
 				}
 				job := r.waitJob("pj-l-01", "T-1/3/work")
-				r.disp.mu.Lock()
-				inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
-				r.disp.mu.Unlock()
+				inputs := r.scratch.Prepares()
 				if n := len(inputs); n < 2 || inputs[0].Branch == "" || inputs[0].Target == "" || !inputs[n-1].Redo ||
 					inputs[n-1].Branch != inputs[0].Branch || inputs[n-1].Target != inputs[0].Target {
 					t.Errorf("the prepares %+v; want the move's a redo on the dispatch's branch and target", inputs)

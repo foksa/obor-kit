@@ -61,7 +61,7 @@ func (r *loopRig) keysTo(agent string) int {
 // holdPrepare holds every lane prepare before it runs, so a task stays dispatched; a new drive's reply, which waits
 // for its lane's prepare, gives up after a second (of the bubble's clock). Call it before start.
 func (r *loopRig) holdPrepare() {
-	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
+	r.cut("prepare", "before")
 	r.driveWait = time.Second
 }
 
@@ -93,29 +93,27 @@ func (r *loopRig) factData(task, step string) map[string]any {
 }
 
 // Dispatch as state (docs/state-model.md rows 2–9): the dispatch request over the socket, its fact, and the steps the
-// merge loop runs after it (lane.prepare, agent.start, the work job), on the merge loop's rig with fake
-// LaneSetup and Specs adapters. Lane L-01 starts free (its worker pj-l-01 idle in its pane, session s0); T-1 is the
+// merge loop runs after it (lane.prepare, agent.start, the work job), on the merge loop's rig with the workflow fake's
+// lanes and a fake Specs adapter. Lane L-01 starts free (its worker pj-l-01 idle in its pane, session s0); T-1 is the
 // task dispatched.
 
-// dispatchFakes is the dispatch's adapters and what they did.
-type dispatchFakes struct {
+// dispatch is the dispatch rig's Specs adapter and its worker's start, with what a dispatch test scripts and what they
+// did. The lane setup is the rig's one workflow fake (app.FakeWorkflow: Prepare, Free, Sync), whose knobs a test sets
+// through the rig.
+type dispatch struct {
 	r  *loopRig
 	mu sync.Mutex
-	on bool // the loop has the dispatch adapters (its lanes and target in Loop.Workflow, Loop.Specs)
-	// The Specs: refusals by task, the target sha, the task branch ahead.
+	on bool // the loop has the Specs adapter (Loop.Specs)
+	// The Specs: refusals by task, the spec text each Check was given.
 	refuse map[string]string
-	texts  []string // the spec text each Check was given (the store's)
-	ahead  bool
-	// What the LaneSetup and the worker's starts applied (a call cut before it applies counts in calls only).
-	prepares, starts int
-	resumes          int // the starts without --fresh applied (the worker start rule's)
-	calls            map[string]int
-	inputs           []port.PrepareInput
-	frees            []port.FreeInput
-	session          int           // the worker's session number (its transcript /s/<n>.jsonl)
-	keepSession      bool          // a start leaves the session as it is
-	sessionless      bool          // a start reports no session id for its agent (OpenCode)
-	gate             chan struct{} // non-nil: a start, its agent up, waits for it to close before it returns
+	texts  []string
+	// What the worker's starts applied (a call cut before it applies counts in calls only).
+	starts, resumes int
+	calls           map[string]int
+	session         int           // the worker's session number (its transcript /s/<n>.jsonl)
+	keepSession     bool          // a start leaves the session as it is
+	sessionless     bool          // a start reports no session id for its agent (OpenCode)
+	gate            chan struct{} // non-nil: a start, its agent up, waits for it to close before it returns
 	// fail: an error a method gives instead of acting (nil: none); cut: where a method blocks until its ctx ends
 	// ("before" or "after" it applies), hit: it blocked there.
 	fail map[string]func() error
@@ -123,19 +121,19 @@ type dispatchFakes struct {
 	hit  map[string]bool
 }
 
-func (d *dispatchFakes) loop(fx *app.Loop) {
+func (d *dispatch) loop(fx *app.Loop) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	kit, _ := filepath.Abs("../..")
 	if d.on {
-		fx.Workflow, fx.Specs = app.WorkflowOf(fx.Workflow, d), d
+		fx.Specs = d
 	}
 	fx.Kit = kit
 	fx.Prompter = cutPrompter{d, d.r.tt}
 }
 
 // enter counts a call of method and gives its armed failure (nil: act).
-func (d *dispatchFakes) enter(method string) error {
+func (d *dispatch) enter(method string) error {
 	d.mu.Lock()
 	d.calls[method]++
 	fail := d.fail[method]
@@ -147,7 +145,7 @@ func (d *dispatchFakes) enter(method string) error {
 }
 
 // hold blocks until ctx ends when method is cut at where.
-func (d *dispatchFakes) hold(ctx context.Context, method, where string) error {
+func (d *dispatch) hold(ctx context.Context, method, where string) error {
 	d.mu.Lock()
 	cut := d.cut[method] == where
 	if cut {
@@ -161,60 +159,16 @@ func (d *dispatchFakes) hold(ctx context.Context, method, where string) error {
 	return ctx.Err()
 }
 
-func (d *dispatchFakes) Check(_ context.Context, task, text string) (string, error) {
+func (d *dispatch) Check(_ context.Context, task, text string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.texts = append(d.texts, text)
 	return d.refuse[task], nil
 }
 
-func (d *dispatchFakes) Target(context.Context, string) (string, bool, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return "target1", d.ahead, nil
-}
-
-// Prepare puts L-01 on T-1 in the lane table.
-func (d *dispatchFakes) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
-	if err := d.enter("prepare"); err != nil {
-		return port.Prepared{}, err
-	}
-	if err := d.hold(ctx, "prepare", "before"); err != nil {
-		return port.Prepared{}, err
-	}
-	d.mu.Lock()
-	d.prepares++
-	d.inputs = append(d.inputs, in)
-	d.mu.Unlock()
-	d.r.setLane(func(l *port.Lane) { l.Task, l.State = in.Task, "working" })
-	if err := d.hold(ctx, "prepare", "after"); err != nil {
-		return port.Prepared{}, err
-	}
-	return port.Prepared{Base: "base-" + in.Target}, nil
-}
-
-// Free is the lane given back by a drop: noted, nothing refused.
-func (d *dispatchFakes) Free(ctx context.Context, in port.FreeInput) (string, error) {
-	if err := d.enter("free"); err != nil {
-		return "", err
-	}
-	d.mu.Lock()
-	d.frees = append(d.frees, in)
-	d.mu.Unlock()
-	return "", nil
-}
-
-// Sync is a lane.sync that finds the target in the branch already.
-func (d *dispatchFakes) Sync(context.Context, port.SyncInput) (port.Synced, error) {
-	if err := d.enter("sync"); err != nil {
-		return port.Synced{}, err
-	}
-	return port.Synced{Kind: port.SyncCurrent}, nil
-}
-
 // startWorker is pj-l-01's start in its pane: a fresh one a new session (unless keepSession), one without --fresh
 // (the worker start rule's) the session resumed; idle, seen by the app.
-func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.Started, error) {
+func (d *dispatch) startWorker(ctx context.Context, req port.Launch) (port.Started, error) {
 	if err := d.enter("start"); err != nil {
 		return port.Started{}, err
 	}
@@ -261,7 +215,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 // cutPrompter is the terminal's prompter with the work job's cut points.
 // Not a FakeAgents: it types through the rig's terminal (inner), where the rig's agent reads its wake.
 type cutPrompter struct {
-	d     *dispatchFakes
+	d     *dispatch
 	inner port.Prompter
 }
 
@@ -282,22 +236,65 @@ func (c cutPrompter) Prompt(ctx context.Context, pane, text string, clear bool) 
 }
 
 // applied is what the fakes applied: prepares, starts.
-func (d *dispatchFakes) applied() (int, int) {
+func (d *dispatch) applied() (int, int) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.prepares, d.starts
+	starts := d.starts
+	d.mu.Unlock()
+	return len(d.r.scratch.Prepares()), starts
 }
 
-func (d *dispatchFakes) called(method string) int {
+// called is how many calls method ("prepare", "free", "start", "prompt") took.
+func (d *dispatch) called(method string) int {
+	switch method {
+	case "prepare":
+		return d.r.scratch.Called("Prepare")
+	case "free":
+		return d.r.scratch.Called("Free")
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.calls[method]
 }
 
-func (d *dispatchFakes) set(fn func(d *dispatchFakes)) {
+func (d *dispatch) set(fn func(d *dispatch)) {
 	d.mu.Lock()
 	fn(d)
 	d.mu.Unlock()
+}
+
+// cut makes method's call ("prepare" on the workflow fake, "start" or "prompt" here) block at where ("before" or
+// "after" it applies) until its ctx ends ("" heals it).
+func (r *loopRig) cut(method, where string) {
+	if method == "prepare" {
+		r.scratch.Cut("Prepare", where)
+		return
+	}
+	r.disp.set(func(d *dispatch) {
+		if where == "" {
+			delete(d.cut, method)
+			return
+		}
+		d.cut[method] = where
+	})
+}
+
+// cutHit is whether method reached its cut.
+func (r *loopRig) cutHit(method string) bool {
+	if method == "prepare" {
+		return r.scratch.Hit("Prepare")
+	}
+	r.disp.mu.Lock()
+	defer r.disp.mu.Unlock()
+	return r.disp.hit[method]
+}
+
+// armPrepare makes the workflow fake's Prepare fail with fn's error (nil: it acts).
+func (r *loopRig) armPrepare(fn func() error) {
+	if fn == nil {
+		r.scratch.Arm("Prepare", nil)
+		return
+	}
+	r.scratch.Arm("Prepare", func(context.Context) error { return fn() })
 }
 
 // dispatch is the lead's dispatch of T-1 (lane "" with models: the first free lane for them). A named lane with no
