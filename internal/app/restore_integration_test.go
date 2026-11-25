@@ -7,52 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"obor/internal/app"
 	"obor/internal/app/event"
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
 )
-
-// fakeRestorer records serve's restore runs (port.Restorer): the roots asked for, and the most that ran at once. A
-// run waits for hold while hold is set (a restore that takes its time).
-type fakeRestorer struct {
-	mu      sync.Mutex
-	roots   []string
-	running int
-	most    int
-	hold    chan struct{}
-}
-
-func (f *fakeRestorer) RestoreProject(ctx context.Context, root string, _ port.Lost) {
-	f.mu.Lock()
-	f.roots = append(f.roots, root)
-	f.running++
-	f.most = max(f.most, f.running)
-	hold := f.hold
-	f.mu.Unlock()
-	if hold != nil {
-		select {
-		case <-hold:
-		case <-ctx.Done():
-		}
-	}
-	f.mu.Lock()
-	f.running--
-	f.mu.Unlock()
-}
-
-func (f *fakeRestorer) runs() (n, running, most int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.roots), f.running, f.most
-}
 
 // herdrRig is the rig with the app on the real herdr adapter (herdr.Panes over the fake herdr's unix socket), whose
 // instance is its socket file's: serve's restore at the terminal's boundary. Its panes are newRig's.
