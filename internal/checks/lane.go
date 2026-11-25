@@ -17,7 +17,8 @@ import (
 )
 
 // Lane is port.LaneSetup for one project: the lane.prepare step of a dispatched task, the target merged into a lane
-// before a fix attempt (lane.sync) and the lane a drop gives back. Its git is laneGit: real git in the lane's worktree with the caller's ctx.
+// before a fix attempt (lane.sync) and the lane a drop gives back. Its git is laneGit: real git in the lane's worktree
+// with the caller's ctx; obor's links around a checkout or the merge are l's own git calls (linkGit).
 type Lane struct {
 	Cfg  *config.Config
 	Out  io.Writer // progress lines (nil: none)
@@ -53,7 +54,8 @@ type laneGit interface {
 	// Parents is sha and its parents (rev-list --parents -n 1).
 	Parents(dir, sha string) ([]string, error)
 	// Merge merges input into dir's HEAD, --no-commit --no-ff: an error when it stopped (a conflict among them:
-	// MERGE_HEAD stays); Unmerged is the paths an open merge left unmerged; MergeAbort is merge --abort.
+	// MERGE_HEAD stays); Unmerged is the paths an open merge left unmerged; MergeAbort is merge --abort. Its caller
+	// keeps obor's links out of its way (project.WithLinks).
 	Merge(dir, input string) error
 	Unmerged(dir string) ([]string, error)
 	MergeAbort(dir string) error
@@ -93,10 +95,10 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 // Sync merges in.Target into the task branch in.Dir has checked out (port.LaneSetup.Sync, lane.sync): its commit
 // subject "Merge <target branch> into <branch> (obor: fix attempt <n>)". A merge an earlier cut Sync left open
 // (MERGE_HEAD) is aborted first; a HEAD that is the merge of in.Target already (a cut after the commit) is merged.
-// Then: the target in HEAD's history is current, uncommitted changes (project.LaneDirt: obor's links are not the
-// lane's) are dirty, nothing touched; a merge that stops with unmerged paths is aborted (the lane as it was) and is a
-// conflict naming them; one that stops otherwise is aborted and an error. No lane dir, a lane not on in.Branch and git
-// failures are errors (retry).
+// The merge keeps obor's links the way a checkout does (project.WithLinks). Then: the target in HEAD's history is
+// current, uncommitted changes (project.LaneDirt: obor's links are not the lane's) are dirty, nothing touched; a merge
+// that stops with unmerged paths is aborted (the lane as it was) and is a conflict naming them; one that stops otherwise
+// is aborted and an error. No lane dir, a lane not on in.Branch and git failures are errors (retry).
 func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) {
 	if !project.IsDir(in.Dir) {
 		return port.Synced{}, fmt.Errorf("no lane dir %s", in.Dir)
@@ -137,15 +139,34 @@ func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) 
 	if len(dirt) > 0 {
 		return port.Synced{Kind: port.SyncDirty, Files: dirt}, nil
 	}
-	if err := git.Merge(in.Dir, in.Target); err != nil {
-		files, uerr := git.Unmerged(in.Dir)
-		if aerr := l.abortMerge(git, in.Dir); aerr != nil {
-			return port.Synced{}, fmt.Errorf("merge %s in %s: %v; %w", in.Target, in.Dir, err, aerr)
+	// The merge keeps obor's links the way a checkout does (project.WithLinks): a link where the target starts
+	// tracking the path comes out of its way and the tracked file takes the path; a link the merge leaves no file for
+	// comes back. A merge that stops is aborted inside the change, so the links return around a lane as it was.
+	var (
+		mergeErr error    // the merge's own failure (nil: it merged)
+		files    []string // the paths the stopped merge left unmerged
+		unread   error    // the unmerged read's error
+		abortErr error    // the abort's error, after a merge that stopped
+	)
+	err = project.WithLinks(l.Cfg, in.Dir, in.Target, l.linkGit(ctx), l.say, func() error {
+		if mergeErr = git.Merge(in.Dir, in.Target); mergeErr == nil {
+			return nil
 		}
-		if uerr == nil && len(files) > 0 {
+		files, unread = git.Unmerged(in.Dir)
+		abortErr = l.abortMerge(git, in.Dir)
+		return mergeErr
+	})
+	if err != nil {
+		if abortErr != nil {
+			return port.Synced{}, fmt.Errorf("merge %s in %s: %v; %w", in.Target, in.Dir, mergeErr, abortErr)
+		}
+		if mergeErr == nil {
+			return port.Synced{}, fmt.Errorf("merge %s in %s: %w", in.Target, in.Dir, err) // the links' own failure
+		}
+		if unread == nil && len(files) > 0 {
 			return port.Synced{Kind: port.SyncConflict, Files: files}, nil
 		}
-		return port.Synced{}, fmt.Errorf("merge %s in %s: %w%s", in.Target, in.Dir, err, lockHint(in.Dir, err))
+		return port.Synced{}, fmt.Errorf("merge %s in %s: %w%s", in.Target, in.Dir, mergeErr, lockHint(in.Dir, mergeErr))
 	}
 	msg := fmt.Sprintf("Merge %s into %s (obor: fix attempt %d)", l.Cfg.MainBranch(), in.Branch, in.Attempt)
 	if err := git.CommitMerge(in.Dir, msg); err != nil {
@@ -187,16 +208,23 @@ func cmpErr(err error, why string) error {
 // checkout is git checkout -q args… in dir, which puts it on target, with obor's links kept around it
 // (project.CheckoutWorktree: the ones target tracks removed first, the missing ones made after), a line each to l.Out.
 func (l Lane) checkout(ctx context.Context, dir, target string, args ...string) error {
-	say := func(line string) {
-		if l.Out != nil {
-			fmt.Fprintln(l.Out, line)
-		}
-	}
-	git := func(dir string, args ...string) (string, error) { return l.gitRaw(ctx, dir, args...) }
-	return project.CheckoutWorktree(l.Cfg, dir, target, git, say, func() error {
+	return project.CheckoutWorktree(l.Cfg, dir, target, l.linkGit(ctx), l.say, func() error {
 		_, err := l.git(ctx, dir, append([]string{"checkout", "-q"}, args...)...)
 		return err
 	})
+}
+
+// linkGit is the git seam of the link handling (project.WithLinks: the status, ls-tree and rev-parse of the links
+// around a checkout or the merge): l's own git call under ctx.
+func (l Lane) linkGit(ctx context.Context) func(dir string, args ...string) (string, error) {
+	return func(dir string, args ...string) (string, error) { return l.gitRaw(ctx, dir, args...) }
+}
+
+// say is a progress line to l.Out (nil: dropped).
+func (l Lane) say(line string) {
+	if l.Out != nil {
+		fmt.Fprintln(l.Out, line)
+	}
 }
 
 // lockHint is a failed lane git call's hint for a lock that outlived the wait (gitLocked): git's exit 128 whose error
