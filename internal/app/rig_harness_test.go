@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -860,17 +861,37 @@ func (f *fakePanes) Notify(_ context.Context, title, body string) error {
 	return nil
 }
 
-// fakeLanes is the lane table; err, when set, fails the whole read instead.
+// fakeLanes is the lane table; err, when set, fails the whole read instead. It counts its scans (each one is git per
+// lane in serve); when gate is set a scan signals entered and waits for gate to close.
 type fakeLanes struct {
-	lanes []port.Lane
-	err   error
+	mu      sync.Mutex
+	lanes   []port.Lane
+	err     error
+	scanned int
+	gate    chan struct{}
+	entered chan struct{}
 }
 
-func (l *fakeLanes) Lanes(context.Context, string) ([]port.Lane, error) {
+func (l *fakeLanes) Lanes(_ context.Context, _ string) ([]port.Lane, error) {
+	l.mu.Lock()
+	l.scanned++
+	gate, entered := l.gate, l.entered
+	l.mu.Unlock()
+	if gate != nil {
+		entered <- struct{}{}
+		<-gate
+	}
 	if l.err != nil {
 		return nil, l.err
 	}
 	return append([]port.Lane(nil), l.lanes...), nil
+}
+
+// scans is how many times the table was read.
+func (l *fakeLanes) scans() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.scanned
 }
 
 // harness is project pj (workspace w1) with lane L-01 holding T-1, its pane w1:p1 an idle claude; not connected.

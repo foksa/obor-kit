@@ -241,12 +241,13 @@ func (c *clock) Move(d time.Duration, f func(now time.Time)) {
 	c.t = c.t.Add(d)
 }
 
-type laneTable struct {
+// fakeLanes is the scripted lane table (the app_test package's one port.Lanes fake): a test sets lanes under mu.
+type fakeLanes struct {
 	mu    sync.Mutex
 	lanes []port.Lane
 }
 
-func (l *laneTable) Lanes(context.Context, string) ([]port.Lane, error) {
+func (l *fakeLanes) Lanes(context.Context, string) ([]port.Lane, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]port.Lane(nil), l.lanes...), nil
