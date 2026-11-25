@@ -13,9 +13,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   (T-1573/1574/1579), the append/lane-row error rule (T-1582), the internal/app restructuring (T-1575..T-1588),
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
 - **In flight (11-25 night, owner picked "fix, then release"):** T-1606 merged 5ae535c (its review on merge runs).
-  T-1607 (RV-275 #1) merged, RV-275 closed. Deep dives done: A (opus) nothing blocks; B (gemini) hold: 3 lane.sync
-  blockers F2.1-F2.3 (docs/reviews/DD-v0.47.1-{a,b}.md, gitignored). Role back on opus:high (bee57d29). Advisor briefed
-  → docs/research/v0.47.1-deep-dives-advice.md: fix wave from it (split by files), then `make release`.
+  T-1607 merged, RV-275 closed. Deep dives A/B + advice (`docs/research/v0.47.1-deep-dives-advice.md`): fix wave
+  T-1608 (lane.sync links, hard), T-1609 (lane.sync busy), T-1610 (lead refuses), T-1611 (docs, --after T-1608,T-1610);
+  watch on all four names the close steps (review, 4 accept lines, accepted.md anchors), then `make release`.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
@@ -40,7 +40,13 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
-- (lead 11-25, gemini_advisor setup) A new custom role's first use: `obor brief` queued ("no pane runs it; `obor restart` starts it"), then `obor restart <it>` failed "no session to resume (pass --fresh)": a role that never ran has no session to resume, so its first restart should start fresh by itself (or the brief start it, as for a stopped role). Also `config.RoleDoc` replaces `_` with `-` in the doc name while the validator asked for `docs/agents/gemini_advisor.md`: one rule for a custom role's doc file name.
+- (v0.47.1 advice, after the tag) One rule removes DD-v0.47.1 B F2.1 and RV-267 #2 at the root: a path the worktree's
+  `HEAD` tracks is never linked (`ReconcileLinks`, `internal/project/worktree.go`, ~20-40 lines, one `ls-tree` only when
+  a link is about to be made). Own task, own review.
+- (v0.47.1 advice, after the tag) DD A F2: `recordIn` returns true once appended (`internal/app/loop.go:380`; a failed
+  lane-row write now replies "the event log refused it" for a record in the log) + a row in `TestAppendedReactions`.
+- (v0.47.1 advice) The guard has no rule for agy's `update_steps` tool: the agy deep dive was denied its own checklist.
+  Take with the next agy guard task.
 - (owner 11-25) **Rex trial works** on v0.47.0 (owner's first project on `project.terminal: "rex"`). Rex stays experimental (live tier non-gating); bring field issues as fix tasks. Watch on each Rex update: API revision (REX-R1 warn), the bundle path, and the stream-seq concern (Concerns).
 - (11-23, T-1541 merged 11-23) Unparsed shell commands (advice Concerns: `echo ${(U)foo}; git commit -m x` passes for an advisor under zsh): owner 11-23 "agents often write complex bash commands, this might block their work" → keep allowing; next wave the guard logs each command its parser rejects (role, first 200 chars) and after a week of lanes the lead brings the count to the owner (near zero: deny for roles with git denies; else leave). Count due ~11-30.
 - (lead 11-24) codex-image-tool (public repo) asked to keep obor files out of it: owner 11-24 "branch route for now" (private merge.target_branch + hand-filtered public push); no private-files mode. What breaks with ignored obor files: config_set's commit, review close --accept (docs/accepted.md), role-doc pointer and web Docs (tracked files only); review start fails once the previous review's head sha is gone after a history rewrite.
@@ -69,6 +75,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   an option. Job wakes and role briefs are still typed. Candidate: no typing while herdr reports a dialog / blocked
   pane; or briefs over the inbox socket (Phase 5).
 ## Concerns
+- (v0.47.1 advice, B design concern 1) Only gate, test, publish and (T-1609) lane.sync make a task busy while their
+  intent waits for a replay; `submit`, `lane.prepare` and `lane.free` run git in the lane too and do not. Unprobed.
 - (11-25, RV-273 notes) Test fakes left after one-fake-per-port: `lastClose` (`internal/app/rig_dispatch_ext_test.go:391`) looks redundant with `FakeWorkflow`; `concFakes` overrides Prepare/Free/Target with no reason named; `FakeWorkflow` keeps the integration head twice (`target` and `head`). Take with the next task that touches those rigs: one head owner, delete or document the exceptions.
 - (11-25, RV-271 design) The step-table exhaustiveness test (`internal/app/states_test.go:404-484`) keeps its own classification of every non-kernel `event.Step*` and parses Go source assuming one string literal per constant: simplify to a shared step classification if it starts costing edits on unrelated steps (keep the missing-kernel-step check).
 - (11-25, RV-264 design) Rex's stream protocol has sequence numbers but the `rex events` CLI drops them (`internal/rex/contract.go:71-79`): obor relies on Rex's delivery and disconnect guarantee and cannot detect a gap. On each Rex upgrade re-run the burst probe (`make conformance TIER=live KIND=rex`); move to a transport that keeps `seq` if Rex documents one, or if a gap is ever seen.
