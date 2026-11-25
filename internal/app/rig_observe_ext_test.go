@@ -29,7 +29,7 @@ type rig struct {
 	root  string // the project "pj"
 	wt    string // its lanes' parent dir
 	home  string // Options.Home: the agents' home beside them (a transcript a test needs goes here)
-	lanes *laneTable
+	lanes *fakeLanes
 	clock *clock
 
 	mu    sync.Mutex
@@ -55,7 +55,7 @@ func newRig(t *testing.T) *rig {
 	r := &rig{term: newTerm(map[string]string{"w1": "pj", "w2": "other"}), t: t, root: filepath.Join(base, "pj"),
 		wt:    filepath.Join(base, "pj-wt"),
 		home:  filepath.Join(base, "home"),
-		lanes: &laneTable{},
+		lanes: &fakeLanes{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}}
 	if err := os.MkdirAll(filepath.Join(r.root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)

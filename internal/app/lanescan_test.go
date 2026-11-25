@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -170,34 +169,6 @@ func TestLaneTableBound(t *testing.T) {
 	}
 }
 
-// countLanes counts the lane table's scans (each one is git per lane in serve); when gate is set a scan signals
-// entered and waits for gate to close.
-type countLanes struct {
-	mu      sync.Mutex
-	lanes   *fakeLanes
-	calls   int
-	gate    chan struct{}
-	entered chan struct{}
-}
-
-func (c *countLanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
-	c.mu.Lock()
-	c.calls++
-	gate, entered := c.gate, c.entered
-	c.mu.Unlock()
-	if gate != nil {
-		entered <- struct{}{}
-		<-gate
-	}
-	return c.lanes.Lanes(ctx, root)
-}
-
-func (c *countLanes) n() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.calls
-}
-
 // burst is n status events of w1:p1 (working and idle in turn), straight on the event path.
 func burst(h *harness, n int) {
 	for i := range n {
@@ -212,28 +183,27 @@ func burst(h *harness, n int) {
 func TestEventBurstSharesOneScan(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	c := &countLanes{lanes: h.lanes}
-	h.a.lanes = c
+	c := h.lanes
 	h.connect()
-	if c.n() != 1 {
-		t.Fatalf("precondition: the connect's check scanned %d times, want 1", c.n())
+	if c.scans() != 1 {
+		t.Fatalf("precondition: the connect's check scanned %d times, want 1", c.scans())
 	}
 	burst(h, 20)
-	if c.n() != 1 {
-		t.Errorf("the burst's events scanned %d times on the event path", c.n()-1)
+	if c.scans() != 1 {
+		t.Errorf("the burst's events scanned %d times on the event path", c.scans()-1)
 	}
-	if !h.a.rescanDue(context.Background()) || c.n() != 2 {
-		t.Fatalf("the refresher's pass after the burst: %d scans, want 1", c.n()-1)
+	if !h.a.rescanDue(context.Background()) || c.scans() != 2 {
+		t.Fatalf("the refresher's pass after the burst: %d scans, want 1", c.scans()-1)
 	}
-	if h.a.rescanDue(context.Background()) || c.n() != 2 {
-		t.Errorf("a second pass scanned again with nothing marked: %d scans", c.n()-1)
+	if h.a.rescanDue(context.Background()) || c.scans() != 2 {
+		t.Errorf("a second pass scanned again with nothing marked: %d scans", c.scans()-1)
 	}
 	seq := h.lastSeq()
 	h.a.check(context.Background(), false) // the run loop's decision on the scanned table
 	h.now = h.now.Add(30 * time.Second)
 	h.a.check(context.Background(), false)
-	if c.n() != 2 || len(h.facts(seq)) != 0 {
-		t.Errorf("the decisions on the cached table scanned (%d) or judged (%v)", c.n()-2, h.facts(seq))
+	if c.scans() != 2 || len(h.facts(seq)) != 0 {
+		t.Errorf("the decisions on the cached table scanned (%d) or judged (%v)", c.scans()-2, h.facts(seq))
 	}
 }
 
@@ -242,8 +212,7 @@ func TestEventBurstSharesOneScan(t *testing.T) {
 func TestEventsDuringAScanWaitForNoGit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	c := &countLanes{lanes: h.lanes}
-	h.a.lanes = c
+	c := h.lanes
 	h.connect()
 	c.mu.Lock()
 	c.gate, c.entered = make(chan struct{}), make(chan struct{}, 1)
@@ -266,18 +235,18 @@ func TestEventsDuringAScanWaitForNoGit(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("events waited for the scan in flight")
 	}
-	if c.n() != 2 {
-		t.Fatalf("scans while the first is in flight: %d, want 1", c.n()-1)
+	if c.scans() != 2 {
+		t.Fatalf("scans while the first is in flight: %d, want 1", c.scans()-1)
 	}
 	c.mu.Lock()
 	gate := c.gate
 	c.gate = nil
 	c.mu.Unlock()
 	close(gate)
-	waitFor(t, "the burst's one more scan", func() bool { return c.n() == 3 })
+	waitFor(t, "the burst's one more scan", func() bool { return c.scans() == 3 })
 	time.Sleep(50 * time.Millisecond)
-	if c.n() != 3 {
-		t.Errorf("scans after the burst: %d, want 2 (one per pass)", c.n()-1)
+	if c.scans() != 3 {
+		t.Errorf("scans after the burst: %d, want 2 (one per pass)", c.scans()-1)
 	}
 	select {
 	case <-h.a.scanned:
@@ -288,7 +257,7 @@ func TestEventsDuringAScanWaitForNoGit(t *testing.T) {
 	h.a.mu.Lock()
 	h.a.markLanes(h.a.p) // an own operation (App.do)
 	h.a.mu.Unlock()
-	waitFor(t, "the own operation's scan", func() bool { return c.n() == 4 })
+	waitFor(t, "the own operation's scan", func() bool { return c.scans() == 4 })
 }
 
 // obor status shows the lane table's age and its last scan's error once it is older than the tick.

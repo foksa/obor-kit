@@ -66,7 +66,7 @@ func (r *hcRig) start() {
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.root, Tick: rigTick(r.t), Retry: 5 * time.Millisecond,
 		Out: r.out, Procs: quietProcs, Refresh: port.Refreshed, Restore: r.fr, Adopt: r.adopt, Home: r.home},
-		hc.Panes{C: r.core.Client()}, &laneTable{})
+		hc.Panes{C: r.core.Client()}, &fakeLanes{})
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {

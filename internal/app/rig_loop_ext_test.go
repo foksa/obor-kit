@@ -98,7 +98,7 @@ type loopRig struct {
 	t       *testing.T
 	p       *testkit.Project
 	lane    string
-	lanes   *laneTable
+	lanes   *fakeLanes
 	scratch *app.FakeWorkflow
 	starts  atomic.Int32
 	callIDs atomic.Int32 // the rig's own task_done and job_next call ids
@@ -191,7 +191,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 		opt(&o)
 	}
 	p := testkit.NewDir(t)
-	r := &loopRig{term: newTerm(map[string]string{"w1": "proj"}), t: t, p: p, lanes: &laneTable{}, home: t.TempDir(),
+	r := &loopRig{term: newTerm(map[string]string{"w1": "proj"}), t: t, p: p, lanes: &fakeLanes{}, home: t.TempDir(),
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
 	r.agents = &app.FakeAgents{OnLaunch: r.startAgent, OnStop: r.stopAgent}
 	r.lane = p.Lane("L-01", "task/T-1")
