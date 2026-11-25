@@ -822,14 +822,17 @@ verified; adopting leads hear of it by `obor send`. A project's serve picks a ne
 
 ## herdr integration (2026-10-09 — user direction)
 obor should be as simple and as integrated as possible: the terminal's own status is the source of agent state
-(herdr's agent detection; on hc, the status each agent reports itself, OSC 7501, which hc relays and
+(herdr's agent detection; on hc and Rex, the status each agent reports itself, OSC 7501, which the terminal relays and
 `internal/progstatus` alone interprets for every adapter: its word decides, `error` as idle, and its blocked kind and msg or an error's msg are the pane's note, sanitized and shown on the agent's
 `obor status` line, a blocked pane's needs-you and the web, never decided on); obor does no
 Claude/Codex screen parsing of its own beyond what exists, and removes it as the terminal grows the API. obor ships no
 herdr plugin: serve restores its panes itself ("After a herdr restart" above).
-- **The terminal is the project's** (`project.terminal`, read at serve's start): herdr, the default, or hc
-  (herdr-core, experimental: hc ≥ 0.1.21, its live tier does not gate). The pane variable is the kind's own
-  (`HERDR_PANE_ID`, `HC_TERMINAL_ID`), never the other kind's; an empty `OBOR_`/`HERDR_` name reads as unset. A kind
+- **The terminal is the project's** (`project.terminal`, read at serve's start): herdr, the default, hc
+  (herdr-core, experimental: hc ≥ 0.1.21, its live tier does not gate) or rex (Rex, experimental: the `rex` CLI on
+  `PATH`, never guessed in the app bundle; a status counts only while its reporting process holds the block's
+  foreground; its live tier does not gate). The pane variable is the kind's own (`HERDR_PANE_ID`, `HC_TERMINAL_ID`,
+  `REX_BLOCK`), never another kind's; a block inherits the Rex server's environment, so `REX_BLOCK` wins over any
+  inherited name; an empty `OBOR_`/`HERDR_` name reads as unset. A kind
   change drops serve's records of the old terminal (`terminal-instance`, `terminal-runs`; `terminal-kind` names the
   kind they belong to), so the new terminal's panes are identified afresh.
 - **hc's core** gives every terminal its own environment, and any `hc` call starts a core with its caller's: serve
