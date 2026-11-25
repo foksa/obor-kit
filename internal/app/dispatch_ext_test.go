@@ -16,8 +16,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// The level's first model on the first free lane; a spec's Model: line puts its own models first, with the effort it
-// names; --model overrides the level (the dispatch fact then names no level).
+// The level's first model on the first free lane; --model overrides the level (the dispatch fact then names no level).
+// The spec's Model: refs first: resolveLevel's (TestResolveLevel).
 func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -27,8 +27,6 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	}{
 		{"the level's first model", "# T-1 — Leveled\n\nDifficulty: medium\n", "DISPATCHED T-1 → L-01 (queued) as sonnet",
 			"sonnet", nil, "medium", ""},
-		{"the spec's Model: line first", "# T-1 — Leveled\n\nDifficulty: medium\nModel: haiku:low, sonnet\n",
-			"DISPATCHED T-1 → L-01 (queued) as haiku effort low", "haiku:low", "low", "medium", ""},
 		{"--model overrides the level", "# T-1 — Leveled\n\nDifficulty: hard\n",
 			"DISPATCHED T-1 → L-01 (queued) as terra effort high", "terra:high", "high", nil, "terra:high"},
 	} {
@@ -57,72 +55,22 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	}
 }
 
-// A stored spec's `Model:` ref with no agents.models entry (one the config had when the spec was set, and loses later)
-// is refused at dispatch, as spec set refuses it; it is never silently dropped for the level's first model. Nothing is
-// recorded, and --model keeps its own path: its request carries no spec ref.
-func TestDifficultyRefusesAStoredSpecsUnknownModel(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := newLoopRig(t, pooled())
-		r.start()
-		r.setSpec("s1", "# T-1 — Named\n\nDifficulty: medium\nModel: haiku\n") // haiku's entry is the fixture's
-		r.removeModel("haiku")
-		r.passes()
-		before := len(r.records())
-		const entry = `"haiku": {"kind": "claude", "id": "haiku"}`
-		reply, err := r.dispatchLevel("d1")
-		if err == nil || !strings.Contains(err.Error(), `"Model: haiku"`) || !strings.Contains(err.Error(), "is not a model") ||
-			!strings.Contains(err.Error(), entry) || reply != "" {
-			t.Fatalf("dispatch of a spec naming the removed haiku: %q, %v; want the Model: refusal with %s", reply, err, entry)
-		}
-		r.passes()
-		if after := len(r.records()); after != before {
-			t.Errorf("the refusal recorded %d records: %q", after-before, r.steps())
-		}
-		if n := r.disp.called("prepare"); n != 0 {
-			t.Errorf("prepared %d times after the refusal", n)
-		}
-		reply, err = r.dispatchLevel("d2", "sonnet")
-		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
-			t.Fatalf("--model sonnet over the spec's removed ref: %q, %v; want the dispatch", reply, err)
-		}
-		r.waitStep("1 result work")
-	})
-}
-
-func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := newLoopRig(t, pooled(), withConfig(testkit.Set("agents.difficulty.medium", []string{"luna:low"})))
-		r.start()
-		r.specLevel("medium")
-		if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as luna effort low") {
-			t.Fatalf("medium with difficulty.medium = [luna:low]: %q, %v", reply, err)
-		}
-	})
-}
-
+// spec set refuses a spec with no level and a Model: ref naming no model: wired to spec.Validate (its rows:
+// spec's TestValidate, TestParse) and config's CheckModelRef (TestModelRef, TestUnknownModelRefused).
 func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, pooled())
 		r.start()
-		for _, text := range []string{"# T-1 — A\n", "# T-1 — A\n\nDifficulty: easy\n", "# T-1 — A\n\nsome text\nDifficulty: hard\n"} {
-			_, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
-				Role: "lead", CallID: "s"}, Task: "T-1", Spec: text})
-			if err == nil || !strings.Contains(err.Error(), "hard, medium, simple") {
-				t.Errorf("spec set of %q: %v; want a refusal naming the levels", text, err)
-			}
+		const text = "# T-1 — A\n"
+		if _, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "s"}, Task: "T-1", Spec: text}); err == nil || !strings.Contains(err.Error(), "hard, medium, simple") {
+			t.Errorf("spec set of %q: %v; want a refusal naming the levels", text, err)
 		}
-		for text, want := range map[string]string{
-			"# T-1 — A\n\nDifficulty: hard\nModel: gpt\n":          `"Model: gpt": "gpt" is not a model`,
-			"# T-1 — A\n\nDifficulty: hard\nModel: luna:minimal\n": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
-		} {
-			_, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
-				Role: "lead", CallID: "s-" + want}, Task: "T-1", Spec: text})
-			if err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("spec set of %q: %v; want %q", text, err, want)
-			}
+		const named, want = "# T-1 — A\n\nDifficulty: hard\nModel: gpt\n", `"Model: gpt": "gpt" is not a model`
+		if _, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "s-gpt"}, Task: "T-1", Spec: named}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("spec set of %q: %v; want %q", named, err, want)
 		}
 	})
 }
@@ -205,15 +153,12 @@ func TestDispatchHappyPath(t *testing.T) {
 	})
 }
 
-// --model runs its first model on the first free lane; a name that is no model is refused.
+// --model runs its first model on the first free lane. (A name that is no model: TestUnknownExplicitTypeIsRefused.)
 func TestDispatchByModels(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		r.start()
-		if _, err := r.dispatch("d0", "", "gpt", "sonnet"); err == nil || !strings.Contains(err.Error(), `"gpt" is not a model`) {
-			t.Fatalf("an unknown model: %v", err)
-		}
 		if reply, err := r.dispatch("d1", "", "opus", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as opus" {
 			t.Fatalf("by models: %q, %v", reply, err)
 		}
@@ -321,9 +266,6 @@ func TestDispatchRefusals(t *testing.T) {
 		{name: "bad task id", setup: func(r *loopRig) {
 			r.disp.set(func(d *dispatch) { d.refuse["T-1"] = "bad task id T-1 (task_id_pattern)" })
 		}, want: "dispatch T-1: bad task id T-1 (task_id_pattern)"},
-		{name: "spec not on the target", setup: func(r *loopRig) {
-			r.disp.set(func(d *dispatch) { d.refuse["T-1"] = "no spec for T-1 in obor serve's store" })
-		}, want: "no spec for T-1 in obor serve's store"},
 		{name: "unknown lane", call: func(c *wire.DispatchReq) { c.Lane = "L-09" }, want: "unknown lane L-09"},
 		{name: "no level and no models", call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", nil }, want: "no valid \"Difficulty: <level>\" line"},
 		{name: "no free lane for the models", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" }) },
@@ -415,21 +357,6 @@ func TestDispatchRefusals(t *testing.T) {
 				t.Errorf("a dispatch onto the held lane: %v", err)
 			}
 		})
-	})
-}
-
-// A level none of whose models the config knows names the shape-2 config path in its hint.
-func TestNoModelOfLevelNamesShape2Path(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.difficulty.hard", []string{})))
-		r.start()
-		r.specOf("T-1", "# T-1 — Leveled\n\nDifficulty: hard\n")
-		reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
-			Role: "lead", CallID: "d1"}, Task: "T-1", Lane: "L-01"})
-		if err == nil || !strings.Contains(err.Error(), "no model of level hard is known to this project (obor config get .agents.difficulty)") || reply != "" {
-			t.Fatalf("dispatch with no hard model: %q, %v; want the shape-2 config path", reply, err)
-		}
 	})
 }
 
@@ -880,35 +807,6 @@ func TestEffortFromTheSpecAndTheFlag(t *testing.T) {
 	}
 }
 
-func TestEffortRefusals(t *testing.T) {
-	bubble(t, func(t *testing.T) {
-		r := effortRig(t)
-		r.start()
-		r.specLevel("medium")
-		if _, err := r.dispatchLevel("d1", "opus:turbo"); err == nil || !strings.Contains(err.Error(), `effort "turbo" is not one of claude's`) {
-			t.Errorf("--types opus:turbo: %v; want a refusal naming claude's efforts", err)
-		}
-		if n := r.taskStep("T-1", "fact dispatch"); n != 0 {
-			t.Errorf("a refused dispatch recorded %d dispatch facts", n)
-		}
-		set := func(callID, typ string) error {
-			_, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
-				Role: "lead", CallID: callID}, Task: "T-2",
-				Spec: "# T-2 — A\n\nDifficulty: medium\nModel: " + typ + "\n"})
-			return err
-		}
-		if err := set("s1", "opus:turbo"); err == nil || !strings.Contains(err.Error(), `effort "turbo" is not one of claude's`) {
-			t.Errorf("spec set Model: opus:turbo: %v; want a refusal", err)
-		}
-		if err := set("s2", "ghost:high"); err == nil || !strings.Contains(err.Error(), `"ghost" is not a model`) {
-			t.Errorf("spec set Model: ghost:high: %v; want the unknown model refused", err)
-		}
-		if err := set("s3", "opus:high"); err != nil {
-			t.Errorf("spec set Model: opus:high: %v", err)
-		}
-	})
-}
-
 // redoRig is the pool rig whose lane table reads L-01 as serve's own adapter does once T-1's work is committed there:
 // working on T-1, its type the lane row's bare model (opus; checks.Lanes over git: internal/checks' TestLaneStates).
 // T-1's dispatch ran opus:high on L-01 (prepared, so its lane row holds it with that type) and left a needs-you.
@@ -982,8 +880,8 @@ func TestRedoWithExplicitTypesRunsThem(t *testing.T) {
 	})
 }
 
-// --model naming no model of the project, bare or with an effort, is refused before a lane is picked: no dispatch
-// fact, nor, with --after, a waiting fact.
+// --model naming no model of the project is refused before a lane is picked: no dispatch fact, nor, with --after, a
+// waiting fact. (A ref with an effort or an effort its kind does not take: config's TestModelRef, TestUnknownModelRefused.)
 func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -991,7 +889,6 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 		after []string
 	}{
 		{"bare", []string{"lunna"}, nil},
-		{"with an effort", []string{"lunna:high"}, nil},
 		{"after a known one", []string{"sonnet", "lunna"}, nil},
 		{"with --after", []string{"lunna"}, []string{"T-9"}},
 	} {
