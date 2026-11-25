@@ -252,7 +252,7 @@ type SendReq struct {
 
 func (SendReq) Method() string { return MethodSend }
 
-// BriefReq is the lead's or the owner's brief (obor brief; messages.go): To the role agent, Text the brief ("": the
+// BriefReq is the lead's or the owner's brief (obor brief; brief.go): To the role agent, Text the brief ("": the
 // restart's first prompt carried it). Prompt is a fresh start's first prompt (a review's start, the one brief without a
 // line): recorded as the start's text. Fresh (obor brief --fresh): serve stops the running agent
 // and starts it fresh on the brief, once the brief is recorded.

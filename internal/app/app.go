@@ -244,7 +244,7 @@ type proj struct {
 	// cuts: the steps that wait after an attempt that was not counted, by their intent's key (cutwait.go). Under mu.
 	cuts map[event.Key]*cutWait
 	// reg, out, night: the identity table (package identity), the lines to the project's agents (package outbox;
-	// delivered by messages.go) and the nightly full check (nightly.go): each folds its records itself
+	// delivered by deliver.go) and the nightly full check (nightly.go): each folds its records itself
 	// and keeps live state beside them.
 	reg   identity.Registry
 	out   outbox.Outbox

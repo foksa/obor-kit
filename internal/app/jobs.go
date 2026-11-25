@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"strconv"
 	"time"
 )
 
@@ -224,3 +225,6 @@ func (a *App) reprompt(ctx context.Context, p *proj, fx *Loop, mt mtask, key eve
 	return a.send(ctx, p, fx, mt, key, job, promptData{Agent: p.integrator}, lead+wakeText,
 		fmt.Sprintf("job %s not sent again to %s", job, p.integrator))
 }
+
+// JobID is the id of the job (task, attempt, step): <task>/<attempt>/<step> (docs/state-model.md "The log").
+func JobID(k event.Key) string { return k.Task + "/" + strconv.Itoa(k.Attempt) + "/" + k.Step }

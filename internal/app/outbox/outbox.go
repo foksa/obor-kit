@@ -2,7 +2,7 @@
 // not delivered yet, the open briefs by role agent, each needs-you line's delivery time, and the fold of the records
 // that change them (Fold). Its maps are unexported, so only this package names them: package app reads them through
 // the queries (Lead, Brief, Briefs, Line, Queued, Waits, Delivered, Post, BriefStatus, MessageStatus) and delivers the
-// lines (app's messages.go: deliver, route, deliverLine, deliverLead, recordBrief). Fold returns what a record means
+// lines (app's deliver.go: deliver, route, deliverLine, deliverLead; brief.go: recordBrief). Fold returns what a record means
 // for the project's other state (Ended); app's foldMsg applies it in its fold order.
 //
 // No lock: an Outbox is part of package app's per-project state and is used under App.mu like the rest of it.
