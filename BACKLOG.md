@@ -12,10 +12,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   RV-267 closed with #2 accepted). 33 merges since v0.47.0, all reviewed: lane.sync fix attempts from the target
   (T-1573/1574/1579), the append/lane-row error rule (T-1582), the internal/app restructuring (T-1575..T-1588),
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
-- **In flight (11-25 night, owner picked "fix, then release"):** T-1606 merged 5ae535c (its review on merge runs).
-  T-1607 merged, RV-275 closed. Deep dives A/B + advice (`docs/research/v0.47.1-deep-dives-advice.md`): fix wave
-  T-1608 (lane.sync links, hard), T-1609 (lane.sync busy), T-1610 (lead refuses), T-1611 (docs, --after T-1608,T-1610);
-  watch on all four names the close steps (review, 4 accept lines, accepted.md anchors), then `make release`.
+- **v0.47.1 released 11-25 night** (tag v0.47.1, main 73204b72): T-1606..T-1611 + the two deep dives and advice
+  (`docs/research/v0.47.1-deep-dives-advice.md`), RV-275/RV-276 closed (4 accepts). **Owner: `! make ship`.** Nothing
+  in flight.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
