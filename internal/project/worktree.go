@@ -42,9 +42,10 @@ func AddWorktree(ctx context.Context, root, dir, ref string) (added bool, err er
 const PluginSettings = ".claude/settings.json"
 
 // WorktreeLinks are the links the worktree dir of cfg's project gets: lanes.links, plus PluginSettings when it is not
-// listed there, the main checkout has the file and dir's checkout (its HEAD) lacks that path: a file git does not
-// track reaches a worktree only as a link, and so does a tracked one a worktree sits behind (a role worktree made
-// before the commit that tracked it). A worktree at a commit that has the file gets it from git. The one choice of
+// listed there, the main checkout has the file and dir's checkout (its HEAD) lacks that path, or dir lacks it (LinkInto
+// then asks HEAD): a file git does not track reaches a worktree only as a link, and so does a tracked one a worktree
+// sits behind (a role worktree made before the commit that tracked it). A worktree at a commit that has the file gets
+// it from git, and LinkInto never links a path HEAD tracks. The one choice of
 // LinkInto's list: every caller (obor setup's lanes and role worktrees, obor init, the launcher's start of a role
 // agent, the checks' scratch worktrees and lane tests) passes this.
 func WorktreeLinks(cfg *config.Config, dir string) []string {
@@ -53,7 +54,9 @@ func WorktreeLinks(cfg *config.Config, dir string) []string {
 
 // WorktreeLinksWith is WorktreeLinks, its git queries run by git: a caller with its own git seam (obor setup's fake)
 // passes that seam, so the policy stays here. The main checkout is asked first; dir only when the main checkout
-// tracks the file.
+// tracks the file and dir has that path. A dir that lacks the path gets it in the list: LinkInto asks dir's HEAD for
+// every missing entry anyway and never links one HEAD tracks, so the list's answer for that path is LinkInto's, one
+// query fewer (the set's other readers, LaneDirt and LinksIn, look only at paths dir has).
 func WorktreeLinksWith(cfg *config.Config, dir string, git func(dir string, args ...string) (string, error)) []string {
 	links := cfg.LaneLinks()
 	if slices.Contains(links, PluginSettings) {
@@ -62,7 +65,7 @@ func WorktreeLinksWith(cfg *config.Config, dir string, git func(dir string, args
 	if _, err := os.Stat(filepath.Join(cfg.Root, PluginSettings)); err != nil {
 		return links
 	}
-	if TrackedIn(cfg.Root, PluginSettings, git) {
+	if _, err := os.Lstat(filepath.Join(dir, PluginSettings)); err == nil && TrackedIn(cfg.Root, PluginSettings, git) {
 		if out, err := git(dir, "ls-tree", "--name-only", "HEAD", "--", PluginSettings); err == nil && strings.TrimSpace(out) != "" {
 			return links
 		}
@@ -87,24 +90,36 @@ func TrackedIn(root, path string, git func(dir string, args ...string) (string, 
 
 // LinkInto symlinks each entry of links (WorktreeLinks: paths relative to root, the main checkout) into the worktree
 // dir and returns the entries it linked. Only a missing entry is linked: whatever is at its path in dir (a file git
-// tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. Every
-// entry is tried: one that cannot be linked does not stop the next, and err joins the failures, each naming its
-// path. The one linker of every worktree obor makes or meets: lanes and role worktrees (obor setup, the launcher's
-// start of a role agent) and the checks' scratch worktrees. Nothing is written to git's ignore files: a lane's own
-// steps tell a link from the lane's work (LaneDirt, LinksIn).
-func LinkInto(root, dir string, links []string) (linked []string, err error) {
-	var errs []error
+// tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. An
+// entry whose path the worktree's HEAD tracks is never linked (a directory entry: tracked when HEAD has anything under
+// it): a missing tracked file stays missing, git's view of it is a deletion (a worker's uncommitted one, a merge's
+// still open). git asks that once, in dir, only when an entry is missing (trackedAtHead: git ls-tree --name-only HEAD
+// -- <missing…>); a worktree without a HEAD links every missing entry. Every entry is tried: one that cannot be
+// linked does not stop the next, and err joins the failures, each naming its path. The one linker of every worktree
+// obor makes or meets: lanes and role worktrees (obor setup, obor init, the launcher's start of a role agent), the
+// checks' scratch worktrees and ReconcileLinks. Nothing is written to git's ignore files: a lane's own steps tell a
+// link from the lane's work (LaneDirt, LinksIn).
+func LinkInto(root, dir string, links []string, git func(dir string, args ...string) (string, error)) (linked []string, err error) {
+	var missing []string
 	for _, link := range links {
 		if link == "" {
 			continue
 		}
+		if _, err := os.Lstat(filepath.Join(dir, link)); err == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, link)); err != nil {
+			continue
+		}
+		missing = append(missing, link)
+	}
+	tracked := trackedAtHead(dir, missing, git)
+	var errs []error
+	for _, link := range missing {
+		if tracked[link] {
+			continue
+		}
 		src, dst := filepath.Join(root, link), filepath.Join(dir, link)
-		if _, err := os.Lstat(dst); err == nil {
-			continue
-		}
-		if _, err := os.Stat(src); err != nil {
-			continue
-		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			errs = append(errs, fmt.Errorf("cannot link %s: %v", dst, err))
 			continue
@@ -118,10 +133,41 @@ func LinkInto(root, dir string, links []string) (linked []string, err error) {
 	return linked, errors.Join(errs...)
 }
 
+// trackedAtHead is the entries of paths (relative to the worktree dir) that dir's HEAD tracks: a file HEAD has, or a
+// directory HEAD has anything under. One git ls-tree --name-only HEAD -- <paths…> in dir; none for no paths. A query
+// that fails (a worktree without a HEAD) tracks nothing.
+func trackedAtHead(dir string, paths []string, git func(dir string, args ...string) (string, error)) map[string]bool {
+	if len(paths) == 0 {
+		return nil
+	}
+	out, err := git(dir, append([]string{"ls-tree", "--name-only", "HEAD", "--"}, paths...)...)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names = append(names, line)
+		}
+	}
+	tracked := map[string]bool{}
+	for _, path := range paths {
+		p := strings.Trim(filepath.ToSlash(path), "/")
+		for _, name := range names {
+			if name == p || strings.HasPrefix(name, p+"/") {
+				tracked[path] = true
+				break
+			}
+		}
+	}
+	return tracked
+}
+
 // WithLinks runs change (a checkout, a merge) in the worktree dir with obor's links kept right around it: first each
 // link of dir whose path target tracks is removed (git refuses to overwrite an untracked file, and a link is one:
 // removeTrackedLinks), then change runs, then the worktree's links are reconciled with its link policy
-// (ReconcileLinks: the path a tracked file took stays that file, the link the target does not track comes back). say
+// (ReconcileLinks: the path a tracked file took stays that file, the link the target does not track comes back, and a
+// path the worktree's HEAD tracks is never linked, so a path a merge drops is linked once the merge is committed). say
 // gets a line per link removed ("removed link <path>: <target7> tracks it") and per link made ("linked <path>").
 // change leaves the tree as it was when it fails (a merge that stopped is aborted before it returns), so a failed
 // change reconciles the links from the policy and gets back git's error as change gave it; so does a failure of the
@@ -142,11 +188,12 @@ func WithLinks(cfg *config.Config, dir, target string, git func(dir string, args
 
 // ReconcileLinks makes every entry of the worktree dir's link set (WorktreeLinksWith) that the worktree lacks, from
 // the policy alone, and says "linked <path>" for each: a path a tracked file or an ordinary file holds stays as it is
-// (LinkInto never overwrites one). It keeps no memory of an earlier call's removals, so a worktree a crash left
-// without a link its policy wants gets it back. err is the linking's own failure. The one restore of obor's links:
+// (LinkInto never overwrites one), and a path the worktree's HEAD tracks is never linked (LinkInto: a missing tracked
+// file is a deletion, the worker's own or an open merge's, and stays missing). It keeps no memory of an earlier call's
+// removals, so a worktree a crash left without a link its policy wants gets it back. err is the linking's own failure. The one restore of obor's links:
 // after a change that did not take place (WithLinks) and in a lane the sync finds without them (Lane.Sync).
 func ReconcileLinks(cfg *config.Config, dir string, git func(dir string, args ...string) (string, error), say func(line string)) error {
-	linked, err := LinkInto(cfg.Root, dir, WorktreeLinksWith(cfg, dir, git))
+	linked, err := LinkInto(cfg.Root, dir, WorktreeLinksWith(cfg, dir, git), git)
 	for _, path := range linked {
 		say("linked " + path)
 	}

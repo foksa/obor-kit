@@ -128,21 +128,24 @@ func (s *Setup) addLane(n int) error {
 }
 
 // linkWorktree links project.WorktreeLinks into the worktree dir (a lane, a role worktree) with project.LinkInto and
-// says what became of each entry: linked, already there, or not in the main checkout.
+// says what became of each entry: linked, already there, tracked at the worktree's HEAD, or not in the main checkout.
 func (s *Setup) linkWorktree(dir string) error {
 	links := project.WorktreeLinksWith(s.cfg, dir, s.git().Git)
-	linked, err := project.LinkInto(s.root, dir, links)
+	linked, err := project.LinkInto(s.root, dir, links, s.git().Git)
 	if err != nil {
 		return project.Failf("%v", err)
 	}
 	for _, link := range links {
 		src := filepath.Join(s.root, link)
 		_, statErr := os.Lstat(filepath.Join(dir, link))
+		_, srcErr := os.Stat(src)
 		switch {
 		case slices.Contains(linked, link):
 			s.say("link %s → %s", link, src)
 		case statErr == nil:
 			s.say("skip link %s (exists)", link)
+		case srcErr == nil:
+			s.say("skip link %s (its HEAD tracks it)", link) // LinkInto: a missing tracked file stays a deletion
 		default:
 			s.say("warning: lanes.links %s: no %s, not linked", link, src)
 		}
