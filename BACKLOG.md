@@ -7,23 +7,22 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-22 (lead): v0.41-v0.43 shipped since the last entry (v0.43.0 published 11-21 21:05Z; history in git and the release tags). Test-time wave (owner 11-21 "test cuts buy time"): T-1456 cut internal/launch 9.25 s → 5.5 s (the restore fixture polled at the real 500 ms; cap 6 → 8.3 by the ×1.5 rule, so it now sits above the old cap), T-1457 internal/setup TestGithooks (hard-linked kit, 0.2 s watchdog; cap 21.8 → 16.4). Owner's next direction: kind-agy like kinds/opencode, kinds hardening, extracting kind-codex/kind-claude, non-Claude leads: the advisor is on it (docs/research/agent-kinds-advice.md); its plan goes to the owner before any task. Every lane free, no review open, no watch.
-- 2026-11-18 (lead): **Shipped v0.40.7** (first `make ship` hit a GitHub upload 408; the re-run published). Owner's herdr restart: serve's own restore resumed stopped role agents in every project (not herdr; the 11-13 note was wrong). T-1340 restores only agents with open work; T-1342 (RV-213 #1) holds a brief open while a restore is pending. T-1341: obor's git runs with GIT_OPTIONAL_LOCKS=0 and lane.prepare clears a stale index.lock (third recurrence: the locks dated from the serve re-exec after v0.40.6); T-1343 keeps the lock path in the error. RV-213 approved after verify. Codex 0.169.0 needed the owner's quarantine xattr clear. druckometer is stopped (`obor stop`), so ship did not tell it. Every lane free, no review open, no watch.
-- 2026-11-16 (lead): **Shipped v0.40.6.** Owner/druckometer report: lanes stuck `working` after its `git filter-repo` (rows held pre-rewrite shas). T-1338: a landed task frees its lane when the lane HEAD is the recorded head or in the target's history; druckometer's 3 lanes read free after the install. RV-212 approved. Every lane free, no review open, no watch.
-- 2026-11-15 evening (lead): **Shipped v0.40.5.** Owner's report: the nav dot looked grey because the tab predated T-1321. T-1333/T-1335: a new web build shows a "New version: reload" link. Druckometer batch 2: T-1334/T-1336 (brief says each merge passed the gate, accepted.md only when present, `obor serve restart` and the merge body's report in commands.md); #4 answered with `merge.retest` config. RV-211 approved. Every lane free, no review open, no watch.
-- 2026-11-15 ~17:00 (lead): **Shipped v0.40.4.** The druckometer field report (`obor send`, 7 items): T-1326 (serve opens a missing lane pane), T-1327/T-1331 (a fresh start held by a trust dialog counts as started, kind-specific guidance), T-1328 (`obor idle` before the first merge, `spec set` lists models), T-1329/T-1330 (config reload rule, no-compile WARN at init only); #7 is herdr's (Later candidates). RV-209 approved, RV-210 closed with 3 accepted. Features still paused. Every lane free, no review open, no watch.
-- 2026-11-15 (lead): **Shipped v0.40.3** (v0.40.2 tagged, never shipped; folded in): `obor lead` asks first, the handoff restart is `obor restart <you> --handoff`, a hand nightly settles the RED needs-you plus `obor resume nightly "<why>"` (axis-alies report), web nav shows agents at work. After it: release smoke edits `docs/smoke.md` (docs-only, no own review); T-1325 (release catalog from origin/main) merged, unreviewed until the next release's review. Every lane free, no review open, no watch.
-- 2026-11-13 (lead): **Shipped v0.40.0 and v0.40.1.** Lead start modes (`/obor:lead handoff`), `obor review start`, moved re-gate runs `merge.check` without compile, lane dirt via `project.LaneDirt`, Docs page redesign + color (designer role, `docs/ui/`), light tones at 4.5:1, panes placed by kind (lead's tab the lead's only), submit fix for ignored links. Every lane free, no review open, no watch. Field reports from knight-tour-web and tunnel-game came in by `obor send`; answer them the same way.
-- 2026-11-12 ~19:45 (lead): **Features paused by the owner** (`docs/decisions.md` 11-12): they use obor first and bring what needs changing. Only nightly RED fixes and reported bugs go ahead; the next steps below (C1 included) wait for the owner. T-1291 merged (owner start presents options, `/obor:lead handoff` continues, `obor review start`), unreleased until `make ship`.
-- 2026-11-11 ~23:00 (lead; previous Handoff: `git show 935956b4:BACKLOG.md`). Every lane free, nothing queued, no
-  watch, no open review (RV-196 closed). **Shipped today: v0.37.0, v0.38.0, v0.39.0.** v0.38: terminal plan steps
-  1-5 (herdr behind one interface), start identity (`Locate` asks serve's `where` before any stop/label; decisions
-  O1-O4), review card in status/web. v0.39: web Tasks and Docs pages, `obor flakes` real flakes only (no ancestry
-  rule: entries age out in 7 days), accepted sweep (80 → 46 lines; each deep dive now sweeps accepted.md). Config:
-  Fable is the advisor only; hard/integrator/deep dive on opus. axis-maps was reset 11-11 (fresh store, v2 config).
-  **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After C1: decide A1 steps 3-4 from
-  the check-then-act findings. (3) Parked until the owner decides a second terminal: D3 and terminal plan steps 6-9
-  (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
+- 2026-11-25 (lead; previous Handoff: `git show f378ab8d:BACKLOG.md`). **Shipped v0.46.3** (T-1562) **and v0.47.0**
+  (Rex experimental; OSC 7501 home `internal/progstatus` T-1564, one blocked-prompt guard T-1565, Rex adapter
+  T-1566..T-1572, hc agent status on card/needs-you T-1563). Owner's Rex trial works. herdr TUI stays as is (no 7501
+  there; owner: don't depend on herdr upstream). Decisions 11-25 in `docs/decisions.md`.
+- **In flight:** nothing running. RV-267 (T-1573 lane.sync, a fix attempt merges the target into the lane) is in its
+  second verify of T-1579 (link restore after abort/crash): after it, accept what remains (`obor review close
+  --accept`, two rounds done). Then serve starts T-1577's on-merge review (queued); its scope should cover wave A+B
+  (T-1575, T-1576, T-1577, T-1578): if the reviewer's scope leaves T-1575/1576/1578 out, start one more review.
+- **Next:** internal/app wave C per `docs/plan/internal-app.md` (owner approved the 16-task path 11-25, run in waves;
+  file-split task 9 alone in the package): task 5 (record data types into `event`, `event` → `port` row) and task 6
+  (`internal/app/describe` leaf; first measure what `make check-affected` runs for an app-only change). Then D, E, F.
+  Reasons and file:line: `docs/research/internal-app-architecture-{fable,gemini}.md`.
+- New role `gemini_advisor` (agy gemini; `docs/agents/gemini_advisor.md`); stopped. Both advisors stopped.
+- Owner pending: nothing. Watch on 11-30: the guard's rejected-command count (Open). Disk was low (11 GiB free after
+  a Go cache trim); other sessions' scratch dirs are the owner's to clear.
+
 ## Owner decisions pending
 ## Later candidates
 - (DD-architecture verify 2, not scheduled) `Pane.Agent` → `Pane.Kind` rename (wide) and the remaining `Start` names (`agents.Start`, `port.AgentStart`, `port.Started` → `KindStart`/`TerminalStart`): take with the next task that rewrites those types. Spec rule for the next merge of two flows: list the texts that differ AND the refusals one side has and the other lacks.
