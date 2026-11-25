@@ -151,17 +151,18 @@ const NotReadyPattern = `Using\s+"[^"]*"\s+instead|is\s+not\s+recognized\s+as\s+
 // describe is the manifest. Caps: obor's hooks through obor's transport (hooks plugin: the project's HooksFile runs
 // hook.go, which acts on the hooks' answers: hook_answers), a resume by the conversation id the SessionStart hook
 // records (no caller-chosen id: named_session false), no session read from a transcript (its first line names none),
-// the model as an id. Status from the terminal's agent detection. Stop: /exit, whose
-// popup's Enter runs it; Ctrl+U clears the input. Headless: -p/--print, its alias --prompt, `agy acp` (ValueOpts: agy
-// --help). The transcript is the conversation's transcript.jsonl (turn what: context reads it). Inbox: InboxRecord, the
-// agentapi variables of the commands the agent runs, which deliver sends with (agy's agentapi send-message); a session
-// with no record has its prompts typed. MCP: the project's committed MCPFile, which obor setup agents writes and obor
-// setup mcp checks.
+// the model as an id, the app its agents report in a terminal's status (antigravity), the terminal's status source.
+// Stop: /exit, whose popup's Enter runs it; Ctrl+U clears the input. Headless: -p/--print, its alias --prompt, `agy
+// acp` (ValueOpts: agy --help). The transcript is the conversation's transcript.jsonl (turn what: context reads it).
+// Inbox: InboxRecord, the agentapi variables of the commands the agent runs, which deliver sends with (agy's agentapi
+// send-message); a session with no record has its prompts typed. MCP: the project's committed MCPFile, which obor
+// setup agents writes and obor setup mcp checks.
 func describe() map[string]any {
 	return map[string]any{
-		"name":    Name,
-		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "plugin", "inbox": true, "hook_answers": true, "resume": true, "model_arg": true},
+		"name":   Name,
+		"status": "terminal",
+		"caps": map[string]any{"hooks": "plugin", "inbox": true, "hook_answers": true, "resume": true, "model_arg": true,
+			"app": "antigravity"},
 		"efforts": efforts,
 		"env":     []string{"HOME"},
 		"stop":    map[string]any{"quit": "/exit", "clear_input": []string{"ctrl+u"}},

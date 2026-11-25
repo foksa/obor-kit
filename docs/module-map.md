@@ -49,6 +49,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   calls; `Text`), an agent's descendants (`ProcIndex.Descendants`) and a hook's agent (`AgentOf`). The view's
   background scan and the Stop hook's block both read it.
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
+- `progstatus`: what obor makes of a program's own status as a terminal relays it (OSC 7501): the root record's
+  four fields (`Report`: state, kind, msg, app) and the rules on them (`Word`, `Note`, `Shown`, `TurnEnded`). An
+  adapter decodes its terminal's wire into a `Report`; no obor imports.
 - `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
 - `version`: build version line.
 - `agents/plugin`: a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/progstatus"
 	"obor/internal/project"
 )
 
@@ -41,7 +42,7 @@ func (cl *Client) Prompt(ctx context.Context, pane, text string, clear bool) (bo
 		return false, &Error{Op: "terminal.send", Kind: "not_found", Msg: pane + " runs no agent (its program reports no status)"}
 	case r.Status.State == "blocked":
 		return false, &Error{Op: "terminal.send", Kind: "blocked",
-			Msg: fmt.Sprintf("%s is blocked (%s): typing would answer its dialog", pane, joined(r.Status.Kind, r.Status.Msg))}
+			Msg: fmt.Sprintf("%s is blocked (%s): typing would answer its dialog", pane, r.Status.report().Note())}
 	}
 	if clear {
 		if err := cl.SendKeys(ctx, pane, port.KeyCtrlU); err != nil {
@@ -53,17 +54,6 @@ func (cl *Client) Prompt(ctx context.Context, pane, text string, clear bool) (bo
 		return errors.As(err, &e) && e.sent && e.Kind == "", err
 	}
 	return true, nil
-}
-
-// joined is the non-empty ones of a and b, joined by ": ".
-func joined(a, b string) string {
-	var out []string
-	for _, s := range []string{a, b} {
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return strings.Join(out, ": ")
 }
 
 // send is terminal.send of text to pane, bounded by SendBound: pasted, then Enter. force types at a blocked program
@@ -145,14 +135,6 @@ type timedOut struct{ msg string }
 func (e *timedOut) Error() string  { return e.msg }
 func (e *timedOut) TimedOut() bool { return true }
 
-// turnEnded: hc's status word s meets until. Any of the ready words (idle, done) is met by either: a turn ends when
-// the status leaves working, and Claude and Codex then say done (and stay there) while OpenCode says idle (it never
-// says done).
-func turnEnded(s string, until []string) bool {
-	ready := func(w string) bool { return w == "idle" || w == "done" }
-	return slices.ContainsFunc(until, func(u string) bool { return u == s || ready(u) && ready(s) })
-}
-
 // WaitStatus waits up to timeout for the agent in pane to be in one of until, on its own events.subscribe: the
 // subscription's snapshot, then the terminal's events (a missed gives a fresh snapshot). hc's `error` is idle, its
 // msg logged. The error matches port.TimedOut at timeout; it is not found when the terminal has none or it finished,
@@ -193,7 +175,7 @@ func (cl *Client) WaitStatus(ctx context.Context, pane string, until []string, t
 				logged = r.Status.Msg
 				log.Printf("hc: the agent in %s ended its turn on an error: %s", pane, r.Status.Msg)
 			}
-			if turnEnded(statusWord(r.Status.State), until) {
+			if progstatus.TurnEnded(r.Status.report().Word(), until) {
 				return nil
 			}
 		}

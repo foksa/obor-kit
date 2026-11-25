@@ -144,9 +144,8 @@ func TestSendKeysNames(t *testing.T) {
 	}
 }
 
-// A turn ends when the status leaves working for idle or done, for each kind's sequence as the probes saw it (P1):
-// Claude and Codex end at done, OpenCode at idle (it never says done), an error turn at error (idle). Blocked or
-// working again in between ends nothing. A wait for done alone is met by OpenCode's idle.
+// A wait ends when the report's word is a ready one (progstatus.TurnEnded: the rule's rows are there): one row here
+// that WaitStatus reads it.
 func TestWaitStatusTurnEnds(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -154,11 +153,7 @@ func TestWaitStatusTurnEnds(t *testing.T) {
 		steps []string // after working; the last ends the turn
 		until []string
 	}{
-		{"claude", "claude-code", []string{"blocked", "working", "done"}, []string{"idle", "done"}},
-		{"codex", "codex", []string{"blocked", "working", "done"}, []string{"idle", "done"}},
-		{"opencode", "opencode", []string{"blocked", "working", "idle"}, []string{"idle", "done"}},
-		{"opencode for done", "opencode", []string{"working", "idle"}, []string{"done"}},
-		{"error", "claude-code", []string{"working", "error"}, []string{"idle", "done"}},
+		{"claude", "claude-code", []string{"working", "done"}, []string{"idle", "done"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {

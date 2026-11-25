@@ -810,6 +810,22 @@ func (s Kinds) ByProgram(program string) (Kind, bool) {
 	return nil, false
 }
 
+// ByApp is the kind of kinds whose agents report app as their name in an OSC 7501 status (Caps.App, else the kind's
+// name); "" when no kind does.
+func ByApp(kinds Kinds, app string) string {
+	if app == "" {
+		return ""
+	}
+	for _, n := range kinds.Names() {
+		if k, ok := kinds.Lookup(n); ok {
+			if a := k.Caps().App; a == app || a == "" && n == app {
+				return n
+			}
+		}
+	}
+	return ""
+}
+
 // Skills: the kind named name takes a plugin's slash command as its first prompt (its Caps.Skills); an unknown kind
 // does not.
 func (s Kinds) Skills(name string) bool {
