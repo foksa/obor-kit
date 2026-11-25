@@ -98,6 +98,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - **Hotfixes without review** (v0.4.2, v0.4.4): fine for tiny fixes, watch the habit.
 
 ## Ideas (parked — don't start without the owner)
+- (owner 11-25: maybe later) `obor interrupt <agent|T-xx> ["<line>"]`: Esc through serve's identity of the pane (today only `herdr pane send-keys <pane> esc` by hand), an optional redirect line, and no stall nudge until that line is delivered.
 - More machines (user 2026-10-12): Steam Deck, a 2019 MBP; herdr has saved SSH machines. First use: heavy merge checks
   remotely rather than remote lanes.
 - Phone push via Telegram (user 2026-10-08: later). Until then notify = `herdr notification show`.

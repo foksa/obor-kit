@@ -87,11 +87,15 @@ func (a *App) driveCall(ctx context.Context, c wire.DriveReq) (string, error) {
 	return driveJSON(r)
 }
 
-// laneReady waits up to Options.DriveWait (a minute) for task's drive to be prepared (fold: driving), reporting whether it is.
+// laneReady waits up to Options.DriveWait (a minute) for task's drive to be prepared (fold: driving), reporting whether
+// it is: it waits on the log's change signal, re-checking the fold after each record, with one timer for the bound.
 func (a *App) laneReady(ctx context.Context, p *proj, task string) bool {
 	wait := cmp.Or(a.opt.DriveWait, time.Minute)
-	deadline := time.Now().Add(wait)
+	deadline := a.opt.Now().Add(wait)
+	bound := time.NewTimer(wait)
+	defer bound.Stop()
 	for {
+		changed := p.log.Changed() // before the read: a record written after it closes this one
 		a.mu.Lock()
 		m := p.folded.loop[task]
 		ready := m != nil && m.is(stDriving)
@@ -99,13 +103,15 @@ func (a *App) laneReady(ctx context.Context, p *proj, task string) bool {
 		if ready {
 			return true
 		}
-		if time.Now().After(deadline) {
+		if !a.opt.Now().Before(deadline) {
 			return false
 		}
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(25 * time.Millisecond):
+		case <-changed:
+		case <-bound.C:
+			return false
 		}
 	}
 }
