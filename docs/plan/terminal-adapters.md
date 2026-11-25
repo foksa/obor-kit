@@ -19,7 +19,7 @@ specs here: the owner picks, the lead writes them.
 | D1 | "Both" means one terminal per project | yes | step 1's selector shape |
 | D2 | The choice lives in `project.terminal` (committed), with no per-machine override yet | yes | step 9 |
 | D3 | Who owns the agent layer on herdr: herdr (two layers in obor) or obor (herdr driven as a multiplexer) | build obor's, compare on herdr, then decide | what step 7 deletes |
-| D3a | obor's blocked signal: a kind's permission hook, OSC 7501 where relayed, or the screen | hooks, then 7501; never the screen | step 7 |
+| D3a | obor's status and blocked signal | decided 11-25: OSC 7501 alone where the terminal relays it; never the screen (the start's one silent-dialog read aside) | step 7 |
 | D4 | Rex transport: the `rex` CLI as a subprocess, or a WebSocket dependency | the CLI | step 9 |
 | D5 | Rex pane model: agent typed at a shell block, or agent as the block's command | after R4, R8 | step 9 |
 | D6 | Notifications where the terminal has none | an OS notifier behind `Notify` | step 9 |
@@ -122,76 +122,57 @@ specs here: the owner picks, the lead writes them.
   is the existing start tests moved whole, and the live tier for all three kinds before and after.
 - **Live.** As step 5, for every kind.
 
-### 7. obor's agent layer over a multiplexer
-- **Does.** What herdr's agent layer does, from obor's own sources, for a terminal that reports no agent facts. Rule:
-  a pane's agent facts are the terminal's when it reports them, else obor's.
-  - **Which kind runs:** the start record obor wrote for the pane; process info confirms the binary.
-  - **Status:** working from a turn's start to its end, as the hooks already report them to serve
-    (`internal/app/wire/request.go:221-222`), and as Codex's transcript records them; idle otherwise; blocked from
-    D3a's source; unknown when no source has spoken since the start.
-  - **Start:** the command line written at the pane's shell (or the terminal's own way to run a command, D5); up
-    when the kind's binary holds the foreground and its first status arrives; `NotReady` from the screen's startup
-    dialog, as today (`internal/launch/start.go:321-335`).
-  - **Prompt:** refuse when obor's status is blocked, else `Write`.
-  - **On herdr, a comparison only:** serve logs each difference between obor's status and herdr's for the same
-    pane. One week of that log decides D3. If D3 becomes "one layer", a follow-up task drives herdr through `Mux`
-    alone and deletes `internal/herdr/start.go`, `agent.prompt`, `agent.wait` and `agent_session` from obor.
-- **Files.** `internal/app/panes.go`, `watchdog.go`, `prompt.go`, `sessions.go` (status from obor's sources, the
-  fallback rule); `internal/launch/start.go` (the start without `AgentStarter`); `internal/guard` and
-  `hooks/hooks.json` (a blocked hook, if D3a chose hooks); `internal/agents/*/` and `kinds/opencode`
-  (`Caps.Status`: a kind names its own source for a terminal that has none).
-- **Deletes.** Nothing until D3 is decided; then, with "one layer", most of the leak list's part B on herdr too.
-- **Tests.** Added: the fallback rule and the status fold as table tests on the in-memory `Mux`; contract rows that
-  run on a multiplexer with obor's layer (start with env and cwd, prompt refused when blocked).
-- **Live.** Every kind, on herdr with `AgentStarter` switched off for the run, so the layer is proven before Rex.
+### 7. OSC 7501's home and one prompt guard (owner 11-25, `docs/research/osc7501-architecture-advice.md`)
+Status on a terminal that relays OSC 7501 (hc, Rex) comes from the program's root record alone, blocked included
+(D3a); obor builds no status of its own from hooks or transcripts, adds no blocked hook and no `Caps.Status` source.
+Hooks and Codex's transcript stay the turn facts of the stop watchdog, not pane status.
+- **7a (T-1564).** `internal/progstatus`: the record (`State`, `Kind`, `Msg`, `App`), its word, note and shown text;
+  `agents.ByApp` for the kind. Adapters decode their wire into it; `port.Pane` keeps `Status` and `Note`.
+- **7b (T-1565).** `port.GuardPrompts` in front of every terminal's `Prompt` (`cmd/obor/terminal.go`): no agent →
+  NotFound, blocked → `Blocked`, before any key; herdr's and hc's native refusals stay behind it.
+- **The start.** hc's typed start (`internal/hc/start.go`) is the shell model; if D5 picks it for Rex, the start moves
+  to one owner over `PaneControl` in the Rex task that needs it, never copied.
 
 ### 8. Rex probe (no product code)
-- **Does.** One live run on a throwaway Rex server (`rex server run --listen unix://<scratch>/s.sock --state-dir
-  <scratch> --config <scratch>/init.lua --restore=false`, always `--autostart=false` on the client), never the
-  owner's server. A research note with one fact per probe:
+One live run on a throwaway Rex server (`rex server run --listen unix://<scratch>/s.sock --state-dir <scratch>
+--config <scratch>/init.lua --restore=false`, always `--autostart=false` on the client), never the owner's server.
+Findings: `docs/research/rex-probes.md`. The field names of a status record and its events are read from the binary
+(advice §1); R6, R11, R13 and R3's hook-written record are dropped.
 
-| # | Probe | Decides |
+| # | Still unknown | Decides |
 |---|---|---|
-| R1 | `rex api call` and `rex events --all --json`: time per call, event shape, behaviour when the server stops | D4 |
-| R2 | which event a `session.set_block_label` sends | the label merge |
-| R3 | `program_status` for Claude, Codex, OpenCode; and for an OSC 7501 written to `/dev/tty` by a hook | D3a |
-| R4 | env of a new block; `command: ["env", "K=V", …]` with `shell` default and `none`; whether `OBOR_*` or `HERDR_*` leak from the server's env | D5, identity |
-| R5 | after a server stop and start with `--restore`: which blocks return, whether programs re-run, whether ids and `instance_id` change | restore |
-| R6 | app quit and relaunch: blocks keep running | — |
-| R7 | a multi-line `paste` and an `enter` key into Claude's and Codex's input | `Write` |
-| R8 | a block kept open after its program exits (`exit.on_completion: false`): can a new program start in it | D5 |
-| R9 | `process`: child, foreground and ancestors for shell → agent → tool | `ProcessInfo`, `AtShell` |
-| R10 | the scratch server leaves the owner's server, config and app untouched | the test rule |
-| R11 | server CPU with three agents idle for an hour | need 7 |
-| R12 | a session and blocks created through the API: visible in the app without a person attaching; `focus: false` steals no focus | flow |
-| R13 | a way to show a notification | D6 |
+| R10 | the scratch server leaves the owner's server, config and app untouched | whether any other probe runs |
+| R12 | blocks made through the API show in the app with nobody attaching; `focus: false` | go or no-go |
+| R1 | `rex api call` time per call; `rex events --all --json` shape and its end when the server stops; `rex api describe` | D4 |
+| R3 | each kind in a block: a root record, the words over a turn, blocked with kind and msg at a permission prompt and how soon after the dialog; Codex, which sends no query; removal when the agent exits | the adapter's read, the guard's gap |
+| R4, R8 | a new block's env (whether `OBOR_*`, `HERDR_*` leak from the server's); a block kept after its program exits | D5, identity |
+| R7 | a multi-line paste and Enter into Claude's and Codex's input (`rex send`, `rex send-key`) | `Write` |
+| R9 | `process` for shell, agent, tool | `AtShell`, "up" |
+| R2, R5 | the event of a relabel; what a server restart brings back | label merge, restore |
 
-- **Files.** `tests/conformance` (a `KIND=rex` live tier that prints facts, as `live_herdr.go` does);
-  `docs/research/rex-probes.md`.
-- **Go or no-go.** No-go if R12 says a person must attach by hand each time, or R1 and the WebSocket both fail D4.
+- **Go or no-go.** No-go if R12 says a person must attach by hand each time, or R1 fails D4.
 
 ### 9. The rex adapter
-- **Does.** `internal/rex`: the client (D4) and `port.Mux` over it, nothing about agents. Group ↔ session label,
-  placement in windows and splits (herdr's rules translated), `Instance` from `instance_id`, the stream from
-  `session.bootstrap` and `seq`, `Write` as `paste` and `enter`, `ProcessInfo` from `process`. Where Rex relays a
-  program's OSC 7501, the adapter passes it on as the pane's status: a terminal-reported fact like herdr's.
-  `config.TerminalKinds` gains `rex`; the selector gains its case; `internal/project`'s pane-variable table gains
-  `rex: REX_BLOCK`, picked by the project's kind. Mapping functions are unit-tested on recorded JSON; the contract
-  table runs live against a scratch server (`make conformance TIER=live KIND=rex`). No fake Rex server.
-- **Files.** `internal/rex/` (new); `cmd/obor/terminal.go`; `internal/config/config.go:241-251`, `validate.go:391`;
-  `internal/project/pane.go:9-29`; `internal/checks/boundary_test.go`; `tests/conformance`; `docs/design.md`,
-  `docs/module-map.md`.
-- **Deletes.** `cmd/obor/serve.go:188-189`'s refusal of a second kind.
-- **Texts.** `templates/agents/gotchas.md:11,15,30,52` and `skills/setup/SKILL.md:31,41` split into what holds on any
-  terminal and a section per terminal; where an agent is told a herdr command for something obor can do, the text
-  names the obor command.
+- **Does.** `internal/rex`: the client (D4: the `rex` CLI, required on `PATH`; `obor setup check` on a Rex project
+  fails closed when it is missing and names the bundle path as the hint) and `port.Mux` over it. The status is a
+  `progstatus.Report` from the block's root `program_status` record and the `program_status_changed` /
+  `_removed` events; no agent code beyond the shared three lines. `Prompt` is clear, paste, Enter behind 7b's guard
+  (Rex has no native refusal: a dialog that opens between the read and the write gets the text; R3 sizes the gap).
+  Group ↔ session label, placement, `Instance` from `instance_id`, the stream from `session.bootstrap` and `seq`,
+  `ProcessInfo` from `process`. Sub-steps as hc's (`docs/plan/herdr-core.md` steps 2-4, 6). `config.TerminalKinds`
+  gains `rex`; `internal/project`'s pane-variable table gains `rex: REX_BLOCK`. Mapping functions are unit-tested on
+  recorded JSON; the contract table runs live against a scratch server. No fake Rex server.
+- **Before a worker runs on Rex:** a guard deny rule for `rex send`, `rex run`, `rex kill` and the like inside a
+  block, as for `hc`.
+- **Files.** `internal/rex/` (new); `cmd/obor/terminal.go`; `internal/config`; `internal/project/pane.go`;
+  `internal/checks/boundary_test.go`; `tests/conformance`; `docs/design.md`, `docs/module-map.md`.
+- **Texts.** `templates/agents/gotchas.md` and `skills/setup/SKILL.md` split into what holds on any terminal and a
+  section per terminal.
 
 ## Order and stops
 
-1 → 2 → 3 in any order after 1; 4 → 5 → 6 → 7 in that order. 8 can run any time after D1 and needs no earlier
-step. Stop after 5 if no second terminal is decided: herdr's words are then out of the core, the port has one way to do
-each thing, and nothing was built for an implementation nobody named. 9 needs 7 and a go from 8; after 7 it is small,
-and so is any later multiplexer.
+Steps 1-6 are done (6, the start split, with hc: `docs/plan/herdr-core.md`). 7a → 7b; 8 runs any time. 9 needs 7 and
+a go from 8.
 
 ## Done when
 
