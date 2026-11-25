@@ -88,6 +88,26 @@ list | browser_tabs_list | browser.tabs | code    navigate | browser_navigate | 
 The id of a namespaced tool is the namespace with dots turned to underscores, an underscore, and the name. The `browser`
 tools were in the list and not in the model's catalog; none was called.
 
+### `opencode_*`: the eight own tools, what each does and how obor decides it
+
+2026-11-25, the installed OpenCode v2.2.0 binary (`~/.opencode/bin/opencode`): the `OpenCodeTools.Plugin` chunk that
+registers the namespace and, per tool, its `input` schema and the `execute` it runs. The live probe above listed the
+eight ids and called one of them (`list_mcp_resources`, turn G), so an effect below is the code the tool runs, not a
+scripted call.
+
+| id | input (opencode 2.2) | what it does | how obor decides it |
+|---|---|---|---|
+| `opencode_session_rename` | `{sessionID?, title}`; `title` at least 1 character, trimmed, an empty one refused | `session.update({sessionID: sessionID ?? the call's session, title})`: the session's title only — no file, no directory | no event (`OPENCODE_PASS`): the session's own metadata |
+| `opencode_session_move` | `{sessionID?, directory}`; `directory` at least 1 character, "relative to the target session's directory or absolute. Supports ~." | `session.move({sessionID: sessionID ?? the call's session, directory, delivery: "steer"})`: the session's directory — the cwd its tools run in — moves at the next safe boundary. It runs no git command; the TUI's Worktrees dialog moves a session the same way (`api.session.move`) | the guard's `unguarded` event with the row's own why (`OPENCODE_DENY`): "moves the session out of its directory; an obor agent stays where obor started it". The plugin's guard cwd is the start's directory and the transport does not follow a move, so the move is denied for every obor agent whatever the destination; the owner's own session (no role, the main checkout) is no opinion, as for any unguarded call. Its `directory` is not read |
+| `opencode_worktree_create` | `{name}` | `worktree.create({projectID, name})`, which runs `git worktree add` | the guard's `Bash` event for `git worktree add '<name>'` |
+| `opencode_worktree_remove` | `{directory, force?}` | `worktree.remove({projectID, directory, force})`, which runs `git worktree remove [--force]` | the guard's `Bash` event for that command |
+| `opencode_worktree_list` | `{}` | `worktree.list({projectID})` | no event: it only reads |
+| `opencode_models` | `{query?, provider?, all?, limit?, offset?}` | `provider.list` and `model.list`, filtered and paged | no event: it only reads |
+| `opencode_list_mcp_resources`, `opencode_read_mcp_resource` | `{server?}` / `{server, uri}` | the runtime's `resourceCatalog` / `readResource` | no event: they only read |
+
+`opencode_session_move` is denied whatever its arguments: its row reads no `directory` (the guard's decision is the
+same for any), and opencode's own schema requires the argument, so a call that leaves it out gets the same answer.
+
 ### The hook calls (`log/plug.jsonl`; each turn one prompt, the scripted calls below)
 
 | Turn | The model's call | What `execute.before` got (`tool` → `input`), in order |

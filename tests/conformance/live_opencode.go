@@ -490,7 +490,9 @@ func (l *lab) opencodeLog() string {
 // ocL7 is the tool drift row: the tools OpenCode offers (the plugin's ctx.tool.list(), which the lab's plugin copy
 // records at setup) against the transport's table, each id driven through the plugin's own toolEvents
 // (opencode_events.mjs, as the shared transport row drives it): one WARN per id the table has no row for, which the
-// guard decides as unguarded (a deny) — a classify-me list, not a failure.
+// guard decides as unguarded (a deny) — a classify-me list, not a failure. A single unguarded event is a row's
+// deliberate deny when the plugin's table names the id (hasRow, opencode_row.mjs: OPENCODE_PASS, OPENCODE_DENY or a
+// mapped case); only an id it has no row for is the WARN.
 func ocL7(l *lab) {
 	where := at("tests/conformance/live.go", "func (l *lab) makeKit") + ", " + at(opencodeJS, "const PASS") + ", " +
 		at(opencodeJS, "export async function toolEvents")
@@ -526,7 +528,13 @@ func ocL7(l *lab) {
 			if err := json.Unmarshal([]byte(o.stdout), &evs); err != nil {
 				bad = append(bad, t.ID+": opencode_events.mjs answered no events list: "+firstLine(o.stdout))
 			} else if len(evs) == 1 && evs[0].ToolName == "unguarded" {
-				unknown = append(unknown, t.ID)
+				row, err := pluginRow(node, t.ID)
+				switch {
+				case err != nil:
+					bad = append(bad, t.ID+": "+err.Error())
+				case !row:
+					unknown = append(unknown, t.ID)
+				}
 			}
 		}
 	}
@@ -541,6 +549,23 @@ func ocL7(l *lab) {
 	for _, id := range unknown {
 		report("WARN", "OC-L7", "OpenCode offers "+id+", which the transport's table has no row for: the guard decides a call of it as unguarded (a deny for obor's agents); classify it", where)
 	}
+}
+
+// pluginRow asks the plugin's table whether it has a row for OpenCode's own tool id (opencode/obor.js hasRow, through
+// opencode_row.mjs): a PASS row, a DENY row or a mapped case is a row; a name with none goes to the guard as unguarded.
+func pluginRow(node, id string) (bool, error) {
+	o, err := runCmd(time.Minute, "", nil, "", node, "tests/conformance/opencode_row.mjs", id)
+	if err != nil {
+		return false, err
+	}
+	if o.code != 0 {
+		return false, fmt.Errorf("opencode_row.mjs exits %d: %s", o.code, firstLine(o.stderr))
+	}
+	var row bool
+	if err := json.Unmarshal([]byte(o.stdout), &row); err != nil {
+		return false, fmt.Errorf("opencode_row.mjs answered %q: %v", firstLine(o.stdout), err)
+	}
+	return row, nil
 }
 
 // ocTool is one entry of the tool list the lab's plugin copy records: its id, the namespace ctx.tool.list() gives it (an
