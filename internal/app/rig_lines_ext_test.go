@@ -523,27 +523,6 @@ func (r *loopRig) msgFacts() []event.Record {
 	return out
 }
 
-// supersededLine is one undelivered brief line a newer brief ended: its seq and the newer brief's.
-type supersededLine struct {
-	Seq int64
-	By  int64
-}
-
-// supersededLines is the brief lines the project's briefed facts in the log supersede, in order.
-func (r *loopRig) supersededLines() []supersededLine {
-	var out []supersededLine
-	for _, rec := range r.records() {
-		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepBriefed {
-			var m event.Message
-			_ = json.Unmarshal(rec.Data, &m)
-			for _, seq := range m.Supersedes {
-				out = append(out, supersededLine{Seq: seq, By: rec.Seq})
-			}
-		}
-	}
-	return out
-}
-
 // waitBriefDelivered waits until the one brief line is delivered: its result in the log and folded (nothing waiting).
 // The brief's age counts from that result's time, so the clock moves only after it; the fake inbox's or pane's count
 // of the line is earlier than the result record.
