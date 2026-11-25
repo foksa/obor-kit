@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
+	"obor/internal/linestream"
 	"obor/internal/project"
 )
 
@@ -63,92 +63,28 @@ func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 		return nil, &Error{Op: "events.subscribe", Msg: "no seq in the answer"}
 	}
 	_ = s.c.SetDeadline(time.Time{})
-	str := &stream{ctx: ctx, cancel: cancel, s: s, kinds: p.C.kinds, seq: *sub.Seq, recs: map[string]Record{},
-		lines: make(chan []byte, 64), out: make(chan port.Event)}
+	str := &stream{kinds: p.C.kinds, seq: *sub.Seq, recs: map[string]Record{}}
 	for _, r := range sub.Terminals {
 		if r.State == "live" {
 			str.recs[r.Address] = r
 		}
 	}
-	go str.read()
-	go str.run()
-	return &port.Stream{Snapshot: snapshot(p.C.kinds(), s.hello, st, sub.Terminals), C: str.out, Err: str.Err, Close: str.Close}, nil
+	ls := linestream.Start[port.Event](ctx, cancel, func() ([]byte, error) { return s.r.ReadBytes('\n') }, 64,
+		&Error{Op: "events.subscribe", Msg: "closed", down: true})
+	ls.Run(linestream.Rules[port.Event]{
+		Apply: str.apply,
+		End:   func(err error) error { return connError(ctx, "events.subscribe", err) },
+		Quiet: HeartbeatLost, QuietErr: &Error{Op: "events.subscribe", Msg: fmt.Sprintf("no heartbeat for %s", HeartbeatLost), down: true},
+	})
+	return &port.Stream{Snapshot: snapshot(p.C.kinds(), s.hello, st, sub.Terminals), C: ls.C(), Err: ls.Err, Close: ls.Close}, nil
 }
 
-// stream is one subscription's connection and its copy of each live terminal's record.
+// stream is one subscription's copy of each live terminal's record, which its lines (linestream) are applied to.
 type stream struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	s      *session
-	kinds  func() agents.Kinds // the client's (Client.kinds), read at each event: a status's app is one of them
-	lines  chan []byte         // read's: each line, closed when the connection ends
-	out    chan port.Event
+	kinds func() agents.Kinds // the client's (Client.kinds), read at each event: a status's app is one of them
 
 	seq  uint64            // the last event's
-	recs map[string]Record // run's: each live terminal as the snapshot or the last event left it
-
-	mu      sync.Mutex
-	err     error
-	readErr error // the connection's end, set before lines closes
-}
-
-// read feeds the connection's lines to run until it ends.
-func (st *stream) read() {
-	defer close(st.lines)
-	for {
-		b, err := st.s.r.ReadBytes('\n')
-		if err != nil {
-			st.mu.Lock()
-			st.readErr = err
-			st.mu.Unlock()
-			return
-		}
-		select {
-		case st.lines <- b:
-		case <-st.ctx.Done():
-			return
-		}
-	}
-}
-
-// run turns the lines into events until one ends the stream; it alone sends on and closes out.
-func (st *stream) run() {
-	defer close(st.out)
-	quiet := time.NewTimer(HeartbeatLost)
-	defer quiet.Stop()
-	for {
-		var b []byte
-		var ok bool
-		select {
-		case <-st.ctx.Done():
-			st.end(&Error{Op: "events.subscribe", Msg: "closed", down: true})
-			return
-		case <-quiet.C:
-			st.end(&Error{Op: "events.subscribe", Msg: fmt.Sprintf("no heartbeat for %s", HeartbeatLost), down: true})
-			return
-		case b, ok = <-st.lines:
-		}
-		if !ok {
-			st.mu.Lock()
-			err := st.readErr
-			st.mu.Unlock()
-			st.end(connError(st.ctx, "events.subscribe", err))
-			return
-		}
-		quiet.Reset(HeartbeatLost)
-		ev, send, err := st.apply(b)
-		if err != nil {
-			st.end(err)
-			return
-		}
-		if !send {
-			continue
-		}
-		select {
-		case st.out <- ev:
-		case <-st.ctx.Done():
-		}
-	}
+	recs map[string]Record // each live terminal as the snapshot or the last event left it
 }
 
 // notification is one line after the subscription's answer: an event, a heartbeat or a missed.
@@ -162,8 +98,17 @@ type notification struct {
 	} `json:"params"`
 }
 
-// apply reads one line: the event to send (false: none), or the error that ends the stream.
-func (st *stream) apply(b []byte) (port.Event, bool, error) {
+// apply reads one line: the event to send (none: nothing), or the error that ends the stream.
+func (st *stream) apply(b []byte) ([]port.Event, error) {
+	ev, send, err := st.line(b)
+	if err != nil || !send {
+		return nil, err
+	}
+	return []port.Event{ev}, nil
+}
+
+// line reads one line: the event to send (false: none), or the error that ends the stream.
+func (st *stream) line(b []byte) (port.Event, bool, error) {
 	var n notification
 	if err := json.Unmarshal(b, &n); err != nil {
 		return port.Event{}, false, &Error{Op: "events.subscribe", Msg: "unreadable event: " + project.FirstLine(string(b))}
@@ -266,26 +211,4 @@ func (st *stream) event(t, typ string, data json.RawMessage) (port.Event, bool, 
 		return port.Event{}, false, nil
 	}
 	return port.Event{Kind: port.EventStatus, Pane: t, Status: p.Status, Agent: p.Agent, New: p}, true, nil
-}
-
-// end stops the stream once with err: run then closes out.
-func (st *stream) end(err error) {
-	st.mu.Lock()
-	if st.err == nil {
-		st.err = err
-	}
-	st.mu.Unlock()
-	st.cancel()
-}
-
-// Err is why the stream ended (nil while it runs).
-func (st *stream) Err() error {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	return st.err
-}
-
-// Close ends the stream.
-func (st *stream) Close() {
-	st.end(&Error{Op: "events.subscribe", Msg: "closed", down: true})
 }

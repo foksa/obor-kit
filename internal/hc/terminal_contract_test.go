@@ -7,6 +7,7 @@ import (
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
 	"obor/internal/herdrapp/herdrapptest"
+	"obor/internal/osnotify"
 	"obor/internal/testkit"
 )
 
@@ -29,7 +30,7 @@ func contractTerminal() testkit.Terminal {
 	c := core.Client()
 	c.App = win.Client()
 	// The notify row shows nothing on the machine running the tests: its notifier is a stub.
-	panes := hc.Panes{C: c, Notifier: func(context.Context, string, string) error { return nil }}
+	panes := hc.Panes{C: c, Notifier: osnotify.Notifier{Post: func(context.Context, string, string) error { return nil }}}
 	return testkit.Terminal{Control: c, Setup: c, Panes: panes, Group: "proj", Cwd: "/proj"}
 }
 

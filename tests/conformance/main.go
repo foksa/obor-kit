@@ -70,6 +70,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, "FAIL conformance:", err)
 		os.Exit(2)
 	}
+	if kind == "rex" { // the Rex rows (live_rex.go): live only, and only when named
+		if tier == "live" {
+			rexLive()
+		} else {
+			report("SKIP", "REX", "Rex has rows in the live tier only (TIER=live)", "tests/conformance/live_rex.go")
+		}
+		fmt.Println(out.summary())
+		if out.failed() {
+			os.Exit(1)
+		}
+		return
+	}
 	if kind == "hc" { // the hc probes (live_hc.go): live only, and only when named
 		if tier == "live" {
 			hcLive(turn)

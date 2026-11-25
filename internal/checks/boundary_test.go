@@ -40,7 +40,8 @@ const (
 var layerOf = map[string]string{
 	"internal/project": base, "internal/config": base, "internal/roles": base, "internal/spec": base,
 	"internal/run": base, "internal/version": base, "internal/store": base, "internal/selfexec": base,
-	"internal/help": base, "internal/background": base, "internal/progstatus": base,
+	"internal/help": base, "internal/background": base, "internal/progstatus": base, "internal/linestream": base,
+	"internal/osnotify": base,
 	// a plugin kind runs its command as a process group (project.Group) and caches its manifest: no bridge
 	// (data and pure functions); the config builds it through agents.Plugins, setup caches it
 	"internal/agents/plugin": base,
@@ -49,7 +50,7 @@ var layerOf = map[string]string{
 
 	"internal/app": core,
 
-	"internal/herdr": adapter, "internal/hc": adapter, "internal/herdrapp": adapter, "internal/checks": adapter,
+	"internal/herdr": adapter, "internal/hc": adapter, "internal/rex": adapter, "internal/herdrapp": adapter, "internal/checks": adapter,
 	"internal/launch": adapter, "internal/mcp": adapter, "internal/guard": adapter, "internal/setup": adapter,
 	"internal/service": adapter,
 
@@ -156,6 +157,13 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/herdrapp/herdrapptest", "internal/herdrapp", true},
 		{"internal/herdrapp", "internal/project", true},
 		{"internal/herdrapp", "internal/hc", false},
+		{"internal/rex", "internal/app/port", true},
+		{"internal/rex", "internal/linestream", true},
+		{"internal/rex", "internal/hc", false},
+		{"internal/hc", "internal/rex", false},
+		{"internal/app", "internal/rex", false},
+		{"internal/launch", "internal/rex", false},
+		{"internal/linestream", "internal/app/port", false},
 		{"internal/guard", "internal/launch", false},
 		{"internal/setup", "internal/herdr", false},
 		{"internal/setup", "internal/launch", false},
@@ -225,8 +233,8 @@ func layerName(pkg string) string {
 	return "an unmapped package"
 }
 
-// TestOneTerminalBuilder: only cmd/obor/terminal.go (non-test) builds a terminal adapter by importing internal/herdr
-// or internal/hc; the conformance suite and each adapter itself (with its fake) may import it too. Every other
+// TestOneTerminalBuilder: only cmd/obor/terminal.go (non-test) builds a terminal adapter by importing internal/herdr,
+// internal/hc or internal/rex; the conformance suite and each adapter itself (with its fake) may import it too. Every other
 // package reaches the terminal through port.Terminal.
 func TestOneTerminalBuilder(t *testing.T) {
 	root := filepath.Join("..", "..")
@@ -256,7 +264,7 @@ func TestOneTerminalBuilder(t *testing.T) {
 		scanned++
 		for _, imp := range f.Imports {
 			p := strings.TrimPrefix(strings.Trim(imp.Path.Value, `"`), "obor/")
-			if (p == "internal/herdr" || p == "internal/hc") && !strings.HasPrefix(rel, p+"/") {
+			if (p == "internal/herdr" || p == "internal/hc" || p == "internal/rex") && !strings.HasPrefix(rel, p+"/") {
 				t.Errorf("%s imports %s: only cmd/obor/terminal.go builds the terminal (port.Terminal)", rel, p)
 			}
 		}
