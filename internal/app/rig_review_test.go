@@ -20,9 +20,9 @@ import (
 	"time"
 )
 
-// Idle counts a verify the pipeline still owes (the verify rule's condition, before its brief), so no
-// idle line fires between a fix round's last merge and the verify's brief; the verify rule runs before idle's in the
-// one rule pass.
+// Idle counts a verify the pipeline still owes (the pass's verify read, verifyRead, before its brief), so no idle line
+// fires between a fix round's last merge and the verify's brief; the read runs in advance, before the rules, and the
+// verify rule before idle's in that pass.
 
 // afterStepsDone records task's after-merge steps as done: its merge alone is no work in flight.
 func (r *reviewRig) afterStepsDone(task string) {
@@ -32,9 +32,11 @@ func (r *reviewRig) afterStepsDone(task string) {
 	}
 }
 
-// idlePass is the merge loop's rule pass after its advance.
+// idlePass is one pass's verify read and its rule pass (advance, then the rules).
 func (r *reviewRig) idlePass() {
-	r.a.rulePass(context.Background(), rules, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
+	fx := withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+	r.a.verifyRead(context.Background(), r.p, fx)
+	r.a.rulePass(context.Background(), rules, fx)
 }
 
 // idleSettled lets the idle window pass at the rig's clock: the first check starts (or keeps) it, the clock moves past
@@ -535,9 +537,11 @@ func fixRig(t *testing.T) *reviewRig {
 	return r
 }
 
-// verifyPass is one rule pass of the verify rule alone.
+// verifyPass is one pass of the verify: the read step, then the verify rule alone.
 func (r *reviewRig) verifyPass() {
-	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
+	fx := withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+	r.a.verifyRead(context.Background(), r.p, fx)
+	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, fx)
 }
 
 // cycle is RV-5's cycle as serve's close reads it (the test fails on an error).

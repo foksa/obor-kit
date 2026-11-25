@@ -263,7 +263,7 @@ func (p *proj) reviewStatus(now time.Time) string {
 }
 
 // reviewOpen is the open review as obor status and obor web show it (nil: none open; under mu). Its stage is the
-// review fold's (review.State) with the reviewer's open brief (outbox) and the fix round the verify rule last read
+// review fold's (review.State) with the reviewer's open brief (outbox) and the fix round the pass's verify read left
 // (p.fixes): verifying while the reviewer's verify brief is open, reviewing while its open brief is the brief the
 // review started with (review.State.BriefFile), then fixes while a linked task is pending (review.Cycle.Pending). With
 // none pending the newest review file's Result line decides: approved when it says so, else written (changes requested,

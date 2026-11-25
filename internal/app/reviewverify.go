@@ -21,10 +21,12 @@ import (
 
 // A review's fix round and its verify (docs/design.md "Role worktrees"; skills/lead/review-brief.md §3–4).
 // The link is derived, no record: the linked tasks of review RV-n are the dispatched tasks whose stored spec (current
-// rev) carries the line `Fixes: RV-n` (obor dispatch refuses one naming a review that is not the open one). The verify
-// is a rule (verifyRule, rules.go): while RV-n is open, its linked tasks have all merged or ended unmerged, at least
-// one merged and a finished verify does not cover it, and the reviewer has no open brief and is idle, serve reads the
-// integration head, moves the reviewer's worktree there and briefs the verify in the same session. The brief's fact
+// rev) carries the line `Fixes: RV-n` (obor dispatch refuses one naming a review that is not the open one). The links
+// are read by a named step of the pass (verifyRead, loop.go: it reads the spec store, which no fold can), which leaves
+// the round in p.fixes and whether a verify is owed in p.verifyDue for the rule and every reader of that pass. The
+// verify is a rule (verifyRule, rules.go): while RV-n is open, its linked tasks have all merged or ended unmerged, at
+// least one merged and a finished verify does not cover it, and the reviewer has no open brief and is idle, serve reads
+// the integration head, moves the reviewer's worktree there and briefs the verify in the same session. The brief's fact
 // (briefed with Task, the tasks it verifies, and Reviewed, that head) is the verify; review.State reads the rest from the
 // brief facts: open, finished (its finished line, Ends: its tasks covered, its head reviewed), stopped (a stop with
 // Ends) or replaced (a newer brief). A verify that did not finish leaves the condition true: the next pass briefs again.
@@ -94,39 +96,43 @@ func linkFixes(cands []review.Link, id string, read func(task string) (store.Spe
 	return out, nil
 }
 
-// verifyRule is the verify: while the review started last is open and has linked tasks, it lines the lead
-// once for each linked task that ended unmerged (key: its dispatch's seq) and for each verify brief that did not
-// finish (key: its brief's seq); then, every link merged or ended unmerged, one merged that no finished verify covers,
-// and the reviewer without an open brief and idle, it briefs the verify of the merged, uncovered links (key: the newest
-// of their merges; no line: the brief's fact is its effect). A closed review (its review.closed fact) runs none
-// of it and its round leaves obor status: the snapshot it reads is empty.
-func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
+// verifyRead is the verify's read, a named step of the pass (advance, before the rule pass): while the review started
+// last is open, the loop's tasks that can link to it (fixCandidates) and of those the ones whose spec names it
+// (linkFixes), as the round p.fixes holds; p.verifyDue is true once every link merged or ended unmerged and at least
+// one merged link is not covered. The verify rule, the review card, idle and the reviewer's open work read those
+// fields, so one pass's read serves them all. A spec read that fails logs and leaves an empty round with no verify due:
+// the rule then acts on nothing, as it did on the failed read.
+func (a *App) verifyRead(_ context.Context, p *proj, fx *Loop) {
 	if fx == nil || fx.Workflow == nil {
-		return 0, action{}, false
+		return
 	}
 	a.mu.Lock()
-	started, failed := p.folded.rv.Cycle(), p.folded.rv.Failed()
-	covered := started.Covered
+	started := p.folded.rv.Cycle()
 	closed := started.Open() == ""
 	var cands []review.Link
 	if !closed {
 		cands = fixCandidates(p.folded.loop, started.Seq)
 	}
 	a.mu.Unlock()
-	links, err := linkFixes(cands, started.ID, func(task string) (store.SpecRow, bool, error) { return specOf(p, task) })
-	if err != nil {
-		a.logf("%s: verify of %s: %v", p.name, started.ID, err)
-		return 0, action{}, false
+	round, due := review.Round{ID: started.ID, Covered: started.Covered}, false
+	if !closed {
+		links, err := linkFixes(cands, started.ID, func(task string) (store.SpecRow, bool, error) { return specOf(p, task) })
+		if err != nil {
+			a.logf("%s: verify of %s: %v", p.name, started.ID, err)
+		} else {
+			round.Links = links
+			tasks, _, _, waits := verifyWork(links, started.Covered)
+			due = !waits && len(tasks) > 0
+		}
 	}
 	a.mu.Lock()
-	p.fixes, p.verifyDue = review.Round{ID: started.ID, Links: links, Covered: covered}, false
+	p.fixes, p.verifyDue = round, due
 	a.mu.Unlock()
-	if len(links) == 0 {
-		return 0, action{}, false
-	}
-	var tasks, notes []string
-	var newest int64
-	waits := false
+}
+
+// verifyWork is what a round's links leave the verify: the merged tasks it does not cover (in link order), the lead's
+// notes on them, the newest of their merges (the brief's key), and whether a link still waits for its merge.
+func verifyWork(links []review.Link, covered []string) (tasks, notes []string, newest int64, waits bool) {
 	for _, f := range links {
 		switch {
 		case f.End != "":
@@ -139,6 +145,28 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 			}
 		}
 	}
+	return tasks, notes, newest, waits
+}
+
+// verifyRule is the verify: while the review started last is open and has linked tasks (the round verifyRead left), it
+// lines the lead once for each linked task that ended unmerged (key: its dispatch's seq) and for each verify brief that
+// did not finish (key: its brief's seq); then, every link merged or ended unmerged, one merged that no finished verify
+// covers, and the reviewer without an open brief and idle, it briefs the verify of the merged, uncovered links (key: the
+// newest of their merges; no line: the brief's fact is its effect). It writes nothing: the round and the due flag are
+// the read step's (verifyRead), and a round of another review is no read. A closed review (its review.closed fact) runs
+// none of it and its round leaves obor status: the snapshot it reads is empty.
+func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
+	if fx == nil || fx.Workflow == nil {
+		return 0, action{}, false
+	}
+	a.mu.Lock()
+	started, failed, round, due := p.folded.rv.Cycle(), p.folded.rv.Failed(), p.fixes, p.verifyDue
+	a.mu.Unlock()
+	if started.Open() == "" || round.ID != started.ID || len(round.Links) == 0 {
+		return 0, action{}, false
+	}
+	links := round.Links
+	tasks, notes, newest, _ := verifyWork(links, started.Covered)
 	key, act := int64(0), action{}
 	a.mu.Lock()
 	for _, f := range links {
@@ -148,12 +176,10 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 		}
 	}
 	if v := failed; key == 0 && v != nil && !p.didLine(event.Of{Kind: ruleVerify, Seq: v.Seq()}) &&
-		slices.ContainsFunc(v.Tasks(), func(t string) bool { return !slices.Contains(covered, t) }) {
+		slices.ContainsFunc(v.Tasks(), func(t string) bool { return !slices.Contains(started.Covered, t) }) {
 		key, act = v.Seq(), action{line: "[obor] " + started.ID + " verify of " + strings.Join(v.Tasks(), ",") +
 			" did not finish (" + v.Why() + "): serve briefs it again once the reviewer is idle"}
 	}
-	due := !waits && len(tasks) > 0
-	p.verifyDue = due // idle waits for it (idle.go)
 	a.mu.Unlock()
 	if key == 0 && !due {
 		return 0, action{}, false
