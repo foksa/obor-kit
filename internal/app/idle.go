@@ -118,7 +118,7 @@ func (p *proj) idleNow(cfg *config.Config) idle {
 	if why := p.reviewIdleText(); why != "" {
 		return idle{why: why}
 	}
-	// A verify owed (the verify rule's condition) is in flight until its brief: its tasks are not verified yet.
+	// A verify owed (the pass's verify read, verifyRead) is in flight until its brief: its tasks are not verified yet.
 	if p.verifyDue {
 		if id := p.folded.rv.Last().ID; id != "" {
 			return idle{why: id + " verify pending"}

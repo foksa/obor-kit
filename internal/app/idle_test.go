@@ -294,8 +294,8 @@ func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	r.afterStepsDone("T-b")
 	r.stop("s1", "overloaded", "API overloaded")
 	r.working(false)
-	owed := func() bool { // the verify rule's condition read, its action not run
-		verifyRule(context.Background(), r.a, r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}), r.now)
+	owed := func() bool { // the pass's verify read, the rule's action not run
+		r.a.verifyRead(context.Background(), r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}))
 		r.a.mu.Lock()
 		defer r.a.mu.Unlock()
 		return r.p.verifyDue

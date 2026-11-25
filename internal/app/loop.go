@@ -282,7 +282,8 @@ func (a *App) mergeLoop(ctx context.Context) {
 // deliveries closed, then, on a pass that can post lines, the seen work logged, the role turns read, the finished
 // briefs' lines, the deliveries, the role wakes, the lines' needs-you), the worker wakes, the loop's status, then
 // each task driven as far as it goes now, in passOrder (the waiting ones last: a task they wait for may merge in the
-// same pass), then the ticks. It needs a herdr snapshot (the integrator's pane). It returns the pass's adapters (nil:
+// same pass), then the ticks, then the verify's read (the rule pass and every reader see it). It needs a herdr
+// snapshot (the integrator's pane). It returns the pass's adapters (nil:
 // the pass did not run, or its adapters or checkout failed), the rule pass's (mergeLoop runs it right after: its lines,
 // the done reminder's among them, go out at the next pass's deliveries, which their record wakes).
 func (a *App) advance(ctx context.Context) *Loop {
@@ -332,6 +333,7 @@ func (a *App) advance(ctx context.Context) *Loop {
 	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact
 	a.reviewPass(ctx, p, fx)
 	a.reviewDueTick(ctx, p, fx)
+	a.verifyRead(ctx, p, fx) // the verify's round and due: the rule pass and every reader see one pass's read
 	return fx
 }
 
