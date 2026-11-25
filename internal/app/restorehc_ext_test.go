@@ -21,29 +21,6 @@ import (
 	"obor/internal/testkit"
 )
 
-// lostRestorer records each restore run's lost panes (port.Restorer), then runs next's restore (nil: none).
-type lostRestorer struct {
-	mu   sync.Mutex
-	runs []port.Lost
-	next port.Restorer
-}
-
-func (f *lostRestorer) RestoreProject(ctx context.Context, root string, lost port.Lost) {
-	f.mu.Lock()
-	f.runs = append(f.runs, lost)
-	next := f.next
-	f.mu.Unlock()
-	if next != nil {
-		next.RestoreProject(ctx, root, lost)
-	}
-}
-
-func (f *lostRestorer) all() []port.Lost {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.runs)
-}
-
 // hcRig is serve on hc (hc.Panes over an in-memory hctest core) for project pj: its lead at its shell in t1, its
 // worker pj-l-01 in t2, and t3, another project's terminal; a restorer that records what each run restores.
 type hcRig struct {
@@ -51,7 +28,7 @@ type hcRig struct {
 	core   *hctest.Core
 	root   string
 	home   string // Options.Home: the agents' home beside the project
-	fr     *lostRestorer
+	fr     *fakeRestorer
 	app    *app.App
 	adopt  func(ctx context.Context) (int, error) // Options.Adopt (nil: none)
 	out    *syncBuf
@@ -67,7 +44,7 @@ const (
 func newHCRig(t *testing.T) *hcRig {
 	t.Helper()
 	base := t.TempDir()
-	r := &hcRig{t: t, core: hctest.New(), root: filepath.Join(base, "pj"), home: filepath.Join(base, "home"), fr: &lostRestorer{}}
+	r := &hcRig{t: t, core: hctest.New(), root: filepath.Join(base, "pj"), home: filepath.Join(base, "home"), fr: &fakeRestorer{}}
 	if err := os.MkdirAll(filepath.Join(r.root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +324,7 @@ func newTrialRig(t *testing.T) *trialRig {
 	p := testkit.NewPlain(t)
 	lanes := map[string]string{"L-01": p.PlainLane("L-01", ""), "L-02": p.PlainLane("L-02", "")}
 	p.Config(testkit.Set("agents.roles", map[string]any{"integrator": "", "reviewer": "opus"}))
-	r := &trialRig{hcRig: &hcRig{t: t, core: hctest.New(), root: p.Root, home: t.TempDir(), fr: &lostRestorer{}}}
+	r := &trialRig{hcRig: &hcRig{t: t, core: hctest.New(), root: p.Root, home: t.TempDir(), fr: &fakeRestorer{}}}
 	pl := &launch.Restorer{Env: p.Env(), H: r.core.Client(),
 		Sessions:  store.CurrentAt,
 		LaneState: func(*config.Config, config.Lane) string { return port.LaneFree },

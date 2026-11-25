@@ -48,10 +48,39 @@ func firstRestoreConnect(h *harness, wg *sync.WaitGroup, snap port.Snapshot) {
 	h.a.connectRestore(context.Background(), wg, snap, h.a.restoreWhy(snap, true, false))
 }
 
-// countRestorer counts the restores serve asks for.
-type countRestorer struct{ calls int }
+// fakeRestorer is a restore run (port.Restorer) for the app's tests: it counts serve's calls, waits for release while
+// release is set (a restore that takes its time), then asks OpenWork for each of its agents as launch.Restorer does
+// before a restart, and calls restart for those with work open (nil: the restart fails, the pane stays at its shell).
+// roles is agent → role; open is OpenWork's answer per agent when the run reached it.
+type fakeRestorer struct {
+	a       *App
+	roles   map[string]string
+	release chan struct{}
+	restart func(agent string)
+	open    map[string]bool
+	calls   int
+}
 
-func (r *countRestorer) RestoreProject(context.Context, string, port.Lost) { r.calls++ }
+func (r *fakeRestorer) RestoreProject(ctx context.Context, _ string, _ port.Lost) {
+	r.calls++
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return
+		}
+	}
+	for agent, role := range r.roles {
+		open, err := r.a.OpenWork(agent, role)
+		if err != nil {
+			continue
+		}
+		r.open[agent] = open
+		if open && r.restart != nil {
+			r.restart(agent)
+		}
+	}
+}
 
 // The upgrade: serve finds the instance only under the old file's name (the one naming herdr) and reads it once as the
 // recorded instance, so a terminal that did not restart does not restore; the instance is written under the new name
@@ -72,7 +101,7 @@ func TestFirstConnectWritesTheLegacyInstanceUnderTheNewName(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.write(old, inst+"\n")
-	fr := &countRestorer{}
+	fr := &fakeRestorer{}
 	h.a.opt.Restore = fr
 	h.a.loadProject()
 	var wg sync.WaitGroup
@@ -103,7 +132,7 @@ func firstConnect(t *testing.T, h *harness, started time.Time) (int, string) {
 	if _, err := os.Stat(InstanceFile(h.root)); !os.IsNotExist(err) {
 		t.Fatalf("precondition: an instance is recorded (%v)", err)
 	}
-	fr := &countRestorer{}
+	fr := &fakeRestorer{}
 	h.a.opt.Restore = fr
 	h.a.loadProject()
 	var wg sync.WaitGroup
@@ -165,7 +194,7 @@ func TestFirstConnectNoRestoreHerdrBeforeLastActivity(t *testing.T) {
 func TestRestoreWhyEveryPaneWithoutRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.a.opt.Restore = &countRestorer{}
+	h.a.opt.Restore = &fakeRestorer{}
 	h.a.loadProject()
 	h.write(InstanceFile(h.root), "2026-10-24T08:00:00Z\n")
 	if c := h.a.restoreWhy(port.Snapshot{}, false, true); c.why != "reconnected" || !c.lost.All {
