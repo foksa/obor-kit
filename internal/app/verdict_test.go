@@ -301,14 +301,14 @@ func TestDropByTaskFreesItsLane(t *testing.T) {
 	}
 	r.waitFor("dropped", func() bool { return r.state("pj", "T-2") == stDropped })
 	f.mu.Lock()
-	frees, stops := append([]port.FreeInput(nil), f.frees...), append([]string(nil), f.stops...)
+	frees, stops := append([]port.FreeInput(nil), f.frees...), f.agents.Stops()
 	f.mu.Unlock()
 	dir := filepath.Join(filepath.Dir(r.roots["pj"]), "pj-wt", "L-02") // the config's L-02
 	if len(frees) != 1 || frees[0] != (port.FreeInput{Dispatch: port.Dispatch{Lane: "L-02", Dir: dir, Branch: "task/T-2",
 		Target: "target"}, Discard: true}) {
 		t.Errorf("Free calls %+v; want one for L-02's task/T-2 at the target, discarding", frees)
 	}
-	if len(stops) != 1 || stops[0] != "pj-l-02 force=true" {
+	if len(stops) != 1 || stops[0] != "pj-l-02 w1:p2 force=true" {
 		t.Errorf("stops %q; want pj-l-02 once, with force", stops)
 	}
 	if r.row(p) != "" {
@@ -340,8 +340,8 @@ func TestDropStopsTheWorker(t *testing.T) {
 		r.waitFor("dropped", func() bool { return r.state("pj", "T-2") == stDropped })
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		if len(f.stops) != 1 || f.stops[0] != "pj-l-02 force=false" || len(f.frees) != 1 {
-			t.Errorf("stops %q, frees %d; want pj-l-02 once without force, then the free", f.stops, len(f.frees))
+		if len(f.agents.Stops()) != 1 || f.agents.Stops()[0] != "pj-l-02 w1:p2 force=false" || len(f.frees) != 1 {
+			t.Errorf("stops %q, frees %d; want pj-l-02 once without force, then the free", f.agents.Stops(), len(f.frees))
 		}
 	})
 	// Any stop that fails holds the drop (the worker may still run in the lane the next task gets): a
@@ -362,9 +362,14 @@ func TestDropStopsTheWorker(t *testing.T) {
 		t.Run(c.name+": a needs-you, the lane kept", func(t *testing.T) {
 			t.Parallel()
 			r, p, f := laneT2(t)
-			f.mu.Lock()
-			f.stopFails = c.fails
-			f.mu.Unlock()
+			f.agents.mu.Lock()
+			f.agents.OnStop = func(_ context.Context, _, _ string, force bool) error {
+				if why := c.fails(force); why != "" {
+					return errors.New(why)
+				}
+				return nil
+			}
+			f.agents.mu.Unlock()
 			if _, err := dropT2(r, "d1", c.force, true); err != nil {
 				t.Fatal(err)
 			}
@@ -374,7 +379,7 @@ func TestDropStopsTheWorker(t *testing.T) {
 				t.Errorf("needs-you %q; want %q", why, want)
 			}
 			f.mu.Lock()
-			stops, frees := len(f.stops), len(f.frees)
+			stops, frees := len(f.agents.Stops()), len(f.frees)
 			f.mu.Unlock()
 			if stops != 1 || frees != 0 || r.row(p) != "T-2" || r.count("pj", "T-2", event.KindFact, event.StepDropped) != 0 {
 				t.Errorf("the refused stop: %d stops, %d frees, L-02's row %q; want one stop tried, nothing freed or "+
@@ -385,9 +390,9 @@ func TestDropStopsTheWorker(t *testing.T) {
 	t.Run("a worker that ignores Escape: a needs-you without --force, stopped and dropped with it", func(t *testing.T) {
 		t.Parallel()
 		r, p, f := laneT2(t)
-		f.mu.Lock()
-		f.ignoresEsc = true
-		f.mu.Unlock()
+		f.agents.mu.Lock()
+		f.agents.OnStop = ignoresEsc
+		f.agents.mu.Unlock()
 		if _, err := dropT2(r, "d1", false, true); err != nil {
 			t.Fatal(err)
 		}
@@ -402,8 +407,8 @@ func TestDropStopsTheWorker(t *testing.T) {
 		r.waitFor("dropped", func() bool { return r.state("pj", "T-2") == stDropped })
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		if len(f.stops) != 2 || f.stops[1] != "pj-l-02 force=true" || len(f.frees) != 1 {
-			t.Errorf("drop --force: stops %q, frees %+v; want the stop with force, then the lane freed", f.stops, f.frees)
+		if len(f.agents.Stops()) != 2 || f.agents.Stops()[1] != "pj-l-02 w1:p2 force=true" || len(f.frees) != 1 {
+			t.Errorf("drop --force: stops %q, frees %+v; want the stop with force, then the lane freed", f.agents.Stops(), f.frees)
 		}
 	})
 }
@@ -452,7 +457,7 @@ func TestDropFreeFailsAfterTheRecord(t *testing.T) {
 				t.Errorf("%d failed facts, want %d (one per cut free)", n, c.fails)
 			}
 			f.mu.Lock()
-			stops, frees := len(f.stops), len(f.frees)
+			stops, frees := len(f.agents.Stops()), len(f.frees)
 			f.mu.Unlock()
 			if stops != 1 || frees != 1 || r.row(p) != "" {
 				t.Errorf("%d stops, %d frees, L-02's row %q; want the worker stopped once, the lane freed, no row", stops,
@@ -692,21 +697,6 @@ func (f *dropFx) Submit(ctx context.Context, task, id, lane, summary string) (st
 	return f.concFakes.Submit(ctx, task, id, lane, summary)
 }
 
-func (f *dropFx) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
-	f.note("restart")
-	return f.concFakes.Launch(ctx, l)
-}
-
-func (f *dropFx) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
-	f.note("stop")
-	return f.concFakes.Stop(ctx, agent, pane, force)
-}
-
-func (f *dropFx) Prompt(ctx context.Context, agent, text string, clear bool) (bool, error) {
-	f.note("prompt")
-	return true, nil
-}
-
 func (f *dropFx) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	f.note("prepare")
 	return f.concFakes.Prepare(ctx, in)
@@ -722,9 +712,18 @@ func (f *dropFx) AfterMerge(ctx context.Context, c port.Candidate) (string, erro
 	return "ran", nil
 }
 
-// loop is fx as a project's adapters (the dispatch's too).
+// loop is fx as a project's adapters (the dispatch's too), its agents a FakeAgents noting each start (restart), stop
+// and prompt.
 func (f *dropFx) loop(kit string) *Loop {
-	return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Specs: f, Kit: kit}
+	ag := &FakeAgents{
+		OnLaunch: func(_ context.Context, l port.Launch) (port.Started, error) {
+			f.note("restart")
+			return port.Started{Line: "STARTED " + l.Agent}, nil
+		},
+		OnStop:   func(context.Context, string, string, bool) error { f.note("stop"); return nil },
+		OnPrompt: func(context.Context, string, string, bool) (bool, error) { f.note("prompt"); return true, nil },
+	}
+	return &Loop{Workflow: WorkflowOf(f), Agents: ag, Prompter: ag, Specs: f, Kit: kit}
 }
 
 // dropStartCases is one per selected step kind: the setup leaves task of project proj with that
@@ -928,14 +927,14 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	delete(r.a.obs, "w1:p9") // no integrator runs: the review job's step starts it
 	entered, fetch := make(chan struct{}), make(chan struct{})
 	fetched, stepped := make(chan callAnswer, 1), make(chan struct{})
-	f := &startEffects{concFakes: r.fakes["pj"]}
-	f.start = func(port.Launch) {
+	f := &FakeAgents{}
+	f.OnLaunch = obeying(func(port.Launch) {
 		close(entered)
 		<-fetch
 		reply, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
 			Role: "integrator", CallID: "early"}})
 		fetched <- callAnswer{reply, err}
-	}
+	})
 	r.a.mu.Lock()
 	selected := r.a.next(p, p.folded.loop["T-1"], cfgAt(p.root))
 	r.a.mu.Unlock()
@@ -1183,11 +1182,11 @@ func TestEarlyVerdict(t *testing.T) {
 			delete(r.a.obs, "w1:p9") // the integrator does not run: the step starts it
 			job := "T-1/1/" + row.job
 			key := event.Key{Task: "T-1", Attempt: 1, Step: row.job}
-			f := &startJobFakes{concFakes: r.fakes["pj"]}
+			f := &FakeAgents{}
 			var fetched wire.JobReply
 			var verdictErr error
 			var during mtask
-			f.start = func(port.Launch) {
+			f.OnLaunch = obeying(func(port.Launch) {
 				if done(p, key) {
 					t.Errorf("precondition: %s has its result before the start returned", job)
 				}
@@ -1203,7 +1202,7 @@ func TestEarlyVerdict(t *testing.T) {
 				r.a.mu.Lock()
 				during = *p.folded.loop["T-1"]
 				r.a.mu.Unlock()
-			}
+			})
 			r.a.mu.Lock()
 			step := r.a.next(p, p.folded.loop["T-1"], cfgAt(p.root))
 			r.a.mu.Unlock()
@@ -1214,8 +1213,8 @@ func TestEarlyVerdict(t *testing.T) {
 				t.Fatal("the job step failed")
 			}
 
-			if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine(job) {
-				t.Fatalf("launches %+v, want one with the first prompt %q", f.launches, wakeLine(job))
+			if len(f.Launches()) != 1 || f.Launches()[0].Prompt != wakeLine(job) {
+				t.Fatalf("launches %+v, want one with the first prompt %q", f.Launches(), wakeLine(job))
 			}
 			same(t, fetched.State+" "+fetched.Job, "job "+job, "job_next during the start")
 			if verdictErr != nil {
@@ -1227,7 +1226,7 @@ func TestEarlyVerdict(t *testing.T) {
 			r.a.mu.Unlock()
 			same(t, after.shown()+" "+strconv.Itoa(after.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the start")
 			same(t, resultOf(p, key), `"sent (start prompt)"`, row.job+" result")
-			same(t, len(f.typed), 0, "Prompter calls")
+			same(t, len(f.Texts()), 0, "Prompter calls")
 			same(t, deliveredOf(r, job), 1, "delivered facts of "+job)
 			// the job's intent precedes its start's: open before the wake
 			if j, s := seqOf(r, "intent", row.job), seqOf(r, "intent", stepStart+row.job); j == 0 || s == 0 || j > s {

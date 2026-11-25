@@ -202,7 +202,7 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 					t.Fatalf("precondition: want one open intent, %s's: %q", c.step, r.open())
 				}
 				head := r.scratch.LaneHead("L-01")
-				starts := func() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.launches) }
+				starts := func() int { return len(r.agents.Launches()) }
 				r.start()
 				r.waitFor("the replayed intent's result", func() bool { return r.resultOf(c.attempt, c.step) != "" })
 				r.passes()
@@ -395,21 +395,11 @@ func TestVerdictServeNotRunning(t *testing.T) {
 	}
 }
 
-// agents records the restarts asked of it.
-type agents struct{ restarts []port.Launch }
-
-func (a *agents) Launch(_ context.Context, req port.Launch) (port.Started, error) {
-	a.restarts = append(a.restarts, req)
-	return port.Started{Line: "STARTED " + req.Agent}, nil
-}
-
-func (a *agents) Stop(context.Context, string, string, bool) (string, error) { return "", nil }
-
 func TestStartIntegrator(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := verdictRig(t)
-		ag := &agents{}
+		ag := &app.FakeAgents{}
 		r.addPane(port.Pane{ID: "w1:p9", Label: "pj-int", Agent: "claude", Status: "idle", Cwd: r.root})
 		r.stop()
 		r.start() // its snapshot has the integrator
@@ -418,8 +408,8 @@ func TestStartIntegrator(t *testing.T) {
 		}
 		s, err := app.StartIntegrator(r.app, context.Background(), ag, r.root, port.Launch{})
 		line := s.Line
-		if err != nil || line != "running" || len(ag.restarts) != 0 {
-			t.Fatalf("integrator running: %q, %v, restarts %+v; want none", line, err, ag.restarts)
+		if err != nil || line != "running" || len(ag.Launches()) != 0 {
+			t.Fatalf("integrator running: %q, %v, restarts %+v; want none", line, err, ag.Launches())
 		}
 
 		r.removePane("w1:p9")
@@ -430,8 +420,8 @@ func TestStartIntegrator(t *testing.T) {
 		}
 		s, err = app.StartIntegrator(r.app, context.Background(), ag, r.root, port.Launch{})
 		line = s.Line
-		if err != nil || line != "STARTED pj-int" || len(ag.restarts) != 1 || ag.restarts[0] != (port.Launch{Agent: "pj-int"}) {
-			t.Errorf("integrator not running: %q, %v, restarts %+v; want one start of pj-int", line, err, ag.restarts)
+		if err != nil || line != "STARTED pj-int" || len(ag.Launches()) != 1 || ag.Launches()[0] != (port.Launch{Agent: "pj-int"}) {
+			t.Errorf("integrator not running: %q, %v, restarts %+v; want one start of pj-int", line, err, ag.Launches())
 		}
 	})
 }

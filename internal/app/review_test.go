@@ -31,15 +31,15 @@ func TestReviewRequest(t *testing.T) {
 			}
 			r.merged("T-a")
 			r.pass()
-			if len(r.agents.launches) != 0 || r.p.folded.review == nil {
-				t.Fatalf("started with T-b open: %+v", r.agents.launches)
+			if len(r.agents.Launches()) != 0 || r.p.folded.review == nil {
+				t.Fatalf("started with T-b open: %+v", r.agents.Launches())
 			}
 			r.merged("T-b")
 			r.pass()
-			if len(r.agents.launches) != 1 {
-				t.Fatalf("launches %+v, want one", r.agents.launches)
+			if len(r.agents.Launches()) != 1 {
+				t.Fatalf("launches %+v, want one", r.agents.Launches())
 			}
-			l := r.agents.launches[0]
+			l := r.agents.Launches()[0]
 			if l.Agent != "pj-rev" || !l.Fresh || !strings.HasPrefix(l.Prompt, "Review RV-5. main is at abcdef0. In scope: T-a (ccccccc), T-b (ccccccc); files: internal/app/x.go, docs/y.md.") ||
 				!strings.Contains(l.Prompt, "Previous review: RV-4 (") || !strings.Contains(l.Prompt, "write only reviews/RV-5.md") ||
 				// Real findings only; constructed ones a one-line list without a fix.
@@ -91,13 +91,13 @@ func TestReviewRequest(t *testing.T) {
 				t.Fatal("precondition: no request open")
 			}
 			r.pass()
-			if len(r.agents.launches) != 0 || r.facts(event.StepReviewFire) != 0 {
-				t.Fatalf("fired while pj-rev works: %+v", r.agents.launches)
+			if len(r.agents.Launches()) != 0 || r.facts(event.StepReviewFire) != 0 {
+				t.Fatalf("fired while pj-rev works: %+v", r.agents.Launches())
 			}
 			lineStatus(r.a, "w:rev", "idle", r.now)
 			r.pass()
-			if len(r.agents.launches) != 1 {
-				t.Errorf("launches %+v once idle, want one", r.agents.launches)
+			if len(r.agents.Launches()) != 1 {
+				t.Errorf("launches %+v once idle, want one", r.agents.Launches())
 			}
 		}},
 		{"a dropped --after ends it with the line", func(t *testing.T, r *reviewRig) {
@@ -111,8 +111,8 @@ func TestReviewRequest(t *testing.T) {
 			if lines := r.leadLines(); len(lines) != 1 || lines[0] != "[obor] review request ended: T-b dropped" {
 				t.Errorf("lead lines %q", lines)
 			}
-			if r.p.folded.review != nil || len(r.agents.launches) != 0 {
-				t.Errorf("request %v, launches %+v; want ended, none", r.p.folded.review, r.agents.launches)
+			if r.p.folded.review != nil || len(r.agents.Launches()) != 0 {
+				t.Errorf("request %v, launches %+v; want ended, none", r.p.folded.review, r.agents.Launches())
 			}
 			r.reload()
 			r.pass()
@@ -131,8 +131,8 @@ func TestReviewRequest(t *testing.T) {
 			}
 			r.pass()
 			r.pass()
-			if len(r.agents.launches) != 0 || r.facts(event.StepReviewFire) != 1 || r.p.folded.review != nil {
-				t.Errorf("launches %+v, fire facts %d, request %v; want none started", r.agents.launches,
+			if len(r.agents.Launches()) != 0 || r.facts(event.StepReviewFire) != 1 || r.p.folded.review != nil {
+				t.Errorf("launches %+v, fire facts %d, request %v; want none started", r.agents.Launches(),
 					r.facts(event.StepReviewFire), r.p.folded.review)
 			}
 		}},
@@ -149,8 +149,8 @@ func TestReviewRequest(t *testing.T) {
 			}
 			r.merged("T-a")
 			r.pass()
-			if len(r.agents.launches) != 0 {
-				t.Errorf("fired on the replaced request's task: %+v", r.agents.launches)
+			if len(r.agents.Launches()) != 0 {
+				t.Errorf("fired on the replaced request's task: %+v", r.agents.Launches())
 			}
 		}},
 		{"--rm", func(t *testing.T, r *reviewRig) {
@@ -164,8 +164,8 @@ func TestReviewRequest(t *testing.T) {
 			}
 			r.merged("T-a")
 			r.pass()
-			if len(r.agents.launches) != 0 || r.p.folded.review != nil || r.facts(event.StepReviewRm) != 1 {
-				t.Errorf("launches %+v, request %v", r.agents.launches, r.p.folded.review)
+			if len(r.agents.Launches()) != 0 || r.p.folded.review != nil || r.facts(event.StepReviewRm) != 1 {
+				t.Errorf("launches %+v, request %v", r.agents.Launches(), r.p.folded.review)
 			}
 		}},
 		{"a request while a started RV has no close fact is refused (T-926: a close commit alone does not close it)", func(t *testing.T, r *reviewRig) {
@@ -206,8 +206,8 @@ func TestReviewRequest(t *testing.T) {
 				t.Fatal("precondition: no request open, or the reviewer is not idle")
 			}
 			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(event.StepReviewFire) != 1 {
-				t.Fatalf("fired with RV-5 open: launches %d, fire facts %d", len(r.agents.launches), r.facts(event.StepReviewFire))
+			if len(r.agents.Launches()) != 1 || r.facts(event.StepReviewFire) != 1 {
+				t.Fatalf("fired with RV-5 open: launches %d, fire facts %d", len(r.agents.Launches()), r.facts(event.StepReviewFire))
 			}
 			if got := r.a.Status().Project.Review; got != "review request since 0s (now, waiting RV-5 to close), note: next" {
 				t.Errorf("status %q", got)
@@ -218,9 +218,9 @@ func TestReviewRequest(t *testing.T) {
 			}
 			r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved · T-7")
 			r.pass()
-			if len(r.agents.launches) != 2 || !strings.HasPrefix(r.agents.launches[1].Prompt, "Review RV-6. ") ||
-				!strings.HasSuffix(r.agents.launches[1].Prompt, "\nLead's note: next") {
-				t.Errorf("after RV-5 closed: launches %+v", r.agents.launches)
+			if len(r.agents.Launches()) != 2 || !strings.HasPrefix(r.agents.Launches()[1].Prompt, "Review RV-6. ") ||
+				!strings.HasSuffix(r.agents.Launches()[1].Prompt, "\nLead's note: next") {
+				t.Errorf("after RV-5 closed: launches %+v", r.agents.Launches())
 			}
 		}},
 		{"replace and --rm during a claim are refused, the old request never fires after them", func(t *testing.T, r *reviewRig) {
@@ -247,12 +247,12 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("replace after the claim: %q", got)
 			}
 			r.pass()
-			if len(r.agents.launches) != 1 || !strings.HasSuffix(r.agents.launches[0].Prompt, "\nLead's note: new") {
-				t.Errorf("launches %+v, want the new request's only", r.agents.launches)
+			if len(r.agents.Launches()) != 1 || !strings.HasSuffix(r.agents.Launches()[0].Prompt, "\nLead's note: new") {
+				t.Errorf("launches %+v, want the new request's only", r.agents.Launches())
 			}
 			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(event.StepReviewFire) != 1 {
-				t.Errorf("the old request fired after the replace: launches %d, fire facts %d", len(r.agents.launches), r.facts(event.StepReviewFire))
+			if len(r.agents.Launches()) != 1 || r.facts(event.StepReviewFire) != 1 {
+				t.Errorf("the old request fired after the replace: launches %d, fire facts %d", len(r.agents.Launches()), r.facts(event.StepReviewFire))
 			}
 		}},
 		{"--rm after a refused claim ends the request: nothing fires", func(t *testing.T, r *reviewRig) {
@@ -269,8 +269,8 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("--rm after the claim: %q", got)
 			}
 			r.pass()
-			if len(r.agents.launches) != 0 || r.facts(event.StepReviewFire) != 0 {
-				t.Errorf("fired after --rm: launches %d, fire facts %d", len(r.agents.launches), r.facts(event.StepReviewFire))
+			if len(r.agents.Launches()) != 0 || r.facts(event.StepReviewFire) != 0 {
+				t.Errorf("fired after --rm: launches %d, fire facts %d", len(r.agents.Launches()), r.facts(event.StepReviewFire))
 			}
 		}},
 		{"a replace during the ended line's claim is refused", func(t *testing.T, r *reviewRig) {
@@ -291,8 +291,8 @@ func TestReviewRequest(t *testing.T) {
 			r.mustCall("r1", nil, "", false)
 			r.refuseStep(event.StepReviewStarted)
 			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(event.StepReviewStarted) != 0 {
-				t.Fatalf("precondition: launches %d, started facts %d; want launched, not recorded", len(r.agents.launches), r.facts(event.StepReviewStarted))
+			if len(r.agents.Launches()) != 1 || r.facts(event.StepReviewStarted) != 0 {
+				t.Fatalf("precondition: launches %d, started facts %d; want launched, not recorded", len(r.agents.Launches()), r.facts(event.StepReviewStarted))
 			}
 			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: started but not recorded: disk full" {
 				t.Errorf("needs-you %q", n)
@@ -302,8 +302,8 @@ func TestReviewRequest(t *testing.T) {
 			r.git.detachErr = errors.New("git checkout: local changes")
 			r.mustCall("r1", nil, "", false)
 			r.pass()
-			if len(r.agents.launches) != 0 {
-				t.Errorf("launched %+v; want none", r.agents.launches)
+			if len(r.agents.Launches()) != 0 {
+				t.Errorf("launched %+v; want none", r.agents.Launches())
 			}
 			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git checkout: local changes" {
 				t.Errorf("needs-you %q", n)
@@ -333,7 +333,7 @@ func TestReviewStartRefusedNamesTheFix(t *testing.T) {
 	r := newReviewRig(t)
 	line := "codex is quarantined: /c/0.167.0/bin/codex-code-mode-host carry com.apple.quarantine; a Codex start is " +
 		"refused until the owner clears the flag: xattr -dr com.apple.quarantine /c/0.167.0 (obor applies no fix)"
-	r.agents.launchErr = port.Refused{Line: line}
+	r.agents.OnLaunch = launchFails(port.Refused{Line: line})
 	r.mustCall("r1", nil, "", false)
 	r.pass()
 	if n := r.facts(event.StepReviewStarted); n != 0 {
@@ -468,7 +468,7 @@ func TestReviewDueFromTheFold(t *testing.T) {
 	}
 	r.mustCall("r1", nil, "", false)
 	r.pass()
-	if l := r.agents.launches; len(l) != 1 ||
+	if l := r.agents.Launches(); len(l) != 1 ||
 		!strings.Contains(l[0].Prompt, "In scope: T-a (aaaaaaa), T-b (bbbbbbb), T-c (ccccccc), T-d (ddddddd);") {
 		t.Fatalf("RV-5's brief: %+v, want the 4 merges in scope", l)
 	}

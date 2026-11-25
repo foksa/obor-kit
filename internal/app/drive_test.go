@@ -77,7 +77,7 @@ func landSeed(t *testing.T, adapters bool) (*harness, *proj) {
 		if !adapters {
 			return withCfg(root, &Loop{}), nil
 		}
-		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}), nil
+		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f.agents}), nil
 	}
 	h.connect()
 	p := h.proj()

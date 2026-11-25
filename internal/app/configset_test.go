@@ -148,7 +148,7 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 	path := filepath.Join(h.root, ".obor", "config.json")
 	h.write(path, configJSON)
 	f := &fakeConfig{path: path}
-	sched := &schedScratch{h: h}
+	sched := newSchedScratch(h)
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(sched), Agents: sched, Prompter: sched, Config: f}), nil
 	}

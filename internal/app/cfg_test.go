@@ -125,7 +125,7 @@ func TestAStartRecordsTheConfigItsPassRanOn(t *testing.T) {
 	p := r.proj("pj")
 	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
-	f := &startEffects{concFakes: r.fakes["pj"]}
+	f := &FakeAgents{}
 	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	if fx.Cfg == nil {
 		t.Fatal("precondition: the pass's adapters carry no config")

@@ -66,11 +66,11 @@ func TestResumeArgs(t *testing.T) {
 func TestAnswerReachesIdleWorkerHerdrSessionStale(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
-	in, liner := &kindSpy{}, &linerSpy{}
+	in, liner := &kindSpy{}, &FakeAgents{}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: liner}))
-	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] move the helpers down"}) || len(liner.calls) != 0 ||
+	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] move the helpers down"}) || len(liner.Lines()) != 0 ||
 		len(h.lines()) != 0 {
-		t.Errorf("posted %q, typed %q, queued %q; want the answer posted to pj-l-01's inbox", in.calls, liner.calls,
+		t.Errorf("posted %q, typed %q, queued %q; want the answer posted to pj-l-01's inbox", in.calls, liner.Lines(),
 			h.lines())
 	}
 }
@@ -84,11 +84,11 @@ func TestAnswerTypedWhenInboxIsAnotherPanes(t *testing.T) {
 	ss := h.proj().folded.sessions.All()
 	ss[len(ss)-1].Pane = "w1:p5" // the record came from another pane
 	h.a.mu.Unlock()
-	in, liner := &kindSpy{}, &linerSpy{}
+	in, liner := &kindSpy{}, &FakeAgents{}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: liner}))
-	if len(in.calls) != 0 || !slices.Equal(liner.calls, []string{"w1:p1: [obor answer] move the helpers down"}) ||
+	if len(in.calls) != 0 || !slices.Equal(liner.Lines(), []string{"w1:p1: [obor answer] move the helpers down"}) ||
 		len(h.lines()) != 0 {
-		t.Errorf("posted %q, typed %q, queued %q; want the answer typed into w1:p1", in.calls, liner.calls, h.lines())
+		t.Errorf("posted %q, typed %q, queued %q; want the answer typed into w1:p1", in.calls, liner.Lines(), h.lines())
 	}
 }
 
@@ -129,7 +129,7 @@ func TestAnswerToWorkingWorkerAtNextIdle(t *testing.T) {
 	h := staleHerdr(t)
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	in := &kindSpy{}
-	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: &linerSpy{}})
+	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: &FakeAgents{}})
 	h.a.deliver(context.Background(), h.proj(), fx)
 	ms := h.a.Status().Project.Messages
 	if len(in.calls) != 0 || len(ms) != 1 || !strings.Contains(ms[0].Held, "pj-l-01 is busy in pane w1:p1") {
@@ -186,7 +186,7 @@ func TestResumeStalledWorker(t *testing.T) {
 	}
 	in := &kindSpy{}
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
-	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: &linerSpy{}}))
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: &FakeAgents{}}))
 	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] keep the guard; move the helpers down"}) {
 		t.Errorf("posted %q; want the decision reach pj-l-01", in.calls)
 	}
@@ -200,10 +200,10 @@ func settledThenIdle(t *testing.T, h *harness) {
 		t.Errorf("queued %q, status lines %+v; want the answer ended", q, ms)
 	}
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
-	in, liner := &kindSpy{}, &linerSpy{}
+	in, liner := &kindSpy{}, &FakeAgents{}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: liner}))
-	if len(in.calls) != 0 || len(liner.calls) != 0 {
-		t.Errorf("posted %q, typed %q at the next idle; want the settled answer never delivered", in.calls, liner.calls)
+	if len(in.calls) != 0 || len(liner.Lines()) != 0 {
+		t.Errorf("posted %q, typed %q at the next idle; want the settled answer never delivered", in.calls, liner.Lines())
 	}
 }
 

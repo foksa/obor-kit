@@ -63,7 +63,7 @@ func briefedRoles(t *testing.T, agents map[string]string) (*harness, *holdRestor
 			t.Fatalf("precondition: %s's brief saw no work", agent)
 		}
 	}
-	h.a.deliver(context.Background(), h.proj(), linerLoop(&linerSpy{})) // the work in the log; nothing finished
+	h.a.deliver(context.Background(), h.proj(), linerLoop(&FakeAgents{})) // the work in the log; nothing finished
 	r := &holdRestorer{a: h.a, roles: agents, release: make(chan struct{}), open: map[string]bool{}}
 	r.restart = func(agent string) {
 		h.status(rolePanes[agent], func(p *port.Pane) { p.Agent, p.Status = "claude", "working" })
@@ -116,7 +116,7 @@ func restoreRun(t *testing.T, h *harness, r *holdRestorer, snap port.Snapshot, f
 			}
 		}
 		h.a.mu.Unlock()
-		h.a.deliver(ctx, h.proj(), linerLoop(&linerSpy{}))
+		h.a.deliver(ctx, h.proj(), linerLoop(&FakeAgents{}))
 		for agent := range r.roles {
 			if n := finished(h, agent); n != 0 {
 				t.Errorf("%s: %d finished lines of %s, want none: the restore has not reached its pane", when, n, agent)
@@ -153,7 +153,7 @@ func restored(t *testing.T, h *harness, r *holdRestorer, agent string) {
 	if w.State != Identified || w.Pane.Agent == "" {
 		t.Errorf("%s after the restore: %+v, want it running in its pane", agent, w)
 	}
-	h.a.deliver(context.Background(), h.proj(), linerLoop(&linerSpy{}))
+	h.a.deliver(context.Background(), h.proj(), linerLoop(&FakeAgents{}))
 	if n := finished(h, agent); n != 0 || h.proj().out.Brief(agent) == nil {
 		t.Errorf("%s after the restore: %d finished lines, brief open %v; want none and open", agent, n,
 			h.proj().out.Brief(agent) != nil)
@@ -222,7 +222,7 @@ func TestFailedRestoreEndsTheBriefAsGone(t *testing.T) {
 	if !r.open["pj-advisor"] {
 		t.Fatal("precondition: the restore found no open work: it tried no restart")
 	}
-	finishBriefs(h.a, h.proj(), linerLoop(&linerSpy{}))
+	finishBriefs(h.a, h.proj(), linerLoop(&FakeAgents{}))
 	if n := finished(h, "pj-advisor"); n != 1 || h.proj().out.Brief("pj-advisor") != nil {
 		t.Errorf("after the restore: %d finished lines, brief open %v; want one, ended", n,
 			h.proj().out.Brief("pj-advisor") != nil)

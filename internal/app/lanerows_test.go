@@ -245,7 +245,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.a.drive(context.Background(), p, fx, "T-2")
-	if f.restarts != 0 {
+	if len(f.agents.Launches()) != 0 {
 		t.Error("worker started on a missing lane row")
 	}
 	if got := r.status("pj").LogError; !strings.Contains(got, "injected lane-row failure") {
@@ -258,8 +258,8 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 	if row, ok, err := store.ReadLaneAt(p.root, "L-02"); err != nil || !ok || row.Task != "T-2" {
 		t.Errorf("row after the retry = %+v %v %v, want T-2", row, ok, err)
 	}
-	if f.restarts != 1 {
-		t.Errorf("worker starts after the retry = %d, want 1", f.restarts)
+	if len(f.agents.Launches()) != 1 {
+		t.Errorf("worker starts after the retry = %d, want 1", len(f.agents.Launches()))
 	}
 	if got := r.status("pj").LogError; got != "" {
 		t.Errorf("status log_error after the retry = %q, want none", got)
@@ -307,8 +307,8 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 				if row, ok, err := store.ReadLaneAt(p.root, "L-02"); err != nil || (ok && row.Task == "T-2") {
 					t.Fatalf("pass %d: row = %+v %v %v; want not T-2 while the write fails", pass, row, ok, err)
 				}
-				if f.restarts != 0 {
-					t.Fatalf("pass %d: worker started on a missing or stale lane row (restarts %d)", pass, f.restarts)
+				if len(f.agents.Launches()) != 0 {
+					t.Fatalf("pass %d: worker started on a missing or stale lane row (restarts %d)", pass, len(f.agents.Launches()))
 				}
 			}
 			if _, err := p.log.DB().Exec("DROP TRIGGER lanes_fail"); err != nil {
@@ -318,8 +318,8 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 			if row, ok, err := store.ReadLaneAt(p.root, "L-02"); err != nil || !ok || row.Task != "T-2" {
 				t.Errorf("row after the failure is removed = %+v %v %v, want T-2", row, ok, err)
 			}
-			if f.restarts != 1 {
-				t.Errorf("worker starts after the failure is removed = %d, want 1", f.restarts)
+			if len(f.agents.Launches()) != 1 {
+				t.Errorf("worker starts after the failure is removed = %d, want 1", len(f.agents.Launches()))
 			}
 			if got := r.status("pj").LogError; got != "" {
 				t.Errorf("status log_error after the repair = %q, want none", got)

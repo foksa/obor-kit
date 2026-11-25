@@ -26,9 +26,7 @@ func TestFetchWorkJob(t *testing.T) {
 		r.waitStep("1 result work")
 		eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
 		same(t, r.result("work"), `"sent (start prompt)"`, "the work job's result")
-		r.mu.Lock()
-		launches := append([]port.Launch(nil), r.launches...)
-		r.mu.Unlock()
+		launches := r.agents.Launches()
 		if len(launches) != 1 || launches[0].Agent != "pj-l-01" || launches[0].Prompt != wake("T-1/1/work") {
 			t.Errorf("launches %+v, want pj-l-01's fresh start with the wake as its first prompt", launches)
 		}
@@ -214,14 +212,12 @@ func TestFetchReviewJob(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r, text := fetched(t)
-		r.mu.Lock()
 		var prompt string
-		for _, l := range r.launches {
+		for _, l := range r.agents.Launches() {
 			if l.Agent == "pj-int" {
 				prompt = l.Prompt
 			}
 		}
-		r.mu.Unlock()
 		if prompt != wake("T-1/1/review") {
 			t.Errorf("the integrator's start prompt %q, want the review job's wake", prompt)
 		}
@@ -434,9 +430,7 @@ func TestFetchCodexOpenCodeFinishByTaskDone(t *testing.T) {
 				r.start()
 				r.mustDispatch("d1")
 				r.waitStep("1 result work")
-				r.mu.Lock()
-				prompt := r.launches[0].Prompt
-				r.mu.Unlock()
+				prompt := r.agents.Launches()[0].Prompt
 				same(t, prompt, wake("T-1/1/work"), kind+"'s start prompt")
 				if jr := r.workerNext("n1"); jr.Job != "T-1/1/work" {
 					t.Fatalf("job_next: %+v, want the work job", jr)

@@ -44,7 +44,7 @@ func freshServe(t *testing.T, h *harness) {
 
 // remindFx is a pass's adapters that can post lines (the done rule runs on such a pass only).
 func remindFx(h *harness) *Loop {
-	return withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}})
+	return withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &FakeAgents{}})
 }
 
 // remindOnce is one of serve's passes over pj and the passes its lines wake: the done rule alone, run until it lines no

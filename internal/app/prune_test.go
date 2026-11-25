@@ -464,7 +464,7 @@ func TestPrunedTasksOutcomes(t *testing.T) {
 		t.Errorf("T-w after the prune: %+v; want waiting with its --after merged", w)
 	}
 	f := newConcFakes("")
-	fx := withCfg(r.then.root, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f})
+	fx := withCfg(r.then.root, &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f.agents})
 	for _, c := range []struct {
 		a *App
 		p *proj

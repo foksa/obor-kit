@@ -259,6 +259,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 }
 
 // cutPrompter is the terminal's prompter with the work job's cut points.
+// Not a FakeAgents: it types through the rig's terminal (inner), where the rig's agent reads its wake.
 type cutPrompter struct {
 	d     *dispatchFakes
 	inner port.Prompter
@@ -498,10 +499,8 @@ func (r *loopRig) driveLines() []string {
 
 // launchesOf is how many Agents.Launch calls started agent.
 func (r *loopRig) launchesOf(agent string) int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	n := 0
-	for _, l := range r.launches {
+	for _, l := range r.agents.Launches() {
 		if l.Agent == agent {
 			n++
 		}
@@ -584,9 +583,7 @@ func (r *loopRig) dropSpec(callID, task, why string) {
 
 // launchOf is the first Agents.Launch of agent (ok false: none yet).
 func (r *loopRig) launchOf(agent string) (port.Launch, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, l := range r.launches {
+	for _, l := range r.agents.Launches() {
 		if l.Agent == agent {
 			return l, true
 		}
@@ -666,14 +663,12 @@ func (notFound) NotFound() bool { return true }
 // force says, and nothing was typed to it.
 func (r *loopRig) startsWere(n int, force bool) {
 	r.t.Helper()
-	r.mu.Lock()
 	var starts []port.Launch
-	for _, l := range r.launches {
+	for _, l := range r.agents.Launches() {
 		if l.Agent == "pj-int" {
 			starts = append(starts, l)
 		}
 	}
-	r.mu.Unlock()
 	if len(starts) != n || len(r.prompts()) != 0 {
 		r.t.Fatalf("want %d starts of pj-int and no prompt: %+v, prompts %d, %q", n, starts, len(r.prompts()), r.steps())
 	}
@@ -1119,9 +1114,7 @@ func (r *loopRig) jobPrompts(job string) int {
 			n++
 		}
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, l := range r.launches { // a start's first prompt: the job's wake
+	for _, l := range r.agents.Launches() { // a start's first prompt: the job's wake
 		if l.Agent == "pj-int" && l.Prompt == "[obor job "+job+"] call the obor job_next tool now (connected; it returns your job)" {
 			n++
 		}

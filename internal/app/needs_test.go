@@ -20,7 +20,7 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.opt.Loop = func(root string) (*Loop, error) { return withCfg(root, &Loop{Prompter: l, Inbox: l}), nil }
 	now = now.Add(25 * time.Hour)
 	a.advance(context.Background())
@@ -36,8 +36,8 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	if len(p.folded.active[event.MsgTask]) != 0 {
 		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.folded.active[event.MsgTask])
 	}
-	if q := p.out.Queued(); len(q) != 1 || q[0].Msg().Line != "[obor owner] second" || len(l.calls) != 0 {
-		t.Errorf("queued %v, typed %v; want the newer brief's line alone, waiting", q, l.calls)
+	if q := p.out.Queued(); len(q) != 1 || q[0].Msg().Line != "[obor owner] second" || len(l.Lines()) != 0 {
+		t.Errorf("queued %v, typed %v; want the newer brief's line alone, waiting", q, l.Lines())
 	}
 }
 

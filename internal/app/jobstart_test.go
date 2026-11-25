@@ -345,16 +345,16 @@ func TestStartJobIntegrator(t *testing.T) {
 				delete(r.a.obs, "w1:p9")
 			}
 			job := "T-1/1/" + row.job
-			f := &startJobFakes{concFakes: r.fakes["pj"]}
+			f := &FakeAgents{}
 			var early wire.JobReply
-			f.start = func(port.Launch) {
+			f.OnLaunch = obeying(func(port.Launch) {
 				raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
 					Role: "integrator", CallID: "early"}})
 				if err != nil {
 					t.Fatal(err)
 				}
 				_ = json.Unmarshal([]byte(raw), &early)
-			}
+			})
 			r.a.mu.Lock()
 			step := r.a.next(p, p.folded.loop["T-1"], cfgAt(p.root))
 			r.a.mu.Unlock()
@@ -366,15 +366,15 @@ func TestStartJobIntegrator(t *testing.T) {
 			}
 
 			if row.start == "" {
-				same(t, len(f.launches), 0, "starts")
+				same(t, len(f.Launches()), 0, "starts")
 			} else {
-				if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine(job) || !f.launches[0].Fresh {
-					t.Fatalf("launches %+v, want one fresh with the first prompt %q", f.launches, wakeLine(job))
+				if len(f.Launches()) != 1 || f.Launches()[0].Prompt != wakeLine(job) || !f.Launches()[0].Fresh {
+					t.Fatalf("launches %+v, want one fresh with the first prompt %q", f.Launches(), wakeLine(job))
 				}
 				same(t, done(p, event.Key{Task: "T-1", Attempt: 1, Step: row.start}), true, row.start+" done")
 				same(t, early.State+" "+early.Job, "job "+job, "job_next during the start")
 			}
-			same(t, len(f.typed), row.typed, "Prompter calls")
+			same(t, len(f.Texts()), row.typed, "Prompter calls")
 			want := `"sent (start prompt)"`
 			if row.typed > 0 {
 				want = `"sent"`
@@ -446,9 +446,9 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 			r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 			delete(r.a.obs, "w1:p9")
-			f := &startEffects{concFakes: r.fakes["pj"]}
+			f := &FakeAgents{}
 			var early wire.JobReply
-			f.start = func(l port.Launch) {
+			f.OnLaunch = obeying(func(l port.Launch) {
 				raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
 					Role: "integrator", CallID: "early"}})
 				if err != nil {
@@ -456,18 +456,18 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 				}
 				_ = json.Unmarshal([]byte(raw), &early)
 				t.Logf("first prompt=%q; job_next during start=%s", l.Prompt, raw)
-			}
+			})
 			fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f})
 			mt := *p.folded.loop["T-1"]
 			if !r.a.job(context.Background(), p, fx, mt, kind) {
 				t.Fatal("job failed")
 			}
-			t.Logf("Prompter calls after first prompt=%d", len(f.typed))
+			t.Logf("Prompter calls after first prompt=%d", len(f.Texts()))
 			if early.State != "job" {
 				t.Errorf("job_next during first prompt=%s, want job", early.State)
 			}
-			if len(f.typed) != 0 {
-				t.Errorf("typed a second wake %q", f.typed)
+			if len(f.Texts()) != 0 {
+				t.Errorf("typed a second wake %q", f.Texts())
 			}
 		})
 	}
@@ -481,8 +481,8 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	p := r.proj("pj")
 	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
-	f := &startEffects{concFakes: r.fakes["pj"]}
-	f.start = func(port.Launch) {
+	f := &FakeAgents{}
+	f.OnLaunch = obeying(func(port.Launch) {
 		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
 			CallID: "early"}, Lane: "L-02"})
 		if err != nil {
@@ -493,7 +493,7 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 		if jr.State != "job" || jr.Job != "T-2/1/work" {
 			t.Fatalf("early worker fetch=%s", raw)
 		}
-	}
+	})
 	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	mt := *p.folded.loop["T-2"]
 	d := event.Start{Agent: mt.agent, Pane: "w1:p2"}
@@ -504,8 +504,8 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	if !r.a.sendWork(context.Background(), p, fx, *p.folded.loop[mt.task], event.StepWork) {
 		t.Fatal("work failed")
 	}
-	if len(f.typed) != 0 || p.folded.loop[mt.task].state != stWorking {
-		t.Fatalf("typed=%q state=%s", f.typed, p.folded.loop[mt.task].state)
+	if len(f.Texts()) != 0 || p.folded.loop[mt.task].state != stWorking {
+		t.Fatalf("typed=%q state=%s", f.Texts(), p.folded.loop[mt.task].state)
 	}
 }
 
@@ -513,10 +513,11 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 // task, the merge loop pass and its shutdown own the whole launch, two tasks never start the integrator at once, and a
 // typed integrator's start goes on to its job's send in the same step.
 
-// heldStart is a project's adapters whose start of agent (every start when agent is "") enters, then returns only once
-// release is closed; the integrator, once started, shows in the app's snapshot (its herdr event).
-type heldStart struct {
-	*concFakes
+// startHold is a FakeAgents.OnLaunch (launch) whose start of agent (every start when agent is "") enters, then
+// returns only once release is closed; the integrator, once started, shows in the app's snapshot (its herdr event).
+// ag is the fake it holds the starts of.
+type startHold struct {
+	ag      *FakeAgents
 	a       *App
 	root    string
 	agent   string
@@ -527,12 +528,11 @@ type heldStart struct {
 	inflight, most int
 	starts         int
 	returned       bool
-	typed          []string // agent and job of each prompt
 }
 
-func (f *heldStart) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
+func (f *startHold) launch(_ context.Context, l port.Launch) (port.Started, error) {
 	if f.agent != "" && l.Agent != f.agent {
-		return f.concFakes.Launch(ctx, l)
+		return port.Started{Line: "STARTED " + l.Agent}, nil
 	}
 	f.mu.Lock()
 	f.starts++
@@ -554,26 +554,18 @@ func (f *heldStart) Launch(ctx context.Context, l port.Launch) (port.Started, er
 	return port.Started{Line: "STARTED " + l.Agent}, nil
 }
 
-func (f *heldStart) Prompt(_ context.Context, agent, text string, _ bool) (bool, error) {
-	job := jobOf(text)
-	f.mu.Lock()
-	f.typed = append(f.typed, agent+" "+job)
-	f.mu.Unlock()
-	return true, nil
-}
-
-// heldRig is newConcRig with pj's adapters f (its gate holds nothing).
-func heldRig(t *testing.T, agent string) (*concRig, *proj, *heldStart) {
+// heldRig is newConcRig with pj's agents a FakeAgents whose starts f holds (its gate holds nothing).
+func heldRig(t *testing.T, agent string) (*concRig, *proj, *startHold) {
 	r := newConcRig(t)
 	r.fakes["pj"].hold = ""
 	p := r.proj("pj")
-	f := &heldStart{concFakes: r.fakes["pj"], a: r.a, root: p.root, agent: agent, entered: make(chan string, 4),
-		release: make(chan struct{})}
+	f := &startHold{a: r.a, root: p.root, agent: agent, entered: make(chan string, 4), release: make(chan struct{})}
+	f.ag = &FakeAgents{OnLaunch: f.launch}
 	loop := r.a.opt.Loop
 	r.a.opt.Loop = func(root string) (*Loop, error) {
 		fx, err := loop(root)
 		if err == nil && root == p.root {
-			fx.Agents, fx.Prompter = f, f
+			fx.Agents, fx.Prompter = f.ag, f.ag
 		}
 		return fx, err
 	}
@@ -688,8 +680,8 @@ func TestIntegratorStartsOneAtATime(t *testing.T) {
 				if f.starts != 1 || f.most != 1 {
 					t.Errorf("integrator starts %d (at once: %d); want 1", f.starts, f.most)
 				}
-				if len(f.typed) != 0 {
-					t.Errorf("typed %q; want nothing while T-1's job is out", f.typed)
+				if typed := f.ag.Lines(); len(typed) != 0 {
+					t.Errorf("typed %q; want nothing while T-1's job is out", typed)
 				}
 				if p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) || p.log.Done(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) {
 					t.Errorf("T-5's %s recorded while T-1's job is out", c.job)

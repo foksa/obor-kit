@@ -92,34 +92,6 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 // obor brief --fresh is serve's: the brief is validated, admitted and recorded first, and only then does the
 // delivery stop the running role agent (serve's role stop) and start it fresh on the brief's line.
 
-// freshSpy is the agents, typer of a fresh brief's delivery: every stop and start in order, the starts, the lines
-// typed; stopErr fails each stop.
-type freshSpy struct {
-	events   []string
-	launches []port.Launch
-	typed    []string
-	stopErr  error
-}
-
-func (s *freshSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
-	s.events = append(s.events, "start "+l.Agent+" "+l.Pane)
-	s.launches = append(s.launches, l)
-	return port.Started{Line: "STARTED " + l.Agent}, nil
-}
-
-func (s *freshSpy) Stop(_ context.Context, agent, pane string, force bool) (string, error) {
-	s.events = append(s.events, fmt.Sprintf("stop %s %s force=%t", agent, pane, force))
-	if s.stopErr != nil {
-		return "", s.stopErr
-	}
-	return "STOPPED " + agent, nil
-}
-
-func (s *freshSpy) Prompt(_ context.Context, _, text string, _ bool) (bool, error) {
-	s.typed = append(s.typed, text)
-	return true, nil
-}
-
 // freshCfg names every role a brief may start fresh.
 const freshCfg = `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":` +
 	`{"integrator":"","reviewer":"","deep_dive":"","advisor":"","researcher":"","triage":""}}}`
@@ -206,26 +178,26 @@ func TestFreshBriefPerRole(t *testing.T) {
 				if seq == 0 {
 					t.Fatal("no briefed fact")
 				}
-				s := &freshSpy{}
+				s := &FakeAgents{}
 				fx := withAppCfg(a, &Loop{Agents: s, Prompter: s})
 				a.deliver(context.Background(), p, fx)
 				want := []string{"start " + c.agent + " w:role"}
 				if running {
 					want = append([]string{"stop " + c.agent + " w:role force=false"}, want...)
 				}
-				if !slices.Equal(s.events, want) {
-					t.Errorf("events %q, want %q", s.events, want)
+				if !slices.Equal(s.Events(), want) {
+					t.Errorf("events %q, want %q", s.Events(), want)
 				}
-				if len(s.launches) != 1 || s.launches[0] != (port.Launch{Agent: c.agent, Pane: "w:role", Fresh: true,
+				if len(s.Launches()) != 1 || s.Launches()[0] != (port.Launch{Agent: c.agent, Pane: "w:role", Fresh: true,
 					Prompt: "[obor pj-lead] look at x"}) {
-					t.Errorf("launches %+v, want %s fresh in w:role on the brief's line", s.launches, c.agent)
+					t.Errorf("launches %+v, want %s fresh in w:role on the brief's line", s.Launches(), c.agent)
 				}
-				same(t, len(s.typed), 0, "lines typed")
+				same(t, len(s.Texts()), 0, "lines typed")
 				key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + fmt.Sprint(seq)}
 				same(t, resultOf(p, key), `"`+sentStart+`"`, "the line's delivery")
 				same(t, freshNeeds(a, p), "", "needs-you")
 				a.deliver(context.Background(), p, fx)
-				same(t, len(s.events), len(want), "stops and starts after a second pass")
+				same(t, len(s.Events()), len(want), "stops and starts after a second pass")
 			})
 		}
 	}
@@ -241,14 +213,14 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 		Agent: "pj-lead"}, To: "pj-advisor", Text: "old"}); err != nil {
 		t.Fatal(err)
 	}
-	s := &freshSpy{}
+	s := &FakeAgents{}
 	fx := withAppCfg(a, &Loop{Agents: s, Prompter: s})
 	a.deliver(context.Background(), p, fx) // busy: the old line waits
 	a.mu.Lock()
 	queued := len(p.out.Queued())
 	a.mu.Unlock()
-	if queued != 1 || len(s.events)+len(s.typed) != 0 {
-		t.Fatalf("precondition: %d lines queued, events %q, typed %q", queued, s.events, s.typed)
+	if queued != 1 || len(s.Events())+len(s.Texts()) != 0 {
+		t.Fatalf("precondition: %d lines queued, events %q, typed %q", queued, s.Events(), s.Texts())
 	}
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead",
 		Agent: "pj-lead"}, To: "pj-advisor", Text: "new", Fresh: true})
@@ -259,13 +231,13 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 		t.Errorf("reply %q, want it to replace the old brief", reply)
 	}
 	a.deliver(context.Background(), p, fx)
-	if want := []string{"stop pj-advisor w:role force=false", "start pj-advisor w:role"}; !slices.Equal(s.events, want) {
-		t.Errorf("events %q, want %q", s.events, want)
+	if want := []string{"stop pj-advisor w:role force=false", "start pj-advisor w:role"}; !slices.Equal(s.Events(), want) {
+		t.Errorf("events %q, want %q", s.Events(), want)
 	}
-	if len(s.launches) != 1 || s.launches[0].Prompt != "[obor pj-lead] new" {
-		t.Errorf("launches %+v, want one start on the new text only", s.launches)
+	if len(s.Launches()) != 1 || s.Launches()[0].Prompt != "[obor pj-lead] new" {
+		t.Errorf("launches %+v, want one start on the new text only", s.Launches())
 	}
-	same(t, len(s.typed), 0, "lines typed")
+	same(t, len(s.Texts()), 0, "lines typed")
 	a.mu.Lock()
 	queued = len(p.out.Queued())
 	a.mu.Unlock()
@@ -296,9 +268,9 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 		}
 	}
 	same(t, briefSeq(t, p, "pj-advisor")+briefSeq(t, p, "pj-int"), int64(0), "briefed facts")
-	s := &freshSpy{}
+	s := &FakeAgents{}
 	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: s, Prompter: s}))
-	same(t, len(s.events), 0, "stops and starts")
+	same(t, len(s.Events()), 0, "stops and starts")
 	if w := a.whereIs(p, "pj-advisor"); w.State != Identified {
 		t.Errorf("pj-advisor %+v, want still running", w)
 	}
@@ -310,7 +282,7 @@ func TestFreshBriefMoveFailsStopsNothing(t *testing.T) {
 	t.Parallel()
 	r := newAdmitRig(t, false)
 	h, ctx := r.h, context.Background()
-	s := &freshSpy{}
+	s := &FakeAgents{}
 	r.fx.Agents = s
 	r.git.detachErr = errors.New("no worktree")
 	h.a.mu.Lock()
@@ -326,7 +298,7 @@ func TestFreshBriefMoveFailsStopsNothing(t *testing.T) {
 	}
 	h.a.deliver(ctx, h.a.p, r.fx)
 	same(t, recSeq(t, h, event.MsgTask, event.StepBriefed, event.KindFact), int64(0), "briefed facts")
-	for _, e := range s.events {
+	for _, e := range s.Events() {
 		if strings.Contains(e, "pj-deep-dive") {
 			t.Errorf("event %q after a refused brief --fresh, want pj-deep-dive untouched", e)
 		}
@@ -344,12 +316,12 @@ func TestFreshBriefStopFails(t *testing.T) {
 		Agent: "pj-lead"}, To: "pj-researcher", Text: "dig", Fresh: true}); err != nil {
 		t.Fatal(err)
 	}
-	s := &freshSpy{stopErr: errors.New("pj-researcher still working 30s after Escape")}
+	s := &FakeAgents{OnStop: stopFails(errors.New("pj-researcher still working 30s after Escape"))}
 	fx := withAppCfg(a, &Loop{Agents: s, Prompter: s})
 	a.deliver(context.Background(), p, fx)
 	a.msgNeedsYou(p, now)
-	same(t, len(s.events), 1, "stops tried")
-	same(t, len(s.launches), 0, "starts after a failed stop")
+	same(t, len(s.Events()), 1, "stops tried")
+	same(t, len(s.Launches()), 0, "starts after a failed stop")
 	a.mu.Lock()
 	queued := p.out.Queued()
 	a.mu.Unlock()
@@ -362,16 +334,16 @@ func TestFreshBriefStopFails(t *testing.T) {
 
 	now = now.Add(time.Second)
 	a.deliver(context.Background(), p, fx)
-	same(t, len(s.events), 1, "stops tried within roleStopRetry")
+	same(t, len(s.Events()), 1, "stops tried within roleStopRetry")
 
 	now = now.Add(roleStopRetry)
-	s.stopErr = nil
+	s.OnStop = nil
 	a.deliver(context.Background(), p, fx)
 	a.msgNeedsYou(p, now)
-	if len(s.launches) != 1 || s.launches[0].Prompt != "[obor pj-lead] dig" || !s.launches[0].Fresh {
-		t.Errorf("launches %+v, want the fresh start on the brief", s.launches)
+	if len(s.Launches()) != 1 || s.Launches()[0].Prompt != "[obor pj-lead] dig" || !s.Launches()[0].Fresh {
+		t.Errorf("launches %+v, want the fresh start on the brief", s.Launches())
 	}
-	same(t, len(s.typed), 0, "lines typed")
+	same(t, len(s.Texts()), 0, "lines typed")
 	same(t, freshNeeds(a, p), "", "needs-you after the start")
 }
 
@@ -389,7 +361,7 @@ func TestBriefCompletionReplay(t *testing.T) {
 				To: "pj-rev", Text: note}); err != nil {
 				t.Fatal(err)
 			}
-			l := &linerSpy{}
+			l := &FakeAgents{}
 			a.deliver(context.Background(), p, linerLoop(l))
 			lineStatus(a, "w:rev", "working", now)
 			finishBriefs(a, p, linerLoop(l)) // the steps that record the work
@@ -397,20 +369,20 @@ func TestBriefCompletionReplay(t *testing.T) {
 			if note != "" {
 				lines = 1
 			}
-			if !p.out.Brief("pj-rev").Worked() || len(l.calls) != lines {
-				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.out.Brief("pj-rev").Worked(), l.calls)
+			if !p.out.Brief("pj-rev").Worked() || len(l.Lines()) != lines {
+				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.out.Brief("pj-rev").Worked(), l.Lines())
 			}
 			b, q := lineReload(t, a, p, &now) // the reviewer idle on reconnect
 			if q.out.Brief("pj-rev") == nil || !q.out.Brief("pj-rev").Worked() {
 				t.Fatal("the brief's observed work is not replayed")
 			}
-			out := &linerSpy{}
+			out := &FakeAgents{}
 			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
 			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
-			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
-				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
+			if !lineTyped(out.Lines(), "finished") || q.briefCount() != 0 {
+				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.Lines(), q.briefCount())
 			}
 		})
 	}
@@ -428,7 +400,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
 		To: "pj-rev"}); err != nil {
 		t.Fatal(err)
@@ -448,8 +420,8 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	}
 	b.deliver(context.Background(), q, linerLoop(l))
 	b.deliver(context.Background(), q, linerLoop(l))
-	if len(l.calls) != 1 || l.calls[0] != "w:rev: [obor owner] again" {
-		t.Fatalf("want only the newer brief's line, got %v", l.calls)
+	if len(l.Lines()) != 1 || l.Lines()[0] != "w:rev: [obor owner] again" {
+		t.Fatalf("want only the newer brief's line, got %v", l.Lines())
 	}
 }
 
@@ -545,7 +517,7 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 			if err != nil || again != reply {
 				t.Errorf("retry of b2: %q, %v; want the stored reply %q", again, err, reply)
 			}
-			l := &linerSpy{}
+			l := &FakeAgents{}
 			lineStatus(b, "w:rev", "idle", now)
 			b.deliver(context.Background(), q, linerLoop(l))
 			b.deliver(context.Background(), q, linerLoop(l))
@@ -553,29 +525,11 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 			if note != "" {
 				want = []string{"w:rev: [obor owner] second"}
 			}
-			if strings.Join(l.calls, "|") != strings.Join(want, "|") {
-				t.Errorf("delivered %v, want %v: brief A never", l.calls, want)
+			if strings.Join(l.Lines(), "|") != strings.Join(want, "|") {
+				t.Errorf("delivered %v, want %v: brief A never", l.Lines(), want)
 			}
 		})
 	}
-}
-
-// duringSpy is a linerSpy that runs during once inside its first delivery (the line's claim is set then).
-type duringSpy struct {
-	linerSpy
-	during func()
-}
-
-func (d *duringSpy) Prompt(ctx context.Context, agent, text string, x bool) (bool, error) {
-	if f := d.during; f != nil {
-		d.during = nil
-		f()
-	}
-	return d.linerSpy.Prompt(ctx, agent, text, x)
-}
-
-func (d *duringSpy) Post(ctx context.Context, _, agent, line string) (bool, error) {
-	return d.Prompt(ctx, agent, line, false)
 }
 
 // A line routed for delivery (no intent yet) that a newer brief supersedes
@@ -592,7 +546,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	}
 	lineStatus(a, "w:rev", "idle", now)
 	q := *p.out.Queued()[0]
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	fx := linerLoop(l)
 	a.mu.Lock()
 	post, target, ok := a.route(p, fx, q)
@@ -605,16 +559,16 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.deliverLine(context.Background(), p, fx, q, post, target)
-	if len(l.calls) != 0 {
-		t.Errorf("the retired line was transmitted: %v", l.calls)
+	if len(l.Lines()) != 0 {
+		t.Errorf("the retired line was transmitted: %v", l.Lines())
 	}
 	if _, written := p.log.Intent(event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + strconv.FormatInt(q.Seq(), 10)}); written {
 		t.Errorf("an intent was written for the retired line")
 	}
 	a.deliver(context.Background(), p, fx)
 	a.deliver(context.Background(), p, fx)
-	if len(l.calls) != 1 || l.calls[0] != "w:rev: [obor owner] second" {
-		t.Errorf("delivered %v, want brief B alone", l.calls)
+	if len(l.Lines()) != 1 || l.Lines()[0] != "w:rev: [obor owner] second" {
+		t.Errorf("delivered %v, want brief B alone", l.Lines())
 	}
 
 	t.Run("claimed first", func(t *testing.T) {
@@ -628,13 +582,17 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		}
 		lineStatus(a, "w:rev", "idle", now)
 		var reply string
-		d := &duringSpy{}
-		d.during = func() { // A's claim is set: B arrives now
-			var err error
-			if reply, err = a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
-				To: "pj-rev", Text: "second"}); err != nil {
-				t.Error(err)
+		d, during := &FakeAgents{}, true
+		d.OnPrompt = func(context.Context, string, string, bool) (bool, error) {
+			if during { // the first delivery, A's: its claim is set, B arrives now
+				during = false
+				var err error
+				if reply, err = a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+					To: "pj-rev", Text: "second"}); err != nil {
+					t.Error(err)
+				}
 			}
+			return true, nil
 		}
 		fx := withAppCfg(a, &Loop{Prompter: d, Inbox: d})
 		a.deliver(context.Background(), p, fx)
@@ -643,7 +601,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		}
 		a.deliver(context.Background(), p, fx)
 		a.deliver(context.Background(), p, fx)
-		if got := strings.Join(d.calls, "|"); got != "w:rev: [obor owner] first|w:rev: [obor owner] second" {
+		if got := strings.Join(d.Lines(), "|"); got != "w:rev: [obor owner] first|w:rev: [obor owner] second" {
 			t.Errorf("delivered %q, want A once, then B once", got)
 		}
 	})
@@ -743,11 +701,11 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 				To: "pj-rev", Text: c.note}); err != nil {
 				t.Fatal(err)
 			}
-			l := &linerSpy{}
+			l := &FakeAgents{}
 			if c.note != "" {
 				a.deliver(context.Background(), p, linerLoop(l)) // the brief's line typed
-				if len(l.calls) != 1 || p.out.Brief("pj-rev").Worked() {
-					t.Fatalf("precondition: the line typed, no work seen yet; calls %v", l.calls)
+				if len(l.Lines()) != 1 || p.out.Brief("pj-rev").Worked() {
+					t.Fatalf("precondition: the line typed, no work seen yet; calls %v", l.Lines())
 				}
 			}
 			if c.seen != nil {
@@ -760,13 +718,13 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 			if q.out.Brief("pj-rev") == nil || !q.out.Brief("pj-rev").Worked() {
 				t.Fatal("the brief's observed work is not replayed")
 			}
-			out := &linerSpy{}
+			out := &FakeAgents{}
 			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
 			finishBriefs(b, q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
-			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
-				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
+			if !lineTyped(out.Lines(), "finished") || q.briefCount() != 0 {
+				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.Lines(), q.briefCount())
 			}
 		})
 	}
@@ -783,16 +741,16 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 		To: "pj-rev", Text: "verify finding 1"}); err != nil {
 		t.Fatal(err)
 	}
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 0 {
-		t.Fatalf("precondition: the line waits for the working pane; typed %v", l.calls)
+	if len(l.Lines()) != 0 {
+		t.Fatalf("precondition: the line waits for the working pane; typed %v", l.Lines())
 	}
 	now = now.Add(time.Hour)
 	lineStatus(a, "w:rev", "idle", now)
 	a.deliver(context.Background(), p, linerLoop(l)) // typed an hour after the brief
-	if len(l.calls) != 1 {
-		t.Fatalf("precondition: the brief's line typed; calls %v", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Fatalf("precondition: the brief's line typed; calls %v", l.Lines())
 	}
 	now = now.Add(2 * time.Minute)
 	pane := a.obs["w:rev"].pane
@@ -800,13 +758,13 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	eventNow(a, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 	now = now.Add(time.Minute)
 	b, q := lineReload(t, a, p, &now) // idle on reconnect, 3 minutes after the typing
-	out := &linerSpy{}
+	out := &FakeAgents{}
 	finishBriefs(b, q, linerLoop(out))
 	b.deliver(context.Background(), q, linerLoop(out))
 	finishBriefs(b, q, linerLoop(out))
 	b.deliver(context.Background(), q, linerLoop(out))
-	if want := "pj-lead: [obor] pj-rev finished (briefed 3m ago)"; len(out.calls) != 1 || out.calls[0] != want {
-		t.Fatalf("want %q, got %v", want, out.calls)
+	if want := "pj-lead: [obor] pj-rev finished (briefed 3m ago)"; len(out.Lines()) != 1 || out.Lines()[0] != want {
+		t.Fatalf("want %q, got %v", want, out.Lines())
 	}
 }
 
@@ -827,10 +785,10 @@ func TestBriefStatus(t *testing.T) {
 		!strings.HasSuffix(got[0].Text, "] verify 1") {
 		t.Errorf("briefed, its line queued: %+v; want pj-rev, not delivered, its time, its line", got)
 	}
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 {
-		t.Fatalf("precondition: the brief's line typed, got %v", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Fatalf("precondition: the brief's line typed, got %v", l.Lines())
 	}
 	if got := a.Status().Project.Briefs; len(got) != 1 || !got[0].Delivered || got[0].Worked {
 		t.Errorf("its line typed: %+v; want delivered, not worked on", got)
@@ -903,10 +861,10 @@ func TestBriefStage(t *testing.T) {
 	if got := stage(); got != wire.BriefNotDelivered {
 		t.Errorf("its line queued: stage %q, want %q", got, wire.BriefNotDelivered)
 	}
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 {
-		t.Fatalf("precondition: the brief's line typed, got %v", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Fatalf("precondition: the brief's line typed, got %v", l.Lines())
 	}
 	if got := stage(); got != wire.BriefWorking {
 		t.Errorf("typed, its pane idle, not worked on yet: stage %q, want %q", got, wire.BriefWorking)

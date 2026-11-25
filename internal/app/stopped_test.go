@@ -42,7 +42,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t)
 			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
-			f := &schedScratch{h: h}
+			f := newSchedScratch(h)
 			h.a.opt.Loop = func(root string) (*Loop, error) {
 				return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 			}
@@ -161,12 +161,12 @@ type turnRig struct {
 	now  *time.Time
 	kind string
 	turn agents.Turn // the rollout's last turn (Codex)
-	out  *linerSpy
+	out  *FakeAgents
 }
 
 func newTurnRig(t *testing.T, kind string) *turnRig {
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
-	r := &turnRig{t: t, now: &now, kind: kind, out: &linerSpy{}}
+	r := &turnRig{t: t, now: &now, kind: kind, out: &FakeAgents{}}
 	r.a, r.p = lineApp(t, lineRoot(t), r.now)
 	r.setKind()
 	queueLine(t, r.a, r.p, "finished", now) // briefed, worked, idle
@@ -327,9 +327,9 @@ func TestTurnCodexStartThenLimit(t *testing.T) {
 	}
 }
 
-func typedTo(l *linerSpy, line string) int {
+func typedTo(l *FakeAgents, line string) int {
 	n := 0
-	for _, c := range l.calls {
+	for _, c := range l.Lines() {
 		if strings.HasSuffix(c, ": "+line) {
 			n++
 		}

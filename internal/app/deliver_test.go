@@ -61,10 +61,10 @@ func TestLeadLinesOnePost(t *testing.T) {
 	if n := len(p.out.Queued()); n != 4 {
 		t.Fatalf("precondition: four lines queued, got %d", n)
 	}
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || l.calls[1] != "w:rev: [obor owner] check" || !oneLeadPost(l.calls[0]) {
-		t.Errorf("posted %q, want one lead post of m1..m3 in order, then the brief", l.calls)
+	if len(l.Lines()) != 2 || l.Lines()[1] != "w:rev: [obor owner] check" || !oneLeadPost(l.Lines()[0]) {
+		t.Errorf("posted %q, want one lead post of m1..m3 in order, then the brief", l.Lines())
 	}
 	if n := len(p.out.Queued()); n != 0 {
 		t.Errorf("%d lines still queued", n)
@@ -73,8 +73,8 @@ func TestLeadLinesOnePost(t *testing.T) {
 		t.Errorf("%d delivery results, want 4 (three lead lines, one brief)", n)
 	}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 {
-		t.Errorf("delivered again: %q", l.calls)
+	if len(l.Lines()) != 2 {
+		t.Errorf("delivered again: %q", l.Lines())
 	}
 }
 
@@ -84,18 +84,18 @@ func TestLeadLinesBatchReplay(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 {
-		t.Fatalf("precondition: one post, got %q", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Fatalf("precondition: one post, got %q", l.Lines())
 	}
 	b, q := lineReload(t, a, p, &now)
 	if n := len(q.out.Queued()); n != 0 {
 		t.Errorf("after replay %d lines queued, want none", n)
 	}
 	b.deliver(context.Background(), q, linerLoop(l))
-	if len(l.calls) != 1 {
-		t.Errorf("replay posted again: %q", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Errorf("replay posted again: %q", l.Lines())
 	}
 }
 
@@ -106,10 +106,10 @@ func TestLeadLinesFailedPost(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
-	l := &linerSpy{refuse: true}
+	l := &FakeAgents{OnPrompt: refusePrompt}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 {
-		t.Fatalf("precondition: one refused post, got %q", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Fatalf("precondition: one refused post, got %q", l.Lines())
 	}
 	if n := len(p.out.Queued()); n != 3 {
 		t.Fatalf("%d lines queued after a refused post, want 3", n)
@@ -122,10 +122,10 @@ func TestLeadLinesFailedPost(t *testing.T) {
 			t.Errorf("line %d still claimed after the refusal", q.Seq())
 		}
 	}
-	l.refuse = false
+	l.OnPrompt = nil
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || !oneLeadPost(l.calls[1]) {
-		t.Errorf("retry posted %q, want the three lines as one", l.calls)
+	if len(l.Lines()) != 2 || !oneLeadPost(l.Lines()[1]) {
+		t.Errorf("retry posted %q, want the three lines as one", l.Lines())
 	}
 	if n := len(p.out.Queued()); n != 0 {
 		t.Errorf("%d lines queued after the retry", n)
@@ -192,13 +192,13 @@ func postOf(call, target string, notes ...string) bool {
 }
 
 // lostLeadResult posts [A] with the result's append refused (kept in p.unwritten), and is A's seq.
-func lostLeadResult(t *testing.T, a *App, p *proj, l *linerSpy) int64 {
+func lostLeadResult(t *testing.T, a *App, p *proj, l *FakeAgents) int64 {
 	t.Helper()
 	seqA := leadSend(t, a, p, "A")
 	refuseOnce(p, outbox.StepDeliver+strconv.FormatInt(seqA, 10))
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 || !postOf(l.calls[0], "pj-lead", "A") {
-		t.Fatalf("precondition: one post of A, got %q", l.calls)
+	if len(l.Lines()) != 1 || !postOf(l.Lines()[0], "pj-lead", "A") {
+		t.Fatalf("precondition: one post of A, got %q", l.Lines())
 	}
 	if n := len(p.out.Queued()); n != 1 || deliveryResults(t, p)[seqA] != 0 {
 		t.Fatalf("precondition: A queued, its result not in the log (queued %d)", n)
@@ -212,12 +212,12 @@ func TestLeadLateResultNewLine(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	seqA := lostLeadResult(t, a, p, l)
 	seqB := leadSend(t, a, p, "B")
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || !postOf(l.calls[1], "pj-lead", "B") {
-		t.Errorf("posted %q, want A's post, then B alone", l.calls)
+	if len(l.Lines()) != 2 || !postOf(l.Lines()[1], "pj-lead", "B") {
+		t.Errorf("posted %q, want A's post, then B alone", l.Lines())
 	}
 	if n := len(p.out.Queued()); n != 0 {
 		t.Errorf("%d lines still queued", n)
@@ -226,8 +226,8 @@ func TestLeadLateResultNewLine(t *testing.T) {
 		t.Errorf("delivery results %v, want one for A and one for B", got)
 	}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 {
-		t.Errorf("delivered again: %q", l.calls)
+	if len(l.Lines()) != 2 {
+		t.Errorf("delivered again: %q", l.Lines())
 	}
 }
 
@@ -237,15 +237,15 @@ func TestLeadLateResultNewLineReplay(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	seqA := lostLeadResult(t, a, p, l)
 	b, q := lineReload(t, a, p, &now)
 	seqB := leadSend(t, b, q, "B")
 	for range 3 {
 		b.deliver(context.Background(), q, linerLoop(l))
 	}
-	if len(l.calls) != 3 || !postOf(l.calls[1], "pj-lead", "A") || !postOf(l.calls[2], "pj-lead", "B") {
-		t.Errorf("posted %q, want A, A again alone (its result never reached the log), then B alone", l.calls)
+	if len(l.Lines()) != 3 || !postOf(l.Lines()[1], "pj-lead", "A") || !postOf(l.Lines()[2], "pj-lead", "B") {
+		t.Errorf("posted %q, want A, A again alone (its result never reached the log), then B alone", l.Lines())
 	}
 	if n := len(q.out.Queued()); n != 0 {
 		t.Errorf("%d lines still queued", n)
@@ -255,8 +255,8 @@ func TestLeadLateResultNewLineReplay(t *testing.T) {
 	}
 	c, r := lineReload(t, b, q, &now)
 	c.deliver(context.Background(), r, linerLoop(l))
-	if n := len(r.out.Queued()); n != 0 || len(l.calls) != 3 {
-		t.Errorf("after a second replay: %d queued, posted %q", n, l.calls)
+	if n := len(r.out.Queued()); n != 0 || len(l.Lines()) != 3 {
+		t.Errorf("after a second replay: %d queued, posted %q", n, l.Lines())
 	}
 }
 
@@ -272,10 +272,10 @@ func TestLeadLinesTwoTargets(t *testing.T) {
 	if qs := p.out.Queued(); len(qs) != 2 || qs[0].Msg().To != "pj-lead" || qs[1].Msg().To != "pj-newlead" {
 		t.Fatalf("precondition: a line to each lead, got %d", len(qs))
 	}
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || !postOf(l.calls[0], "pj-lead", "A") || !postOf(l.calls[1], "pj-newlead", "B") {
-		t.Errorf("posted %q, want A to pj-lead, B to pj-newlead", l.calls)
+	if len(l.Lines()) != 2 || !postOf(l.Lines()[0], "pj-lead", "A") || !postOf(l.Lines()[1], "pj-newlead", "B") {
+		t.Errorf("posted %q, want A to pj-lead, B to pj-newlead", l.Lines())
 	}
 	if got := deliveryResults(t, p); got[seqA] != 1 || got[seqB] != 1 || len(got) != 2 {
 		t.Errorf("delivery results %v, want one each", got)
@@ -292,10 +292,10 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	seqA := leadSend(t, a, p, "A")
 	relead(t, a, p, "pj-newlead")
 	seqB := leadSend(t, a, p, "B")
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 || !postOf(l.calls[0], "pj-newlead", "B") {
-		t.Errorf("posted %q, want only B to pj-newlead", l.calls)
+	if len(l.Lines()) != 1 || !postOf(l.Lines()[0], "pj-newlead", "B") {
+		t.Errorf("posted %q, want only B to pj-newlead", l.Lines())
 	}
 	if qs := p.out.Queued(); len(qs) != 1 || qs[0].Seq() != seqA {
 		t.Errorf("queued %d lines, want A alone", len(qs))
@@ -318,8 +318,8 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 			needs++
 		}
 	}
-	if needs != 1 || len(l.calls) != 1 {
-		t.Errorf("needs-you of A's line %d (want 1), posted %q", needs, l.calls)
+	if needs != 1 || len(l.Lines()) != 1 {
+		t.Errorf("needs-you of A's line %d (want 1), posted %q", needs, l.Lines())
 	}
 }
 
@@ -344,29 +344,29 @@ func TestRefusedLineReplay(t *testing.T) {
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			queueLine(t, a, p, kind, now)
-			l := &linerSpy{refuse: true}
+			l := &FakeAgents{OnPrompt: refusePrompt}
 			finishBriefs(a, p, linerLoop(l))
 			a.deliver(context.Background(), p, linerLoop(l))
-			if len(l.calls) != 1 || len(p.out.Queued()) != 1 {
-				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.out.Queued()))
+			if len(l.Lines()) != 1 || len(p.out.Queued()) != 1 {
+				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.Lines(), len(p.out.Queued()))
 			}
 			b, q := lineReload(t, a, p, &now)
 			if len(q.out.Queued()) != 1 {
 				t.Fatalf("the refused line is not queued after reload: %d", len(q.out.Queued()))
 			}
-			good := &linerSpy{}
+			good := &FakeAgents{}
 			finishBriefs(b, q, linerLoop(good))
 			b.deliver(context.Background(), q, linerLoop(good))
 			finishBriefs(b, q, linerLoop(good))
 			b.deliver(context.Background(), q, linerLoop(good))
-			if !lineTyped(good.calls, kind) || len(q.out.Queued()) != 0 {
-				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.out.Queued()))
+			if !lineTyped(good.Lines(), kind) || len(q.out.Queued()) != 0 {
+				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.Lines(), len(q.out.Queued()))
 			}
 			c, s := lineReload(t, b, q, &now)
 			finishBriefs(c, s, linerLoop(good))
 			c.deliver(context.Background(), s, linerLoop(good))
-			if len(good.calls) != 1 {
-				t.Fatalf("typed again after a second reload: %v", good.calls)
+			if len(good.Lines()) != 1 {
+				t.Fatalf("typed again after a second reload: %v", good.Lines())
 			}
 		})
 		t.Run(kind+"/kill", func(t *testing.T) {
@@ -428,7 +428,7 @@ func killedLines(t *testing.T, kind, mode string) []string {
 		t.Fatalf("the child did not end by SIGKILL: %v", child.ProcessState)
 	}
 	now := time.Now()
-	l := &linerSpy{}
+	l := &FakeAgents{}
 	a, p := lineApp(t, root, &now)
 	if p.out.Lead() != "pj-lead" {
 		t.Fatalf("precondition: lead pj-lead, got %s", p.out.Lead())
@@ -442,7 +442,7 @@ func killedLines(t *testing.T, kind, mode string) []string {
 	b.deliver(context.Background(), q, linerLoop(l))
 	finishBriefs(b, q, linerLoop(l))
 	b.deliver(context.Background(), q, linerLoop(l))
-	return l.calls
+	return l.Lines()
 }
 
 // TestRefusedLineKillChild is killedLines's child: it queues a line of LINE_KIND; refused: its delivery is refused; retry:
@@ -463,12 +463,12 @@ func TestRefusedLineKillChild(t *testing.T) {
 	switch os.Getenv("LINE_MODE") {
 	case "refused":
 		finishBriefs(a, p, &Loop{})
-		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
+		a.deliver(context.Background(), p, linerLoop(&FakeAgents{OnPrompt: refusePrompt}))
 	case "retry":
 		finishBriefs(a, p, &Loop{})
-		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
+		a.deliver(context.Background(), p, linerLoop(&FakeAgents{OnPrompt: refusePrompt}))
 		finishBriefs(a, p, &Loop{})
-		a.deliver(context.Background(), p, linerLoop(&linerSpy{hang: ready}))
+		a.deliver(context.Background(), p, linerLoop(&FakeAgents{OnPrompt: hangPrompt(ready)}))
 	case "worked":
 		if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
 			To: "pj-rev"}); err != nil {
@@ -476,7 +476,7 @@ func TestRefusedLineKillChild(t *testing.T) {
 		}
 		lineStatus(a, "w:rev", "working", now)
 		finishBriefs(a, p, &Loop{})
-		a.deliver(context.Background(), p, linerLoop(&linerSpy{}))
+		a.deliver(context.Background(), p, linerLoop(&FakeAgents{}))
 	}
 	ready()
 	park()
@@ -646,22 +646,22 @@ func TestLineStateEndedStays(t *testing.T) {
 func TestRV90RefusedAndSettled(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
-	in := &linerSpy{refuse: true}
-	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: &linerSpy{}})
+	in := &FakeAgents{OnPrompt: refusePrompt}
+	fx := withAppCfg(h.a, &Loop{Inbox: in, Prompter: &FakeAgents{}})
 	h.a.deliver(context.Background(), h.proj(), fx)
 	seq := answerSeq(t, h)
-	if s, _ := lineAt(h, h.proj(), seq); len(in.calls) != 1 || s != outbox.Waiting {
-		t.Fatalf("precondition: one refused post, the answer waiting; posts %q, state %d", in.calls, s)
+	if s, _ := lineAt(h, h.proj(), seq); len(in.Lines()) != 1 || s != outbox.Waiting {
+		t.Fatalf("precondition: one refused post, the answer waiting; posts %q, state %d", in.Lines(), s)
 	}
 	submitT1(t, h)
 	if q := h.lines(); len(q) != 0 {
 		t.Errorf("queued %q after task_done; want the refused answer retired", q)
 	}
-	in.refuse = false
-	typer := &linerSpy{}
+	in.OnPrompt = nil
+	typer := &FakeAgents{}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
-	if len(in.calls) != 1 || len(typer.calls) != 0 {
-		t.Errorf("posts %q, typed %q at the next idle; want the settled answer never sent", in.calls, typer.calls)
+	if len(in.Lines()) != 1 || len(typer.Lines()) != 0 {
+		t.Errorf("posts %q, typed %q at the next idle; want the settled answer never sent", in.Lines(), typer.Lines())
 	}
 	if _, ok := lineAt(h, replayed(t, h), seq); ok {
 		t.Error("replay brought the retired answer back")
@@ -673,10 +673,10 @@ func TestRV90RefusedAndSettled(t *testing.T) {
 func TestRV90RefusedReason(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
-	in := &linerSpy{refuse: true}
+	in := &FakeAgents{OnPrompt: refusePrompt}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in}))
-	if len(in.calls) != 1 {
-		t.Fatalf("precondition: one refused post, got %q", in.calls)
+	if len(in.Lines()) != 1 {
+		t.Fatalf("precondition: one refused post, got %q", in.Lines())
 	}
 	const why = "its delivery was refused before a byte went out: agent_not_ready: no typing"
 	if ms := h.a.Status().Project.Messages; len(ms) != 1 || ms[0].Held != why {
@@ -691,16 +691,16 @@ func TestRV90RefusedReason(t *testing.T) {
 			reasons = append(reasons, f.Fact().Reason)
 		}
 	}
-	if len(in.calls) != 2 || len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(undelivered: "+why+")") {
-		t.Errorf("posts %q, needs-you %q; want a second refused post and the needs-you naming its refusal", in.calls,
+	if len(in.Lines()) != 2 || len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(undelivered: "+why+")") {
+		t.Errorf("posts %q, needs-you %q; want a second refused post and the needs-you naming its refusal", in.Lines(),
 			reasons)
 	}
-	typer := &linerSpy{}
+	typer := &FakeAgents{}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
-	if len(in.calls) != 2 || !slices.Equal(typer.calls, []string{"w1:p1: [obor answer] move the helpers down"}) ||
+	if len(in.Lines()) != 2 || !slices.Equal(typer.Lines(), []string{"w1:p1: [obor answer] move the helpers down"}) ||
 		len(h.lines()) != 0 {
-		t.Errorf("posts %q, typed %q, queued %q; want the answer typed into w1:p1 after the refused post", in.calls,
-			typer.calls, h.lines())
+		t.Errorf("posts %q, typed %q, queued %q; want the answer typed into w1:p1 after the refused post", in.Lines(),
+			typer.Lines(), h.lines())
 	}
 }
 
@@ -709,7 +709,7 @@ func TestRV90RefusedReason(t *testing.T) {
 func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
-	in := &linerSpy{refuse: true}
+	in := &FakeAgents{OnPrompt: refusePrompt}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in}))
 	seq := answerSeq(t, h)
 	r := replayed(t, h)
@@ -720,18 +720,18 @@ func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
 		t.Errorf("replayed line %+v; want it waiting with its refused post and reason", rq)
 	}
 	h2 := staleHerdr(t)
-	in2 := &linerSpy{refuse: true}
+	in2 := &FakeAgents{OnPrompt: refusePrompt}
 	h2.a.deliver(context.Background(), h2.proj(), withAppCfg(h2.a, &Loop{Inbox: in2}))
 	h2.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
-	typer := &linerSpy{}
+	typer := &FakeAgents{}
 	h2.a.deliver(context.Background(), h2.proj(), withAppCfg(h2.a, &Loop{Inbox: in2, Prompter: typer}))
-	if len(in2.calls) != 1 || len(typer.calls) != 0 || len(h2.lines()) != 1 {
-		t.Fatalf("busy: posts %q, typed %q; want nothing sent to the working worker", in2.calls, typer.calls)
+	if len(in2.Lines()) != 1 || len(typer.Lines()) != 0 || len(h2.lines()) != 1 {
+		t.Fatalf("busy: posts %q, typed %q; want nothing sent to the working worker", in2.Lines(), typer.Lines())
 	}
 	h2.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
 	h2.a.deliver(context.Background(), h2.proj(), withAppCfg(h2.a, &Loop{Inbox: in2, Prompter: typer}))
-	if len(in2.calls) != 1 || len(typer.calls) != 1 || len(h2.lines()) != 0 {
-		t.Errorf("idle: posts %q, typed %q, queued %q; want it typed once", in2.calls, typer.calls, h2.lines())
+	if len(in2.Lines()) != 1 || len(typer.Lines()) != 1 || len(h2.lines()) != 0 {
+		t.Errorf("idle: posts %q, typed %q, queued %q; want it typed once", in2.Lines(), typer.Lines(), h2.lines())
 	}
 }
 
@@ -741,19 +741,19 @@ func TestLeadLineRefusedReason(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 1)
-	l := &linerSpy{refuse: true}
+	l := &FakeAgents{OnPrompt: refusePrompt}
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 1 {
-		t.Fatalf("precondition: one refused post, got %q", l.calls)
+	if len(l.Lines()) != 1 {
+		t.Fatalf("precondition: one refused post, got %q", l.Lines())
 	}
 	ms := a.Status().Project.Messages
 	if len(ms) != 1 || !strings.Contains(ms[0].Held, "refused before a byte went out: agent_not_ready") {
 		t.Errorf("status lines %+v; want the lead line held with its refusal", ms)
 	}
-	l.refuse = false
+	l.OnPrompt = nil
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || !strings.HasPrefix(l.calls[1], "pj-lead: ") || len(p.out.Queued()) != 0 {
-		t.Errorf("calls %q; want the lead line posted again to pj-lead (not typed into its pane)", l.calls)
+	if len(l.Lines()) != 2 || !strings.HasPrefix(l.Lines()[1], "pj-lead: ") || len(p.out.Queued()) != 0 {
+		t.Errorf("calls %q; want the lead line posted again to pj-lead (not typed into its pane)", l.Lines())
 	}
 }
 
@@ -779,10 +779,10 @@ func TestRV90Drop(t *testing.T) {
 				t.Errorf("queued %q; want the answer retired", q)
 			}
 			h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
-			in, typer := &kindSpy{}, &linerSpy{}
+			in, typer := &kindSpy{}, &FakeAgents{}
 			h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
-			if len(in.calls) != 0 || len(typer.calls) != 0 {
-				t.Errorf("posted %q, typed %q; want nothing sent to the lane's worker", in.calls, typer.calls)
+			if len(in.calls) != 0 || len(typer.Lines()) != 0 {
+				t.Errorf("posted %q, typed %q; want nothing sent to the lane's worker", in.calls, typer.Lines())
 			}
 		})
 	}
@@ -851,12 +851,12 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 				t.Fatalf("precondition: status lines %+v, want the settled answer shown", ms)
 			}
 			h.now = h.now.Add(msgWait + time.Minute) // it would raise its needs-you if it stayed
-			in, typer := &kindSpy{}, &linerSpy{}
+			in, typer := &kindSpy{}, &FakeAgents{}
 			h.a.closeSettled(context.Background(), h.proj())
 			h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
 			h.a.msgNeedsYou(h.proj(), h.now)
-			if len(in.calls) != 0 || len(typer.calls) != 0 {
-				t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.calls)
+			if len(in.calls) != 0 || len(typer.Lines()) != 0 {
+				t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.Lines())
 			}
 			if _, ok := lineAt(h, h.proj(), seq); ok {
 				t.Error("the settled line is still queued after the pass")
@@ -892,11 +892,11 @@ func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 		t.Fatalf("precondition: replayed line in state %d (queued %v), want sending settled", s, ok)
 	}
 	h.now = h.now.Add(msgWait + time.Minute)
-	in, typer := &kindSpy{}, &linerSpy{}
+	in, typer := &kindSpy{}, &FakeAgents{}
 	a.closeSettled(context.Background(), p)
 	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Inbox: in, Prompter: typer}))
-	if len(in.calls) != 0 || len(typer.calls) != 0 {
-		t.Errorf("posted %q, typed %q; want nothing sent", in.calls, typer.calls)
+	if len(in.calls) != 0 || len(typer.Lines()) != 0 {
+		t.Errorf("posted %q, typed %q; want nothing sent", in.calls, typer.Lines())
 	}
 	if _, ok := lineAt(&harness{a: a}, p, seq); ok {
 		t.Error("the replayed settled line is still queued after the pass")
@@ -921,7 +921,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: post, Prompter: &linerSpy{}}))
+		h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: post, Prompter: &FakeAgents{}}))
 	}()
 	<-post.started
 	submitT1(t, h)
@@ -929,7 +929,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 		t.Fatalf("precondition: the in-flight line in state %d (queued %v), want sending settled", s, ok)
 	}
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
-	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}}))
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: &kindSpy{}, Prompter: &FakeAgents{}}))
 	if closed, others := closedUnsent(h, seq); closed || len(others) != 0 {
 		t.Errorf("retired result %v, other results %q while its post runs; want none", closed, others)
 	}
