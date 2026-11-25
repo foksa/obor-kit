@@ -93,7 +93,7 @@ func TrackedIn(root, path string, git func(dir string, args ...string) (string, 
 // tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. An
 // entry whose path the worktree's HEAD tracks is never linked (a directory entry: tracked when HEAD has anything under
 // it): a missing tracked file stays missing, git's view of it is a deletion (a worker's uncommitted one, a merge's
-// still open). git asks that once, in dir, only when an entry is missing (trackedAtHead: git ls-tree --name-only HEAD
+// still open). git asks that once, in dir, only when an entry is missing (trackedAtHead: git ls-tree -z --name-only HEAD
 // -- <missing…>); a worktree without a HEAD links every missing entry. Every entry is tried: one that cannot be
 // linked does not stop the next, and err joins the failures, each naming its path. The one linker of every worktree
 // obor makes or meets: lanes and role worktrees (obor setup, obor init, the launcher's start of a role agent), the
@@ -134,20 +134,21 @@ func LinkInto(root, dir string, links []string, git func(dir string, args ...str
 }
 
 // trackedAtHead is the entries of paths (relative to the worktree dir) that dir's HEAD tracks: a file HEAD has, or a
-// directory HEAD has anything under. One git ls-tree --name-only HEAD -- <paths…> in dir; none for no paths. A query
-// that fails (a worktree without a HEAD) tracks nothing.
+// directory HEAD has anything under. One git ls-tree -z --name-only HEAD -- <paths…> in dir; none for no paths. The
+// names are read NUL-delimited, byte for byte: git's default output quotes a non-ASCII name (core.quotePath), which
+// would never match the literal path. A query that fails (a worktree without a HEAD) tracks nothing.
 func trackedAtHead(dir string, paths []string, git func(dir string, args ...string) (string, error)) map[string]bool {
 	if len(paths) == 0 {
 		return nil
 	}
-	out, err := git(dir, append([]string{"ls-tree", "--name-only", "HEAD", "--"}, paths...)...)
+	out, err := git(dir, append([]string{"ls-tree", "-z", "--name-only", "HEAD", "--"}, paths...)...)
 	if err != nil {
 		return nil
 	}
 	var names []string
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			names = append(names, line)
+	for _, name := range strings.Split(out, "\x00") {
+		if name != "" {
+			names = append(names, name)
 		}
 	}
 	tracked := map[string]bool{}

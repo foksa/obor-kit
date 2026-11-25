@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
@@ -370,9 +371,6 @@ func TestLaneSyncKeepsTheLinks(t *testing.T) {
 	})
 }
 
-// realLinkGit is project.Git as the link handling's query.
-func realLinkGit(dir string, args ...string) (string, error) { return project.Git(dir, args...) }
-
 // A worker's uncommitted deletion of a file the lane's HEAD tracks, at a lanes.links path, stays a deletion
 // (RV-267 #2): the reconcile makes no link there and says nothing, and the lane's dirt names the deleted path.
 func TestReconcileLinksLeavesATrackedDeletionAlone(t *testing.T) {
@@ -386,7 +384,7 @@ func TestReconcileLinksLeavesATrackedDeletionAlone(t *testing.T) {
 		t.Fatalf("the worker's deletion: %v", err)
 	}
 	var said []string
-	if err := project.ReconcileLinks(fx.cfg, fx.lane, realLinkGit, func(line string) { said = append(said, line) }); err != nil {
+	if err := project.ReconcileLinks(fx.cfg, fx.lane, project.Git, func(line string) { said = append(said, line) }); err != nil {
 		t.Fatalf("ReconcileLinks: %v", err)
 	}
 	if _, err := os.Lstat(dst); err == nil {
@@ -395,7 +393,7 @@ func TestReconcileLinksLeavesATrackedDeletionAlone(t *testing.T) {
 	if len(said) != 0 {
 		t.Errorf("the reconcile said %q, want nothing", said)
 	}
-	dirt, err := project.LaneDirt(fx.cfg, fx.lane, realLinkGit)
+	dirt, err := project.LaneDirt(fx.cfg, fx.lane, project.Git)
 	if err != nil || !slices.Equal(dirt, []string{fx.path}) {
 		t.Errorf("LaneDirt = %q, %v; want the deletion of %s", dirt, err, fx.path)
 	}
@@ -419,7 +417,7 @@ func TestReconcileLinksLinksAPathAMergeDropsOnlyOnceCommitted(t *testing.T) {
 	}
 	var said []string
 	say := func(line string) { said = append(said, line) }
-	if err := project.ReconcileLinks(fx.cfg, fx.lane, realLinkGit, say); err != nil {
+	if err := project.ReconcileLinks(fx.cfg, fx.lane, project.Git, say); err != nil {
 		t.Fatalf("ReconcileLinks with the merge open: %v", err)
 	}
 	if _, err := os.Lstat(dst); err == nil {
@@ -432,13 +430,65 @@ func TestReconcileLinksLinksAPathAMergeDropsOnlyOnceCommitted(t *testing.T) {
 	if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
 		t.Fatal("precondition: the merge commit left the merge open")
 	}
-	if err := project.ReconcileLinks(fx.cfg, fx.lane, realLinkGit, say); err != nil {
+	if err := project.ReconcileLinks(fx.cfg, fx.lane, project.Git, say); err != nil {
 		t.Fatalf("ReconcileLinks after the merge commit: %v", err)
 	}
 	fx.isLink(t, "after the merge commit")
 	if want := []string{"linked " + fx.path}; !slices.Equal(said, want) {
 		t.Errorf("the reconcile said %q, want %q", said, want)
 	}
+}
+
+// reconcileTrackedDeletion is a lane whose lanes.links holds entry and whose HEAD commits file (entry itself, or a file
+// under the directory entry), the main checkout having its own file there, with core.quotePath on so git's default
+// answer quotes the non-ASCII name (the precondition of RV-277 #1); the worker deletes gone (file or its directory)
+// uncommitted, ReconcileLinks runs on real git. It checks that nothing comes back at entry, nothing is said, and git
+// still sees file deleted.
+func reconcileTrackedDeletion(t *testing.T, entry, file, gone string) {
+	t.Helper()
+	p, lane, _ := laneFx(t, testkit.Set("lanes.links", []any{entry}))
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Write(file, "main's own\n")
+	p.Git(lane, "config", "core.quotePath", "true")
+	p.Write(filepath.Join(lane, file), "tracked\n")
+	p.Git(lane, "add", "--", file)
+	p.Git(lane, "commit", "-q", "-m", "tracks "+file)
+	if quoted := p.Git(lane, "ls-tree", "--name-only", "HEAD", "--", entry); quoted == file || !strings.HasPrefix(quoted, `"`) {
+		t.Fatalf("precondition: git's default answer for %s is %q, want it quoted", file, quoted)
+	}
+	if err := os.RemoveAll(filepath.Join(lane, gone)); err != nil {
+		t.Fatalf("the worker's deletion: %v", err)
+	}
+	var said []string
+	if err := project.ReconcileLinks(cfg, lane, project.Git, func(line string) { said = append(said, line) }); err != nil {
+		t.Fatalf("ReconcileLinks: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(lane, gone)); err == nil {
+		t.Errorf("%s: the reconcile put something at the deleted tracked path", gone)
+	}
+	if len(said) != 0 {
+		t.Errorf("the reconcile said %q, want nothing", said)
+	}
+	if deleted := p.Git(lane, "-c", "core.quotePath=false", "ls-files", "--deleted"); deleted != file {
+		t.Errorf("git's deleted files %q, want the deletion of %s to stay", deleted, file)
+	}
+}
+
+// A worker's uncommitted deletion of a committed non-ASCII lanes.links path (lïnk, which git quotes) stays a deletion
+// (RV-277 #1): the reconcile reads git's names NUL-delimited, so it makes no link there and says nothing.
+func TestReconcileLinksLeavesANonASCIITrackedDeletionAlone(t *testing.T) {
+	t.Parallel()
+	reconcileTrackedDeletion(t, "lïnk", "lïnk", "lïnk")
+}
+
+// A trailing-slash lanes.links directory entry whose tracked non-ASCII child the worker deleted, the directory gone
+// with it (RV-277 #1): HEAD tracks a name under the entry, so the reconcile links nothing there and says nothing.
+func TestReconcileLinksLeavesADirectoryWithANonASCIITrackedChildAlone(t *testing.T) {
+	t.Parallel()
+	reconcileTrackedDeletion(t, "fixtures/", "fixtures/lïnk", "fixtures")
 }
 
 // lane.sync on real git (port.LaneSetup.Sync): the target merged into the task branch, or the lane left as it was —
