@@ -37,9 +37,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		r.inbox.unrecord("pj-lead")
-		r.disp.set(func(d *dispatchFakes) {
-			d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
-		})
+		r.armPrepare(func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} })
 		r.start()
 		r.mustDispatch("d1")
 		r.waitFor("the notification", func() bool { return len(r.notifications()) == 1 })

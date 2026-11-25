@@ -633,9 +633,7 @@ func (r *loopRig) againLines(seq int64) []string {
 func refusedRig(t *testing.T) (*loopRig, string) {
 	t.Helper()
 	r := newLoopRig(t, dispatching())
-	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
-	})
+	r.armPrepare(func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} })
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 fact needs-you{lane: lane_setup in L-01: rc 1: boom}")

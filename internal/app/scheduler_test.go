@@ -54,8 +54,8 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 		t.Fatalf("scratch %s, queue %+v; want free, %+v", owner, q, want)
 	}
 	h.pass(context.Background())
-	if len(f.gated) != 0 {
-		t.Errorf("low disk, free scratch: gated %v; want none (status named no task next)", f.gated)
+	if len(f.Gated()) != 0 {
+		t.Errorf("low disk, free scratch: gated %v; want none (status named no task next)", f.Gated())
 	}
 }
 
@@ -87,14 +87,14 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	f.Launch(ctx, port.Launch{})
 	h.pass(ctx)
 	check(stResolving, wire.ScratchResolving, false)
-	if len(f.gated) != 0 {
-		t.Fatalf("resolving: gated %v; want none", f.gated)
+	if len(f.Gated()) != 0 {
+		t.Fatalf("resolving: gated %v; want none", f.Gated())
 	}
 	h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
 	check(wire.PhaseNeedsYou, wire.ScratchHeld, false)
 	h.pass(ctx)
-	if len(f.gated) != 0 {
-		t.Fatalf("held: gated %v; want none", f.gated)
+	if len(f.Gated()) != 0 {
+		t.Fatalf("held: gated %v; want none", f.Gated())
 	}
 	if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r"},
 		Task: "T-1", Text: "resolve it"}); err != nil {
@@ -109,15 +109,15 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	}
 	check(stResolved, wire.ScratchResolved, true)
 	h.pass(ctx)
-	if !slices.Equal(f.gated, []string{"T-1", "T-2"}) {
-		t.Errorf("after T-1's resolution: gated %v; want [T-1 T-2]", f.gated)
+	if !slices.Equal(f.Gated(), []string{"T-1", "T-2"}) {
+		t.Errorf("after T-1's resolution: gated %v; want [T-1 T-2]", f.Gated())
 	}
 }
 
-// cmdScratch is schedScratch whose gate tells Command its command, pauses between two commands (the slot wait, git
+// cmdScratch is the scheduling rig (sched) whose gate tells Command its command, pauses between two commands (the slot wait, git
 // work), then waits for release.
 type cmdScratch struct {
-	*schedScratch
+	*sched
 	started, blank, blanked, release chan struct{}
 }
 
@@ -128,7 +128,7 @@ func (f *cmdScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 	in.Command("") // the command ended: the gate runs on, no command does (the runner's clear)
 	close(f.blanked)
 	<-f.release
-	return f.schedScratch.Gate(ctx, in)
+	return f.FakeWorkflow.Gate(ctx, in)
 }
 
 // A gate running reports the command its gate told (the class's), and the gating task owns the
@@ -137,7 +137,7 @@ func TestRunningGateCommand(t *testing.T) {
 	t.Parallel()
 	h, sf := seedSched(t, false)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
-	f := &cmdScratch{schedScratch: sf, started: make(chan struct{}), blank: make(chan struct{}),
+	f := &cmdScratch{sched: sf, started: make(chan struct{}), blank: make(chan struct{}),
 		blanked: make(chan struct{}), release: make(chan struct{})}
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil

@@ -122,28 +122,28 @@ func TestPausedScratchReservation(t *testing.T) {
 			}
 
 			h.pass(ctx)
-			if len(f.gated) != 0 {
-				t.Fatalf("paused: gated %v; want none (T-1 holds the scratch)", f.gated)
+			if len(f.Gated()) != 0 {
+				t.Fatalf("paused: gated %v; want none (T-1 holds the scratch)", f.Gated())
 			}
 			if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r"},
 				Task: "T-1", Text: "go on"}); err != nil {
 				t.Fatal(err)
 			}
 			h.pass(ctx)
-			if mt := p.folded.loop["T-1"]; mt.state != stResolving || len(f.gated) != 0 {
-				t.Fatalf("resumed: T-1 %s, gated %v; want resolving, none", mt.state, f.gated)
+			if mt := p.folded.loop["T-1"]; mt.state != stResolving || len(f.Gated()) != 0 {
+				t.Fatalf("resumed: T-1 %s, gated %v; want resolving, none", mt.state, f.Gated())
 			}
 			job := JobID(p.folded.loop["T-1"].jobKey())
 			if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Role: "integrator",
 				Agent: "pj-int", CallID: "v"}, Verb: wire.MethodResolved, Task: "T-1", Job: job}); err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(f.resolved, []string{"s1"}) {
-				t.Errorf("Resolved inputs %v; want [s1], T-1's submitted sha", f.resolved)
+			if !slices.Equal(f.ResolvedInputs(), []string{"s1"}) {
+				t.Errorf("Resolved inputs %v; want [s1], T-1's submitted sha", f.ResolvedInputs())
 			}
 			h.pass(ctx)
-			if !slices.Equal(f.gated, []string{"T-1", "T-2"}) {
-				t.Errorf("after T-1's resolution: gated %v; want [T-1 T-2]", f.gated)
+			if !slices.Equal(f.Gated(), []string{"T-1", "T-2"}) {
+				t.Errorf("after T-1's resolution: gated %v; want [T-1 T-2]", f.Gated())
 			}
 		})
 	}
@@ -211,8 +211,8 @@ func TestMergeLoopNeedsIntegrator(t *testing.T) {
 		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 		addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
 		h.pass(context.Background())
-		if len(f.gated) != 0 {
-			t.Errorf("no integrator: gated %v; want observe-only", f.gated)
+		if len(f.Gated()) != 0 {
+			t.Errorf("no integrator: gated %v; want observe-only", f.Gated())
 		}
 	}
 }
@@ -233,10 +233,10 @@ func listenMem(t *testing.T, h *harness) func(c wire.Req) (string, error) {
 	}
 }
 
-// blockScratch is schedScratch whose Resolved blocks until its ctx ends: entered gets the ctx, ended is set once
+// blockScratch is the scheduling rig (sched) whose Resolved blocks until its ctx ends: entered gets the ctx, ended is set once
 // Resolved has returned (its cleanup a moment after the cancellation).
 type blockScratch struct {
-	*schedScratch
+	*sched
 	entered chan context.Context
 	ended   atomic.Bool
 }
@@ -250,7 +250,7 @@ func (f *blockScratch) Resolved(ctx context.Context, _, _ string, _ *port.Mismat
 }
 
 // resolveJobHarness is seedSched with T-1's resolve job out (the integrator started): T-1 resolving, its job id.
-func resolveJobHarness(t *testing.T) (*harness, *schedScratch, string) {
+func resolveJobHarness(t *testing.T) (*harness, *sched, string) {
 	t.Helper()
 	h, f := seedSched(t, true)
 	f.Launch(context.Background(), port.Launch{})
@@ -267,7 +267,7 @@ func resolveJobHarness(t *testing.T) (*harness, *schedScratch, string) {
 func TestSocketEffectEndsWithServe(t *testing.T) {
 	t.Parallel()
 	h, f, job := resolveJobHarness(t)
-	b := &blockScratch{schedScratch: f, entered: make(chan context.Context, 1)}
+	b := &blockScratch{sched: f, entered: make(chan context.Context, 1)}
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(b), Agents: f, Prompter: f}), nil
 	}
@@ -415,8 +415,8 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	if reply, err := call(resolved); err == nil || err.Error() != mergeOffReply || reply != "" {
 		t.Errorf("resolved while off: %q, %v; want the refusal %q", reply, err, mergeOffReply)
 	}
-	if len(f.resolved) != 0 {
-		t.Errorf("Scratch.Resolved called while off: %v", f.resolved)
+	if len(f.ResolvedInputs()) != 0 {
+		t.Errorf("Scratch.Resolved called while off: %v", f.ResolvedInputs())
 	}
 	if got := countRecords(t, h); got != n {
 		t.Errorf("records while off: %d, want %d (none new)", got, n)
@@ -431,8 +431,8 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 
 	p = serveHarness(t, h, true)
 	reply, err := call(resolved)
-	if err != nil || !strings.HasPrefix(reply, "RESOLVED T-1") || len(f.resolved) != 1 {
-		t.Errorf("resolved on again: %q, %v, Resolved %v; want it answered", reply, err, f.resolved)
+	if err != nil || !strings.HasPrefix(reply, "RESOLVED T-1") || len(f.ResolvedInputs()) != 1 {
+		t.Errorf("resolved on again: %q, %v, Resolved %v; want it answered", reply, err, f.ResolvedInputs())
 	}
 	if mt := p.folded.loop["T-1"]; mt.state != stResolved {
 		t.Errorf("T-1 on again: %s; want resolved", mt.state)
@@ -447,7 +447,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
 			var h *harness
-			var f *schedScratch
+			var f *sched
 			var job string
 			if method == wire.MethodResolved || method == wire.MethodResume {
 				h, f, job = resolveJobHarness(t)
@@ -476,13 +476,13 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			call := listenMem(t, h)
 
 			p := serveHarness(t, h, false)
-			n, gated := countRecords(t, h), len(f.gated)
+			n, gated := countRecords(t, h), len(f.Gated())
 			before := *p.folded.loop["T-1"]
 			if reply, err := call(c); err == nil || err.Error() != mergeOffReply || reply != "" {
 				t.Errorf("%s while off: %q, %v; want the refusal %q", method, reply, err, mergeOffReply)
 			}
-			if len(f.resolved) != 0 || len(f.gated) != gated {
-				t.Errorf("%s while off: Scratch called (Resolved %v, gated %v)", method, f.resolved, f.gated)
+			if len(f.ResolvedInputs()) != 0 || len(f.Gated()) != gated {
+				t.Errorf("%s while off: Scratch called (Resolved %v, gated %v)", method, f.ResolvedInputs(), f.Gated())
 			}
 			if got := countRecords(t, h); got != n {
 				t.Errorf("%s while off: %d records, want %d (none new)", method, got, n)
@@ -522,7 +522,7 @@ func (o *openPanes) Subscribe(ctx context.Context) (*port.Stream, error) {
 // groupGate is a Scratch whose Gate runs a real command in its own process group (as checks.Scratch does) and returns
 // once its ctx ended: a check still running when serve stops.
 type groupGate struct {
-	*schedScratch
+	*sched
 	dir string
 }
 
@@ -531,7 +531,7 @@ func (g *groupGate) Gate(ctx context.Context, in port.GateInput) (port.GateOutco
 	// of its own, which the TERM to the group reaches only through the group.
 	script := `sleep 60 & echo $! > child.pid; echo $$ > pid; wait`
 	run.Execute(ctx, config.Command{Name: "gate", Cmd: script, Timeout: 60}, g.dir, nil, nil, io.Discard, io.Discard)
-	g.gated = append(g.gated, in.Task)
+	g.recordGate(in.Task)
 	return port.GateOutcome{}, errors.New("the gate was cut off: serve is stopping")
 }
 
@@ -544,9 +544,9 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	panes := &openPanes{fakePanes: h.panes, snap: h.snap}
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }, Tick: 20 * time.Millisecond,
 		Retry: 5 * time.Millisecond, Activity: panes}, panes, h.lanes)
-	g := &groupGate{schedScratch: newSchedScratch(h), dir: dir}
+	g := &groupGate{sched: newSched(h), dir: dir}
 	h.a.opt.Loop = func(root string) (*Loop, error) {
-		return withCfg(root, &Loop{Workflow: WorkflowOf(g), Agents: g.schedScratch, Prompter: g.schedScratch}), nil
+		return withCfg(root, &Loop{Workflow: WorkflowOf(g), Agents: g.sched, Prompter: g.sched}), nil
 	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)

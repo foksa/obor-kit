@@ -116,8 +116,8 @@ type loopRig struct {
 	onStart, onStop func() error
 	loopErr         error // what the Loop adapters' constructor fails with (nil: none; under mu)
 
-	disp *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
-	tick time.Duration  // the watchdogs' tick, each a merge-loop pass (0: rigTick); set before start
+	disp *dispatch     // the dispatch's adapters (nil: none, the loop has no dispatch)
+	tick time.Duration // the watchdogs' tick, each a merge-loop pass (0: rigTick); set before start
 	// stepRetry, stepRetryMax: the wait before an uncounted step's next try and its cap (0: 5 ms, 40 ms); set
 	// before start
 	stepRetry, stepRetryMax time.Duration
@@ -207,17 +207,25 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	p.Config(append(edits, o.edits...)...)
 	r.lanes.lanes = []port.Lane{{Name: "L-01", Dir: r.lane, Task: "T-1", Agent: "pj-l-01"}}
 	r.addPane(agentPane("w1:p1", "pj-l-01", r.lane)) // labelled by its launch: serve's identity of it (registry.go)
-	r.scratch = app.NewFakeWorkflow("")
+	head := ""
+	if o.dispatch {
+		head = "target1" // the target a dispatch's prepare reads
+	}
+	r.scratch = app.NewFakeWorkflow(head)
 	r.scratch.Dir = filepath.Join(p.Base, "proj-wt", "merge")
 	if !o.check {
 		r.scratch.Checks = "no check"
 	}
 	r.scratch.AddLane("L-01", r.lane, "task/T-1")
 	if o.dispatch {
-		r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
+		r.disp = &dispatch{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
 			fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}
 		r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.State = "", "", "free" })
 		r.setPane("w1:p1", func(p *port.Pane) { p.Transcript = "/s/0.jsonl" })
+		// The lane's row: what the workflow's prepare writes in the lane table.
+		r.scratch.OnPrepare(func(in port.PrepareInput) {
+			r.setLane(func(l *port.Lane) { l.Task, l.State = in.Task, "working" })
+		})
 	}
 	if o.pool {
 		r.addLanes(port.Lane{Name: "L-02", Dir: p.LaneDir("L-02"), State: "free"})

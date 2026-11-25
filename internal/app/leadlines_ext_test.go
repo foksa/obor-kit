@@ -260,9 +260,7 @@ func TestNeedsLineRepeatCountsFromTheHookDelivery(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := hookLeadRig(t, dispatching())
-		r.disp.set(func(d *dispatchFakes) {
-			d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
-		})
+		r.armPrepare(func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} })
 		r.start()
 		r.mustDispatch("d1")
 		r.waitFor("the needs line queued", func() bool { return len(r.needsLineFacts()) == 1 && len(r.waiting()) == 1 })

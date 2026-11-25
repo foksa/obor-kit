@@ -180,9 +180,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		if p != 1 || starts != 1 {
 			t.Errorf("prepares %d, starts %d; want 1 each", p, starts)
 		}
-		r.disp.mu.Lock()
-		in := r.disp.inputs[0]
-		r.disp.mu.Unlock()
+		in := r.scratch.Prepares()[0]
 		if in.Task != "T-1" || in.Lane != "L-01" || in.Dir != r.lane || in.Branch != "task/T-1" || in.Target != "target1" ||
 			in.Redo || in.At.IsZero() {
 			t.Errorf("prepare input %+v", in)
@@ -249,9 +247,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 				r.dispatched(r.dispatch("d1", "", "sonnet"))
 				r.waitStep("1 result work")
 				r.passes()
-				r.disp.mu.Lock()
-				first := r.disp.inputs[0]
-				r.disp.mu.Unlock()
+				first := r.scratch.Prepares()[0]
 				drop(t, r)
 				// The drop kept the work: L-01 still holds T-1 on its branch (no lane was freed).
 				r.setLane(func(l *port.Lane) { l.State = state })
@@ -263,9 +259,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 				}
 				r.dispatched(r.dispatch("d2", "", "sonnet"))
 				r.waitStep("2 result work")
-				r.disp.mu.Lock()
-				in := r.disp.inputs[1]
-				r.disp.mu.Unlock()
+				in := r.scratch.Prepares()[1]
 				if !in.Redo || in.Lane != "L-01" || in.Branch != first.Branch || in.Target != first.Target {
 					t.Errorf("the redo's prepare %+v; want lane L-01 on %s at %s with redo", in, first.Branch, first.Target)
 				}
@@ -322,13 +316,13 @@ func TestDispatchRefusals(t *testing.T) {
 		{name: "no call id", call: func(c *wire.DispatchReq) { c.CallID = "" }, want: "a call id and a task are required"},
 		{name: "a worker calls", call: func(c *wire.DispatchReq) { c.Role, c.Agent = "worker", "pj-l-02" },
 			want: "the lead or the owner dispatches, not pj-l-02"},
-		{name: "no lane adapter", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.on = false }) },
+		{name: "no lane adapter", setup: func(r *loopRig) { r.disp.set(func(d *dispatch) { d.on = false }) },
 			want: "dispatch off for proj (no lane adapter)"},
 		{name: "bad task id", setup: func(r *loopRig) {
-			r.disp.set(func(d *dispatchFakes) { d.refuse["T-1"] = "bad task id T-1 (task_id_pattern)" })
+			r.disp.set(func(d *dispatch) { d.refuse["T-1"] = "bad task id T-1 (task_id_pattern)" })
 		}, want: "dispatch T-1: bad task id T-1 (task_id_pattern)"},
 		{name: "spec not on the target", setup: func(r *loopRig) {
-			r.disp.set(func(d *dispatchFakes) { d.refuse["T-1"] = "no spec for T-1 in obor serve's store" })
+			r.disp.set(func(d *dispatch) { d.refuse["T-1"] = "no spec for T-1 in obor serve's store" })
 		}, want: "no spec for T-1 in obor serve's store"},
 		{name: "unknown lane", call: func(c *wire.DispatchReq) { c.Lane = "L-09" }, want: "unknown lane L-09"},
 		{name: "no level and no models", call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", nil }, want: "no valid \"Difficulty: <level>\" line"},
@@ -356,7 +350,7 @@ func TestDispatchRefusals(t *testing.T) {
 			r.setLane(func(l *port.Lane) { l.State, l.Reason = "unknown", "store: no such table: lanes" })
 		}, want: "lane L-01 is unknown: store: no such table: lanes"},
 		// The CLI's shape: a task and its types, no lane; the branch's commits make only a redo legal.
-		{name: "task branch ahead", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.ahead = true }) },
+		{name: "task branch ahead", setup: func(r *loopRig) { r.scratch.SetAhead(true) },
 			call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", []string{"sonnet"} },
 			want: "task/T-1 exists with commits not in the target"},
 	} {
@@ -410,7 +404,7 @@ func TestDispatchRefusals(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.disp.set(func(d *dispatchFakes) { d.fail["prepare"] = func() error { return errors.New("git I/O") } })
+			r.armPrepare(func() error { return errors.New("git I/O") })
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 fact failed{lane.prepare: git I/O}")
@@ -459,16 +453,12 @@ func TestDispatchCrashAtEachStep(t *testing.T) {
 			t.Parallel()
 			bubble(t, func(t *testing.T) {
 				r := newLoopRig(t, dispatching())
-				r.disp.set(func(d *dispatchFakes) { d.cut[row.method] = row.where })
+				r.cut(row.method, row.where)
 				r.start()
 				r.mustDispatch("d1")
-				r.waitFor(row.method+" cut "+row.where, func() bool {
-					r.disp.mu.Lock()
-					defer r.disp.mu.Unlock()
-					return r.disp.hit[row.method]
-				})
+				r.waitFor(row.method+" cut "+row.where, func() bool { return r.cutHit(row.method) })
 				r.stop()
-				r.disp.set(func(d *dispatchFakes) { delete(d.cut, row.method) })
+				r.cut(row.method, "")
 				r.start()
 				r.waitStep("1 result work")
 				r.passes()
@@ -496,9 +486,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.disp.set(func(d *dispatchFakes) {
-				d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
-			})
+			r.armPrepare(func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} })
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 fact needs-you{lane: lane_setup in L-01: rc 1: boom}")
@@ -510,7 +498,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			if _, err := r.resume("r0", wire.ResumeRegate); err == nil || !strings.Contains(err.Error(), "--regate does not fit: obor resume T-1 retries the failed step") {
 				t.Errorf("regate of a dispatch's needs-you: %v", err)
 			}
-			r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
+			r.armPrepare(nil)
 			r.needsYouState()
 			r.mustResume("r1", "", "RESUMED T-1: retry (lane)")
 			r.waitStep("1 result lane.prepare.2")
@@ -521,13 +509,13 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.disp.set(func(d *dispatchFakes) {
+			r.disp.set(func(d *dispatch) {
 				d.fail["start"] = func() error { return errors.New("pj-l-01 has background tasks (--force stops them)") }
 			})
 			r.start()
 			r.mustDispatch("d1")
 			r.waitPrefix("1 fact needs-you{start: pj-l-01 has background tasks")
-			r.disp.set(func(d *dispatchFakes) { delete(d.fail, "start") })
+			r.disp.set(func(d *dispatch) { delete(d.fail, "start") })
 			r.needsYouState()
 			r.mustResume("r1", "", "RESUMED T-1: retry (start)")
 			r.waitStep("1 result agent.start.2")
@@ -540,7 +528,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			r := newLoopRig(t, dispatching())
 			const line = "codex is quarantined: /c/0.167.0/bin/codex-code-mode-host carry com.apple.quarantine; a Codex start " +
 				"is refused until the owner clears the flag: xattr -dr com.apple.quarantine /c/0.167.0 (obor applies no fix)"
-			r.disp.set(func(d *dispatchFakes) {
+			r.disp.set(func(d *dispatch) {
 				d.fail["start"] = func() error { return port.Refused{Line: line} }
 			})
 			r.start()
@@ -551,7 +539,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 				t.Errorf("start calls %d while the refusal holds, want 1 (a final refusal, not a counted failure)", n)
 			}
 			r.needsYouState()
-			r.disp.set(func(d *dispatchFakes) { delete(d.fail, "start") })
+			r.disp.set(func(d *dispatch) { delete(d.fail, "start") })
 			r.mustResume("r1", "", "RESUMED T-1: retry (start)")
 			r.waitStep("1 result agent.start.2")
 			r.waitStep("1 result work")
@@ -561,7 +549,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := newLoopRig(t, dispatching())
-			r.disp.set(func(d *dispatchFakes) { d.fail["prepare"] = func() error { return errors.New("git I/O") } })
+			r.armPrepare(func() error { return errors.New("git I/O") })
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 fact needs-you{lane.prepare failed: git I/O}")
@@ -569,7 +557,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			if n := r.disp.called("prepare"); n != 3 || r.count("1 intent lane.prepare") != 1 {
 				t.Errorf("prepare calls %d (want 3) under one intent: %q", n, r.steps())
 			}
-			r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
+			r.armPrepare(nil)
 			r.needsYouState()
 			r.mustResume("r1", "", "RESUMED T-1: retry (lane.prepare failed)")
 			r.waitStep("1 result lane.prepare")
@@ -686,9 +674,7 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 				r.start()
 				r.mustDispatch("d1")
 				r.waitStep("1 intent agent.start")
-				r.disp.mu.Lock()
-				inputs := slices.Clone(r.disp.inputs)
-				r.disp.mu.Unlock()
+				inputs := r.scratch.Prepares()
 				if len(inputs) != 1 {
 					t.Fatalf("prepares %d, want 1", len(inputs))
 				}

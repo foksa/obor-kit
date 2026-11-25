@@ -85,14 +85,14 @@ func TestWorkerStartRule(t *testing.T) {
 		t.Parallel()
 		bubble(t, func(t *testing.T) {
 			r := workingRig(t)
-			r.disp.set(func(d *dispatchFakes) { d.fail["start"] = func() error { return errors.New("herdr: pane busy") } })
+			r.disp.set(func(d *dispatch) { d.fail["start"] = func() error { return errors.New("herdr: pane busy") } })
 			r.workerExits()
 			r.pastSettle()
 			r.waitFor("the rule's needs-you", r.ruleNeedsYou)
 			if n := r.disp.called("start") - 1; n < 3 { // the dispatch's own start is one
 				t.Errorf("the rule's tries %d before its needs-you, want 3 or more", n)
 			}
-			r.disp.set(func(d *dispatchFakes) { delete(d.fail, "start") })
+			r.disp.set(func(d *dispatch) { delete(d.fail, "start") })
 			r.startedWith("T-1/1/work")
 		})
 	})

@@ -42,7 +42,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t)
 			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
-			f := newSchedScratch(h)
+			f := newSched(h)
 			h.a.opt.Loop = func(root string) (*Loop, error) {
 				return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}), nil
 			}
