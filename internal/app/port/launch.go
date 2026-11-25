@@ -86,10 +86,12 @@ type Running struct {
 func (r *Running) Error() string { return r.Agent + " already running (pane " + r.Pane + ")" }
 
 // Prompter types text to the agent in a pane, as it is (a job's wake with its [obor job <id>] tag, or a line carrying
-// its own [obor …]): the agent layer's way to type. A blocked agent is refused before any input (a dialog would take
-// the text as its answer); a pane that runs no agent is refused too (NotFound). clear: the input line is cleared first
-// (an earlier wake a dialog ate may sit there). Delivery is proven later by the agent (a job's job_next), not by this
-// call. began: a byte of the text may have reached the pane (false only when the send was refused before any typing).
+// its own [obor …]): the agent layer's way to type. A terminal's Prompt carries obor's rule in front of it
+// (GuardPrompts): a blocked agent is refused before any input (a dialog would take the text as its answer) and a pane
+// that runs no agent is refused too (NotFound). Behind the rule the adapter only types, and its terminal's own refusal
+// of a blocked program is the atomic backstop. clear: the input line is cleared first (an earlier wake a dialog ate may
+// sit there). Delivery is proven later by the agent (a job's job_next), not by this call. began: a byte of the text may
+// have reached the pane (false only when the send was refused before any typing).
 type Prompter interface {
 	Prompt(ctx context.Context, pane, text string, clear bool) (began bool, err error)
 }

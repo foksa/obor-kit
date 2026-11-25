@@ -22,28 +22,16 @@ import (
 // pause (a send to an idle agent answered in under 1.6 s, one that starts no turn in about 5 s).
 const SendBound = 70 * time.Second
 
-// Prompt types text to the agent in pane (port.Prompter): a read first, since hc types into whatever runs there; a
-// terminal whose program reports no status runs no agent and is refused as not found, and a blocked one is refused
-// before any key (a key would answer its dialog). clear: ctrl+u clears the input first (a send appends to what is
-// already typed there). Then terminal.send, which hc refuses with kind `blocked` when the agent reported a dialog in
-// the meantime. began is false only when nothing was typed: a refusal (obor's or hc's answer), or a request that
-// never went out; a send whose answer never came (the connection went, or SendBound passed) may have typed.
+// Prompt types text to the agent in pane (port.Prompter): terminal.send without force, which hc refuses with kind
+// blocked when the agent reported a dialog in the meantime (port.Blocked). clear: ctrl+u clears the input first (a send
+// appends to what is already typed there). began is false only when nothing was typed: a refusal (hc's answer), or a
+// request that never went out; a send whose answer never came (the connection went, or SendBound passed) may have typed.
 //
-// The read and the send are a check and then an act: an agent that exits between them gets the text at its shell.
-// herdr makes both one call (agent.prompt); hc would need a send refused unless the program reports a status, an
+// hc types into whatever runs in the pane: the guard in front of every terminal's Prompt read the pane first (its agent,
+// its blocked status). An agent that exits between that read and this send gets the text at its shell. herdr makes the
+// read and the send one call (agent.prompt); hc would need a send refused unless the program reports a status, an
 // upstream ask.
 func (cl *Client) Prompt(ctx context.Context, pane, text string, clear bool) (bool, error) {
-	r, err := cl.live(ctx, pane)
-	if err != nil {
-		return false, err
-	}
-	switch {
-	case r.Status == nil:
-		return false, &Error{Op: "terminal.send", Kind: "not_found", Msg: pane + " runs no agent (its program reports no status)"}
-	case r.Status.State == "blocked":
-		return false, &Error{Op: "terminal.send", Kind: "blocked",
-			Msg: fmt.Sprintf("%s is blocked (%s): typing would answer its dialog", pane, r.Status.report().Note())}
-	}
 	if clear {
 		if err := cl.SendKeys(ctx, pane, port.KeyCtrlU); err != nil {
 			return false, err

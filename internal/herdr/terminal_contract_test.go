@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
 
 // contractTerminal is herdr's adapter over a fake herdr holding one shell pane, w1:p1 in /proj, its workspace w1
-// labelled proj: the pane every contract row runs against. Its Stale hook freezes a pane's visible screen
-// (herdrtest's Pane.Stale).
+// labelled proj, as cmd/obor builds the terminal: the guard in front of its Prompt. That is the pane every contract row
+// runs against. Its Stale hook freezes a pane's visible screen (herdrtest's Pane.Stale).
 func contractTerminal(t *testing.T) testkit.Terminal {
 	t.Helper()
 	f := herdrtest.New()
@@ -19,7 +20,7 @@ func contractTerminal(t *testing.T) testkit.Terminal {
 	f.Group("w1", "proj")
 	srv := herdrtest.Serve(t, f)
 	c := srv.Client()
-	return testkit.Terminal{Control: c, Panes: herdr.Panes{S: c},
+	return testkit.Terminal{Control: port.GuardPrompts(c), Panes: herdr.Panes{S: c},
 		Setup: &herdr.Setup{Socket: c, Env: func(string) (string, bool) { return "", false }}, Group: "proj", Cwd: "/proj",
 		Stale: func(pane string) error {
 			if !f.Set(pane, func(p *herdrtest.Pane) { p.Stale = true }) {

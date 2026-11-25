@@ -70,9 +70,9 @@ func Reached(err error) bool {
 	return !errors.As(err, &e) || e.reached
 }
 
-// NotFound, Unavailable, Refreshed, PaneBusy, NotReady, TimedOut and Answered let the core read an *Error without
-// importing herdr (port.NotFound, port.NotRunning, port.Refreshed, port.PaneBusy, …): herdr's error codes stay in this
-// package.
+// NotFound, Unavailable, Refreshed, PaneBusy, NotReady, Blocked, TimedOut and Answered let the core read an *Error
+// without importing herdr (port.NotFound, port.NotRunning, port.Refreshed, port.PaneBusy, …): herdr's error codes stay
+// in this package.
 func (e *Error) NotFound() bool    { return e.Kind == NotFound }
 func (e *Error) Unavailable() bool { return e.Kind == Unavailable }
 func (e *Error) Refreshed() bool   { return e.Code == "refresh" }
@@ -82,6 +82,10 @@ func (e *Error) PaneBusy() bool { return e.Code == "agent_pane_busy" || e.Code =
 
 // NotReady: herdr says the agent started but waits at a startup dialog (agent_not_ready).
 func (e *Error) NotReady() bool { return e.Code == "agent_not_ready" }
+
+// Blocked: herdr refused a prompt because the agent waits at a dialog (agent_blocked): typing would answer it
+// (port.Blocked).
+func (e *Error) Blocked() bool { return e.Code == "agent_blocked" }
 
 // TimedOut: herdr ended the wait at its own timeout (timeout).
 func (e *Error) TimedOut() bool { return e.Code == "timeout" }

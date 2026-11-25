@@ -203,12 +203,14 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `workerstart.go` | the worker start rule: a lane's worker started again while its job is outstanding | `workerStartRule` |
 | `worktext.go` | the work job's wake: its text, the send to the worker and the watch on its delivery | `App.sendWork` |
 
-- `app/port` (core, a leaf below `app`): the ports and the types they exchange, with no logic: the terminal's `Pane`
+- `app/port` (core, a leaf below `app`): the ports and the types they exchange: the terminal's `Pane`
   (terminal-neutral: its `Group`, no tab or workspace), `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`;
   `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`); and the
   effects (`Launcher`, the one way an agent is started, `Prompter`, `PaneControl`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
-  interface: those three and the dispatch's `Target`). Adapters import it instead of `app`.
+  interface: those three and the dispatch's `Target`), with the one rule of the port's own: `GuardPrompts` in front of
+  every terminal's `Prompt` (`cmd/obor` builds each kind behind it; `Blocked` reads its refusal). Adapters import it
+  instead of `app`.
 - `app/layout` (core, a leaf below `app`): the one placement decision of every terminal adapter, pure: `Place` (an
   `Ask`: the new pane's kind, `Group`/`In`, the group's `Tab`s with their `Pane`s' kinds → an `Answer`: which tab, a new
   tab of which name, or the refusal's text), `Label` (a new tab's name for a kind) and `Home` (whether the caller's pane
@@ -272,10 +274,11 @@ on a file missing from this table or a listed file that is gone); the entry is t
   serve's subscribe: a core that is down started from a scrubbed environment), a terminal record as a pane (labels `obor.project`/`obor.agent`
   as its group and label, the kind from its status's app, else the `obor.kind` label) and `port.Panes` (`panes.go`),
   one unfiltered `events.subscribe` and its endings (`stream.go`), `port.PaneControl`: its reads (`client.go`) and
-  `control.go` (`Prompt`: a read, then `terminal.send`; `Write`, `SendKeys`, `RenamePane`, `Named` by label,
-  `WaitStatus` on its own subscription), `port.AgentStarter` (`start.go`: the command line typed at the shell, up by
-  the status rule), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built yet), and `contract.go` (what obor
-  sends and reads, checked against a committed copy of hc's schema); `hc/hctest` is its fake (test helper).
+  `control.go` (`Prompt`: `terminal.send`, whose native `blocked` answer is `port.Blocked`; `Write`, `SendKeys`,
+  `RenamePane`, `Named` by label, `WaitStatus` on its own subscription), `port.AgentStarter` (`start.go`: the command
+  line typed at the shell, up by the status rule), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built
+  yet), and `contract.go` (what obor sends and reads, checked against a committed copy of hc's schema); `hc/hctest` is
+  its fake (test helper).
 - `rex`: the Rex client, the third terminal adapter (`docs/plan/terminal-adapters.md` step 9; no project selects it
   yet): the `rex` CLI on PATH, one `rex api call` per request and its errors (`client.go`: exit status 4 is no server,
   Rex's `code=` its answer), a terminal block as a pane (its session's label the group, its label the label, the root

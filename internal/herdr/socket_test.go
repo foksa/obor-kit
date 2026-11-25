@@ -218,8 +218,9 @@ func TestSocketErrors(t *testing.T) {
 	c := srv.Client()
 	srv.Fail("agent.prompt", "agent_blocked", "agent is blocked")
 	began, err := c.Prompt(ctx, "w1:p1", "hi", false)
-	if e := herdrErr(t, err); began || e.Kind != herdr.Failed || e.Code != "agent_blocked" || e.Op != "agent.prompt" {
-		t.Errorf("blocked prompt = began %v, %v; want it refused before typing, failed agent_blocked", began, err)
+	if e := herdrErr(t, err); began || e.Kind != herdr.Failed || e.Code != "agent_blocked" || e.Op != "agent.prompt" ||
+		!port.Blocked(err) {
+		t.Errorf("blocked prompt = began %v, %v; want it refused before typing, failed agent_blocked as Blocked", began, err)
 	}
 	if err := c.Close(ctx, "w1:p1"); err == nil || herdrErr(t, err).Code != "not_scripted" {
 		t.Errorf("unscripted method = %v, want the fake's not_scripted error", err)
