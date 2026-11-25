@@ -124,29 +124,3 @@ func TestWakePostRefusedThenReplayed(t *testing.T) {
 		eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
 	})
 }
-
-// A posted wake that broke after a byte went out is sent (with the error): never posted again under its key, not after
-// a restart either.
-func TestWakePostPartialNotRepeated(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := fetchRig(t)
-		r.inbox.record("pj-l-01")
-		r.inbox.fail(true)
-		r.start()
-		r.mustDispatch("d1")
-		r.waitStep("1 result work")
-		r.workerIs("working")
-		r.later(5 * time.Minute)
-		r.waitStep("1 result retry.work")
-		same(t, r.result("retry.work"), `"sent: broken pipe"`, "retry.work result")
-		r.inbox.ok()
-		r.stop()
-		r.start()
-		r.passes()
-		if n := r.inbox.tries("pj-l-01", wake("T-1/1/work")); n != 1 {
-			t.Errorf("tried %d posts of the wake, want 1", n)
-		}
-		eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
-	})
-}

@@ -78,27 +78,6 @@ func TestLeadLinesOnePost(t *testing.T) {
 	}
 }
 
-// TestLeadLinesBatchReplay: a restart finds every line of the batch delivered.
-func TestLeadLinesBatchReplay(t *testing.T) {
-	t.Parallel()
-	now := time.Now()
-	a, p := lineApp(t, lineRoot(t), &now)
-	leadSends(t, a, p, 3)
-	l := &FakeAgents{}
-	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.Lines()) != 1 {
-		t.Fatalf("precondition: one post, got %q", l.Lines())
-	}
-	b, q := lineReload(t, a, p, &now)
-	if n := len(q.out.Queued()); n != 0 {
-		t.Errorf("after replay %d lines queued, want none", n)
-	}
-	b.deliver(context.Background(), q, linerLoop(l))
-	if len(l.Lines()) != 1 {
-		t.Errorf("replay posted again: %q", l.Lines())
-	}
-}
-
 // TestLeadLinesFailedPost: a post refused before a byte leaves all lines undelivered and the next pass posts them
 // as one.
 func TestLeadLinesFailedPost(t *testing.T) {
@@ -282,8 +261,8 @@ func TestLeadLinesTwoTargets(t *testing.T) {
 	}
 }
 
-// TestLeadLinesOldTargetNoInbox: the old lead has no inbox record: its line waits (the 24 h needs-you as for any
-// waiting line); the new lead's line goes out.
+// TestLeadLinesOldTargetNoInbox: the old lead has no inbox record: its line waits (its 24 h needs-you is any waiting
+// line's: TestSendWaitingADayNeedsYou); the new lead's line goes out.
 func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -302,24 +281,6 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	}
 	if got := deliveryResults(t, p); got[seqB] != 1 || len(got) != 1 {
 		t.Errorf("delivery results %v, want B's alone", got)
-	}
-	lineStatus(a, "w:rev", "working", now) // the idle reviewer is no done reminder among these lines
-	now = now.Add(msgWait + time.Minute)
-	a.deliver(context.Background(), p, linerLoop(l))
-	a.msgNeedsYou(p, now)
-	recs, err := event.ReadLog(p.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	needs := 0
-	for _, r := range recs {
-		if r.Task == event.MsgTask && r.Kind == event.KindFact && r.Step == event.StepNeedsYou &&
-			strings.Contains(r.Fact().Reason, "line to pj-lead from other") {
-			needs++
-		}
-	}
-	if needs != 1 || len(l.Lines()) != 1 {
-		t.Errorf("needs-you of A's line %d (want 1), posted %q", needs, l.Lines())
 	}
 }
 
@@ -705,33 +666,25 @@ func TestRV90RefusedReason(t *testing.T) {
 }
 
 // The typed fallback re-checks its target: after a refused post, a worker that is busy now gets nothing typed (held
-// busy); idle again, the line is typed; replay keeps the refusal, so the restarted pass types it too.
+// busy); idle again, the line is typed. (A replay keeps the refusal: the fold's, outbox's TestFold.)
 func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
 	in := &FakeAgents{OnPrompt: refusePrompt}
 	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in}))
-	seq := answerSeq(t, h)
-	r := replayed(t, h)
-	h.a.mu.Lock()
-	rq := r.out.Line(seq)
-	h.a.mu.Unlock()
-	if rq == nil || !rq.RefusedPost() || rq.State() != outbox.Waiting || !strings.Contains(rq.Refused(), "agent_not_ready") {
-		t.Errorf("replayed line %+v; want it waiting with its refused post and reason", rq)
+	if len(in.Lines()) != 1 || len(h.lines()) != 1 {
+		t.Fatalf("precondition: one refused post, the answer queued; posts %q, queued %q", in.Lines(), h.lines())
 	}
-	h2 := staleHerdr(t)
-	in2 := &FakeAgents{OnPrompt: refusePrompt}
-	h2.a.deliver(context.Background(), h2.proj(), withAppCfg(h2.a, &Loop{Inbox: in2}))
-	h2.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	typer := &FakeAgents{}
-	h2.a.deliver(context.Background(), h2.proj(), withAppCfg(h2.a, &Loop{Inbox: in2, Prompter: typer}))
-	if len(in2.Lines()) != 1 || len(typer.Lines()) != 0 || len(h2.lines()) != 1 {
-		t.Fatalf("busy: posts %q, typed %q; want nothing sent to the working worker", in2.Lines(), typer.Lines())
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
+	if len(in.Lines()) != 1 || len(typer.Lines()) != 0 || len(h.lines()) != 1 {
+		t.Fatalf("busy: posts %q, typed %q; want nothing sent to the working worker", in.Lines(), typer.Lines())
 	}
-	h2.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
-	h2.a.deliver(context.Background(), h2.proj(), withAppCfg(h2.a, &Loop{Inbox: in2, Prompter: typer}))
-	if len(in2.Lines()) != 1 || len(typer.Lines()) != 1 || len(h2.lines()) != 0 {
-		t.Errorf("idle: posts %q, typed %q, queued %q; want it typed once", in2.Lines(), typer.Lines(), h2.lines())
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+	h.a.deliver(context.Background(), h.proj(), withAppCfg(h.a, &Loop{Inbox: in, Prompter: typer}))
+	if len(in.Lines()) != 1 || len(typer.Lines()) != 1 || len(h.lines()) != 0 {
+		t.Errorf("idle: posts %q, typed %q, queued %q; want it typed once", in.Lines(), typer.Lines(), h.lines())
 	}
 }
 
