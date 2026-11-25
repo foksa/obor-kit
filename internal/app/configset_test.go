@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"obor/internal/app/event"
@@ -313,39 +314,43 @@ func TestConfigSetLanesWithTask(t *testing.T) {
 
 // A change racing a publish waits: while the publish runs nothing is written or committed; once it ends the change
 // goes in. It is a difficulty change: the rig's L-01 holds T-1, whose merge this is, so a lane change would depend on
-// when the lane is read again.
+// when the lane is read again. The wait is fake time: the change waits on the publish's channel in a bubble.
 func TestConfigSetWaitsForPublish(t *testing.T) {
 	t.Parallel()
-	r := newAdmitRig(t, true)
-	h, ctx := r.h, context.Background()
-	path := filepath.Join(h.root, ".obor", "config.json")
-	h.write(path, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":1},`+
-		`"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""},`+harnessModels+`},"merge":{"target_branch":""},"reviews":{"dir":"reviews"}}`)
-	f := &fakeConfig{path: path}
-	r.fx.Config = f
-	r.publishing(ctx)
-	done := make(chan error, 1)
-	go func() {
-		_, err := h.set("w1", "agents.difficulty.hard", `["opus"]`)
-		done <- err
-	}()
-	if !waiting(done) {
-		t.Fatal("the change answered while the publish ran")
-	}
-	if len(f.messages()) != 0 {
-		t.Fatalf("committed %q while the publish ran", f.messages())
-	}
-	r.released(ctx)
-	if err := <-done; err != nil {
-		t.Fatalf("the change after the publish: %v", err)
-	}
-	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: agents.difficulty.hard") {
-		t.Errorf("commits %q, want the change's", got)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		r := newAdmitRig(t, true)
+		t.Cleanup(r.h.a.closeLog)
+		h, ctx := r.h, context.Background()
+		path := filepath.Join(h.root, ".obor", "config.json")
+		h.write(path, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":1},`+
+			`"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""},`+harnessModels+`},"merge":{"target_branch":""},"reviews":{"dir":"reviews"}}`)
+		f := &fakeConfig{path: path}
+		r.fx.Config = f
+		r.publishing(ctx)
+		done := make(chan error, 1)
+		go func() {
+			_, err := h.set("w1", "agents.difficulty.hard", `["opus"]`)
+			done <- err
+		}()
+		if !waiting(done) {
+			t.Fatal("the change answered while the publish ran")
+		}
+		if len(f.messages()) != 0 {
+			t.Fatalf("committed %q while the publish ran", f.messages())
+		}
+		r.released(ctx)
+		if err := <-done; err != nil {
+			t.Fatalf("the change after the publish: %v", err)
+		}
+		if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: agents.difficulty.hard") {
+			t.Errorf("commits %q, want the change's", got)
+		}
+	})
 }
 
 // A repeated call id waits for the call in flight (configMu is taken before the stored-reply lookup): the second
-// gets the first's reply and nothing is written or committed again.
+// gets the first's reply and nothing is written or committed again. The wait stays real time: a goroutine blocked on
+// configMu is not durably blocked, so a bubble's clock would stand still and its fake 200 ms would never come.
 func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 	t.Parallel()
 	h, f := configRig(t)

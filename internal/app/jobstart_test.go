@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"obor/internal/app/event"
@@ -588,55 +589,59 @@ func gateDone(r *concRig, task, outcome string) {
 
 // The reviewer's TestRV44DeliveryReleasesLiveLaunch, fixed: a worker that fetches its job while its start runs gets
 // the job, but the start goes on in its step: no result before the launch's, a drop is refused, and the merge
-// loop's shutdown waits for the launch.
+// loop's shutdown waits for the launch. The waits are fake time: the launch holds the bubble's clock still.
 func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 	t.Parallel()
-	r, p, f := heldRig(t, "pj-l-02")
-	dispatchT2(r)
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
-	r.run()
-	select {
-	case <-f.entered:
-	case <-time.After(10 * time.Second):
-		t.Fatal("T-2's start never began")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		r, p, f := heldRig(t, "pj-l-02")
+		t.Cleanup(r.closeLogs)
+		dispatchT2(r)
+		r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
+		r.run()
+		select {
+		case <-f.entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("T-2's start never began")
+		}
 
-	raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
-		CallID: "fetched"}, Lane: "L-02"})
-	var job wire.JobReply
-	_ = json.Unmarshal([]byte(raw), &job)
-	if err != nil || job.State != "job" || job.Job != "T-2/1/work" {
-		t.Fatalf("job_next during the start: %s, %v; want T-2/1/work", raw, err)
-	}
-	time.Sleep(200 * time.Millisecond) // a delivery shortcut would have ended the start by now
-	if n := r.count("pj", "T-2", event.KindResult, event.StepStartWork); n != 0 {
-		t.Errorf("the start's result written while its launch runs (%d)", n)
-	}
-	if a := r.dropWithin("pj", "T-2", "drop"); a.err == nil || !strings.Contains(a.err.Error(), "T-2 has the dispatch running; retry when it settles") {
-		t.Errorf("drop while the launch runs: %q, %v; want refused", a.reply, a.err)
-	}
-	r.cancel()
-	select {
-	case <-r.done:
-		t.Error("the merge loop's shutdown returned while the launch runs")
-	case <-time.After(200 * time.Millisecond):
-	}
-	close(f.release)
-	select {
-	case <-r.done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the merge loop did not stop once the launch returned")
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.returned || f.starts != 1 {
-		t.Errorf("launch returned %v, starts %d; want the one launch ended before the loop", f.returned, f.starts)
-	}
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
+			CallID: "fetched"}, Lane: "L-02"})
+		var job wire.JobReply
+		_ = json.Unmarshal([]byte(raw), &job)
+		if err != nil || job.State != "job" || job.Job != "T-2/1/work" {
+			t.Fatalf("job_next during the start: %s, %v; want T-2/1/work", raw, err)
+		}
+		time.Sleep(200 * time.Millisecond) // a delivery shortcut would have ended the start by now
+		if n := r.count("pj", "T-2", event.KindResult, event.StepStartWork); n != 0 {
+			t.Errorf("the start's result written while its launch runs (%d)", n)
+		}
+		if a := r.dropWithin("pj", "T-2", "drop"); a.err == nil || !strings.Contains(a.err.Error(), "T-2 has the dispatch running; retry when it settles") {
+			t.Errorf("drop while the launch runs: %q, %v; want refused", a.reply, a.err)
+		}
+		r.cancel()
+		select {
+		case <-r.done:
+			t.Error("the merge loop's shutdown returned while the launch runs")
+		case <-time.After(200 * time.Millisecond):
+		}
+		close(f.release)
+		select {
+		case <-r.done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the merge loop did not stop once the launch returned")
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if !f.returned || f.starts != 1 {
+			t.Errorf("launch returned %v, starts %d; want the one launch ended before the loop", f.returned, f.starts)
+		}
+	})
 }
 
 // The reviewer's TestRV44IntegratorStartOwnership, fixed: two tasks whose jobs need the integrator, which does not
 // run: one pass starts it once (the second task's step waits for the first's start); the second job then waits for
-// the first job's verdict (nothing typed into the session the first job runs in, no second start).
+// the first job's verdict (nothing typed into the session the first job runs in, no second start). The waits are fake
+// time: the start holds the bubble's clock still.
 func TestIntegratorStartsOneAtATime(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, first, second, job string }{
@@ -646,47 +651,50 @@ func TestIntegratorStartsOneAtATime(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r, p, f := heldRig(t, "")
-			gateDone(r, "T-1", c.first)
-			gateDone(r, "T-5", c.second)
-			r.a.mu.Lock()
-			delete(r.a.obs, "w1:p9") // no integrator runs
-			r.a.mu.Unlock()
-			passed := make(chan struct{})
-			go func() { r.a.advance(context.Background()); close(passed) }()
-			select {
-			case agent := <-f.entered:
-				if agent != "pj-int" {
-					t.Fatalf("started %s; want pj-int", agent)
+			synctest.Test(t, func(t *testing.T) {
+				r, p, f := heldRig(t, "")
+				t.Cleanup(r.closeLogs)
+				gateDone(r, "T-1", c.first)
+				gateDone(r, "T-5", c.second)
+				r.a.mu.Lock()
+				delete(r.a.obs, "w1:p9") // no integrator runs
+				r.a.mu.Unlock()
+				passed := make(chan struct{})
+				go func() { r.a.advance(context.Background()); close(passed) }()
+				select {
+				case agent := <-f.entered:
+					if agent != "pj-int" {
+						t.Fatalf("started %s; want pj-int", agent)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("no integrator start began")
 				}
-			case <-time.After(10 * time.Second):
-				t.Fatal("no integrator start began")
-			}
-			select {
-			case <-f.entered:
-				t.Error("a second integrator start while the first runs")
-			case <-passed:
-				t.Error("the pass ended while its start runs")
-			case <-time.After(200 * time.Millisecond):
-			}
-			close(f.release)
-			select {
-			case <-passed:
-			case <-time.After(10 * time.Second):
-				t.Fatal("the pass did not end")
-			}
-			r.a.effects.Wait()
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if f.starts != 1 || f.most != 1 {
-				t.Errorf("integrator starts %d (at once: %d); want 1", f.starts, f.most)
-			}
-			if len(f.typed) != 0 {
-				t.Errorf("typed %q; want nothing while T-1's job is out", f.typed)
-			}
-			if p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) || p.log.Done(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) {
-				t.Errorf("T-5's %s recorded while T-1's job is out", c.job)
-			}
+				select {
+				case <-f.entered:
+					t.Error("a second integrator start while the first runs")
+				case <-passed:
+					t.Error("the pass ended while its start runs")
+				case <-time.After(200 * time.Millisecond):
+				}
+				close(f.release)
+				select {
+				case <-passed:
+				case <-time.After(10 * time.Second):
+					t.Fatal("the pass did not end")
+				}
+				r.a.effects.Wait()
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				if f.starts != 1 || f.most != 1 {
+					t.Errorf("integrator starts %d (at once: %d); want 1", f.starts, f.most)
+				}
+				if len(f.typed) != 0 {
+					t.Errorf("typed %q; want nothing while T-1's job is out", f.typed)
+				}
+				if p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) || p.log.Done(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) {
+					t.Errorf("T-5's %s recorded while T-1's job is out", c.job)
+				}
+			})
 		})
 	}
 }

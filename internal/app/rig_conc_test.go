@@ -86,7 +86,8 @@ func (r *admitRig) released(ctx context.Context) {
 	r.h.pass(ctx)
 }
 
-// waiting: done has not answered within a short wait (the call waits for the publish).
+// waiting: done has not answered within a short wait (the call waits for the publish). The 200 ms is the bubble's
+// clock in a bubble, real time outside one (a wait on a mutex holds the bubble's clock still).
 func waiting[T any](done chan T) bool {
 	select {
 	case <-done:
@@ -477,6 +478,13 @@ func (r *concRig) stop() {
 	case <-r.done:
 	case <-time.After(10 * time.Second):
 		r.t.Fatal("the merge loop did not stop")
+	}
+}
+
+// closeLogs closes each project's database: a rig in a bubble registers it so no store goroutine outlives the bubble.
+func (r *concRig) closeLogs() {
+	for _, a := range r.apps {
+		a.closeLog()
 	}
 }
 

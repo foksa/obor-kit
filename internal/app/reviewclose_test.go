@@ -212,7 +212,8 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 }
 
 // A repeated close call id waits for the close in flight (configMu is taken before the stored-reply lookup): the
-// second gets the first's CLOSED reply and commits nothing again.
+// second gets the first's CLOSED reply and commits nothing again. The wait stays real time: a goroutine blocked on
+// configMu is not durably blocked, so a bubble's clock would stand still and its fake 200 ms would never come.
 func TestReviewCloseSameCallWhileInFlight(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
