@@ -82,7 +82,7 @@ func terminalOn(cfg *config.Config, env project.Env, kinds func() agents.Kinds) 
 }
 
 // serveTerminal is t as serve watches it: on hc, each subscribe first starts a core that is down from serve's own
-// environment scrubbed, and refuses a core whose environment holds a HERDR_ or OBOR_ name (hc.Core); obor's other
+// environment scrubbed, and refuses a core whose environment holds another terminal's identity (hc.Core); obor's other
 // commands only dial. herdr's is t.
 func serveTerminal(cfg *config.Config, t port.Terminal) port.Terminal {
 	if p, ok := t.Panes.(hc.Panes); ok && cfg.TerminalKind() == config.TerminalHC {
@@ -122,8 +122,8 @@ func adopter(term port.Terminal, root string) func(ctx context.Context) (int, er
 }
 
 // terminalProbes are what detectTerminal asks of the machine: whether herdr answers, and whether hc's core does
-// (answers) with the HERDR_ and OBOR_ names its environment holds (leaked: a core started from a pane). Both only
-// dial; nothing starts a core.
+// (answers) with the identity names of other terminals its environment holds (leaked: a core started from a pane).
+// Both only dial; nothing starts a core.
 type terminalProbes struct {
 	herdr func(ctx context.Context) bool
 	hc    func(ctx context.Context) (answers bool, leaked []string)
@@ -149,12 +149,23 @@ func realProbes(env project.Env) terminalProbes {
 
 // detectTerminal is the terminal a new project gets (obor init; the caller decides it once, before any write, only
 // when the project has no config): flag (--terminal) when set; else the one the caller sits in (callerTerminal:
-// REX_BLOCK: rex, HC_TERMINAL_ID: hc, HERDR_PANE_ID: herdr); hc's and herdr's both set: herdr, unless hc's core holds a
-// pane's identity (a FAIL); none set: the one of herdr and hc that answers, herdr when both do (line says how to get
-// hc), neither answering is a FAIL. Rex is never probed: a rex call from outside a block reaches the default server.
+// REX_BLOCK: rex, HC_TERMINAL_ID: hc, HERDR_PANE_ID: herdr); HC_TERMINAL_ID with REX_BLOCK: rex, unless hc's core holds
+// REX_BLOCK (an hc terminal made by a core started from a Rex block: a FAIL); hc's and herdr's both set: herdr, unless
+// hc's core holds a pane's identity (a FAIL); none set: the one of herdr and hc that answers, herdr when both do (line
+// says how to get hc), neither answering is a FAIL. Rex is never probed: a rex call from outside a block reaches the
+// default server.
 func detectTerminal(ctx context.Context, env project.Env, flag string, p terminalProbes) (kind, line string, err error) {
 	if flag != "" {
 		return flag, "", nil
+	}
+	// An hc terminal inherits its core's environment: a core started from a Rex block gave it that block's REX_BLOCK,
+	// which callerTerminal would take for Rex. The block itself, whose own REX_BLOCK Rex set, has a clean core: only the
+	// core's names decide that the caller sits in an hc terminal.
+	if env.Get(paneVarOf(config.TerminalHC)) != "" && env.Get(paneVarOf(config.TerminalRex)) != "" {
+		if _, leaked := p.hc(ctx); slices.Contains(leaked, paneVarOf(config.TerminalRex)) {
+			return "", "", project.Failf("terminal: %s and %s are both set: %s (its environment holds %s)",
+				paneVarOf(config.TerminalHC), paneVarOf(config.TerminalRex), hc.LeakLine, strings.Join(leaked, ", "))
+		}
 	}
 	if k := callerTerminal(env); k != "" {
 		return k, "", nil

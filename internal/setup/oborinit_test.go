@@ -325,12 +325,12 @@ func TestOborInitChecksTheTerminalFirstAndNamesItWhenUnreachable(t *testing.T) {
 	s, out = x.newSetup(t)
 	s.Dir = x.Root
 	s.Check = func(context.Context) (string, error) {
-		return "hc's core environment holds no HERDR_ or OBOR_ name", nil
+		return "hc's core environment holds no other terminal's or agent's identity", nil
 	}
 	if rc := s.Run(context.Background(), []string{"obor-init", "--terminal", "hc"}); rc != 0 {
 		t.Fatalf("a clean core: exit %d\n%s", rc, out)
 	}
-	if got := summary(out.String(), "terminal"); got != "done hc: hc's core environment holds no HERDR_ or OBOR_ name" {
+	if got := summary(out.String(), "terminal"); got != "done hc: hc's core environment holds no other terminal's or agent's identity" {
 		t.Errorf("the terminal step %q", got)
 	}
 

@@ -161,6 +161,11 @@ func TestDetectTerminal(t *testing.T) {
 			herdr: true, kind: "rex"},
 		{name: "rex block with inherited herdr and hc names", env: map[string]string{"REX_BLOCK": "block:1",
 			"HERDR_PANE_ID": "p1", "HC_TERMINAL_ID": "t1"}, herdr: true, hc: true, leaked: []string{"HERDR_PANE_ID"}, kind: "rex"},
+		{name: "hc terminal made by a core started from a rex block", env: map[string]string{"HC_TERMINAL_ID": "t7",
+			"REX_BLOCK": "block:old"}, hc: true, leaked: []string{"REX_BLOCK", "REX_SESSION"},
+			bad: "FAIL terminal: HC_TERMINAL_ID and REX_BLOCK are both set: " + hc.LeakLine + " (its environment holds REX_BLOCK, REX_SESSION)"},
+		{name: "hc terminal with a rex block, core clean", env: map[string]string{"HC_TERMINAL_ID": "t7",
+			"REX_BLOCK": "block:1"}, hc: true, kind: "rex"},
 		{name: "flag herdr beats a rex block", env: map[string]string{"REX_BLOCK": "block:1"}, flag: "herdr", kind: "herdr"},
 		{name: "flag rex beats herdr's pane", env: map[string]string{"HERDR_PANE_ID": "p1"}, flag: "rex", herdr: true, kind: "rex"},
 	} {

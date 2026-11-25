@@ -7,9 +7,9 @@ import (
 )
 
 // check is `obor setup check`: the project's terminal's own check (Check), read-only. On hc it reads the core's
-// environment and fails when it holds a HERDR_ or OBOR_ name (a core started from an obor pane gives every terminal
-// that pane's identity); on Rex it finds the rex CLI on PATH and fails naming the app bundle's directory to put there
-// (obor never runs it from the bundle); herdr has no check of its own.
+// environment and fails when it holds another terminal's identity (a core started from an obor pane or another
+// terminal gives every terminal that one's identity); on Rex it finds the rex CLI on PATH and fails naming the app
+// bundle's directory to put there (obor never runs it from the bundle); herdr has no check of its own.
 func (s *Setup) check(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage

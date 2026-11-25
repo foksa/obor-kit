@@ -5,24 +5,20 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"obor/internal/config"
+	"obor/internal/project"
 )
 
 // env.go: a block's environment. A Rex block inherits the server's whole environment (docs/research/rex-probes.md
-// R4), so whoever started the server (an obor pane, a Claude session) leaks its identity into every agent. Every block
-// obor makes therefore starts its shell through `env -u` for each such name in the server's environment as a block
-// reports it (envProbe: a detached block that runs /usr/bin/env), then sets the block's own variables; obor's own
-// identity is then set by launch's env line, as on any terminal. A block's options take no environment of their own.
+// R4), so whoever started the server (an obor pane, another terminal, a Claude session) leaks its identity into every
+// agent. Every block obor makes therefore starts its shell through `env -u` for each identity name of another terminal
+// in the server's environment as a block reports it (envProbe: a detached block that runs /usr/bin/env), then sets the
+// block's own variables; obor's own identity is then set by launch's env line, as on any terminal. A block's options
+// take no environment of their own.
 
-// scrubPrefixes and scrubNames are the names no block obor makes keeps from the server's environment: obor's, herdr's
-// and hc's pane identity, and a Claude session's (whose markers put a Claude started in the block into its
-// parent's permission mode).
-var (
-	scrubPrefixes = []string{"OBOR_", "HERDR_", "HC_", "CLAUDE_CODE_"}
-	scrubNames    = []string{"CLAUDECODE"}
-)
-
-// scrubbed is the names of environ (NAME=VALUE lines, as `env` prints them; any other line is skipped) that no block
-// may keep, sorted, each once.
+// scrubbed is the identity names of other terminals (project.ForeignIdentity, Rex's own REX_BLOCK and REX_SESSION
+// excepted) that environ (NAME=VALUE lines, as `env` prints them; any other line is skipped) holds, sorted, each once.
 func scrubbed(environ []string) []string {
 	var out []string
 	for _, line := range environ {
@@ -30,11 +26,7 @@ func scrubbed(environ []string) []string {
 		if !ok || name == "" || strings.ContainsAny(name, " \t") {
 			continue
 		}
-		hit := slices.Contains(scrubNames, name)
-		for _, p := range scrubPrefixes {
-			hit = hit || strings.HasPrefix(name, p)
-		}
-		if hit && !slices.Contains(out, name) {
+		if project.ForeignIdentity(config.TerminalRex, name) && !slices.Contains(out, name) {
 			out = append(out, name)
 		}
 	}

@@ -86,7 +86,7 @@ func (s *Status) report() progstatus.Report {
 type Panes struct {
 	C *Client
 	// Core, when set, is serve's hold on the core (env.go): each Subscribe first starts a core that is down and refuses
-	// one whose environment holds a HERDR_ or OBOR_ name. nil: a subscribe only dials.
+	// one whose environment holds another terminal's identity. nil: a subscribe only dials.
 	Core *Core
 	// Notifier shows Notify's notification (osnotify: on macOS, osascript).
 	Notifier osnotify.Notifier

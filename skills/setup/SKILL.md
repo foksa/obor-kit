@@ -65,12 +65,14 @@ own check (`OK check: …` or `FAIL …`).
   (optional, user-global) saves that double start. `obor setup check` has nothing of its own to check.
 - **hc** (herdr-core, experimental, hc ≥ 0.1.21): obor lays herdr-app out like herdr (a space for the project, tabs
   `lead`, `lanes`, `roles`) and places each terminal by its labels. `obor setup check` reads hc's core environment and
-  fails when it holds a `HERDR_` or `OBOR_` name (a core started from an obor pane gives every terminal that pane's
-  identity): run `hc server restart --fresh` from a shell outside any pane. obor serve starts a core that is down from
-  a scrubbed environment and never restarts or stops one that runs. Codex runs with `--no-daemon` and OpenCode with
+  fails when it holds another terminal's identity (`HERDR_`, `OBOR_`, `REX_`, a Claude session's markers: a core
+  started from an obor pane, another terminal or a Claude session gives every terminal that one's identity): run
+  `hc server restart --fresh` from a shell outside any pane. obor serve starts a core that is down from a scrubbed
+  environment and never restarts or stops one that runs. Codex runs with `--no-daemon` and OpenCode with
   `--standalone` there (`obor config validate` refuses a model without them).
 - **rex** (Rex, experimental): the project is a Rex session labelled with its name, a tab a window, a pane a terminal
   block; obor drives the server the `rex` CLI reaches by default. `obor setup check` (and `obor init`, serve's
   connect) fails when no `rex` is on `PATH`: put `/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS`
   there (obor never runs it from the bundle itself). A block inherits the Rex server's whole environment, so every
-  block obor makes drops the server's `OBOR_`, `HERDR_`, `HC_` and Claude session names before its own.
+  block obor makes drops the identity names of other terminals (`OBOR_`, `HERDR_`, `HC_TERMINAL_`, a Claude session's
+  markers) before its own; Rex's own `REX_BLOCK` and `REX_SESSION` stay.
