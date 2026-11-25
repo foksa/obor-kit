@@ -235,7 +235,7 @@ func TestServeTerminalKindsFollowTheLastPass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cl := term.Control.(*hc.Client)
+	cl := term.Setup.(*hc.Client)
 	if _, ok := cl.Kinds().Lookup("opencode"); ok {
 		t.Fatal("precondition: the terminal's kinds hold opencode before any pass")
 	}

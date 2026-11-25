@@ -24,7 +24,8 @@ import (
 // terminalKind is one terminal kind's row, the one table of what differs by kind (terminals): PaneVar the variable its
 // terminal sets in every pane (config.TerminalPaneVars), Env the variables a caller's serve needs to reach it, Group
 // what it calls a pane's group, Build its adapter for env and a function of the project's agent kinds
-// (config.Config.Kinds), which the adapter calls at each use.
+// (config.Config.Kinds), which the adapter calls at each use; the adapter's Control is the kind's pane operations behind
+// port.GuardPrompts, so every prompt on every kind passes obor's blocked-pane rule.
 type terminalKind struct {
 	Name    string
 	PaneVar string
@@ -37,13 +38,13 @@ var terminals = []terminalKind{
 	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Env: herdr.EnvNames,
 		Group: "workspace", Build: func(env project.Env, _ func() agents.Kinds) port.Terminal {
 			s := &herdr.Socket{Path: herdr.SocketPath(env)}
-			return port.Terminal{Panes: herdr.Panes{S: s}, Control: s, Setup: &herdr.Setup{Socket: s, Env: env}}
+			return port.Terminal{Panes: herdr.Panes{S: s}, Control: port.GuardPrompts(s), Setup: &herdr.Setup{Socket: s, Env: env}}
 		}},
 	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Env: hc.EnvNames, Group: "space",
 		Build: func(env project.Env, kinds func() agents.Kinds) port.Terminal {
 			cl := hc.New(env)
 			cl.Kinds = kinds
-			return port.Terminal{Panes: hc.Panes{C: cl}, Control: cl, Setup: cl, Check: cl.Check}
+			return port.Terminal{Panes: hc.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
 		}},
 }
 

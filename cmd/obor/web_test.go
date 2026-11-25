@@ -71,12 +71,12 @@ func TestWebProcessPicksEachProjectsTerminal(t *testing.T) {
 		t.Fatalf("precondition: the hc project's config names hc: %v", err)
 	}
 	ht, err := webTerminal(env, onHC.Root)
-	if cl, ok := ht.Control.(*hc.Client); err != nil || !ok || cl.Path != "/tmp/hc.sock" {
-		t.Errorf("the hc project's terminal: control %T, %v; want hc's client of /tmp/hc.sock", ht.Control, err)
+	if cl, ok := ht.Panes.(hc.Panes); err != nil || !ok || cl.C.Path != "/tmp/hc.sock" {
+		t.Errorf("the hc project's terminal: panes %T, %v; want hc's client of /tmp/hc.sock", ht.Panes, err)
 	}
 	dt, err := webTerminal(env, onHerdr.Root)
-	if s, ok := dt.Control.(*herdr.Socket); err != nil || !ok || s.Path != "/tmp/herdr.sock" {
-		t.Errorf("the herdr project's terminal: control %T, %v; want herdr's socket /tmp/herdr.sock", dt.Control, err)
+	if p, ok := dt.Panes.(herdr.Panes); err != nil || !ok || p.S.Path != "/tmp/herdr.sock" {
+		t.Errorf("the herdr project's terminal: panes %T, %v; want herdr's socket /tmp/herdr.sock", dt.Panes, err)
 	}
 	if webProcess(env)(onHC.Root) == nil || webProcess(env)(onHerdr.Root) == nil {
 		t.Errorf("webProcess reads no process info of a project whose terminal builds")

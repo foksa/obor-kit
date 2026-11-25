@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/hc"
 	"obor/internal/hc/hctest"
 	"obor/internal/herdrapp/herdrapptest"
@@ -21,8 +22,8 @@ func shellCore() *hctest.Core {
 }
 
 // contractTerminal is hc's adapter over shellCore, the herdr-app window bridged to it (its new tabs' terminals start
-// on the core): the terminal every contract row runs against. hc's read is one
-// text (Recent is Screen), so it has no stale view to make (Stale nil).
+// on the core), as cmd/obor builds the terminal: the guard in front of its Prompt. That is the terminal every contract
+// row runs against. hc's read is one text (Recent is Screen), so it has no stale view to make (Stale nil).
 func contractTerminal() testkit.Terminal {
 	core, win := shellCore(), herdrapptest.New()
 	win.StartTerminals(core.AppTerminals(false))
@@ -30,7 +31,7 @@ func contractTerminal() testkit.Terminal {
 	c.App = win.Client()
 	// The notify row shows nothing on the machine running the tests: its notifier is a stub.
 	panes := hc.Panes{C: c, Notifier: func(context.Context, string, string) error { return nil }}
-	return testkit.Terminal{Control: c, Setup: c, Panes: panes, Group: "proj", Cwd: "/proj"}
+	return testkit.Terminal{Control: port.GuardPrompts(c), Setup: c, Panes: panes, Group: "proj", Cwd: "/proj"}
 }
 
 // TestTerminalContract runs the terminal contract (testkit.Contract) against hc's adapter over hctest, as

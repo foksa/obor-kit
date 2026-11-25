@@ -36,10 +36,10 @@ func TestTerminalSelectsHC(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, ok := term.Panes.(hc.Panes)
-	cl, cok := term.Control.(*hc.Client)
-	if !ok || !cok || p.C != cl || cl.Path != "/tmp/hc.sock" || term.Setup == nil || term.Check == nil {
-		t.Fatalf("hc's terminal: panes %T, control %T, setup %T, check set %v; want hc's over one client of /tmp/hc.sock",
-			term.Panes, term.Control, term.Setup, term.Check != nil)
+	cl, cok := term.Setup.(*hc.Client) // the client its Control prompts through, behind port.GuardPrompts
+	if !ok || !cok || p.C != cl || cl.Path != "/tmp/hc.sock" || term.Check == nil {
+		t.Fatalf("hc's terminal: panes %T, setup %T, check set %v; want hc's over one client of /tmp/hc.sock",
+			term.Panes, term.Setup, term.Check != nil)
 	}
 	if p.Core != nil {
 		t.Errorf("the commands' terminal holds the core: only serve's starts one")

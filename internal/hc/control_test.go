@@ -2,7 +2,6 @@ package hc_test
 
 import (
 	"context"
-	"errors"
 	"maps"
 	"slices"
 	"testing"
@@ -25,43 +24,23 @@ func agentCore(s *hc.Status) *hctest.Core {
 	return core
 }
 
-// The refusals Prompt decides itself, before any key: a terminal whose program reports no status runs no agent (not
-// found), a blocked agent is refused (a key would answer its dialog), and hc's own blocked answer to the send is
-// the refusal too; each with began false.
-func TestPromptRefusals(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		core  *hctest.Core
-		clear bool // ctrl+u first: pressed only once the read let the prompt through
-		check func(err error) bool
-	}{
-		{"no agent", shellCore(), true, port.NotFound},
-		{"blocked", agentCore(&hc.Status{State: "blocked", Kind: "permission", Msg: "approve Bash: touch f"}), true, blocked},
-		{"blocked at the send", func() *hctest.Core {
-			core := agentCore(&hc.Status{State: "idle", App: "claude-code"})
-			core.Fail("terminal.send", "blocked") // the agent reported a dialog after the read
-			return core
-		}(), false, blocked},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			began, err := tc.core.Client().Prompt(ctx, "t1", "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)", tc.clear)
-			if began || !tc.check(err) {
-				t.Errorf("Prompt = began %v, %v; want a refusal before any typing", began, err)
-			}
-			if got := tc.core.Sent("t1"); len(got) != 0 {
-				t.Errorf("typed %q, want nothing", got)
-			}
-			if got := tc.core.Keys("t1"); len(got) != 0 {
-				t.Errorf("pressed %q, want nothing", got)
-			}
-		})
+// hc's own answer is the backstop in front of which obor's guard reads the pane: a send refused with kind blocked (the
+// agent reported a dialog after that read) is refused as Blocked before any typing. Prompt reads no pane itself.
+func TestPromptBlocked(t *testing.T) {
+	core := agentCore(&hc.Status{State: "blocked", Kind: "permission", Msg: "approve Bash: touch f"})
+	began, err := core.Client().Prompt(ctx, "t1", "[obor job T-1/1/work] call the obor job_next tool now (connected; it returns your job)", false)
+	if began || !port.Blocked(err) {
+		t.Fatalf("Prompt of a blocked agent = began %v, %v; want hc's refusal as Blocked", began, err)
 	}
-}
-
-// blocked: err is hc's (or obor's) blocked refusal.
-func blocked(err error) bool {
-	var e *hc.Error
-	return errors.As(err, &e) && e.Kind == "blocked"
+	if reqs := core.Requests(); slices.Contains(reqs, "terminal.get") {
+		t.Errorf("Prompt read the pane (%q); the guard in front of every terminal's Prompt does", reqs)
+	}
+	if got := core.Sent("t1"); len(got) != 0 {
+		t.Errorf("typed %q, want nothing", got)
+	}
+	if got := core.Keys("t1"); len(got) != 0 {
+		t.Errorf("pressed %q, want nothing", got)
+	}
 }
 
 // A send appends to the terminal's unsent input (P2), so Prompt with clear presses ctrl+u before it: the agent gets

@@ -70,6 +70,10 @@ func (e *Error) Unavailable() bool { return e.down }
 func (e *Error) Refreshed() bool   { return e.refresh }
 func (e *Error) Answered() bool    { return e.Kind != "" }
 
+// Blocked: hc refused a send because the agent in the pane waits at a dialog (kind blocked): typing would answer it
+// (port.Blocked).
+func (e *Error) Blocked() bool { return e.Kind == "blocked" }
+
 func (e *Error) Error() string {
 	if e.Kind != "" {
 		return fmt.Sprintf("hc %s: %s (%s)", e.Op, e.Msg, e.Kind)

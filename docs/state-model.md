@@ -156,7 +156,7 @@ next pass writes the result it had; after a restart its crash class settles it.
 | `lane.free[.N]` (a dropping task) | freed (the lane adapter's line); `Refused` (dirty, or commits not in the target, without `--discard`) → `needs-you{lane: …}` (`obor drop --discard` or `obor resume`); a failed git read (branch, ancestry or unmerged commits) is a retryable error, never a free | git I/O, the config's read |
 | `lane.prepare[.N]` | the base sha; `Refused` (no lane dir, lane_setup red, lane_ready still red) → `needs-you{lane: …}` | git I/O, a state-dir write |
 | `agent.start[.N]` (a worker) | started; `Refused` (background tasks without force; a live agent in another pane holds the name; a replay that cannot tell, row 4) → `needs-you{start: …}` | any other launcher error |
-| `work[.N]`, `retry.work[.N]` | `sent`; `sent: <error>` (typing began, then an error); `sent (start prompt)` (the start it ran under started its agent) | refused before typing (herdr's refusal incl. `agent_blocked`, no connection, the clear failing) |
+| `work[.N]`, `retry.work[.N]` | `sent`; `sent: <error>` (typing began, then an error); `sent (start prompt)` (the start it ran under started its agent) | refused before typing (the guard's `NotFound` or `Blocked`, hc's or herdr's own refusal, no connection, the clear failing) |
 | `start.<job>[.N]` | started (it carried the job's wake: the job's result `sent (start prompt)`), `running` (it ran: no wake carried, the wake typed) | a launcher error |
 | `review`, `resolve`, `fix`, `retry.<job>`, `nudge.<job>` | `sent`; `sent: <error>` (typing began, then an error); a lane with no worker agent is `needs-you{fix job … not sent: the lane names no worker agent}` (no prompt) | refused before typing (as `work`) |
 | `nightly.<YYYY-MM-DD>` (row 45) | `{sha, GREEN\|RED, line}` | `obor nightly`'s FAIL (the lock, the worktree, git), ctx |
@@ -188,11 +188,12 @@ job)` (a nudge's reminder line before it): one constant line, harmless typed twi
 helper `App.send` (`internal/app/prompt.go`) sends it under its key: posted to the agent's session when its pane's kind
 has an inbox (Claude, OpenCode, agy: `agents.Caps.Inbox`) and its session an inbox record (`Loop.Inbox.Post`), else
 typed into the pane `whereIs` resolves right before the send (row 48; never herdr's agent name), its input line cleared
-first (`Loop.Prompter.Prompt`, `herdr.Socket.Prompt`: `ctrl+u`, then `agent.prompt`, no key after it: a bare Enter could
-choose a dialog option). Not identified (two panes claim the agent, none proves it, not connected): nothing sent or
-recorded, the key stays pending. Refused before a byte went out (herdr's refusal, no connection, a refused dial, the
-clear failing): a counted failure (the failure rule), sent again under its key. A byte went out, then an error:
-result `sent: <error>`. The proof of delivery is the agent's `job_next` (fact `delivered`), never the send; the
+first (`Loop.Prompter.Prompt`, every terminal's `Prompt` behind `port.GuardPrompts`: one read of the pane — no agent, or
+blocked — then `ctrl+u` and the terminal's send, no key after it: a bare Enter could choose a dialog option). Not
+identified (two panes claim the agent, none proves it, not connected): nothing sent or recorded, the key stays pending.
+Refused before a byte went out (the guard's `NotFound` or `Blocked`, herdr's or hc's own refusal, no connection, a
+refused dial, the clear failing): a counted failure (the failure rule), sent again under its key. A byte went out, then
+an error: result `sent: <error>`. The proof of delivery is the agent's `job_next` (fact `delivered`), never the send; the
 delivery timers (rows 7–8) send the wake again until then, then tell the owner. A pending prompt intent (a crash) is sent again by the step that reaches it; nothing settles it
 on replay. Lines (row 47) take the same transport (`transmit`), without the clear.
 

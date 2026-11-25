@@ -267,13 +267,16 @@ vulncheck:
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, hctest, testkit) is excepted, and so is internal/hc: no project selects that adapter yet
 # (docs/plan/herdr-core.md step 4 builds it in cmd/obor/terminal.go and drops this exception). The prompts table's path readers stay for the hooks and CLIs (obor web
-# reads with a store handle it opens itself, view.Load's). -tags conformance,release,integration:
+# reads with a store handle it opens itself, view.Load's). port.Blocked is the port's predicate of a blocked refusal:
+# the prompt guard's refusal answers it, and the tests of the guard and of each adapter's native refusal read it.
+# -tags conformance,release,integration:
 # tests/conformance's main and tests/release are behind those tags, and their untagged files (conformance's report.go)
 # are reached only from them; integration is the gate's tag too, so a tagged file is analysed as it is tested.
 deadcode:
 	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release,integration ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/hctest/' -e '/testkit/' -e '^internal/hc/' \
 	  -e '^internal/herdrapp/' -e '^internal/app/layout/' \
+	  -e '^internal/app/port/terminal\.go:[0-9:]*: unreachable func: Blocked$$' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 

@@ -48,6 +48,66 @@ type PaneControl interface {
 	Named(ctx context.Context, name string) (Pane, error)
 }
 
+// GuardPrompts is c with obor's rule in front of Prompt: a pane that runs no agent is refused as NotFound, a blocked one
+// as Blocked (its Note in the message), before any key; else c's own Prompt types, as its terminal does. The rule is
+// applied where the terminal is built, so every prompt of the core passes it on every terminal kind, and a terminal
+// that starts agents keeps that start (launch asks its PaneControl for it).
+func GuardPrompts(c PaneControl) PaneControl {
+	g := guarded{c}
+	if st, ok := c.(AgentStarter); ok {
+		return guardedStart{guarded: g, st: st}
+	}
+	return g
+}
+
+// guarded is c's pane operations with the rule in front of Prompt: the wrapper a terminal without an agent start of its
+// own gets.
+type guarded struct{ PaneControl }
+
+// Prompt is the rule, then c's own Prompt: one read of the pane (its agent, its blocked status and Note) before any
+// key, so a dialog is never answered and a pane that runs no agent gets no text.
+func (g guarded) Prompt(ctx context.Context, pane, text string, clear bool) (bool, error) {
+	p, err := g.Pane(ctx, pane)
+	switch {
+	case err != nil:
+		return false, err
+	case p.Agent == "":
+		return false, &noAgent{pane}
+	case p.Status == "blocked":
+		return false, &blockedPane{pane: pane, note: p.Note}
+	}
+	return g.PaneControl.Prompt(ctx, pane, text, clear)
+}
+
+// guardedStart is guarded over a terminal that starts agents: its Start types nothing, so it keeps the terminal's own.
+type guardedStart struct {
+	guarded
+	st AgentStarter
+}
+
+func (g guardedStart) Start(ctx context.Context, a AgentStart) (Pane, error) {
+	return g.st.Start(ctx, a)
+}
+
+// noAgent is GuardPrompts' refusal of a pane that runs no agent (NotFound): nothing was typed.
+type noAgent struct{ pane string }
+
+func (e *noAgent) Error() string  { return e.pane + " runs no agent" }
+func (e *noAgent) NotFound() bool { return true }
+
+// blockedPane is GuardPrompts' refusal of a pane whose agent waits at a dialog (Blocked): a key would answer it. note is
+// the terminal's own line on the status (port.Pane.Note), absent when it gives none.
+type blockedPane struct{ pane, note string }
+
+func (e *blockedPane) Error() string {
+	if e.note == "" {
+		return e.pane + " is blocked: typing would answer its dialog"
+	}
+	return e.pane + " is blocked (" + e.note + "): typing would answer its dialog"
+}
+
+func (e *blockedPane) Blocked() bool { return true }
+
 // AgentStarter is a terminal's own start of an agent CLI in a pane whose shell has the agent's env and cwd already
 // (launch typed its env line there): launch asks the terminal's PaneControl for it. Start returns once the agent runs
 // in the pane, the pane as the terminal then shows it (its ID may be another pane than s.Pane: the agent runs there).
@@ -100,6 +160,13 @@ func PaneBusy(err error) bool {
 func NotReady(err error) bool {
 	var e interface{ NotReady() bool }
 	return errors.As(err, &e) && e.NotReady()
+}
+
+// Blocked: err says the agent in the pane waits at a dialog, so typing would answer it (an error in the chain with
+// Blocked() true).
+func Blocked(err error) bool {
+	var e interface{ Blocked() bool }
+	return errors.As(err, &e) && e.Blocked()
 }
 
 // NameHeld: err says a start was refused for good because a live agent in another pane holds the agent's name; it
