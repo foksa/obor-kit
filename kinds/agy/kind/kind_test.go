@@ -67,14 +67,15 @@ func stubAGY(t *testing.T, out string, code int) (ran func() bool) {
 	}
 }
 
-// The manifest: obor's hooks through its transport, acting on their answers, a resume, no named session and no session read, the model as an id, the terminal's status,
-// the efforts agy takes, /exit with one Enter and Ctrl+U, -p/--print, --prompt and `agy acp` headless, the
+// The manifest: obor's hooks through its transport, acting on their answers, a resume, no named session and no session read, the model as an id, the terminal's status
+// and the app its agents report (antigravity), the efforts agy takes, /exit with one Enter and Ctrl+U, -p/--print,
+// --prompt and `agy acp` headless, the
 // conversation's transcript.jsonl under HOME, an inbox (TestDeliver), the override file, and the not-ready pattern
 // that fails a start on agy's wrong-model notice (each notice of probes P5) and on no ready screen.
 func TestManifest(t *testing.T) {
 	k := agy(t, t.TempDir())
 	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Inbox: true, HookAnswers: true, Resume: true, ModelArg: true,
-		Transcript: true, Status: agents.StatusTerminal}) {
+		Transcript: true, Status: agents.StatusTerminal, App: "antigravity"}) {
 		t.Errorf("Caps = %+v", c)
 	}
 	if got := k.Efforts(); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {

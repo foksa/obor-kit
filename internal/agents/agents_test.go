@@ -80,6 +80,18 @@ func TestByProgram(t *testing.T) {
 	}
 }
 
+// ByApp finds a kind by the app name its agents report in an OSC 7501 status (P1 of docs/research/hc-probes.md:
+// Claude Code says claude-code, Codex and OpenCode their kind's name, agy antigravity), and no kind by another name,
+// Claude's version (its process title) or "".
+func TestByApp(t *testing.T) {
+	for app, want := range map[string]string{"claude-code": "claude", "codex": "codex", "opencode": "opencode",
+		"antigravity": "agy", "claude": "", "2.1.329": "", "vim": "", "": ""} {
+		if got := agents.ByApp(kinds, app); got != want {
+			t.Errorf("ByApp(%q) = %q, want %q", app, got, want)
+		}
+	}
+}
+
 // Resumes names the kinds that honour a session id: Claude, Codex and OpenCode yes, an unknown kind no.
 func TestResumes(t *testing.T) {
 	for _, c := range []struct {

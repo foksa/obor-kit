@@ -120,7 +120,7 @@ func started(kinds agents.Kinds, r Record, s port.AgentStart) (port.Pane, bool, 
 	switch {
 	case r.Status.State == "blocked":
 		return port.Pane{}, true, &notReady{fmt.Sprintf("hc: the %s agent in %s is blocked at start (%s)", s.Kind, s.Pane,
-			joined(r.Status.Kind, r.Status.Msg))}
+			r.Status.report().Note())}
 	case p.Agent != s.Kind: // a status naming another kind: not this start's agent
 		return port.Pane{}, false, nil
 	case p.Ready(), p.Status == "working" && s.Prompt != "":
