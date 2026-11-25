@@ -65,8 +65,8 @@ func (x Target) target() *target {
 
 // SessionOf is the launch's session step for x: the session resumed ("": fresh), its source, and whether the start
 // records it.
-func (l *Launcher) SessionOf(x Target, req Request) (sid, src string, record bool, err error) {
-	r, err := l.sessionOf(x.target(), req)
+func (l *Launcher) SessionOf(ctx context.Context, x Target, req Request) (sid, src string, record bool, err error) {
+	r, err := l.sessionOf(ctx, x.target(), req)
 	return r.sid, r.src, r.record, err
 }
 
