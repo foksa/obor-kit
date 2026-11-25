@@ -177,15 +177,15 @@ func (a *App) Status() wire.Status {
 	return st
 }
 
-// commandStep is a record's step as the running and pending lines show it: the merge loop's command
-// steps — gate, a lane test, publish the merge, after_merge, the nightly check — by their base name, the nightly one with no task.
-// false: another step's record (a prompt, a start) runs no command the lines show.
+// commandStep is a record's step as the running and pending lines show it: the merge loop's command steps — the step
+// table's command rows (a gate, a lane test, publish the merge, after_merge) — by their base name, and the nightly
+// check, one key a day with no task. false: another step's record (a prompt, a start) runs no command the lines show.
 func commandStep(r event.Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, event.StepNightly+".") {
 		return event.StepNightly, "", true
 	}
-	switch step, _ = event.StepN(r.Step); step {
-	case event.StepGate, event.StepTest, event.StepPublish, event.StepAfterMerge:
+	step, _ = event.StepN(r.Step)
+	if row := stepOf(step); row != nil && row.command {
 		return step, r.Task, true
 	}
 	return "", "", false

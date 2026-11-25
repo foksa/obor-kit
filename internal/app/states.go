@@ -169,6 +169,58 @@ func init() {
 	}
 }
 
+// stepRow is one kernel step's row of kernelSteps: phase what obor status shows while an open intent of it runs
+// ("" when the step has no phase overlay), pending while it waits for its effect, command whether its record is a
+// command step the running and pending lines show (a git effect, no agent), busy the attempt's counter for its key
+// while its open intent makes the task busy (nil: not one), after it is one of a merged task's steps.
+type stepRow struct {
+	step    string
+	phase   string
+	pending string
+	command bool
+	busy    func(mt mtask) int
+	after   bool
+}
+
+// kernelSteps is the step table, one row per kernel step the merge loop runs, in the order a task meets them: the
+// dispatch's, then the merge's, then the after-merge work. busy, stepPhases, commandStep and afterSteps read it (a new
+// kernel step is one row here: TestKernelStepsHaveRows). A step's facts fold as facts and run no step, so they have no
+// row; the nightly check is the project's own, not a task's (commandStep keeps it apart).
+var kernelSteps = []stepRow{
+	// The dispatch's steps and the lane's
+	{step: event.StepPrepare},
+	{step: event.StepStartWork},
+	{step: event.StepWork},
+	{step: event.StepFix},
+	{step: event.StepSync},
+	{step: event.StepWorkerStop},
+	{step: event.StepFree},
+	// The merge loop's steps; a gate, a lane test and a publish are its command steps that run an effect of their own
+	{step: event.StepSubmit},
+	{step: event.StepGate, phase: wire.PhaseGating, pending: wire.PhaseGatePending, command: true,
+		busy: func(mt mtask) int { return mt.gates }},
+	{step: event.StepTest, phase: wire.PhaseTesting, pending: wire.PhaseTestPending, command: true,
+		busy: func(mt mtask) int { return mt.tests }},
+	{step: event.StepPublish, phase: wire.PhaseMerging, pending: wire.PhasePublishPending, command: true,
+		busy: func(mt mtask) int { return mt.pubs }},
+	{step: event.StepReview},
+	{step: event.StepResolve},
+	{step: event.StepUnpin},
+	// A merged task's steps, in the order afterSteps has them
+	{step: event.StepAfterMerge, command: true, after: true},
+	{step: event.StepStop, after: true},
+}
+
+// stepOf is base step's row of the step table (nil: no kernel step).
+func stepOf(step string) *stepRow {
+	for i := range kernelSteps {
+		if kernelSteps[i].step == step {
+			return &kernelSteps[i]
+		}
+	}
+	return nil
+}
+
 // phaseOf is mt's phase now (under mu), the one place obor status, the view and web get it from: phase of its
 // live overlays — a watchdog's needs-you on its task or its lane (blocked), its gate or publish running or pending
 // (steps: stepPhases).
@@ -218,25 +270,25 @@ func (p *proj) blocked(mt *mtask) bool {
 	return false
 }
 
-// stepPhases is, by task, the phase its open gate, lane test or publish gives it (open: the log's open intents):
-// gating, testing or merging while its effect runs, else gate pending, test pending or publish pending (a
-// failed step, a replay to run).
+// stepPhases is, by task, the phase its open gate, lane test or publish gives it (open: the log's open intents): the
+// step table's phase while its effect runs, else its pending phase (a failed step, a replay to run; after_merge has
+// none).
 func (p *proj) stepPhases(open []event.Record) map[string]string {
-	running := map[string]string{event.StepGate: wire.PhaseGating, event.StepTest: wire.PhaseTesting,
-		event.StepPublish: wire.PhaseMerging}
-	pending := map[string]string{event.StepGate: wire.PhaseGatePending, event.StepTest: wire.PhaseTestPending,
-		event.StepPublish: wire.PhasePublishPending}
 	out := map[string]string{}
 	for _, r := range open {
 		step, task, ok := commandStep(r)
-		if !ok || task == "" || running[step] == "" {
+		if !ok || task == "" {
+			continue
+		}
+		row := stepOf(step)
+		if row == nil || row.phase == "" {
 			continue
 		}
 		switch _, runs := p.exec[r.Key()]; {
 		case runs:
-			out[task] = running[step]
+			out[task] = row.phase
 		case out[task] == "":
-			out[task] = pending[step]
+			out[task] = row.pending
 		}
 	}
 	return out
@@ -244,8 +296,8 @@ func (p *proj) stepPhases(open []event.Record) map[string]string {
 
 // busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
 // being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step or lane test runs (p.running, p.tests), or its
-// attempt's next gate, test or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
-// a move's or drop's stop of its worker is pending (recorded, not settled; a refused stop, its
+// attempt's next gate, test or publish intent is open (the step table's busy rows: a step a restart replays; not a
+// needs-you's, which runs no step), or a move's or drop's stop of its worker is pending (recorded, not settled; a refused stop, its
 // needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry when it settles" (busyErr).
 func (p *proj) busy(task string) string {
 	if why := p.claim(task); why != "" {
@@ -267,7 +319,11 @@ func (p *proj) busy(task string) string {
 	if mt.onHold() { // it runs no step: an open intent is the failed step's, which obor resume retries
 		return ""
 	}
-	for _, step := range []string{nth(event.StepGate, mt.gates+1), nth(event.StepTest, mt.tests+1), nth(event.StepPublish, mt.pubs+1)} {
+	for _, row := range kernelSteps {
+		if row.busy == nil {
+			continue
+		}
+		step := nth(row.step, row.busy(mt)+1)
 		if p.log.Open(event.Key{Task: task, Attempt: mt.attempt, Step: step}) {
 			return fmt.Sprintf("%s has %s pending", task, step)
 		}
