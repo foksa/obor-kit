@@ -22,8 +22,9 @@ continues from the Handoff's next steps without waiting (SKILL.md, Handoff).
 ## obor status
 Read the line under serve's to see what runs without an agent: `running: gate T-xx (make -s check, 2m14s) · after_merge
 T-yy (make build, 12s)` (else `running: nothing`); a lane's state column is its task's phase, the same word the queue's
-`merge` line and web show: `dispatching`, `working`, `submitted`, `gating`, `gate pending`, `review`, `reviewing`,
-`publish`, `merging`, `publish pending`, `needs-you`, or `held` (the integrator's hold alone);
+`merge` line and web show: `dispatching`, `working`, `submitted`, `gating`, `gate pending`, `testing`, `test pending`,
+`review`, `reviewing`, `publish`, `merging`, `publish pending`, `needs-you`, `held` (the integrator's hold alone), or
+`dropping` (`obor drop` decided: the worker's stop and the lane's free run);
 an undelivered line names why: `undelivered: <why>`. `obor status --short` is just that line, serve's and needs-you (a status bar).
 An empty pipeline shows `idle: <why>` once you acknowledged it, else `idle, not acknowledged since <time>`.
 A role agent's line ends with ` → obor restart <agent> --stop` once it has been done or idle for an hour with no open
@@ -220,10 +221,15 @@ every-~3-merges reviews.
 A Claude agent whose turn ends on an API error (a usage limit `rate_limit`, `overloaded`, `billing_error`, …) did not
 finish: it waits for the limit to reset or for you. Serve says so:
 - a role agent (reviewer, deep dive, advisor, integrator): `[obor] <agent> stopped: <error> (<details>)` instead of its
-  brief's `finished` line. Brief it again (or `obor restart <agent>`) once the limit has reset.
-- a worker with an open task: `[obor] needs-you T-xx (<LANE>): <agent> stopped: <error> (<details>) → …`. It ends by
-  itself when the worker's next turn starts (the owner types `continue` in its pane once the limit resets), or
+  brief's `finished` line. On a usage limit with its brief open, serve wakes it itself: a continue line 2 minutes after
+  the reset (a reset unknown: every 30 minutes since the stop); still stopped 30 minutes after that wake, you get one
+  line, `<the stop's line>; still stopped 30m after the reset wake`. Another error, or no brief open: brief it again
+  (or `obor restart <agent>`).
+- a worker with an open task: `[obor] needs-you T-xx (<LANE>): <agent> stopped: <error> (<details>) → …`. On a usage
+  limit serve wakes it itself as it does a role agent (a continue wake for its open job), and the needs-you ends with
+  the worker's next turn; still stopped 30 minutes after that wake: a second needs-you. Another error, or sooner,
   `obor resume T-xx "<text>"` sends the worker a line (typed once it is idle) that starts that turn.
+- The lead is never woken.
 The raw payloads are in `.obor/state/stop-failure.log`.
 
 ## obor spec set

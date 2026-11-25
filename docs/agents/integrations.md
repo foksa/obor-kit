@@ -60,7 +60,7 @@ default: from the first record), one line per record, in seq order.
 
 ## The sample: a ticket to merged
 
-`internal/app/ticket_test.go` is the sample integration as a Go test helper (`tracker`), run end to end on fakes:
+`internal/app/loop_integration_test.go` is the sample integration as a Go test helper (`tracker`), run end to end on fakes:
 it takes `TICKET-1` of a fake tracker into obor (`spec_set` with `Ref: TICKET-1`, then `dispatch`), follows the feed
 from its cursor, and on the task's `merged` record marks the ticket done. The same as a script:
 

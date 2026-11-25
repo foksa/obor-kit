@@ -9,7 +9,7 @@ works in auto mode; Stop fires with background tasks running and not on `/clear`
 ## What obor-kit is
 A Claude Code plugin (`obor`) that lets any project run the lead / integrator / workers / reviewers swarm from
 axis-alies in herdr panes: the lead skill, role texts, hooks (guards and the worker's `task_done`), commands (`serve`,
-`dispatch`, `status`, `spec`, `drop`, `answer`, `send`, `brief`, …), templates (BACKLOG, decisions, task spec, AGENTS.md
+`dispatch`, `status`, `spec`, `drop`, `resume`, `send`, `brief`, …), templates (BACKLOG, decisions, task spec, AGENTS.md
 section) and the role texts in `templates/agents/`,
 read in place from the kit (projects keep only short `docs/agents/<role>.md` stubs with their specifics). Per-project specifics live in
 `.obor/config.json` (committed) and `.obor/local.json` (per machine, gitignored).
@@ -59,7 +59,7 @@ read in place from the kit (projects keep only short `docs/agents/<role>.md` stu
 ## Layout (plugin root)
 ```
 .claude-plugin/plugin.json      manifest (name: obor)
-skills/<name>/SKILL.md          lead (+ its side file review-brief.md), setup, role → /obor:<name>
+skills/<name>/SKILL.md          lead (+ its side files review-brief.md, commands.md, agent-setup.md), setup → /obor:<name>
 hooks/hooks.json                {"hooks": {...}} → `bin/obor hook <name>` per event
 bin/obor                        CLI entry (on the Bash PATH of sessions with the plugin): obor <subcommand>; the one
                                 bash shim: self-host, find the Go binary, exec it (see "Shipping the binary")
@@ -355,8 +355,8 @@ stopped role agent but the integrator starts it fresh with the brief as its firs
 row 53.
 
 ## Setup (`obor init`, `obor setup`; Go `internal/setup`)
-`obor init [--name] [--prefix] [--terminal herdr|hc]` sets a project up with no questions and ends by starting
-the lead. The terminal: an existing config's `project.terminal`; else the one the caller is typed in (`HC_TERMINAL_ID`
+`obor init [--name] [--prefix] [--terminal herdr|hc|rex]` sets a project up with no questions and ends by starting
+the lead. The terminal: an existing config's `project.terminal`; else the one the caller is typed in (`REX_BLOCK` → rex, `HC_TERMINAL_ID`
 → hc, `HERDR_PANE_ID` → herdr, both → herdr), else the one that answers (both → herdr, with a line); `--terminal`
 overrides; the choice is written into the new config. On hc the core's env check is the first step (a leaked core:
 FAIL before any write). Then the terminal reachable (else FAIL first), config with the detected commands, lanes for
@@ -522,6 +522,14 @@ full check and the pause.
   model's args; the one start below) whose
   first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool now (connected; it returns your job)`. The worker's `job_next` is the
   delivery. No screen reading (R-28 §4). An undelivered wake is retried after 5 minutes, then becomes needs-you.
+- **sendback** (`lane.sync`, `internal/checks/lane.go`): a fix attempt (after a red gate, the integrator's sendback or
+  the lead's `obor resume --sendback`) first merges the target into the lane's branch, in the lane, at the target sha
+  read then; the fix job goes out after it and says which: `merged` (serve committed `Merge <target> into task/T-xx
+  (obor: fix attempt <n>)`, its sha), `current` (the branch holds the target already), `conflict` (the merge aborted,
+  the lane as it was, the files named; the worker fixes the branch as it is and the integrator resolves
+  the conflict at the gate) or `dirty` (uncommitted changes, nothing touched).
+  obor's links come out of the merge's way and are put back once it is committed or aborted. A first dispatch, a
+  drive and a move run no sync. Rows 24a and 24 of `docs/state-model.md`.
 - **drive** (owner 2026-11-03): the owner iterates by hand on a task's branch in a plain interactive agent (role
   `driver`: a lane's write limits and push denial, commits on its branch, no job pull, Stop-hook demand or wrong-tab
   guard), then lands it through the same gate, integrator and merge. A drive is a task on a lane, so the dispatch's
@@ -626,7 +634,7 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   not installed) execs the kit's shim itself once it has ended (below). Calls during a restart: serve
   binds its socket only once its log is replayed (it logs `replayed N records in X s`), so no call is
   admitted to wait; a caller retries a refused/missing socket or a lost reply every 500 ms with the same call id until
-  its own deadline (`app.Verdict`'s table: a CLI verdict or MCP tool 15 s, a hook's turn/SessionStart 8 s,
+  its own deadline (`wire.Verdict`'s table: a CLI verdict or MCP tool 15 s, a hook's turn/SessionStart 8 s,
   stop-failure 5 s; the last try starts 200 ms before it): a restart that ends before that last try lands the call
   once, a longer one fails it at its deadline with nothing left waiting to be applied. A call already admitted (a
   verdict waiting for the scratch or the verdict lock) runs under serve's 60 s context, not the caller's: its timeout
@@ -856,10 +864,11 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its labelled
   pane at a shell) is started fresh in that pane with the line as its first prompt. A brief to the reviewer or
   the deep dive moves an idle deep dive's role worktree to the integration branch's head before the brief is
-  recorded; nothing waits for a publish in flight. The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
-  refused for them, and a running one starts fresh as `obor restart <role-agent> --stop`, then `obor brief`. Any other
-  role agent may also take its first prompt as a start's, `obor restart <role-agent>
-  --fresh --prompt "<brief>"` (the start carries the brief), recording the same fact once the restart succeeded.
+  recorded; nothing waits for a publish in flight. A role agent takes its first prompt this way only (`obor restart`
+  takes no prompt): `obor brief <role-agent> --fresh "<text>"` is the same brief, admitted and recorded as any, and
+  only then a running agent is stopped and started fresh with the line as its first prompt (a refused brief stops
+  nothing; refused for the lead, the integrator and a worker, and with no text). A stopped one starts fresh with a plain
+  `obor brief`.
   A role agent is any agent of the config but the lead, the integrator and the workers. Once that pane has
   worked after the brief (after its line was delivered) and is idle again, serve records and posts
   `[obor] <agent> finished (briefed <age> ago)` to the lead's session: one line per brief, nothing for task or merge
