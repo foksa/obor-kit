@@ -520,7 +520,7 @@ full check and the pause.
   (or `dirty-free` with `--force`) and its agent is not working/blocked; `checkout -B`; the `lanes` row records the
   dispatch; **launch** a fresh worker (`Agents.Launch(Launch{Fresh: true})` with env, label and the dispatch's
   model's args; the one start below) whose
-  first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool`. The worker's `job_next` is the
+  first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool now (connected; it returns your job)`. The worker's `job_next` is the
   delivery. No screen reading (R-28 §4). An undelivered wake is retried after 5 minutes, then becomes needs-you.
 - **drive** (owner 2026-11-03): the owner iterates by hand on a task's branch in a plain interactive agent (role
   `driver`: a lane's write limits and push denial, commits on its branch, no job pull, Stop-hook demand or wrong-tab
@@ -641,8 +641,10 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   names a missing file: no trigger until it is there. Serve asks on its own 30 s timer, herdr connected or not (the
   watchdogs' tick counts only while it is), and takes the self-restart above: at
   once when idle (no effect running, no nightly, no verdict call admitted), else at the first pass after the work
-  ends, however long that takes (a pending restart holds nothing back), but never while a main-checkout writer (`config_set`, `review close`) is admitted, and none is admitted
-  once the restart is decided; `obor status` shows `restarting serve` meanwhile, and a failed restart is a needs-you
+  ends, and at the latest 30 minutes after the binary was seen (`followWait`: the work still running is cut and
+  replays); work of a task waiting on a person holds nothing back, and a pending restart holds nothing back; never while a main-checkout writer (`config_set`, `review close`) is admitted, and none is admitted
+  once the restart is decided; serve logs the candidate binary (path, version) once, and what holds a pending
+  restart at each change; `obor status` shows `restarting serve` meanwhile with the same holds, and a failed restart is a needs-you
   `serve restart on the new obor binary failed: <err>` (key `serve`), not tried again by that serve. A serve launchd
   does not run execs `<kit>/bin/obor serve` after it has ended: same pid, same pane; Go's files are close-on-exec, so
   the flock goes with the exec, and the new serve takes it and removes a leftover socket. Web asks every 30 s: a web
@@ -948,12 +950,12 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   status` and the 24 h needs-you), *sending* (its delivery claimed or its intent in the log: a byte may have gone
   out), *sent* (a result, also `sent: <error>` after a byte) and *retired* (it ends undelivered). A refusal before a
   byte (fact `failed`) puts it back to waiting with its reason; replay folds the same records to the same state. An
-  answer's line retires once its question is settled another way — the worker submits or asks again, the task is
+  answer's line retires once its question is settled another way — the worker submits or asks again, takes its job again (`job_next`), the task is
   unblocked, dropped or rejected, a newer answer or resume comes: waiting, at once; sending, it is marked and
   stays until its outcome (it may have landed, as a brief's does): sent, or retired by a refusal before a byte,
   or by the next pass closing its open delivery unsent (result `retired: …`, a crash's cut delivery).
 - **Job wakes go the same way** (owner 2026-10-28): a worker's or the integrator's wake to a Claude, OpenCode or
-  agy session with an inbox record is posted, `[obor job <id>] call the obor job_next tool` as typed (no `ctrl+u`, the same intent and
+  agy session with an inbox record is posted, `[obor job <id>] call the obor job_next tool now (connected; it returns your job)` as typed (no `ctrl+u`, the same intent and
   result, `docs/state-model.md` "Prompts": a wake is harmless twice). Another kind, a pane serve does not see, or a
   session with no inbox record (a session its SessionStart hook did not register) is typed as before: a refused wake
   would strand the worker until a restart, a typed one reaches it as it always did.
