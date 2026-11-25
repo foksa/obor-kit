@@ -4,8 +4,8 @@ package setup
 // already does. Every step is idempotent, so a rerun after a fix is the repair path; the summary lists each step as
 // done, already or skipped (why).
 //
-//	terminal   the terminal's own check, first, on a terminal that has one (hc: the core's environment holds no
-//	           HERDR_ or OBOR_ name, else FAIL with hc.LeakLine, before any write); the kind is --terminal's (cmd/obor
+//	terminal   the terminal's own check, first, on a terminal that has one (hc: the core's environment holds no other
+//	           terminal's identity, else FAIL with hc.LeakLine, before any write); the kind is --terminal's (cmd/obor
 //	           passes the one it detected, else herdr) and a new config's project.terminal.
 //	herdr      herdr unreachable → FAIL, before any write (nothing later works without it); no claude on PATH →
 //	           FAIL (the lead runs it).

@@ -27,7 +27,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`), the background Bash calls the PreToolUse hook records
   (`background.go`) and the Bash calls its parser rejects (`unparsed.go`), the caller's own pane (`pane.go`: `Pane`, the one resolver: `OBOR_PANE`, else the
   terminal's `HERDR_PANE_ID` for a pane obor did not start, else `ErrNoPane`; here, not in `herdr`, because adapters
-  never import each other),
+  never import each other), the identity names a terminal server must not pass to its panes (`identity.go`:
+  `ForeignIdentity`, read by hc and rex),
   the machine's list of obor projects by name (`projects.go`: `Register`, `Projects`, `RootOf`); a stopped
   project (`stopped.go`: `Stopped`, `WriteStopMarker`, `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start);
   `sweep.go`: the nightly sweep of `.obor` (daily backups past the newest 7 dates, gzip'd or the older
@@ -276,8 +277,8 @@ on a file missing from this table or a listed file that is gone); the entry is t
   helper).
 - `hc`: the herdr-core (`hc`) socket client, the second terminal adapter (`docs/plan/herdr-core.md`; a project selects
   it with `project.terminal: "hc"`, experimental): `hello` and the version rule (`client.go`), the core's environment
-  (`env.go`: `CheckEnv` refuses a core holding a `HERDR_`/`OBOR_` name, `Check` for `obor setup check`, `Core` for
-  serve's subscribe: a core that is down started from a scrubbed environment), a terminal record as a pane (labels `obor.project`/`obor.agent`
+  (`env.go`: `CheckEnv` refuses a core holding another terminal's identity (`project.ForeignIdentity`), `Check` for
+  `obor setup check`, `Core` for serve's subscribe: a core that is down started from a scrubbed environment), a terminal record as a pane (labels `obor.project`/`obor.agent`
   as its group and label, the kind from its status's app, else the `obor.kind` label) and `port.Panes` (`panes.go`),
   one unfiltered `events.subscribe` and its endings (`stream.go`), `port.PaneControl`: its reads (`client.go`) and
   `control.go` (`Prompt`: `terminal.send`, whose native `blocked` answer is `port.Blocked`; `Write`, `SendKeys`,

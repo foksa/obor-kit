@@ -24,13 +24,13 @@ func TestSetupCheck(t *testing.T) {
 	calls := 0
 	clean := func(context.Context) (string, error) {
 		calls++
-		return "hc's core environment holds no HERDR_ or OBOR_ name", nil
+		return "hc's core environment holds no other terminal's or agent's identity", nil
 	}
-	if out, rc := run(clean); rc != 0 || out != "OK check: terminal hc: hc's core environment holds no HERDR_ or OBOR_ name\n" || calls != 1 {
+	if out, rc := run(clean); rc != 0 || out != "OK check: terminal hc: hc's core environment holds no other terminal's or agent's identity\n" || calls != 1 {
 		t.Errorf("a clean core: exit %d, %d checks, out %q", rc, calls, out)
 	}
-	leak := "hc core env: hc's core was started from an obor pane: run `hc server restart --fresh` from a shell outside any pane " +
-		"(its environment holds OBOR_ROLE)"
+	leak := "hc core env: hc's core was started from an obor pane or another terminal: run `hc server restart --fresh` " +
+		"from a shell outside any pane (its environment holds OBOR_ROLE)"
 	out, rc := run(func(context.Context) (string, error) { return "", errors.New(leak) })
 	if rc != 1 || last(out) != "FAIL terminal hc: "+leak {
 		t.Errorf("a leaked core: exit %d, last line %q", rc, last(out))

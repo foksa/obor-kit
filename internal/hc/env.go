@@ -10,40 +10,29 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/config"
+	"obor/internal/project"
 )
 
 // env.go: the core's environment. Every terminal gets the core's environment (docs/research/hc-probes.md P4), and a
 // core keeps the environment of the process that started it across `hc update` and `hc server restart`. Any `hc` call
-// that needs a core starts one with its caller's environment (P11), so one call from an obor pane while no core runs
-// puts that pane's identity (HERDR_PANE_ID, OBOR_ROLE, OBOR_PANE) into every later terminal. obor reads the core's
-// environment and refuses such a core (CheckEnv), and serve starts a core that is down from a scrubbed environment
-// (Core); it never restarts or stops a core that runs.
+// that needs a core starts one with its caller's environment (P11), so one call from an obor pane (or another
+// terminal's) while no core runs puts that one's identity (HERDR_PANE_ID, OBOR_ROLE, REX_BLOCK) into every later
+// terminal. obor reads the core's environment and refuses such a core (CheckEnv), and serve starts a core that is down
+// from a scrubbed environment (Core); it never restarts or stops a core that runs.
 
-// LeakLine is the refusal of a core whose environment holds a HERDR_ or OBOR_ name.
-const LeakLine = "hc's core was started from an obor pane: run `hc server restart --fresh` from a shell outside any pane"
+// LeakLine is the refusal of a core whose environment holds an identity name of another terminal, of obor or of a
+// Claude session.
+const LeakLine = "hc's core was started from an obor pane or another terminal: run `hc server restart --fresh` from a " +
+	"shell outside any pane"
 
-// leakPrefixes are the names a core's environment must not hold: herdr's and obor's pane identity.
-var leakPrefixes = []string{"HERDR_", "OBOR_"}
-
-// scrubPrefixes are the names a core serve starts does not get: the leak's, and hc's own terminal identity (the
-// terminal a caller inside hc runs in).
-var scrubPrefixes = append(slices.Clone(leakPrefixes), "HC_TERMINAL_")
-
-func hasPrefix(name string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(name, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// Leaked is the HERDR_ and OBOR_ names env holds with a value, sorted: an empty value reads as unset (terminal.run's
-// env sets a name empty, it never unsets one).
+// Leaked is the identity names a core must not carry (project.ForeignIdentity: another terminal's, obor's, a Claude
+// session's) that env holds with a value, sorted: an empty value reads as unset (terminal.run's env sets a name empty,
+// it never unsets one).
 func Leaked(env map[string]string) []string {
 	var out []string
 	for k, v := range env {
-		if v != "" && hasPrefix(k, leakPrefixes) {
+		if v != "" && project.ForeignIdentity(config.TerminalHC, k) {
 			out = append(out, k)
 		}
 	}
@@ -51,12 +40,13 @@ func Leaked(env map[string]string) []string {
 	return out
 }
 
-// Scrub is environ (NAME=VALUE entries) without the names a core must not get: every HERDR_, OBOR_ and HC_TERMINAL_
-// name. The session's own names (HC_SESSION, HC_SOCKET, the XDG_ dirs) stay: they pick the core.
+// Scrub is environ (NAME=VALUE entries) without the identity names of other terminals a core must not get: the same
+// names Leaked reports. hc's own names stay: the session's (HC_SESSION, HC_SOCKET, the XDG_ dirs) pick the core, and
+// HC_TERMINAL_ is this kind's own identity.
 func Scrub(environ []string) []string {
 	var out []string
 	for _, kv := range environ {
-		if name, _, _ := strings.Cut(kv, "="); !hasPrefix(name, scrubPrefixes) {
+		if name, _, _ := strings.Cut(kv, "="); !project.ForeignIdentity(config.TerminalHC, name) {
 			out = append(out, kv)
 		}
 	}
@@ -84,8 +74,8 @@ func (cl *Client) CoreEnv(ctx context.Context) (map[string]string, error) {
 	return env, nil
 }
 
-// CheckEnv is nil when the core's environment holds no HERDR_ or OBOR_ name; else the refusal, LeakLine with the
-// names. A core that does not answer is the read's error (port.NotRunning).
+// CheckEnv is nil when the core's environment holds no identity name of another terminal; else the refusal, LeakLine
+// with the names. A core that does not answer is the read's error (port.NotRunning).
 func (cl *Client) CheckEnv(ctx context.Context) error {
 	env, err := cl.CoreEnv(ctx)
 	if err != nil {
@@ -106,15 +96,15 @@ func (cl *Client) Check(ctx context.Context) (string, error) {
 	case err != nil:
 		return "", err
 	}
-	return "hc's core environment holds no HERDR_ or OBOR_ name", nil
+	return "hc's core environment holds no other terminal's or agent's identity", nil
 }
 
 // StartBound bounds `hc server start`.
 const StartBound = 30 * time.Second
 
 // Core is serve's hold on the core (Panes.Core): before each subscribe a core that is down is started from Environ
-// scrubbed (Scrub), and a core whose environment holds a HERDR_ or OBOR_ name is refused (CheckEnv). A core that runs is
-// never restarted or stopped.
+// scrubbed (Scrub), and a core whose environment holds another terminal's identity is refused (CheckEnv). A core that
+// runs is never restarted or stopped.
 type Core struct {
 	Environ []string // serve's own environment (os.Environ())
 	// Run runs the hc CLI with args and env (nil: hc on PATH, bounded by StartBound).

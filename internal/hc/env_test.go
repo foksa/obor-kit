@@ -18,7 +18,8 @@ var leakedEnv = map[string]string{"HOME": "/Users/probe", "PATH": "/usr/bin:/bin
 	"OBOR_ROLE": "worker", "OBOR_PANE": "w99:p99", "OBOR_LANE": "", "HC_SESSION": "obor-probe-4"}
 
 // The env guard: CheckEnv reads the core's environment through machine.exec of /usr/bin/env and refuses with LeakLine
-// naming each HERDR_/OBOR_ name with a value (an empty one reads as unset); a clean core passes.
+// naming each identity name of another terminal it holds with a value (an empty one reads as unset); a clean core
+// passes.
 func TestCheckEnv(t *testing.T) {
 	t.Parallel()
 	core := hctest.New()
@@ -42,16 +43,36 @@ func TestCheckEnv(t *testing.T) {
 	}
 }
 
-// Leaked takes every HERDR_ and OBOR_ name with a value and nothing else; Scrub drops those, hc's terminal identity and
-// nothing of the session's own names.
+// The RV-265 case: a core started from a Rex block holds the block's identity and gives it to every hc terminal it
+// makes, so it is refused like a core started from an obor pane (its own HC_TERMINAL_ is hc's and no leak).
+func TestCheckEnvRefusesRexIdentity(t *testing.T) {
+	t.Parallel()
+	core := hctest.New()
+	core.SetEnv(map[string]string{"HOME": "/Users/probe", "REX_BLOCK": "block:old", "REX_SESSION": "session:old",
+		"HC_TERMINAL_ID": "t7"})
+	err := core.Client().CheckEnv(context.Background())
+	want := hc.LeakLine + " (its environment holds REX_BLOCK, REX_SESSION)"
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Fatalf("a core started from a Rex block: %v, want the refusal ending %q", err, want)
+	}
+}
+
+// Leaked takes every identity name of another terminal with a value - obor's, herdr's, a Rex block's, a Claude
+// session's - and nothing else; Scrub drops those, keeps hc's own names and the session's.
 func TestLeakedAndScrub(t *testing.T) {
 	t.Parallel()
-	if got := hc.Leaked(leakedEnv); !slices.Equal(got, []string{"HERDR_PANE_ID", "OBOR_PANE", "OBOR_ROLE"}) {
-		t.Errorf("Leaked = %q, want the three names with a value", got)
+	leaked := map[string]string{"HERDR_PANE_ID": "w1:p2", "OBOR_ROLE": "worker", "REX_BLOCK": "block:old",
+		"REX_SESSION": "session:old", "CLAUDE_CODE_SESSION_ID": "s", "CLAUDECODE": "1", "HC_TERMINAL_ID": "t7",
+		"OBOR_LANE": ""}
+	wantLeaked := []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "HERDR_PANE_ID", "OBOR_ROLE", "REX_BLOCK", "REX_SESSION"}
+	if got := hc.Leaked(leaked); !slices.Equal(got, wantLeaked) {
+		t.Errorf("Leaked = %q, want %q", got, wantLeaked)
 	}
 	environ := []string{"PATH=/usr/bin", "HOME=/Users/x", "HERDR_PANE_ID=w1:p2", "HERDR_SOCKET_PATH=/s", "OBOR_ROLE=worker",
-		"OBOR_PANE=", "HC_TERMINAL_ID=t3", "HC_TERMINAL_SOCKET=/t", "HC_SESSION=s", "HC_SOCKET=/h.sock", "XDG_STATE_HOME=/st"}
-	want := []string{"PATH=/usr/bin", "HOME=/Users/x", "HC_SESSION=s", "HC_SOCKET=/h.sock", "XDG_STATE_HOME=/st"}
+		"OBOR_PANE=", "REX_BLOCK=block:old", "REX_SESSION=session:old", "CLAUDE_CODE_SESSION_ID=s", "CLAUDECODE=1",
+		"HC_TERMINAL_ID=t3", "HC_TERMINAL_SOCKET=/t", "HC_SESSION=s", "HC_SOCKET=/h.sock", "XDG_STATE_HOME=/st"}
+	want := []string{"PATH=/usr/bin", "HOME=/Users/x", "HC_TERMINAL_ID=t3", "HC_TERMINAL_SOCKET=/t", "HC_SESSION=s",
+		"HC_SOCKET=/h.sock", "XDG_STATE_HOME=/st"}
 	if got := hc.Scrub(environ); !slices.Equal(got, want) {
 		t.Errorf("Scrub = %q\nwant %q", got, want)
 	}
@@ -63,7 +84,7 @@ func TestCheck(t *testing.T) {
 	t.Parallel()
 	core := hctest.New()
 	line, err := core.Client().Check(context.Background())
-	if err != nil || line != "hc's core environment holds no HERDR_ or OBOR_ name" {
+	if err != nil || line != "hc's core environment holds no other terminal's or agent's identity" {
 		t.Errorf("a clean core: %q, %v", line, err)
 	}
 	core.Down()

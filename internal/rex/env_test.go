@@ -25,13 +25,14 @@ func probeEnv(t *testing.T) []string {
 	return strings.Split(r.Content, "\n")
 }
 
-// A block obor makes unsets every leaked identity name the server's environment holds (OBOR_ROLE, HERDR_PANE_ID,
-// CLAUDE_CODE_SESSION_ID among them) before its own variables, then runs the server's shell as a login shell: none of
-// the names reaches the block's shell unless the block's own env sets it. Rex's own names, PATH, HOME and the rest
-// stay; the probe's other lines (login's banner) are no variables.
+// A block obor makes unsets every identity name of another terminal the server's environment holds (OBOR_ROLE,
+// HERDR_PANE_ID, HC_TERMINAL_ID, CLAUDE_CODE_SESSION_ID among them) before its own variables, then runs the server's
+// shell as a login shell: none of the names reaches the block's shell unless the block's own env sets it. Rex's own
+// names (REX_BLOCK, REX_SESSION), PATH, HOME and the rest stay; the probe's other lines (login's banner) are no
+// variables.
 func TestEnvScrub(t *testing.T) {
 	environ := probeEnv(t)
-	for _, n := range []string{"OBOR_ROLE", "HERDR_PANE_ID", "CLAUDE_CODE_SESSION_ID"} {
+	for _, n := range []string{"OBOR_ROLE", "HERDR_PANE_ID", "CLAUDE_CODE_SESSION_ID", "REX_BLOCK"} {
 		if !slices.ContainsFunc(environ, func(l string) bool { return strings.HasPrefix(l, n+"=") }) {
 			t.Fatalf("precondition: the recorded server environment has no %s", n)
 		}
@@ -44,6 +45,11 @@ func TestEnvScrub(t *testing.T) {
 		"HERDR_PANE_ID", "OBOR_PANE", "OBOR_ROLE"}
 	if !slices.Equal(e.Unset, want) || e.Shell != "/bin/zsh" {
 		t.Errorf("unset %q, shell %q; want %q and /bin/zsh", e.Unset, e.Shell, want)
+	}
+	for _, n := range []string{"REX_BLOCK", "REX_SESSION"} {
+		if slices.Contains(e.Unset, n) {
+			t.Errorf("%s: Rex's own name was unset from the block", n)
+		}
 	}
 	cmd := e.command([]string{"A=1", "B=", "OBOR_ROLE=worker"})
 	wantCmd := []string{"/usr/bin/env"}
