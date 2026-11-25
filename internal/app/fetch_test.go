@@ -438,6 +438,54 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 	}
 }
 
+// callerJob hands a worker its own lane's job and refuses or answers none to everyone else: another agent's call for
+// the lane is refused, another lane has none, the lead has no jobs, the integrator with none open has none, and a
+// pane outside the lane is refused.
+func TestCallerJobRefusals(t *testing.T) {
+	t.Parallel()
+	const lane = "/lanes/L-01"
+	p := &proj{integrator: "pj-int", log: &event.Log{}, folded: folded{loop: map[string]*mtask{"T-1": {task: "T-1",
+		lane: "L-01", agent: "pj-l-01", attempt: 1, state: stDispatched, attemptVars: attemptVars{work: event.StepWork},
+		disp: event.Dispatch{Lane: "L-01", Dir: lane}}}}}
+	a := &App{obs: map[string]*seen{"w1:p1": {pane: port.Pane{ID: "w1:p1", Cwd: lane + "/sub"}},
+		"w1:p5": {pane: port.Pane{ID: "w1:p5", Cwd: "/root"}}}}
+	req := func(agent, role, lane, pane string) wire.JobNextReq {
+		return wire.JobNextReq{Envelope: wire.Envelope{Agent: agent, Role: role}, Lane: lane, Pane: pane}
+	}
+	for _, c := range []struct {
+		name string
+		req  wire.JobNextReq
+		job  string // the job handed out ("": none)
+		err  string // the refusal ("": none)
+	}{
+		{"its own job from a pane in the lane", req("pj-l-01", "worker", "L-01", "w1:p1"), "T-1/1/work", ""},
+		{"another agent's call", req("pj-l-02", "worker", "L-01", ""), "",
+			"not your job: T-1/1/work is pj-l-01's in lane L-01, not pj-l-02"},
+		{"another lane", req("pj-l-02", "worker", "L-02", ""), "", ""},
+		{"the lead", req("pj-lead", "lead", "", ""), "", "no jobs for the role lead"},
+		{"the integrator with no job", req("pj-int", "integrator", "", ""), "", ""},
+		{"a pane outside the lane", req("pj-l-01", "worker", "L-01", "w1:p5"), "", "pane w1:p5 is not in lane L-01"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, k, ok, err := a.callerJob(p, c.req)
+			if c.err != "" {
+				if err == nil || !strings.Contains(err.Error(), c.err) || ok {
+					t.Errorf("callerJob = %v, %v; want the refusal %q", ok, err, c.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("callerJob: %v", err)
+			}
+			got := ""
+			if ok {
+				got = JobID(k)
+			}
+			same(t, got, c.job, "the job handed out")
+		})
+	}
+}
+
 func TestWorkerJobNextTwoJobsInLaneTakesFirstTaskByName(t *testing.T) {
 	t.Parallel()
 	for range orderTries {
@@ -787,6 +835,19 @@ func TestFixJobCarriesAChangedRevOnly(t *testing.T) {
 	if text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 2}, row,
 		"read it.", "main"); strings.Contains(text, "The spec of T-9") {
 		t.Errorf("a fix job at the spec's rev repeats it: %q", text)
+	}
+}
+
+// The fix job asks for task_done again (its new report is the next attempt) and names no done file.
+func TestFixJobAsksForTaskDoneAgain(t *testing.T) {
+	t.Parallel()
+	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{},
+		"read it.", "main")
+	if !strings.Contains(text, "when finished, call task_done again with your new report") {
+		t.Errorf("the fix job does not ask for task_done again:\n%s", text)
+	}
+	if strings.Contains(text, "done file") {
+		t.Errorf("the fix job names a done file:\n%s", text)
 	}
 }
 

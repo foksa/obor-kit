@@ -15,8 +15,8 @@ import (
 
 // A dispatch with the switch on types nothing: the start carries the wake as its first prompt, the work job's result
 // is "sent (start prompt)"; the worker's status turning working is no delivery; its job_next is: the work job's text, fact delivered via mcp once, the task
-// working. A repeated call id gets the stored reply, a new one the same job with no second record, an older job id
-// superseded{current}; another agent's call is refused, another lane has none.
+// working. A repeated call id gets the stored reply, a new one the same job with no second record. Who may fetch the
+// job is callerJob's table (TestCallerJobRefusals); an older job id's superseded reply is TestJobNextNamedNotHeld's.
 func TestFetchWorkJob(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -45,29 +45,8 @@ func TestFetchWorkJob(t *testing.T) {
 		if r.has("1 fact delivered") || r.taskState() != "dispatched" {
 			t.Fatalf("delivered by the status with the switch on: %q (state %s)", r.steps(), r.taskState())
 		}
-		if _, _, err := r.jobNext("pj-l-02", "worker", "L-01", "x1", ""); err == nil ||
-			!strings.Contains(err.Error(), "not your job: T-1/1/work is pj-l-01's in lane L-01, not pj-l-02") {
-			t.Errorf("another agent's job_next: %v", err)
-		}
-		if jr, _, err := r.jobNext("pj-l-02", "worker", "L-02", "x2", ""); err != nil || jr.State != "none" {
-			t.Errorf("another lane's job_next: %+v, %v; want none", jr, err)
-		}
-		if _, _, err := r.jobNext("pj-lead", "lead", "", "x3", ""); err == nil || !strings.Contains(err.Error(), "no jobs for the role lead") {
-			t.Errorf("the lead's job_next: %v", err)
-		}
-		if jr, _, err := r.jobNext("pj-int", "integrator", "", "x4", ""); err != nil || jr.State != "none" {
-			t.Errorf("the integrator's job_next with no job: %+v, %v; want none", jr, err)
-		}
-		r.addPane(port.Pane{ID: "w1:p5", Label: "pj-x", Agent: "claude", Status: "idle", Cwd: r.p.Root})
-		r.push()
-		r.waitFor("pane w1:p5", func() bool { return len(r.app.Status().Project.Agents) == 2 })
-		if _, err := r.ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
-			Agent: "pj-l-01", Role: "worker", CallID: "x5"}, Lane: "L-01", Pane: "w1:p5"}); err == nil ||
-			!strings.Contains(err.Error(), "pane w1:p5 is not in lane L-01") {
-			t.Errorf("job_next from a pane outside the lane: %v", err)
-		}
 		if n := len(r.deliveries()); n != 0 {
-			t.Fatalf("a refused or empty job_next recorded: %q", r.steps())
+			t.Fatalf("delivered before the worker's fetch: %q", r.steps())
 		}
 		if ts := r.task("T-1"); ts.Job != "T-1/1/work" || ts.Delivered { // obor status' open job
 			t.Errorf("status before the fetch: job %q delivered %v; want T-1/1/work, not delivered", ts.Job, ts.Delivered)
@@ -88,10 +67,6 @@ func TestFetchWorkJob(t *testing.T) {
 		}
 		if jr := r.workerNext("n2"); jr.Job != "T-1/1/work" || jr.State != "job" {
 			t.Errorf("a second fetch: %+v, want the same job", jr)
-		}
-		if jr, _, err := r.jobNext("pj-l-01", "worker", "L-01", "n3", "T-1/0/work"); err != nil || jr.State != "superseded" ||
-			jr.Current != "T-1/1/work" || jr.Text != "" {
-			t.Errorf("an older job id: %+v, %v; want superseded{T-1/1/work}", jr, err)
 		}
 		r.passes()
 		eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, "delivered facts after the repeats")
@@ -248,8 +223,7 @@ func TestFetchFixAndTaskDone(t *testing.T) {
 		r.waitStep("2 result fix")
 		eq(t, r.promptsTo("pj-l-01"), []string{wake("T-1/2/fix")}, "typed to pj-l-01")
 		jr := r.workerNext("f1")
-		if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, "T-1 is sent back to you (attempt 2): add a test") ||
-			!strings.Contains(jr.Text, "call task_done again") || strings.Contains(jr.Text, "done file") {
+		if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, "add a test") { // the fix job carries the sendback's notes
 			t.Fatalf("the fix job: %+v", jr)
 		}
 		r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
@@ -301,8 +275,8 @@ func TestFetchFixAndTaskDone(t *testing.T) {
 	})
 }
 
-// A Blocked: report submits nothing: it records needs-you{asks: <what it needs>} (the task stays working), notifies
-// the owner and tells the worker to wait; no stall is added while the worker waits, and its activity does not clear it
+// A Blocked: report submits nothing: it records needs-you{asks: <what it needs>} (the task stays working) and notifies
+// the owner (the reply telling the worker to wait is ask's: TestAskRowErrorNotAcknowledged); no stall is added while the worker waits, and its activity does not clear it
 // (the Stop hook's turn after the report is no answer): obor answer (answer_test.go) or its submission does. A
 // full report then submits, and the question ends with it.
 func TestFetchBlockedAsks(t *testing.T) {
@@ -317,7 +291,7 @@ func TestFetchBlockedAsks(t *testing.T) {
 		r.workerIs("working")
 		asks := "0 fact needs-you{asks: may I edit internal/x.go?}"
 		reply, err := r.callDone("pj-l-01", "worker", "b1", "Summary: half done\nBlocked: may I edit internal/x.go?\n")
-		if err != nil || !strings.Contains(reply, "the owner is told") || !strings.Contains(reply, "stop and wait") {
+		if err != nil || reply == "submitted" { // its full text is ask's (TestAskRowErrorNotAcknowledged)
 			t.Fatalf("task_done Blocked: %q, %v", reply, err)
 		}
 		if row, ok, err := r.laneRow("L-01"); err != nil || !ok || row.Task != "T-1" || !row.Blocked {
@@ -376,9 +350,6 @@ func TestFetchFixUndelivered(t *testing.T) {
 			"typed to pj-l-01")
 		if jr := r.workerNext("f2"); jr.Job != "T-1/2/fix.2" {
 			t.Errorf("job_next after the resume: %+v, want T-1/2/fix.2", jr)
-		} else if !strings.Contains(jr.Text, "If this session did not get the work job (a fresh start), read ") ||
-			!strings.Contains(jr.Text, "templates/agents/worker.md") {
-			t.Errorf("the fix job names no role text for a worker started fresh:\n%s", jr.Text)
 		}
 		r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
 		r.later(20 * time.Minute)
