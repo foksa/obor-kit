@@ -368,7 +368,7 @@ func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return false
 	}
-	p.fold(r)
+	p.foldRecord(r)
 	a.logf("%s %s %s (%s, pane %s)", p.name, task, r, w.lane.Name, v.pane.ID)
 	return true
 }
