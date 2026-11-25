@@ -49,6 +49,9 @@ func linksTo(t *testing.T, root, dir, link string) {
 	}
 }
 
+// noHead is the git of a dir that is no repository: every query fails, so LinkInto links as without a HEAD.
+func noHead(string, ...string) (string, error) { return "", errors.New("fatal: not a git repository") }
+
 // Whatever is at an entry's path in the worktree stays: the worktree's own file, and a link to somewhere else.
 func TestLinkIntoLeavesAnExistingDestinationAsItIs(t *testing.T) {
 	t.Parallel()
@@ -60,7 +63,10 @@ func TestLinkIntoLeavesAnExistingDestinationAsItIs(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(dir, "link.env")); err != nil {
 		t.Fatal(err)
 	}
-	linked, err := LinkInto(cfg.Root, dir, []string{"own.env", "link.env"})
+	linked, err := LinkInto(cfg.Root, dir, []string{"own.env", "link.env"}, func(d string, args ...string) (string, error) {
+		t.Errorf("git %q in %s: nothing is missing, nothing to ask", args, d)
+		return "", nil
+	})
 	if err != nil || len(linked) != 0 {
 		t.Fatalf("LinkInto = %q, %v; want nothing linked, no error", linked, err)
 	}
@@ -85,7 +91,7 @@ func TestWorktreeLinksAddsNothingWithoutASettingsFile(t *testing.T) {
 	if want := []string{"local.env"}; !reflect.DeepEqual(links, want) {
 		t.Fatalf("WorktreeLinks = %q, want %q", links, want)
 	}
-	linked, err := LinkInto(cfg.Root, dir, links)
+	linked, err := LinkInto(cfg.Root, dir, links, noHead)
 	if err != nil || !reflect.DeepEqual(linked, []string{"local.env"}) {
 		t.Errorf("LinkInto = %q, %v; want local.env linked, no error", linked, err)
 	}
@@ -96,7 +102,9 @@ func TestWorktreeLinksAddsNothingWithoutASettingsFile(t *testing.T) {
 
 // The With forms answer from the git queries they are given: the main checkout's file untracked → the settings file
 // linked to the main checkout's copy; tracked → linked only into a worktree whose HEAD lacks the path (one behind the
-// commit that tracked it); listed in lanes.links → once, nothing asked.
+// commit that tracked it); listed in lanes.links → once, nothing asked. A worktree that lacks the path is not asked
+// by WorktreeLinksWith (the list has the file): LinkInto's HEAD query decides, so a tracked file the worktree deleted
+// is not linked.
 func TestWorktreeLinksWithAsksTheQueriesItIsGiven(t *testing.T) {
 	t.Parallel()
 	const cfgJSON = `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env"]}}`
@@ -107,19 +115,26 @@ func TestWorktreeLinksWithAsksTheQueriesItIsGiven(t *testing.T) {
 		cfg        string
 		tracked    bool // the main checkout tracks the settings file
 		dirTracks  bool // the worktree's HEAD has it
+		dirHas     bool // the worktree has a file at its path (git's checkout, or its own)
 		want       []string
-		queries    []string
+		linked     []string
+		queries    []string // WorktreeLinksWith's
 		noSettings bool
 	}{
-		{name: "untracked in main: linked", cfg: cfgJSON, want: []string{"local.env", PluginSettings}, queries: []string{lacks}},
-		{name: "tracked, the worktree's HEAD has it: no settings link", cfg: cfgJSON, tracked: true, dirTracks: true,
-			want: []string{"local.env"}, queries: []string{lacks, at}},
+		{name: "untracked in main: linked", cfg: cfgJSON, want: []string{"local.env", PluginSettings},
+			linked: []string{"local.env", PluginSettings}},
+		{name: "untracked in main, the worktree's own file there: listed, kept", cfg: cfgJSON, dirHas: true,
+			want: []string{"local.env", PluginSettings}, linked: []string{"local.env"}, queries: []string{lacks}},
+		{name: "tracked, the worktree's HEAD has it: no settings link", cfg: cfgJSON, tracked: true, dirTracks: true, dirHas: true,
+			want: []string{"local.env"}, linked: []string{"local.env"}, queries: []string{lacks, at}},
+		{name: "tracked, the worktree's HEAD has it, deleted there: listed, not linked", cfg: cfgJSON, tracked: true, dirTracks: true,
+			want: []string{"local.env", PluginSettings}, linked: []string{"local.env"}},
 		{name: "tracked, the worktree is behind the commit that tracked it: linked", cfg: cfgJSON, tracked: true,
-			want: []string{"local.env", PluginSettings}, queries: []string{lacks, at}},
+			want: []string{"local.env", PluginSettings}, linked: []string{"local.env", PluginSettings}},
 		{name: "listed in lanes.links: once", cfg: `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":[".claude/settings.json"]}}`,
-			tracked: true, want: []string{PluginSettings}},
+			tracked: true, want: []string{PluginSettings}, linked: []string{PluginSettings}},
 		{name: "no settings file in main: none", cfg: cfgJSON, noSettings: true, tracked: true,
-			want: []string{"local.env"}},
+			want: []string{"local.env"}, linked: []string{"local.env"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,6 +143,9 @@ func TestWorktreeLinksWithAsksTheQueriesItIsGiven(t *testing.T) {
 			put(t, filepath.Join(cfg.Root, "local.env"), "A=1\n")
 			if !tt.noSettings {
 				put(t, filepath.Join(cfg.Root, PluginSettings), "{}\n")
+			}
+			if tt.dirHas {
+				put(t, filepath.Join(dir, PluginSettings), "the worktree's\n")
 			}
 			var asked []string
 			git := func(gotDir string, args ...string) (string, error) {
@@ -158,14 +176,20 @@ func TestWorktreeLinksWithAsksTheQueriesItIsGiven(t *testing.T) {
 			if got, want := SettingsUntrackedWith(cfg.Root, git), !tt.tracked && !tt.noSettings; got != want {
 				t.Errorf("SettingsUntrackedWith = %v, want %v", got, want)
 			}
-			linked, err := LinkInto(cfg.Root, dir, links)
-			if err != nil || !reflect.DeepEqual(linked, tt.want) {
-				t.Fatalf("LinkInto = %q, %v; want %q", linked, err, tt.want)
+			linked, err := LinkInto(cfg.Root, dir, links, git)
+			if err != nil || !reflect.DeepEqual(linked, tt.linked) {
+				t.Fatalf("LinkInto = %q, %v; want %q", linked, err, tt.linked)
 			}
-			if slices.Contains(tt.want, PluginSettings) {
+			fi, err := os.Lstat(filepath.Join(dir, PluginSettings))
+			switch {
+			case slices.Contains(tt.linked, PluginSettings):
 				linksTo(t, cfg.Root, dir, PluginSettings)
-			} else if _, err := os.Lstat(filepath.Join(dir, PluginSettings)); err == nil {
-				t.Errorf("the worktree has the settings file, though the links %q do not list it", tt.want)
+			case tt.dirHas:
+				if err != nil || !fi.Mode().IsRegular() {
+					t.Errorf("the worktree's file at %s: %v, %v; want it kept, a regular file", PluginSettings, fi, err)
+				}
+			case err == nil:
+				t.Errorf("the worktree has the settings file, though LinkInto linked only %q", tt.linked)
 			}
 		})
 	}
@@ -186,7 +210,7 @@ func TestLinkIntoLinksTheSecondEntryWhenTheFirstFailsAndNamesTheFirst(t *testing
 	if err := os.Symlink("x", filepath.Join(ro, "probe")); err == nil {
 		t.Fatal("precondition: the first entry's parent is not writable")
 	}
-	linked, err := LinkInto(cfg.Root, dir, []string{"ro/first.env", "second.env"})
+	linked, err := LinkInto(cfg.Root, dir, []string{"ro/first.env", "second.env"}, noHead)
 	if !reflect.DeepEqual(linked, []string{"second.env"}) {
 		t.Errorf("linked = %q, want [second.env]", linked)
 	}
@@ -194,6 +218,68 @@ func TestLinkIntoLinksTheSecondEntryWhenTheFirstFailsAndNamesTheFirst(t *testing
 	if first := filepath.Join(dir, "ro", "first.env"); err == nil || !strings.Contains(err.Error(), "cannot link "+first) {
 		t.Errorf("err = %v, want it to name %s", err, first)
 	}
+}
+
+// LinkInto asks git whether the worktree's HEAD tracks a path only when an entry is missing, once for all of them:
+// a missing entry HEAD tracks (a file, a directory HEAD has a file under) stays missing, the others are linked; with
+// every entry there, no query at all.
+func TestLinkIntoAsksHEADOnceOnlyForMissingEntries(t *testing.T) {
+	t.Parallel()
+	t.Run("entries missing: one ls-tree of them, the tracked ones not linked", func(t *testing.T) {
+		t.Parallel()
+		cfg, dir := plainProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`)
+		for _, f := range []string{"tracked.env", "conf/a.env", "free.env", "there.env"} {
+			put(t, filepath.Join(cfg.Root, f), "main\n")
+		}
+		put(t, filepath.Join(dir, "there.env"), "mine\n")
+		var asked []string
+		git := func(d string, args ...string) (string, error) {
+			asked = append(asked, d+": "+strings.Join(args, " "))
+			return "tracked.env\nconf/a.env\n", nil
+		}
+		linked, err := LinkInto(cfg.Root, dir, []string{"tracked.env", "conf/", "free.env", "there.env"}, git)
+		if err != nil || !reflect.DeepEqual(linked, []string{"free.env"}) {
+			t.Errorf("LinkInto = %q, %v; want only free.env linked", linked, err)
+		}
+		if want := []string{dir + ": ls-tree --name-only HEAD -- tracked.env conf/ free.env"}; !reflect.DeepEqual(asked, want) {
+			t.Errorf("git calls %q, want %q", asked, want)
+		}
+		for _, f := range []string{"tracked.env", "conf"} {
+			if _, err := os.Lstat(filepath.Join(dir, f)); err == nil {
+				t.Errorf("%s: HEAD tracks it, yet the worktree has it", f)
+			}
+		}
+		linksTo(t, cfg.Root, dir, "free.env")
+	})
+	t.Run("nothing missing: no query", func(t *testing.T) {
+		t.Parallel()
+		cfg, dir := plainProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`)
+		put(t, filepath.Join(cfg.Root, "a.env"), "main\n")
+		put(t, filepath.Join(dir, "a.env"), "mine\n")
+		calls := 0
+		git := func(string, ...string) (string, error) { calls++; return "", nil }
+		linked, err := LinkInto(cfg.Root, dir, []string{"a.env", "absent.env"}, git)
+		if err != nil || len(linked) != 0 {
+			t.Errorf("LinkInto = %q, %v; want nothing linked", linked, err)
+		}
+		if calls != 0 {
+			t.Errorf("%d git calls, want none", calls)
+		}
+	})
+	t.Run("no HEAD: every missing entry linked", func(t *testing.T) {
+		t.Parallel()
+		cfg, dir := plainProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`)
+		put(t, filepath.Join(cfg.Root, "a.env"), "main\n")
+		calls := 0
+		git := func(string, ...string) (string, error) {
+			calls++
+			return "", errors.New("fatal: Not a valid object name HEAD")
+		}
+		linked, err := LinkInto(cfg.Root, dir, []string{"a.env"}, git)
+		if err != nil || !reflect.DeepEqual(linked, []string{"a.env"}) || calls != 1 {
+			t.Errorf("LinkInto = %q, %v after %d git calls; want a.env linked after one", linked, err, calls)
+		}
+	})
 }
 
 // LaneDirt counts what is the lane's at a link path and elsewhere: a regular untracked file at the settings link's

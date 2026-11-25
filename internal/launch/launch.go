@@ -1139,7 +1139,7 @@ func (l *Launcher) addWorktree(ctx context.Context, dir string) error {
 	if _, err := project.AddWorktree(ctx, l.Cfg.Root, dir, l.Cfg.MainBranch()); err != nil {
 		return err
 	}
-	_, err := project.LinkInto(l.Cfg.Root, dir, project.WorktreeLinks(l.Cfg, dir))
+	_, err := project.LinkInto(l.Cfg.Root, dir, project.WorktreeLinks(l.Cfg, dir), project.Git)
 	return err
 }
 

@@ -219,7 +219,7 @@ func (s *session) reset(rev string) bool {
 // (project.LinkInto: missing ones only), best effort: a link that cannot be made shows as the failure of the check
 // that needs it.
 func linkLaneLinks(cfg *config.Config, root, dir string) {
-	_, _ = project.LinkInto(root, dir, project.WorktreeLinks(cfg, dir))
+	_, _ = project.LinkInto(root, dir, project.WorktreeLinks(cfg, dir), project.Git)
 }
 
 func secs(d time.Duration) int { return int(d / time.Second) }

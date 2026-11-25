@@ -130,6 +130,22 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 			}
 		}
 		return fail("error: pathspec '%s' did not match any file(s) known to git", args[3])
+	case len(args) > 4 && args[0] == "ls-tree" && args[1] == "--name-only" && args[2] == "HEAD" && args[3] == "--":
+		// the files of the last commit at or under each path (every worktree sits at it: worktree list)
+		if len(r.commits) == 0 {
+			return fail("fatal: Not a valid object name HEAD")
+		}
+		var names []string
+		for name := range r.commits[len(r.commits)-1].files {
+			for _, path := range args[4:] {
+				if p := strings.Trim(path, "/"); name == p || strings.HasPrefix(name, p+"/") {
+					names = append(names, name)
+					break
+				}
+			}
+		}
+		sort.Strings(names)
+		return strings.Join(names, "\n"), nil
 	case line == "log --format=%s": // newest first
 		var subjects []string
 		for i := len(r.commits) - 1; i >= 0; i-- {

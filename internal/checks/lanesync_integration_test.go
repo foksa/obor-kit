@@ -370,6 +370,77 @@ func TestLaneSyncKeepsTheLinks(t *testing.T) {
 	})
 }
 
+// realLinkGit is project.Git as the link handling's query.
+func realLinkGit(dir string, args ...string) (string, error) { return project.Git(dir, args...) }
+
+// A worker's uncommitted deletion of a file the lane's HEAD tracks, at a lanes.links path, stays a deletion
+// (RV-267 #2): the reconcile makes no link there and says nothing, and the lane's dirt names the deleted path.
+func TestReconcileLinksLeavesATrackedDeletionAlone(t *testing.T) {
+	t.Parallel()
+	fx := untrackFx(t)
+	if tracked := fx.p.Git(fx.lane, "ls-tree", "--name-only", "HEAD", "--", fx.path); tracked != fx.path {
+		t.Fatalf("precondition: HEAD does not track %s (%q)", fx.path, tracked)
+	}
+	dst := filepath.Join(fx.lane, fx.path)
+	if err := os.Remove(dst); err != nil {
+		t.Fatalf("the worker's deletion: %v", err)
+	}
+	var said []string
+	if err := project.ReconcileLinks(fx.cfg, fx.lane, realLinkGit, func(line string) { said = append(said, line) }); err != nil {
+		t.Fatalf("ReconcileLinks: %v", err)
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		t.Errorf("%s: the reconcile put something at the deleted tracked path", dst)
+	}
+	if len(said) != 0 {
+		t.Errorf("the reconcile said %q, want nothing", said)
+	}
+	dirt, err := project.LaneDirt(fx.cfg, fx.lane, realLinkGit)
+	if err != nil || !slices.Equal(dirt, []string{fx.path}) {
+		t.Errorf("LaneDirt = %q, %v; want the deletion of %s", dirt, err, fx.path)
+	}
+}
+
+// A merge that drops a tracked lanes.links path, still open (no commit yet): HEAD still tracks the path, so the
+// reconcile makes no link there; once the merge is committed HEAD no longer tracks it and the reconcile links it.
+func TestReconcileLinksLinksAPathAMergeDropsOnlyOnceCommitted(t *testing.T) {
+	t.Parallel()
+	fx := untrackFx(t)
+	dst := filepath.Join(fx.lane, fx.path)
+	fx.p.Git(fx.lane, "merge", "-q", "--no-commit", "--no-ff", fx.cand)
+	if !gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+		t.Fatal("precondition: the merge is not open")
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		t.Fatalf("precondition: the open merge left %s in place", dst)
+	}
+	if tracked := fx.p.Git(fx.lane, "ls-tree", "--name-only", "HEAD", "--", fx.path); tracked != fx.path {
+		t.Fatalf("precondition: HEAD does not track %s (%q)", fx.path, tracked)
+	}
+	var said []string
+	say := func(line string) { said = append(said, line) }
+	if err := project.ReconcileLinks(fx.cfg, fx.lane, realLinkGit, say); err != nil {
+		t.Fatalf("ReconcileLinks with the merge open: %v", err)
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		t.Errorf("with the merge open: the reconcile put something at %s", dst)
+	}
+	if len(said) != 0 {
+		t.Errorf("with the merge open: the reconcile said %q, want nothing", said)
+	}
+	fx.p.Git(fx.lane, "commit", "-q", "--no-edit")
+	if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+		t.Fatal("precondition: the merge commit left the merge open")
+	}
+	if err := project.ReconcileLinks(fx.cfg, fx.lane, realLinkGit, say); err != nil {
+		t.Fatalf("ReconcileLinks after the merge commit: %v", err)
+	}
+	fx.isLink(t, "after the merge commit")
+	if want := []string{"linked " + fx.path}; !slices.Equal(said, want) {
+		t.Errorf("the reconcile said %q, want %q", said, want)
+	}
+}
+
 // lane.sync on real git (port.LaneSetup.Sync): the target merged into the task branch, or the lane left as it was —
 // current, a conflict (aborted), a dirty lane — and a repeat after a cut converges.
 func TestLaneSync(t *testing.T) {
