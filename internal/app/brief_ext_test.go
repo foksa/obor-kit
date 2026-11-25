@@ -3,7 +3,6 @@ package app_test
 import (
 	"encoding/json"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -209,16 +208,12 @@ func TestBriefByKind(t *testing.T) {
 
 // obor brief types its line into the idle role pane (through Liner); once that pane has worked
 // and is idle again, the lead gets "[obor] <agent> finished (briefed <age> ago)" posted once. Idle right after the
-// typing is no finish; the lead itself cannot be briefed.
+// typing is no finish.
 func TestBriefFinishedLineToTheLead(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := lineRig(t, "idle", "idle")
 		r.start()
-		if _, err := r.line("b0", &wire.BriefReq{To: "pj-lead", Text: "x"}); err == nil || !strings.Contains(err.Error(),
-			"is the lead") {
-			t.Errorf("a brief of the lead: %v, want refused", err)
-		}
 		reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"})
 		if err != nil || reply != "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)" {
 			t.Fatalf("brief: %q, %v", reply, err)
@@ -327,64 +322,6 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 		r.statusEvent("w1:p6", "idle", "codex")
 		const done = "[obor] pj-sol finished (briefed 2m ago)"
 		r.waitFor("the finished line posted to the lead", func() bool { return r.inbox.count("pj-lead", done) == 1 })
-	})
-}
-
-// A role agent with no inbox: brief A waits, then a fresh start's brief B (no line: the start carried it) ends
-// A. The log keeps A's seq as superseded by B's record, and B carries no line.
-func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := lineRig(t, "idle", "working")
-		r.inbox.unrecord("pj-rev")
-		r.start()
-		const a = "[obor pj-lead] first"
-		if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
-			t.Fatal(err)
-		}
-		if w := r.waiting(); len(w) != 1 || w[0].Line != a {
-			t.Fatalf("waiting %+v, want the first brief's line alone", w)
-		}
-		if _, err := r.line("b2", &wire.BriefReq{To: "pj-rev"}); err != nil {
-			t.Fatal(err)
-		}
-		sup := r.supersededLines()
-		if len(sup) != 1 || sup[0].By == 0 || sup[0].Seq >= sup[0].By {
-			t.Fatalf("superseded lines %+v, want the old line replaced by the fresh start's brief", sup)
-		}
-		var by event.Message
-		for _, rec := range r.records() {
-			if rec.Seq == sup[0].By {
-				_ = json.Unmarshal(rec.Data, &by)
-			}
-		}
-		if by.Line != "" {
-			t.Errorf("the newer brief carried line %q, want none (its start carried it)", by.Line)
-		}
-	})
-}
-
-// Brief A waits; obor brief B ends it and reaches the reviewer's inbox once (which brief is delivered is
-// TestBriefSupersedeSurvivesACrash's).
-func TestBriefSupersedesAQueuedBrief(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := lineRig(t, "idle", "working") // the reviewer is busy: brief A waits
-		r.start()
-		if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
-			t.Fatal(err)
-		}
-		r.waitFor("the first brief queued", func() bool { return len(r.waiting()) == 1 })
-		if _, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "second"}); err != nil {
-			t.Fatal(err)
-		}
-		const b = "[obor pj-lead] second"
-		r.agentIs("w1:p6", "pj-rev", "idle")
-		r.waitFor("the second brief delivered", func() bool { return r.inbox.count("pj-rev", b) == 1 })
-		r.passes()
-		if n := r.inbox.count("pj-rev", b) + r.typedTo("pj-rev", b); n != 1 {
-			t.Errorf("the second brief delivered %d times, want once", n)
-		}
 	})
 }
 

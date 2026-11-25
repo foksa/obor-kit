@@ -244,8 +244,8 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 	same(t, queued, 0, "lines still queued")
 }
 
-// A refused brief --fresh changes nothing: not the lead or the owner, a worker or the integrator as the target, no
-// text — and a running agent is not stopped by the delivery that follows (nothing was recorded).
+// A refused brief --fresh changes nothing: not the lead or the owner, a worker, the integrator or the lead as the
+// target, no text — and a running agent is not stopped by the delivery that follows (nothing was recorded).
 func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
@@ -259,6 +259,8 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 			Agent: "pj-l-01"}}, "the lead or the owner briefs"},
 		{"the integrator", wire.BriefReq{To: "pj-int", Text: "x", Envelope: wire.Envelope{Role: "lead"}},
 			"no role agent serve starts fresh"},
+		{"the lead", wire.BriefReq{To: "pj-lead", Text: "x", Envelope: wire.Envelope{Role: "lead"}},
+			"brief: pj-lead is the lead: obor send reaches another project's lead"},
 		{"no text", wire.BriefReq{To: "pj-advisor", Text: " ", Envelope: wire.Envelope{Role: "lead"}},
 			"--fresh takes a text"},
 	} {
@@ -267,7 +269,7 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}
 	}
-	same(t, briefSeq(t, p, "pj-advisor")+briefSeq(t, p, "pj-int"), int64(0), "briefed facts")
+	same(t, briefSeq(t, p, "pj-advisor")+briefSeq(t, p, "pj-int")+briefSeq(t, p, "pj-lead"), int64(0), "briefed facts")
 	s := &FakeAgents{}
 	a.deliver(context.Background(), p, withAppCfg(a, &Loop{Agents: s, Prompter: s}))
 	same(t, len(s.Events()), 0, "stops and starts")
