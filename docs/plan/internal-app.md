@@ -25,3 +25,8 @@ waves, file-split tasks alone in the package. Each task deletes what it replaces
 | 14 | F | One fake per port (a task per port) | T-1594..T-1597 |
 | 15 | F | One level per behaviour, per topic, largest first | T-1599..T-1605 (loop, verdict, resume, brief, fetch, deliver, dispatch) |
 | 16 | G | `internal/app/activity` leaf (optional) | |
+
+**Status 11-25 (lead):** tasks 1-15 done; the plan ends here. Task 15 ran its seven largest topics (net ~380 test lines
+deleted, ~55 per task); the smaller topics (nightly, stopped, status, drive, keeplane, watchdog, waiting) are not worth
+a task each: take one when a change touches that topic's tests. Task 16 skipped (buys little, by the plan's own note).
+`internal/app`'s suite: 17.5 s → 7.5 s (T-1589 measurement vs. 11-25 after T-1605, 2 CPUs, lanes idle).
