@@ -397,11 +397,16 @@ func (a *App) sendFix(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job
 		fmt.Sprintf("fix job %s not sent", JobID(job)))
 }
 
-// fixText is mt's fix job: what to fix, and to call task_done again; the role texts' paths for a worker started fresh (read); with the spec (row) when its
-// rev is not the one the worker's last job carried (the lead changed it since).
-func fixText(mt mtask, row store.SpecRow, read string) string {
-	text := fmt.Sprintf("%s is sent back to you (attempt %d): %s\nFix it and run the tests; when finished, call "+
-		"task_done again with your new report (obor serve takes it as your next attempt).", mt.task, mt.attempt, mt.line)
+// fixText is mt's fix job: what to fix, what the attempt's lane.sync did (main: the target branch; syncLine), and to
+// call task_done again; the role texts' paths for a worker started fresh (read); with the spec (row) when its rev is
+// not the one the worker's last job carried (the lead changed it since).
+func fixText(mt mtask, row store.SpecRow, read, main string) string {
+	text := fmt.Sprintf("%s is sent back to you (attempt %d): %s\n", mt.task, mt.attempt, mt.line)
+	if line := syncLine(mt.synced, main); line != "" {
+		text += line + "\n"
+	}
+	text += "Fix it and run the tests; when finished, call task_done again with your new report (obor serve takes it " +
+		"as your next attempt)."
 	text += "\n" + read
 	if row.Rev > 0 && row.Rev != mt.specRev {
 		text += specText(row)

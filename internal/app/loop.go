@@ -224,6 +224,8 @@ type attemptVars struct {
 	fails          map[string]failure // counted failures per step key since the attempt began or the last resume
 	work           string             // a dispatched attempt's work job step ("": not sent in this attempt, or sent anew after obor resume)
 	lined          bool               // stDriving: the lead's line that the drive came back (line: why) is recorded
+	sync           bool               // stWorking: next started the attempt on its worker: lane.sync before its fix job
+	synced         *syncOut           // the attempt's lane.sync result (nil: none yet)
 }
 
 // failure is one step's counted failures in an attempt: how many, and the last one's reason and time (obor status'
@@ -866,8 +868,8 @@ func (a *App) pickMerged(p *proj, mt mtask) step {
 	return func(ctx context.Context, fx *Loop) bool { return a.afterStep(ctx, p, fx, mt) }
 }
 
-// pickWorking sends the fix job of a sent-back attempt and watches its delivery (row 24); a dispatched attempt waits
-// for its task_done.
+// pickWorking merges the target into a sent-back attempt's lane (lane.sync, row 24a), then sends its fix job and
+// watches its delivery (row 24); a dispatched attempt waits for its task_done.
 func (a *App) pickWorking(p *proj, mt mtask) step {
 	fix := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepFix, max(mt.fixes, 1))}
 	switch {
@@ -878,6 +880,8 @@ func (a *App) pickWorking(p *proj, mt mtask) step {
 			return a.needsYou(p, &mt, causeFix, fmt.Sprintf("fix job %s not sent: the lane names no worker agent",
 				JobID(fix)))
 		}
+	case mt.syncDue():
+		return func(ctx context.Context, fx *Loop) bool { return a.laneSync(ctx, p, fx, mt) }
 	case !mt.fixed:
 		fix.Step = nth(event.StepFix, mt.fixes+1)
 	case !p.log.Open(fix):

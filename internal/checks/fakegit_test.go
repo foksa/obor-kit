@@ -54,7 +54,7 @@ var errCut = errors.New("cut: git call failed")
 
 // writes are fakeGit's writing methods: the cut table cuts each.
 var writes = []string{"AddAll", "Commit", "Amend", "Merge", "WriteTree", "UpdateRef", "DeleteRef", "FF", "Reset", "Clean",
-	"Detach", "Switch", "AddWorktree", "NewBranch", "DeleteBranch"}
+	"Detach", "Switch", "AddWorktree", "NewBranch", "DeleteBranch", "MergeAbort", "CommitMerge"}
 
 // newFakeGit is the model of the fixture repo (fixture_test.go's template): main at main0 checked out in root, lane
 // dir on task/T-05 forked there with its uncommitted feature.txt.
@@ -395,6 +395,23 @@ func (f *fakeGit) Merge(dir, input string) error {
 		f.unmerged[dir] = files
 		return fmt.Errorf("git merge in %s: exit status 1", dir)
 	}
+	return nil
+}
+
+func (f *fakeGit) MergeAbort(dir string) error {
+	if err := f.call("MergeAbort", dir); err != nil {
+		return err
+	}
+	delete(f.merging, dir)
+	delete(f.unmerged, dir)
+	return nil
+}
+
+func (f *fakeGit) CommitMerge(dir, msg string) error {
+	if err := f.call("CommitMerge", dir, msg); err != nil {
+		return err
+	}
+	f.commitOn(dir, msg, 0)
 	return nil
 }
 

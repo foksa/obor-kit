@@ -16,8 +16,8 @@ import (
 	herdrun "obor/internal/run"
 )
 
-// Lane is port.LaneSetup for one project: the lane.prepare step of a dispatched task
-// and the lane a drop gives back. Its git is laneGit: real git in the lane's worktree with the caller's ctx.
+// Lane is port.LaneSetup for one project: the lane.prepare step of a dispatched task, the target merged into a lane
+// before a fix attempt (lane.sync) and the lane a drop gives back. Its git is laneGit: real git in the lane's worktree with the caller's ctx.
 type Lane struct {
 	Cfg  *config.Config
 	Out  io.Writer // progress lines (nil: none)
@@ -48,6 +48,17 @@ type laneGit interface {
 	Detach(dir, sha string) error
 	// DeleteBranch deletes branch (branch -D).
 	DeleteBranch(dir, branch string) error
+	// Branch is the branch dir has checked out ("": detached).
+	Branch(dir string) (string, error)
+	// Parents is sha and its parents (rev-list --parents -n 1).
+	Parents(dir, sha string) ([]string, error)
+	// Merge merges input into dir's HEAD, --no-commit --no-ff: an error when it stopped (a conflict among them:
+	// MERGE_HEAD stays); Unmerged is the paths an open merge left unmerged; MergeAbort is merge --abort.
+	Merge(dir, input string) error
+	Unmerged(dir string) ([]string, error)
+	MergeAbort(dir string) error
+	// CommitMerge commits the merge open in dir with msg, --no-verify.
+	CommitMerge(dir, msg string) error
 }
 
 // lgit is the git l works through under ctx: its fake when a test set one, else laneReal.
@@ -77,6 +88,100 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 		return port.Prepared{}, port.Refused{Line: err.Error()}
 	}
 	return port.Prepared{Base: in.Target}, nil
+}
+
+// Sync merges in.Target into the task branch in.Dir has checked out (port.LaneSetup.Sync, lane.sync): its commit
+// subject "Merge <target branch> into <branch> (obor: fix attempt <n>)". A merge an earlier cut Sync left open
+// (MERGE_HEAD) is aborted first; a HEAD that is the merge of in.Target already (a cut after the commit) is merged.
+// Then: the target in HEAD's history is current, uncommitted changes (project.LaneDirt: obor's links are not the
+// lane's) are dirty, nothing touched; a merge that stops with unmerged paths is aborted (the lane as it was) and is a
+// conflict naming them; one that stops otherwise is aborted and an error. No lane dir, a lane not on in.Branch and git
+// failures are errors (retry).
+func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) {
+	if !project.IsDir(in.Dir) {
+		return port.Synced{}, fmt.Errorf("no lane dir %s", in.Dir)
+	}
+	git := l.lgit(ctx)
+	branch, err := git.Branch(in.Dir)
+	if err != nil {
+		return port.Synced{}, fmt.Errorf("read the branch of %s: %w", in.Dir, err)
+	}
+	if branch != in.Branch {
+		return port.Synced{}, fmt.Errorf("lane %s is on %q, not on %s", in.Lane, branch, in.Branch)
+	}
+	if err := l.abortMerge(git, in.Dir); err != nil {
+		return port.Synced{}, err
+	}
+	head, ok, err := git.Verify(in.Dir, "HEAD")
+	if err != nil || !ok {
+		return port.Synced{}, fmt.Errorf("read HEAD of %s: %v", in.Dir, cmpErr(err, "no HEAD"))
+	}
+	parents, err := git.Parents(in.Dir, head)
+	if err != nil {
+		return port.Synced{}, fmt.Errorf("read the parents of %s: %w", head, err)
+	}
+	if len(parents) == 3 && parents[2] == in.Target {
+		return port.Synced{Kind: port.SyncMerged, SHA: head}, nil // a cut Sync committed it
+	}
+	current, err := git.Ancestor(in.Dir, in.Target, head)
+	if err != nil {
+		return port.Synced{}, fmt.Errorf("check %s in %s's history: %w", in.Target, in.Branch, err)
+	}
+	if current {
+		return port.Synced{Kind: port.SyncCurrent}, nil
+	}
+	dirt, err := git.Dirt(in.Dir)
+	if err != nil {
+		return port.Synced{}, fmt.Errorf("git status in %s: %w", in.Dir, err)
+	}
+	if len(dirt) > 0 {
+		return port.Synced{Kind: port.SyncDirty, Files: dirt}, nil
+	}
+	if err := git.Merge(in.Dir, in.Target); err != nil {
+		files, uerr := git.Unmerged(in.Dir)
+		if aerr := l.abortMerge(git, in.Dir); aerr != nil {
+			return port.Synced{}, fmt.Errorf("merge %s in %s: %v; %w", in.Target, in.Dir, err, aerr)
+		}
+		if uerr == nil && len(files) > 0 {
+			return port.Synced{Kind: port.SyncConflict, Files: files}, nil
+		}
+		return port.Synced{}, fmt.Errorf("merge %s in %s: %w%s", in.Target, in.Dir, err, lockHint(in.Dir, err))
+	}
+	msg := fmt.Sprintf("Merge %s into %s (obor: fix attempt %d)", l.Cfg.MainBranch(), in.Branch, in.Attempt)
+	if err := git.CommitMerge(in.Dir, msg); err != nil {
+		if aerr := l.abortMerge(git, in.Dir); aerr != nil {
+			return port.Synced{}, fmt.Errorf("commit the merge in %s: %v; %w", in.Dir, err, aerr)
+		}
+		return port.Synced{}, fmt.Errorf("commit the merge in %s: %w", in.Dir, err)
+	}
+	sha, ok, err := git.Verify(in.Dir, "HEAD")
+	if err != nil || !ok {
+		return port.Synced{}, fmt.Errorf("read HEAD of %s after the merge: %v", in.Dir, cmpErr(err, "no HEAD"))
+	}
+	return port.Synced{Kind: port.SyncMerged, SHA: sha}, nil
+}
+
+// abortMerge aborts the merge open in dir (MERGE_HEAD; none: nothing to do).
+func (l Lane) abortMerge(git laneGit, dir string) error {
+	_, open, err := git.Verify(dir, "MERGE_HEAD")
+	if err != nil {
+		return fmt.Errorf("read MERGE_HEAD of %s: %w", dir, err)
+	}
+	if !open {
+		return nil
+	}
+	if err := git.MergeAbort(dir); err != nil {
+		return fmt.Errorf("git merge --abort in %s: %w", dir, err)
+	}
+	return nil
+}
+
+// cmpErr is err, else an error of why (a read that answered nothing).
+func cmpErr(err error, why string) error {
+	if err != nil {
+		return err
+	}
+	return errors.New(why)
 }
 
 // checkout is git checkout -q args… in dir, which puts it on target, with obor's links kept around it
@@ -231,6 +336,35 @@ func (g laneReal) Detach(dir, sha string) error {
 
 func (g laneReal) DeleteBranch(dir, branch string) error {
 	_, err := g.l.git(g.ctx, dir, "branch", "-q", "-D", branch)
+	return err
+}
+
+func (g laneReal) Branch(dir string) (string, error) {
+	return g.l.git(g.ctx, dir, "branch", "--show-current")
+}
+
+func (g laneReal) Parents(dir, sha string) ([]string, error) {
+	out, err := g.l.git(g.ctx, dir, "rev-list", "--parents", "-n", "1", sha)
+	return strings.Fields(out), err
+}
+
+func (g laneReal) Merge(dir, input string) error {
+	_, err := g.l.git(g.ctx, dir, "merge", "-q", "--no-commit", "--no-ff", input)
+	return err
+}
+
+func (g laneReal) Unmerged(dir string) ([]string, error) {
+	out, err := g.l.git(g.ctx, dir, "diff", "--name-only", "--diff-filter=U")
+	return lines(out), err
+}
+
+func (g laneReal) MergeAbort(dir string) error {
+	_, err := g.l.git(g.ctx, dir, "merge", "--abort")
+	return err
+}
+
+func (g laneReal) CommitMerge(dir, msg string) error {
+	_, err := g.l.git(g.ctx, dir, "commit", "-q", "--no-verify", "-m", msg)
 	return err
 }
 

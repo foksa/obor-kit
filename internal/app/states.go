@@ -144,9 +144,9 @@ func init() {
 			resume: func(mtask, string) resumeRule {
 				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
 			}},
-		// rows 6, 10–16, 21, 24: the fix job (a dispatched attempt: its task_done submits it); an undelivered fix job
-		// is sent anew by retry (row 40)
-		stWorking: {pick: plain((*App).pickWorking), name: func(mtask) string { return "the fix" }, landed: true, verbs: workVerbs,
+		// rows 6, 10–16, 21, 24a, 24: lane.sync, then the fix job (a dispatched attempt: its task_done submits it); an
+		// undelivered fix job is sent anew by retry (row 40)
+		stWorking: {pick: plain((*App).pickWorking), name: workingName, landed: true, verbs: workVerbs,
 			phase: wire.PhaseWorking,
 			resume: func(mt mtask, cause string) resumeRule {
 				if mt.work == "" && cause == causeUndelivered {
@@ -298,6 +298,14 @@ func gateName(mt mtask) string {
 		return event.StepSubmit
 	}
 	return nth(event.StepGate, mt.gates+1)
+}
+
+// workingName names a working state's step: lane.sync while it is due, else the fix.
+func workingName(mt mtask) string {
+	if mt.syncDue() {
+		return event.StepSync
+	}
+	return "the fix"
 }
 
 // jobName names an open job's step: the job itself.

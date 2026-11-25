@@ -248,7 +248,7 @@ func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 		if err != nil {
 			return "", 0, err
 		}
-		return fixText(mt, row, read), row.Rev, nil
+		return fixText(mt, row, read, fx.Cfg.MainBranch()), row.Rev, nil
 	}
 	text, err := workText(fx.Cfg, mt, fx.Kit)
 	if err != nil {

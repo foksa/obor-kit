@@ -315,11 +315,13 @@ func TestSettledAnswerEndsOnReplay(t *testing.T) {
 func fixStep(t *testing.T, h *harness, f *schedScratch) {
 	t.Helper()
 	p := h.a.p
-	h.a.mu.Lock()
-	s := h.a.pickWorking(p, *p.folded.loop["T-1"])
-	h.a.mu.Unlock()
-	if s == nil || !s(context.Background(), withAppCfg(h.a, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f})) {
-		t.Fatal("pickWorking: no step, or it failed")
+	for !p.folded.loop["T-1"].fixed { // lane.sync first (row 24a), then the fix job
+		h.a.mu.Lock()
+		s := h.a.pickWorking(p, *p.folded.loop["T-1"])
+		h.a.mu.Unlock()
+		if s == nil || !s(context.Background(), withAppCfg(h.a, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f})) {
+			t.Fatalf("pickWorking: no step, or it failed: %q", h.facts(0))
+		}
 	}
 }
 

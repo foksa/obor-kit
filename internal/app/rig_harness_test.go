@@ -575,7 +575,8 @@ func (h *harness) has(s string) bool {
 func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	t.Helper()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
+		`"lanes":{"count":1},"agents":{"roles":{"integrator":""}}}`) // L-01: a sendback's lane.sync finds its worktree
 	f := &schedScratch{h: h}
 	h.a.opt.Loop = func(root string) (*Loop, error) {
 		return withCfg(root, &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: "../.."}), nil

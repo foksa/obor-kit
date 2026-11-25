@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"slices"
 
 	"obor/internal/config"
@@ -10,7 +11,8 @@ import (
 )
 
 // The lane projection: each lane's row in the store's lanes table, derived from the log alone. A successful
-// lane.prepare puts its task on the lane (no head yet: each submit result sets it) and off any other lane, as does a
+// lane.prepare puts its task on the lane (no head yet: each submit result sets it, and a lane.sync that merged sets
+// it and the base) and off any other lane, as does a
 // submission from a lane whose row does not hold its task (a task dispatched before serve dispatched: no branch or
 // base known); a dropped fact takes it off. finished is when the attempt's task_done was recorded. serve is the only
 // writer: it writes the table after the load's replay and after
@@ -59,6 +61,10 @@ func (p *proj) foldLanes(r event.Record) {
 			p.foldSubmitHead(r)
 			return
 		}
+		if step == event.StepSync {
+			p.foldSyncHead(r)
+			return
+		}
 		mt := p.folded.loop[r.Task]
 		if step != event.StepPrepare || mt == nil || mt.attempt != r.Attempt || !mt.is(stDispatched) && !mt.is(stDriving) {
 			return
@@ -89,6 +95,21 @@ func (p *proj) foldSubmitHead(r event.Record) {
 	for lane, row := range p.folded.lr.rows {
 		if row.Task == r.Task {
 			row.Head = d.SHA
+			p.folded.lr.rows[lane] = row
+		}
+	}
+}
+
+// foldSyncHead records a lane.sync that merged (r) on the row holding r's task: the merge commit is the lane's head,
+// the target it merged its base. Any other outcome left the lane as it was and changes nothing.
+func (p *proj) foldSyncHead(r event.Record) {
+	var d syncOut
+	if json.Unmarshal(r.Data, &d) != nil || d.Outcome != port.SyncMerged || d.SHA == "" {
+		return
+	}
+	for lane, row := range p.folded.lr.rows {
+		if row.Task == r.Task {
+			row.Head, row.Base = d.SHA, d.Target
 			p.folded.lr.rows[lane] = row
 		}
 	}
