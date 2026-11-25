@@ -85,7 +85,7 @@ func (a *App) keptWork(p *proj, mt mtask, cfg *config.Config) step {
 	}
 }
 
-// keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (dispatchData.Stop):
+// keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (event.Dispatch.Stop):
 // l's agent, live in its worktree, when its recorded start does not run ref (startFits). "": l is no keep
 // lane, its agent is not live (the dispatch starts one), or it runs ref (its work job goes to it).
 func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref string) string {

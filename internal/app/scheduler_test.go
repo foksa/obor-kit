@@ -44,8 +44,8 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 		t.Fatal("precondition: the merge loop runs")
 	}
 	for _, task := range []string{"T-9", "T-10"} {
-		addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
-		addRecord(t, h, task, event.StepSubmit, event.KindResult, submitOut{SHA: "s-" + task})
+		addRecord(t, h, task, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
+		addRecord(t, h, task, event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s-" + task})
 	}
 	owner, q := schedStatus(t, h)
 	want := []wire.ScratchWait{{Task: "T-10"}, {Task: "T-9"}} // the pass's order, by id as strings
@@ -65,8 +65,8 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	t.Parallel()
 	h, f := seedSched(t, true) // T-1's gate conflicted
 	ctx := context.Background()
-	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
-	addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
+	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-02"})
+	addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s2"})
 	p := h.a.p
 	check := func(state, why string, resolved bool) {
 		t.Helper()
@@ -145,8 +145,8 @@ func TestRunningGateCommand(t *testing.T) {
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	addRecord(t, h, "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
-	addRecord(t, h, "T-3", event.StepSubmit, event.KindResult, submitOut{SHA: "s3"})
+	addRecord(t, h, "T-3", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
+	addRecord(t, h, "T-3", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s3"})
 	h.a.advance(context.Background())
 	<-f.started
 	ps := h.a.Status().Project
@@ -225,7 +225,7 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 			// The waiting facts in dispatch order: T-2's first.
 			for _, task := range []string{"T-2", "T-3"} {
 				if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepWaiting, Kind: event.KindFact},
-					dispatchData{Level: "medium", Types: []string{"sonnet"}}) {
+					event.Dispatch{Level: "medium", Types: []string{"sonnet"}}) {
 					t.Fatalf("the log refused %s's waiting fact", task)
 				}
 			}

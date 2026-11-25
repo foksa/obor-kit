@@ -160,7 +160,7 @@ func TestPromptIntegratorJob(t *testing.T) {
 	// A job's first start is a fresh session; this job's start ran already ("running"), so its wake is typed.
 	for _, rec := range []event.Record{
 		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindIntent, Class: event.ClassStart,
-			Data: mustJSON(startData{Agent: "pj-int"})},
+			Data: mustJSON(event.Start{Agent: "pj-int"})},
 		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindResult, Data: mustJSON("running")},
 	} {
 		if _, err := Append(h.a, h.root, rec, h.now); err != nil {
@@ -206,7 +206,7 @@ func TestStartReplay(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h, fx, _, ag := promptRig(t, false)
-			d := startData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1", Ran: c.ran, Session: c.atIntent}
+			d := event.Start{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1", Ran: c.ran, Session: c.atIntent}
 			raw, _ := json.Marshal(d)
 			h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindIntent, Class: event.ClassStart, Data: raw})
 			reloadProj(t, h) // the crash
@@ -250,7 +250,7 @@ func TestStartResultLost(t *testing.T) {
 		t.Fatal("precondition: the result write failed")
 	}
 	r, _ := h.proj().log.Intent(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStartWork})
-	var d startData
+	var d event.Start
 	_ = json.Unmarshal(r.Data, &d)
 	if !d.Ran || d.Session != "old" {
 		t.Fatalf("intent %s; want the agent and its session id old recorded", r.Data)

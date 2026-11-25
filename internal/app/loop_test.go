@@ -330,8 +330,8 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 	f.testRelease = make(chan struct{})
 
 	// T-1's gate is green with a Base: its lane test is the work running when the new binary appears.
-	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{
 		Task: "T-1", Lane: "L-01", SHA: "c-T-1", Target: "b", Base: "b0", Patch: "p1"}})
 
 	var calls atomic.Int32
@@ -371,8 +371,8 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 
 	// A task submitted now (T-6) goes through its gate to a lane test beside the pending restart, in turn with
 	// T-5's: the restart still waits.
-	r.add("pj", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06"})
-	r.add("pj", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})
+	r.add("pj", "T-6", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-06"})
+	r.add("pj", "T-6", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s6"})
 	r.waitFor("T-6's lane test", func() bool { return f.count(f.tests, "T-6") == 1 })
 	r.waitFor("T-6 tested", func() bool { return r.count("pj", "T-6", event.KindResult, event.StepTest) == 1 })
 	if n := calls.Load(); n != 0 {
@@ -405,7 +405,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 func TestAppendedReactions(t *testing.T) {
 	t.Parallel()
 	open := func(t *testing.T, h *harness) { // T-1 submitted, its submit intent pending
-		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01"})
 		addRecord(t, h, "T-1", event.StepSubmit, event.KindIntent, map[string]string{"lane": "L-01"})
 	}
 	merged := func(t *testing.T, h *harness) { // T-1 merged, after_merge done, its stop's intent pending
@@ -417,13 +417,13 @@ func TestAppendedReactions(t *testing.T) {
 	}
 	reviewing := func(t *testing.T, h *harness) { // T-1's review job out, a superseded intent pending
 		addRecord(t, h, "T-1", event.StepDispatched, event.KindFact,
-			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-1"}})
-		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+			event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-1"}})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01"})
 		addRecord(t, h, "T-1", event.StepSubmit, event.KindIntent, map[string]string{"lane": "L-01"})
-		addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{})
+		addRecord(t, h, "T-1", event.StepGate, event.KindIntent, event.GateIn{})
 		addRecord(t, h, "T-1", event.StepGate, event.KindResult,
-			gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c", Patch: "p"}})
-		addRecord(t, h, "T-1", event.StepReview, event.KindIntent, JobData{Patch: "p"})
+			event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c", Patch: "p"}})
+		addRecord(t, h, "T-1", event.StepReview, event.KindIntent, event.Job{Patch: "p"})
 	}
 	reject := verdictStep(wire.MethodReject, "rj")
 	for _, c := range []struct {
@@ -438,15 +438,15 @@ func TestAppendedReactions(t *testing.T) {
 		cuts      string // the waits that end: "" none, "own" r's step's, "task" every wait of T-1
 		settled   int    // T-1's pending intents r's fold settles as not run
 	}{
-		{name: "an intent", seed: open, r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: gateIn{},
+		{name: "an intent", seed: open, r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: event.GateIn{},
 			state: stSubmitted},
 		{name: "a result that ends nothing", seed: open, r: event.Record{Step: event.StepSubmit, Kind: event.KindResult},
-			data: submitOut{Refused: "no"}, state: stSubmitted, hooked: true, cuts: "own"},
+			data: event.SubmitOut{Refused: "no"}, state: stSubmitted, hooked: true, cuts: "own"},
 		{name: "the last after-merge step's result: the task ended", seed: merged,
 			r: event.Record{Step: event.StepStop, Kind: event.KindResult}, data: "done", state: stMerged, hooked: true,
 			logsGo: true, cuts: "own"},
 		{name: "a reject's result: not ended, nothing settled", seed: reviewing,
-			r: event.Record{Step: reject, Kind: event.KindResult}, data: verdictResult{Job: "T-1/1/review", Note: "no"},
+			r: event.Record{Step: reject, Kind: event.KindResult}, data: event.VerdictResult{Job: "T-1/1/review", Note: "no"},
 			state: stRejected, hooked: true, cuts: "own"},
 		{name: "a watchdog fact", seed: open, r: event.Record{Step: event.StepNeedsYou, Kind: event.KindFact},
 			data: event.FactData{Lane: "L-01", Reason: reasonAsks + "which file"}, state: stSubmitted, hooked: true,
@@ -458,7 +458,7 @@ func TestAppendedReactions(t *testing.T) {
 			r: event.Record{Step: event.StepDropped, Kind: event.KindFact}, data: event.FactData{Reason: "not needed"},
 			state: stDropped, hooked: true, logsGo: true, cuts: "task", settled: 1},
 		{name: "an intent, the lane rows' write failing", seed: open,
-			r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: gateIn{}, failLanes: true,
+			r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: event.GateIn{}, failLanes: true,
 			state: stSubmitted},
 		{name: "a fact, the lane rows' write failing", seed: open,
 			r:    event.Record{Step: event.StepNeedsYou, Kind: event.KindFact},

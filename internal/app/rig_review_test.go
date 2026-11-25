@@ -117,7 +117,7 @@ func restartRig(t *testing.T, h *harness) {
 // taskMerged is task submitted and merged at head (outside the app when head is ""), no after-merge step left.
 func taskMerged(task, head string) lineStep {
 	return func(t *testing.T, h *harness) {
-		addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+		addRecord(t, h, task, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 		addRecord(t, h, task, event.StepMerged, event.KindFact, event.MergedData{Head: head, Outside: head == ""})
 	}
 }
@@ -391,9 +391,9 @@ func (r *reviewRig) submitted(task string) {
 	// task: one the seed merged is dispatched again first, as a real log has it.
 	if mt := r.p.folded.loop[task]; mt != nil && mt.dispSeq == 0 && states[mt.state].ended {
 		r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
-			dispatchData{Dispatch: port.Dispatch{Lane: "L-01"}})
+			event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01"}})
 	}
-	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact}, submitData{Lane: "L-01"})
+	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact}, event.Submit{Lane: "L-01"})
 }
 
 func (r *reviewRig) merged(task string) {
@@ -517,7 +517,7 @@ func (r *reviewRig) fixTask(task, line string) {
 	r.t.Helper()
 	r.setSpec(task, line)
 	if !r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
-		dispatchData{}) {
+		event.Dispatch{}) {
 		r.t.Fatal("the log refused the dispatch")
 	}
 	r.submitted(task)

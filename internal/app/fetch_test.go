@@ -26,8 +26,8 @@ func TestEarlyTaskDone(t *testing.T) {
 	p := r.proj("pj")
 	p.dispatching = true
 	lane := r.a.obs["w1:p2"].pane.Cwd
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	r.a.lanes.(*fakeLanes).lanes = []port.Lane{{Name: "L-02", Dir: lane, Task: "T-2", Agent: "pj-l-02"}}
 	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	var fetched wire.JobReply
@@ -80,11 +80,11 @@ func TestStartAgainSameJob(t *testing.T) {
 	p := r.proj("pj")
 	p.dispatching = true
 	lane := r.a.obs["w1:p2"].pane.Cwd
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	r.add("pj", "T-2", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-02", Job: "T-2/1/work"})
-	r.add("pj", "T-2", event.StepStartWork, event.KindIntent, startData{Lane: "L-02", Agent: "pj-l-02", Pane: "w1:p2"})
-	r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Refused: "has background tasks"})
+	r.add("pj", "T-2", event.StepStartWork, event.KindIntent, event.Start{Lane: "L-02", Agent: "pj-l-02", Pane: "w1:p2"})
+	r.add("pj", "T-2", event.StepStartWork, event.KindResult, event.StartOut{Refused: "has background tasks"})
 	r.add("pj", "T-2", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeStart, Reason: "start: refused"})
 	r.add("pj", "T-2", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeRetry})
 	f := &startJobFakes{concFakes: r.fakes["pj"]}
@@ -293,8 +293,8 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindResult, "sent")
-	r.add("pj", "T-5", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-05", Input: "s5"})
-	r.add("pj", "T-5", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-5", SHA: "c5",
+	r.add("pj", "T-5", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-05", Input: "s5"})
+	r.add("pj", "T-5", event.StepGate, event.KindResult, event.GateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-5", SHA: "c5",
 		Target: "b", Patch: "p5"}})
 	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindIntent, promptData{Agent: "pj-int", Job: "T-5/1/resolve.2", Patch: "p5"})
 	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindResult, "sent")
@@ -359,7 +359,7 @@ func TestFreshIntegratorReplay(t *testing.T) {
 	p := r.proj("pj")
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
-	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
+	r.add("pj", "T-1", "start.review", event.KindIntent, event.Start{Agent: "pj-int"})
 	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("the replayed job step failed")
@@ -386,23 +386,23 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name          string
-		at            startData // the start's intent
-		now           string    // the integrator pane's session now as herdr reports it ("gone": no integrator)
-		recorded      string    // the integrator's session recorded from its pane ("": none)
+		at            event.Start // the start's intent
+		now           string      // the integrator pane's session now as herdr reports it ("gone": no integrator)
+		recorded      string      // the integrator's session recorded from its pane ("": none)
 		start, forced bool
 	}{
 		{"no herdr session, the recorded session is the intent's: start again",
-			startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "", "old", true, false},
+			event.Start{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "", "old", true, false},
 		{"no herdr session, none recorded: cannot tell",
-			startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "", "", false, false},
-		{"the same session: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "old", "",
+			event.Start{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "", "", false, false},
+		{"the same session: start again", event.Start{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "old", "",
 			true, false},
-		{"none runs: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "gone", "",
+		{"none runs: start again", event.Start{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "gone", "",
 			true, false},
-		{"a new session: started", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "new", "",
+		{"a new session: started", event.Start{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "new", "",
 			false, false},
-		{"none at the intent, one now: started", startData{Agent: "pj-int"}, "new", "", false, false},
-		{"unknown at the intent: cannot tell", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", "", false, false},
+		{"none at the intent, one now: started", event.Start{Agent: "pj-int"}, "new", "", false, false},
+		{"unknown at the intent: cannot tell", event.Start{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", "", false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -485,10 +485,10 @@ func TestRestartJobSkipsHeld(t *testing.T) {
 	defer r.a.closeLog()
 	// T-6's review job goes out after T-4's: its intent is the newer one, so it is the integrator's oldest open job
 	// once T-4 is held.
-	r.add("pr", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06"})
-	r.add("pr", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})
-	r.add("pr", "T-6", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-06", Input: "s6"})
-	r.add("pr", "T-6", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-6",
+	r.add("pr", "T-6", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-06"})
+	r.add("pr", "T-6", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s6"})
+	r.add("pr", "T-6", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-06", Input: "s6"})
+	r.add("pr", "T-6", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-6",
 		SHA: "c-T-6", Target: "b", Patch: "p"}})
 	r.add("pr", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pr-int", Job: "T-6/1/review", Patch: "p"})
 	r.add("pr", "T-6", event.StepReview, event.KindResult, "sent")
@@ -592,18 +592,18 @@ func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
 	cfg := `{"version":2,"project":{"name":"pj"},"lanes":{"count":1},"agents":{"docs_dir":"doc/roles",` + harnessModels + `,"kinds":{
 		"claude":{"job_note":"Claude extra."},"codex":{"job_note":"Codex extra."}}}}`
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
-	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)
+	text, err := workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: event.Dispatch{Lane: "L-01", Type: "luna:high"}}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(text, "Codex extra.") || strings.Contains(text, "Claude extra.") {
 		t.Errorf("a luna:high dispatch: want codex's prompt_extra only:\n%s", text)
 	}
-	text, err = workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "opus"}}, kit)
+	text, err = workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: event.Dispatch{Lane: "L-01", Type: "opus"}}, kit)
 	if err != nil || !strings.Contains(text, "Claude extra.") || strings.Contains(text, "Codex extra.") {
 		t.Errorf("an opus dispatch: want claude's prompt_extra only (%v):\n%s", err, text)
 	}
-	text, err = workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01"}}, kit)
+	text, err = workText(loadCfg(t, p.root), mtask{task: "T-9", lane: "L-01", disp: event.Dispatch{Lane: "L-01"}}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}

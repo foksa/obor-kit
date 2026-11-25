@@ -29,9 +29,9 @@ func TestDriveNoStallWhileDriving(t *testing.T) {
 			h.connect()
 			p := h.proj()
 			t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-			addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+			addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 				Agent: "pj-l-01-drive", Branch: "task/T-1", Target: "b", Drive: drive})
-			addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+			addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 			p.setLanes(h.lanes.lanes)
 			h.a.reconcile(p)
 			if got, want := p.folded.loop["T-1"].state, map[bool]string{false: stDispatched, true: stDriving}[drive]; got != want {
@@ -82,9 +82,9 @@ func landSeed(t *testing.T, adapters bool) (*harness, *proj) {
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 		Agent: "pj-l-01-drive", Branch: "task/T-1", Target: "b", Drive: true})
-	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
 	if st := p.folded.loop["T-1"].state; st != stDriving {

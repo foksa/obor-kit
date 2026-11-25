@@ -49,7 +49,7 @@ type worder func(r event.Record, d *Described) error
 // worded is every record kind the readers word, by key (describedKey): Describe's one table.
 var worded = map[string]worder{
 	"result " + event.StepGate: func(r event.Record, d *Described) error {
-		var out gateOut
+		var out event.GateOut
 		if err := decode(r, &out); err != nil {
 			return err
 		}
@@ -63,7 +63,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"result " + event.StepTest: func(r event.Record, d *Described) error {
-		var out testOut
+		var out event.TestOut
 		if err := decode(r, &out); err != nil {
 			return err
 		}
@@ -81,7 +81,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"result " + wire.MethodSendback: func(r event.Record, d *Described) error {
-		var v verdictResult
+		var v event.VerdictResult
 		if err := decode(r, &v); err != nil {
 			return err
 		}
@@ -89,7 +89,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"fact " + event.StepDispatched: func(r event.Record, d *Described) error {
-		var dd dispatchData
+		var dd event.Dispatch
 		if err := decode(r, &dd); err != nil {
 			return err
 		}
@@ -102,7 +102,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"fact " + event.StepSubmitted: func(r event.Record, d *Described) error {
-		var s submitData
+		var s event.Submit
 		if err := decode(r, &s); err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"fact " + event.StepSendback: func(r event.Record, d *Described) error {
-		var n noteData
+		var n event.Note
 		if err := decode(r, &n); err != nil {
 			return err
 		}
@@ -167,7 +167,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"fact " + event.StepVersion: func(r event.Record, d *Described) error { // a tool's version as read
-		var v versionData
+		var v event.Version
 		if err := decode(r, &v); err != nil {
 			return err
 		}

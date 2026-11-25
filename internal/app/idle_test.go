@@ -52,11 +52,11 @@ func TestIdleRefusalNamesWhatIsInFlight(t *testing.T) {
 				r := newReviewRig(t)
 				r.submitted("T-c")
 				r.a.record(r.p, event.Record{Task: "T-c", Attempt: 1, Step: event.StepGate, Kind: event.KindResult},
-					gateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "cand", Patch: "patch"}})
+					event.GateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "cand", Patch: "patch"}})
 				r.a.record(r.p, event.Record{Task: "T-c", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent},
-					JobData{Patch: "patch"})
+					event.Job{Patch: "patch"})
 				r.a.record(r.p, event.Record{Task: "T-c", Attempt: 1, Step: verdictStep(wire.MethodReject, "c1"),
-					Kind: event.KindResult}, verdictResult{Job: "T-c/1/review", Note: "no"})
+					Kind: event.KindResult}, event.VerdictResult{Job: "T-c/1/review", Note: "no"})
 				return r.a, r.p
 			}},
 		{name: "a review request", want: "NOT IDLE: RV-5 review request pending",
@@ -510,7 +510,7 @@ func TestIdleKeyIsTheNewestEnd(t *testing.T) {
 func TestEffectResultIdleEpochMatchesReplay(t *testing.T) {
 	t.Parallel()
 	h := ruleHarness(t)
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 	addRecord(t, h, "T-1", event.StepMerged, event.KindFact, event.MergedData{Head: "abcdef0"})
 	p := h.proj()
 	for _, step := range afterSteps {

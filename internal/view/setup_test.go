@@ -187,7 +187,7 @@ func TestSetupWithoutStore(t *testing.T) {
 	}
 }
 
-// dispatchData is the fields of a fact dispatch or waiting this test writes (the app's own type is unexported).
+// dispatchData is the fields of a fact dispatch or waiting this test writes: the ones it reads.
 type dispatchData struct {
 	Lane  string   `json:"lane,omitempty"`
 	Level string   `json:"level,omitempty"`

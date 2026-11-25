@@ -21,7 +21,7 @@ import (
 // worker without its job until a restart (lines instead stay queued: deliver).
 
 // promptData is every prompt intent's data: the agent prompted and its job; a review or resolve job's patch (folded
-// as JobData), a fix job's note.
+// as event.Job), a fix job's note.
 type promptData struct {
 	Agent string `json:"agent,omitempty"`
 	Job   string `json:"job,omitempty"`

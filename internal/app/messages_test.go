@@ -1796,7 +1796,7 @@ func TestRV90Drop(t *testing.T) {
 		{"drop", event.Record{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
 			event.FactData{Lane: "L-01", Merge: true}},
 		{"reject", event.Record{Task: "T-1", Attempt: 1, Step: "reject.r1", Kind: event.KindResult},
-			verdictResult{Job: "T-1/1/review", Reply: "REJECT T-1"}},
+			event.VerdictResult{Job: "T-1/1/review", Reply: "REJECT T-1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

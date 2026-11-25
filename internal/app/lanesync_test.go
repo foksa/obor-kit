@@ -22,17 +22,17 @@ func syncRec(attempt int, step, kind string, data any) event.Record {
 // with outcome (green: no Base, so no lane test).
 func submittedT1(outcome string) []event.Record {
 	return []event.Record{
-		syncRec(1, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"}),
-		syncRec(1, event.StepSubmit, event.KindResult, submitOut{SHA: "s1"}),
-		syncRec(1, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"}),
-		syncRec(1, event.StepGate, event.KindResult, gateOut{Outcome: outcome,
+		syncRec(1, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01"}),
+		syncRec(1, event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"}),
+		syncRec(1, event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"}),
+		syncRec(1, event.StepGate, event.KindResult, event.GateOut{Outcome: outcome,
 			Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "t0", Patch: "p1"}}),
 	}
 }
 
 // redSentBack is T-1's red gate sent back (row 21): attempt 2 working, its lane.sync due.
 func redSentBack() []event.Record {
-	return append(submittedT1(outRed), syncRec(1, event.StepSendback, event.KindFact, noteData{Note: "RED"}))
+	return append(submittedT1(outRed), syncRec(1, event.StepSendback, event.KindFact, event.Note{Note: "RED"}))
 }
 
 // A sendback that sends the worker back to fix on its lane schedules lane.sync before the fix job (row 24a): the
@@ -40,11 +40,11 @@ func redSentBack() []event.Record {
 // syncs. Each folded live and on replay alike (the fold is the replay).
 func TestStateWorkingRow24a(t *testing.T) {
 	t.Parallel()
-	review := append(submittedT1(outGreen), syncRec(1, event.StepReview, event.KindIntent, JobData{Patch: "p1"}))
+	review := append(submittedT1(outGreen), syncRec(1, event.StepReview, event.KindIntent, event.Job{Patch: "p1"}))
 	drive := []event.Record{
-		syncRec(1, event.StepDispatched, event.KindFact, dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01",
+		syncRec(1, event.StepDispatched, event.KindFact, event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01",
 			Branch: "task/T-1", Target: "t0"}, Drive: true}),
-		syncRec(1, event.StepPrepare, event.KindResult, prepareOut{Base: "t0"}),
+		syncRec(1, event.StepPrepare, event.KindResult, event.PrepareOut{Base: "t0"}),
 	}
 	drive = append(drive, submittedT1(outRed)...)
 	for _, c := range []struct {
@@ -55,13 +55,13 @@ func TestStateWorkingRow24a(t *testing.T) {
 	}{
 		{"red gate", redSentBack(), stWorking, true},
 		{"the integrator's sendback", append(review, syncRec(1, verdictStep(wire.MethodSendback, "v1"), event.KindResult,
-			verdictResult{Job: "T-1/1/review", Note: "add a test"})), stWorking, true},
+			event.VerdictResult{Job: "T-1/1/review", Note: "add a test"})), stWorking, true},
 		{"the lead's sendback", append(submittedT1(outGreen), syncRec(1, verdictStep(wire.MethodSendback, "l1"),
-			event.KindResult, verdictResult{Note: "use the store", Lead: true})), stWorking, true},
-		{"a drive's red gate", append(drive, syncRec(1, event.StepSendback, event.KindFact, noteData{Note: "RED"})),
+			event.KindResult, event.VerdictResult{Note: "use the store", Lead: true})), stWorking, true},
+		{"a drive's red gate", append(drive, syncRec(1, event.StepSendback, event.KindFact, event.Note{Note: "RED"})),
 			stDriving, false},
 		{"a move after the sendback", append(redSentBack(), syncRec(3, event.StepDispatched, event.KindFact,
-			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-1", Target: "t1",
+			event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-1", Target: "t1",
 				Redo: true}, Fix: "RED", Stop: "pj-l-01"})), stDispatched, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {

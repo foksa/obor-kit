@@ -60,7 +60,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	}
 	table("load: no records")
 
-	disp := add("T-1", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
+	disp := add("T-1", 1, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b1"})
 	table("dispatched, not prepared")
 	add("T-1", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
@@ -70,26 +70,26 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	row := store.LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Base: "b1", DispatchedAt: at}
 	table("prepared: awaits task_done, no head yet (T-1015)", row)
 
-	sub := add("T-1", 1, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
+	sub := add("T-1", 1, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
 	row.Finished = event.RecordTime(sub).Unix()
 	table("submitted: finished", row)
 	// The submit result's pinned lane commit is the row's head; a resubmission moves it, a refusal does not.
-	add("T-1", 1, nth(event.StepSubmit, 1), event.KindResult, submitOut{SHA: "s1"})
+	add("T-1", 1, nth(event.StepSubmit, 1), event.KindResult, event.SubmitOut{SHA: "s1"})
 	row.Head = "s1"
 	table("submit pinned s1", row)
-	add("T-1", 1, nth(event.StepSubmit, 2), event.KindResult, submitOut{SHA: "s2"})
+	add("T-1", 1, nth(event.StepSubmit, 2), event.KindResult, event.SubmitOut{SHA: "s2"})
 	row.Head = "s2"
 	table("resubmit pinned s2", row)
-	add("T-1", 1, nth(event.StepSubmit, 3), event.KindResult, submitOut{Refused: "no"})
+	add("T-1", 1, nth(event.StepSubmit, 3), event.KindResult, event.SubmitOut{Refused: "no"})
 	table("a refused submit keeps s2", row)
 	add("T-1", 1, event.StepMerged, event.KindFact, event.MergedData{})
 	row.Landed = true // the free rule's landed fact
 	table("merged: the row stays, landed", row)
 
-	add("T-2", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
+	add("T-2", 1, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-2", Target: "b2", Effort: "high", Type: "opus:high"})
 	add("T-2", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
-	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2"})
+	add("T-2", 1, event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b2"})
 	row2 := store.LaneRow{Lane: "L-01", Task: "T-2", Branch: "task/T-2", Base: "b2",
 		DispatchedAt: h.now.Add(-2 * time.Minute).Unix(), Type: "opus:high"}
 	table("the lane re-dispatched", row2)
@@ -134,9 +134,9 @@ func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
 			t.Errorf("%s: row %+v, %v, %v; want blocked %v", when, row, ok, err, want)
 		}
 	}
-	add("T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+	add("T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 		Agent: "pj-l-01", Branch: "task/T-1", Target: "b1"})
-	add("T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b1"})
+	add("T-1", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b1"})
 	blocked("no question", false)
 	add("T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Reason: reasonAsks + "may I?"})
 	blocked("a question in force", true)
@@ -147,8 +147,8 @@ func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
 	blocked("an answer for another task", true)
 	add(event.MsgTask, event.StepAnswered, event.KindFact, event.Message{Task: "T-1", Driver: true})
 	blocked("a drive's answer", true)
-	add("T-1", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
-	add("T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+	add("T-1", event.StepSendback, event.KindFact, event.Note{Note: "fix it"})
+	add("T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 		Agent: "pj-l-01", Branch: "task/T-1", Target: "b1"})
 	blocked("a sendback and a dispatch", true)
 	add(event.MsgTask, event.StepAnswered, event.KindFact, event.Message{Task: "T-1"})
@@ -199,10 +199,10 @@ func TestLaneRowLandedByAMergeOutside(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	add(event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
+	add(event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b1"})
-	add(event.StepPrepare, event.KindResult, prepareOut{Base: "b1"})
-	add(event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
+	add(event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b1"})
+	add(event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
 	if row, ok, err := store.ReadLaneAt(h.root, "L-01"); err != nil || !ok || row.Task != "T-1" || row.Landed {
 		t.Fatalf("precondition: L-01's row %+v, %v, %v; want T-1 submitted, not landed", row, ok, err)
 	}
@@ -345,7 +345,7 @@ var freeIn = port.FreeInput{Dispatch: port.Dispatch{Lane: "L-01"}, Discard: true
 func TestLaneRecordShapes(t *testing.T) {
 	t.Parallel()
 	// The dispatch fact as an older log holds it (its keys, order and omitted empties).
-	d := dispatchData{Dispatch: port.Dispatch{Lane: "L-03", Dir: "/wt/L-03", Agent: "ob-l-03", Branch: "task/T-849",
+	d := event.Dispatch{Dispatch: port.Dispatch{Lane: "L-03", Dir: "/wt/L-03", Agent: "ob-l-03", Branch: "task/T-849",
 		Target: "4cac"}, Level: "simple", Types: []string{"deepseek", "opus:medium"}, Type: "deepseek", Caller: "ob-lead",
 		Call: "c00d", Reply: "DISPATCHED"}
 	const fact = `{"lane":"L-03","dir":"/wt/L-03","agent":"ob-l-03","branch":"task/T-849","target":"4cac","level":"simple",` +

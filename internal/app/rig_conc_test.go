@@ -123,9 +123,9 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b"})
-	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
 	mt := p.folded.loop["T-1"]
@@ -200,8 +200,8 @@ func askSeed(t *testing.T) (*harness, *proj) {
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01", Branch: "task/T-1", Target: "b"})
-	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01", Branch: "task/T-1", Target: "b"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
 	return h, p
@@ -228,8 +228,8 @@ func (r *concRig) closeTask(name, task, end string, live bool) {
 		}
 	default:
 		step := verdictStep(wire.MethodReject, "rj")
-		r.add(name, task, step, event.KindIntent, verdictData{Job: task + "/1/review", Caller: p.integrator, Patch: "p", Note: "why"})
-		r.add(name, task, step, event.KindResult, verdictResult{Job: task + "/1/review", Patch: "p", Note: "why"})
+		r.add(name, task, step, event.KindIntent, event.Verdict{Job: task + "/1/review", Caller: p.integrator, Patch: "p", Note: "why"})
+		r.add(name, task, step, event.KindResult, event.VerdictResult{Job: task + "/1/review", Patch: "p", Note: "why"})
 	}
 	if got := r.state(name, task); got != end {
 		r.t.Fatalf("%s is %s, want %s", task, got, end)
@@ -386,16 +386,16 @@ func newConcRig(t *testing.T) *concRig {
 		}}, false)
 	}
 
-	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
-	r.add("pj", "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	r.add("pj", "T-5", event.StepSubmitted, event.KindFact, submitData{Lane: "L-05"})
-	r.add("pj", "T-5", event.StepSubmit, event.KindResult, submitOut{SHA: "s5"})
-	r.add("pq", "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "L-03"})
-	r.add("pq", "T-3", event.StepSubmit, event.KindResult, submitOut{SHA: "s3"})
-	r.add("pr", "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "L-04"})
-	r.add("pr", "T-4", event.StepSubmit, event.KindResult, submitOut{SHA: "s4"})
-	r.add("pr", "T-4", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-04", Input: "s4"})
-	r.add("pr", "T-4", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4", SHA: "c-T-4",
+	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
+	r.add("pj", "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
+	r.add("pj", "T-5", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-05"})
+	r.add("pj", "T-5", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s5"})
+	r.add("pq", "T-3", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-03"})
+	r.add("pq", "T-3", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s3"})
+	r.add("pr", "T-4", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-04"})
+	r.add("pr", "T-4", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s4"})
+	r.add("pr", "T-4", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-04", Input: "s4"})
+	r.add("pr", "T-4", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4", SHA: "c-T-4",
 		Target: "b", Patch: "p"}})
 	r.add("pr", "T-4", event.StepReview, event.KindIntent, promptData{Agent: "pr-int", Job: "T-4/1/review", Patch: "p"})
 	r.add("pr", "T-4", event.StepReview, event.KindResult, "sent")
@@ -663,7 +663,7 @@ func (r *concRig) worker(proj, id, agent string) {
 
 // dispatchT2 records pj's T-2 dispatch onto lane L-02 (its worker's pane is in the rig).
 func dispatchT2(r *concRig) {
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
 		"pj-wt", "L-02"), Agent: "pj-l-02", Target: "target", Branch: "task/T-2"})
 	p := r.proj("pj")
 	r.a.mu.Lock()

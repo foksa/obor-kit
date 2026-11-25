@@ -33,7 +33,7 @@ type stateRow struct {
 // verdictRule is one verdict a state takes and how it folds.
 type verdictRule struct {
 	method string
-	fold   func(mt *mtask, v verdictResult)
+	fold   func(mt *mtask, v event.VerdictResult)
 }
 
 // verb is one of the task verbs of the lead, the owner or the worker: a state's row says which it takes, and
@@ -92,9 +92,9 @@ func init() {
 		// rows 19, 25–29, 31: the review job is out
 		stAwaiting: {pick: plain((*App).pickJob), name: jobName, verbs: vResume | vDrop, landed: true, phase: wire.PhaseReviewing,
 			verdicts: []verdictRule{
-				{wire.MethodAccept, func(mt *mtask, v verdictResult) { mt.accepted, mt.state = v.Patch, stAccepted }},
+				{wire.MethodAccept, func(mt *mtask, v event.VerdictResult) { mt.accepted, mt.state = v.Patch, stAccepted }},
 				{wire.MethodSendback, foldSendback},
-				{wire.MethodReject, func(mt *mtask, v verdictResult) { mt.state, mt.line = stRejected, v.Note }},
+				{wire.MethodReject, func(mt *mtask, v event.VerdictResult) { mt.state, mt.line = stRejected, v.Note }},
 			}},
 		// rows 21–22: a sendback, or the owner after K
 		stRed: {pick: plain((*App).pickRed), verbs: vDrop, landed: true, phase: wire.PhaseGating},
@@ -104,8 +104,8 @@ func init() {
 		// rows 23, 25, 30–31: the resolve job is out
 		stResolving: {pick: plain((*App).pickJob), name: jobName, verbs: vResume | vDrop, scratch: true, landed: true,
 			phase: wire.PhaseReviewing, verdicts: []verdictRule{
-				{wire.MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
-				{wire.MethodReject, func(mt *mtask, v verdictResult) {
+				{wire.MethodResolved, func(mt *mtask, v event.VerdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
+				{wire.MethodReject, func(mt *mtask, v event.VerdictResult) {
 					mt.block(block{cause: causeResolveRejected, why: "resolve rejected: " + v.Note})
 				}},
 			}},
@@ -313,7 +313,7 @@ func jobName(mt mtask) string { return mt.job }
 
 // foldSendback folds the integrator's sendback: the next attempt, or the owner past K (row 22). A drive goes back to
 // driving whatever its count: its owner fixes it.
-func foldSendback(mt *mtask, v verdictResult) {
+func foldSendback(mt *mtask, v event.VerdictResult) {
 	if mt.sendbacks < K || mt.drive {
 		mt.sendback(v.Note)
 		return

@@ -123,8 +123,8 @@ func TestAStartRecordsTheConfigItsPassRanOn(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	f := &startEffects{concFakes: r.fakes["pj"]}
 	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	if fx.Cfg == nil {
@@ -143,7 +143,7 @@ func TestAStartRecordsTheConfigItsPassRanOn(t *testing.T) {
 	mt := *p.folded.loop["T-2"]
 	start := event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepStartWork}
 	work := event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepWork}
-	if !r.a.startWorker(context.Background(), p, fx, mt, start, startData{Agent: mt.agent, Pane: "w1:p2"}, work) {
+	if !r.a.startWorker(context.Background(), p, fx, mt, start, event.Start{Agent: mt.agent, Pane: "w1:p2"}, work) {
 		t.Fatal("the start failed")
 	}
 	r.a.mu.Lock()

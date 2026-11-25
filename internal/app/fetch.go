@@ -262,7 +262,7 @@ func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 }
 
 // movedFix is the work job's part for an attempt a move started while the attempt it moved had a fix
-// outstanding (dispatchData.Fix): what to fix, as the fix job said it; "": none.
+// outstanding (event.Dispatch.Fix): what to fix, as the fix job said it; "": none.
 func movedFix(mt mtask) string {
 	if mt.disp.Fix == "" {
 		return ""
@@ -421,7 +421,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 		attempt++
 	}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepSubmitted, Kind: event.KindFact},
-		submitData{Lane: l.Name, Agent: mt.agent, Pane: pane, Call: c.CallID, Report: report}) {
+		event.Submit{Lane: l.Name, Agent: mt.agent, Pane: pane, Call: c.CallID, Report: report}) {
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
 	a.wake()

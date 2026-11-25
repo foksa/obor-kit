@@ -46,7 +46,7 @@ func (p *proj) foldLoop(r event.Record) {
 		return
 	}
 	if r.Kind == event.KindFact && r.Step == event.StepSubmitted {
-		var d submitData
+		var d event.Submit
 		_ = json.Unmarshal(r.Data, &d)
 		next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stSubmitted,
 			report: d.Report}
@@ -79,7 +79,7 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.state = stAccepted
 			}
 		case event.StepSendback:
-			var d noteData
+			var d event.Note
 			_ = json.Unmarshal(r.Data, &d)
 			mt.sendback(d.Note)
 		case event.StepMoved:
@@ -136,11 +136,11 @@ func (p *proj) foldLoop(r event.Record) {
 	case event.KindIntent:
 		switch step {
 		case event.StepGate:
-			var d gateIn
+			var d event.GateIn
 			_ = json.Unmarshal(r.Data, &d)
 			mt.kind = d.Kind
 		case event.StepReview, event.StepResolve:
-			var d JobData
+			var d event.Job
 			_ = json.Unmarshal(r.Data, &d)
 			mt.job, mt.patch, mt.delivered = r.Step, d.Patch, false
 			if step == event.StepReview {
@@ -155,7 +155,7 @@ func (p *proj) foldLoop(r event.Record) {
 		}
 	case event.KindResult:
 		if method, _ := verdictMethod(r.Step); method != "" {
-			var v verdictResult
+			var v event.VerdictResult
 			_ = json.Unmarshal(r.Data, &v)
 			if mt.onHold() && mt.job != "" && v.Job == JobID(mt.jobKey()) {
 				mt.unblock() // a verdict on a held (or late) job ends the needs-you
@@ -168,11 +168,11 @@ func (p *proj) foldLoop(r event.Record) {
 			}
 			return
 		}
-		var g gateOut
+		var g event.GateOut
 		_ = json.Unmarshal(r.Data, &g)
 		switch step {
 		case event.StepSubmit:
-			var d submitOut
+			var d event.SubmitOut
 			_ = json.Unmarshal(r.Data, &d)
 			mt.submits, mt.input = n, d.SHA
 			if d.Refused != "" {
@@ -199,7 +199,7 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.block(block{cause: causeGate, why: "gate: " + g.Line})
 			}
 		case event.StepTest:
-			var d testOut
+			var d event.TestOut
 			_ = json.Unmarshal(r.Data, &d)
 			mt.tests, mt.line = n, d.Line
 			switch d.Outcome {
@@ -215,7 +215,7 @@ func (p *proj) foldLoop(r event.Record) {
 			_ = json.Unmarshal(r.Data, &d)
 			mt.synced = &d
 		case event.StepPrepare:
-			var d prepareOut
+			var d event.PrepareOut
 			_ = json.Unmarshal(r.Data, &d)
 			mt.prepares, mt.base = n, d.Base
 			if d.Refused != "" {
@@ -228,7 +228,7 @@ func (p *proj) foldLoop(r event.Record) {
 		case event.StepFree:
 			mt.foldFree(n, r.Data)
 		case event.StepStartWork:
-			var d startOut
+			var d event.StartOut
 			_ = json.Unmarshal(r.Data, &d)
 			mt.starts, mt.started = n, d.Refused == ""
 			if d.Refused != "" {
@@ -259,7 +259,7 @@ func (p *proj) foldLoop(r event.Record) {
 	}
 }
 
-// The outcomes in a gate's or a publish's result (gateOut).
+// The outcomes in a gate's or a publish's result (event.GateOut).
 const (
 	outGreen    = "green"
 	outRed      = "red"
@@ -399,7 +399,7 @@ func gateState(kind string) string {
 
 // verdict folds the integrator's verdict on the task's open job (its state's verdicts), or the lead's sendback
 // (v.Lead); one that no longer fits the state changes nothing.
-func (mt *mtask) verdict(method string, v verdictResult) {
+func (mt *mtask) verdict(method string, v event.VerdictResult) {
 	if method == wire.MethodSendback && v.Lead {
 		if mt.is(stGreen) || mt.is(stAwaiting) || mt.is(stResolving) || mt.onHold() {
 			// The lead's sendback starts the next attempt but does not count toward K: K counts the gate's and the

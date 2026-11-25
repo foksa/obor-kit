@@ -22,18 +22,10 @@ const versionsEvery = 10 * time.Minute
 // ruleVersion is the version rule's name: its key in the rule pass.
 const ruleVersion = "version.changed"
 
-// versionData is fact version's data: the tool (an agent kind's name, or the project's terminal kind), its version as
-// read, and the one the log held before ("": the first sighting).
-type versionData struct {
-	What    string `json:"what"`
-	Version string `json:"version"`
-	Was     string `json:"was,omitempty"`
-}
-
 // versionAt is a tool's newest version fact as folded: its data and the record's seq.
 type versionAt struct {
-	versionData
-	seq int64
+	data event.Version
+	seq  int64
 }
 
 // versionTick reads the tools' versions once versionsEvery has passed since the last read (and on the first pass
@@ -63,11 +55,11 @@ func (a *App) versionTick(ctx context.Context, p *proj, fx *Loop) {
 	if a.connected && a.termVer != "" {
 		read[p.terminal] = a.termVer
 	}
-	var changed []versionData
+	var changed []event.Version
 	for _, what := range slices.Sorted(maps.Keys(read)) {
-		was := p.folded.versions[what].Version
+		was := p.folded.versions[what].data.Version
 		if v := read[what]; v != "" && v != was {
-			changed = append(changed, versionData{What: what, Version: v, Was: was})
+			changed = append(changed, event.Version{What: what, Version: v, Was: was})
 		}
 	}
 	a.mu.Unlock()
@@ -81,7 +73,7 @@ func (p *proj) foldVersion(r event.Record) {
 	if r.Task != event.VersionTask || r.Kind != event.KindFact || r.Step != event.StepVersion {
 		return
 	}
-	var d versionData
+	var d event.Version
 	if json.Unmarshal(r.Data, &d) != nil || d.What == "" || d.Version == "" {
 		return
 	}
@@ -96,7 +88,7 @@ func versionRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int6
 	defer a.mu.Unlock()
 	var next *versionAt
 	for _, v := range p.folded.versions {
-		if _, did := p.folded.did[event.Of{Kind: ruleVersion, Seq: v.seq}]; v.Was == "" || did {
+		if _, did := p.folded.did[event.Of{Kind: ruleVersion, Seq: v.seq}]; v.data.Was == "" || did {
 			continue
 		}
 		if next == nil || v.seq < next.seq {
@@ -106,11 +98,11 @@ func versionRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int6
 	if next == nil {
 		return 0, action{}, false
 	}
-	return next.seq, action{line: versionLine(next.versionData)}, true
+	return next.seq, action{line: versionLine(next.data)}, true
 }
 
 // versionLine is the lead's line for a tool's changed version.
-func versionLine(d versionData) string {
+func versionLine(d event.Version) string {
 	return fmt.Sprintf("%s changed version: %s (was %s). obor drives it and was not tested with this one: watch its "+
 		"next start and stop, and suspect it first if an agent stalls.", d.What, d.Version, d.Was)
 }

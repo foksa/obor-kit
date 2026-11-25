@@ -86,8 +86,8 @@ func (r *Registry) StartedAgents() []string {
 // StartRow is serve's own start of an agent (agent.start's or start.<job>'s result, app's foldStart): the pane it
 // placed the agent in, that pane's terminal id ("": none known yet), the kind, the session, the verdicts folded at its
 // start ("a verdict came since its start", rolestop.go) and Ref, the model ref an agent.start ran: its attempt's
-// dispatch's (dispatchData.Type, read at the fold, not stored again; "": start.<job>'s, or unknown), and Config, the
-// config revision the start was launched under (startOut.Config; "": a start.<job>, which names none), what a keep
+// dispatch's (event.Dispatch.Type, read at the fold, not stored again; "": start.<job>'s, or unknown), and Config, the
+// config revision the start was launched under (event.StartOut.Config; "": a start.<job>, which names none), what a keep
 // lane's reuse checks (startFits), and Task, the task key of the record it was folded from: the nightly prune keeps that
 // task whole while the row is its agent's (deleting the record would drop the agent's identity proof).
 type StartRow struct {

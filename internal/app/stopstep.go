@@ -88,7 +88,7 @@ func (a *App) pickStop(p *proj, mt mtask) step {
 func (a *App) stopStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	h := mt.halt
 	in := event.Intent{Key: mt.stopKey(h.n + 1), Class: event.ClassStart,
-		Data: stopData{Lane: mt.lane, Agent: h.agent, Force: h.force}}
+		Data: event.Stop{Lane: mt.lane, Agent: h.agent, Force: h.force}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		_, _, err := a.stopAgent(ctx, p, fx, h.agent, h.force, false)
 		switch {

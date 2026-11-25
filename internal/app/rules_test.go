@@ -112,13 +112,13 @@ func TestIdleRules(t *testing.T) {
 	}
 	merged := func(task string) step { // task submitted and merged outside the app: no after-merge step left
 		return func(t *testing.T, h *harness) {
-			addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+			addRecord(t, h, task, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 			addRecord(t, h, task, event.StepMerged, event.KindFact, event.MergedData{Outside: true})
 		}
 	}
 	dispatch := func(task string) step { // work in flight
 		return func(t *testing.T, h *harness) {
-			addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+			addRecord(t, h, task, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 				Agent: "pj-l-01", Branch: "task/" + task, Target: "main"})
 		}
 	}

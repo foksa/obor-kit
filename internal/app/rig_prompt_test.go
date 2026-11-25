@@ -290,11 +290,11 @@ func (f *startAgents) Stop(context.Context, string, string, bool) (string, error
 // it.
 func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness, *Loop, *boxPrompter, *startAgents) {
 	h, s := seedSched(t, true, before...)
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Target: "target", Branch: "task/T-1"})
-	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "target"})
 	if started {
-		addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "STARTED", Pane: "w1:p1"})
+		addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, event.StartOut{Line: "STARTED", Pane: "w1:p1"})
 	}
 	h.a.p.dispatching = true
 	kit, _ := filepath.Abs("../..")

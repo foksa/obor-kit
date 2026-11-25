@@ -23,7 +23,7 @@ import (
 // dispatchSonnet folds T-1's dispatch onto L-01 as sonnet: the start's row takes its ref at the fold (foldStart).
 func dispatchSonnet(t *testing.T, h *harness) {
 	t.Helper()
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 		Agent: "pj-l-01", Type: "sonnet", Target: "target", Branch: "task/T-1"})
 }
 
@@ -31,7 +31,7 @@ func dispatchSonnet(t *testing.T, h *harness) {
 // carries none).
 func startReported(t *testing.T, h *harness, rev string) {
 	t.Helper()
-	addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "STARTED", Agent: "pj-l-01",
+	addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, event.StartOut{Line: "STARTED", Agent: "pj-l-01",
 		Pane: "w1:p1", Kind: "claude", Session: "new-session", Config: rev})
 }
 
@@ -241,7 +241,7 @@ func handoffSeed(t *testing.T, k *readKind) (*harness, *proj, *Loop) {
 		`"lanes":{"list":[{"name":"L-01","keep_agent":true}]},"agents":{"handoff_tokens":1000,`+harnessModels+`}}`)
 	file := filepath.Join(t.TempDir(), "t.jsonl")
 	h.write(file, `{"type":"ctx-probe","tokens":900000,"at":"2026-10-13T10:00:00Z"}`+"\n")
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 		Agent: "pj-l-01", Type: "sonnet", Target: "target", Branch: "task/T-1", Keep: true})
 	addRecord(t, h, "T-1", event.StepMerged, event.KindFact, event.MergedData{Head: "m1"})
 	if _, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: "pj-l-01", Kind: "ctxprobe", ID: "s1",
@@ -379,8 +379,8 @@ func TestKeptWorkReadsTheSizeOutsideTheLock(t *testing.T) {
 			cfg := loadCfg(t, h.root)
 			p := h.proj()
 			p.dispatching = true
-			disp := func(task string) dispatchData {
-				return dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01", Type: "sonnet", Target: "target",
+			disp := func(task string) event.Dispatch {
+				return event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01", Type: "sonnet", Target: "target",
 					Branch: "task/" + task, Keep: true}
 			}
 			addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, disp("T-1"))
@@ -388,7 +388,7 @@ func TestKeptWorkReadsTheSizeOutsideTheLock(t *testing.T) {
 			h.session("pj-l-01", "new-session", "/t/new-session.jsonl", 100)
 			addRecord(t, h, "T-1", event.StepMerged, event.KindFact, event.MergedData{Head: "m1"})
 			addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, disp("T-2"))
-			addRecord(t, h, "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+			addRecord(t, h, "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once

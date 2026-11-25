@@ -281,11 +281,11 @@ func TestRecoveredStartVsSubmission(t *testing.T) {
 	seedWorking(t, h, p)
 	refuseOnce(p, event.StepStartWork)
 	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: event.StepStartWork}, Class: event.ClassStart,
-		Data: startData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"}}
+		Data: event.Start{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"}}
 	runs := 0
 	if _, err := h.a.do(context.Background(), p, in, func(context.Context) (any, error) {
 		runs++
-		return startOut{Line: "started", Agent: "pj-l-01", Pane: "w1:p1"}, nil
+		return event.StartOut{Line: "started", Agent: "pj-l-01", Pane: "w1:p1"}, nil
 	}); err == nil {
 		t.Fatal("precondition: the result's write was not refused")
 	}
@@ -342,10 +342,10 @@ func seedWorking(t *testing.T, h *harness, p *proj) {
 // task_done (the next attempt) and the held job a reject.
 func seedHeldReview(t *testing.T, h *harness, p *proj) {
 	t.Helper()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
-	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen,
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01"})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen,
 		Candidate: port.Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
 	addRecord(t, h, "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p"})
 	addRecord(t, h, "T-1", event.StepReview, event.KindResult, "sent")

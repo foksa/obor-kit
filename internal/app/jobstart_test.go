@@ -91,11 +91,11 @@ func TestResolveJobForUnmergedPathsHasNoMismatchWording(t *testing.T) {
 }
 
 // resolveFetched folds a conflict gate result (out) and its resolve intent, then fetches the open job as job_next does.
-func resolveFetched(t *testing.T, out gateOut) (string, string) {
+func resolveFetched(t *testing.T, out event.GateOut) (string, string) {
 	t.Helper()
 	l := dispatched().submitted(1).
-		result(1, event.StepGate, gateIn{Kind: port.InputLane, Lane: "L-01"}, out).
-		add(1, event.StepResolve, event.KindIntent, JobData{Patch: "patch"})
+		result(1, event.StepGate, event.GateIn{Kind: port.InputLane, Lane: "L-01"}, out).
+		add(1, event.StepResolve, event.KindIntent, event.Job{Patch: "patch"})
 	a, p := blockProj(t, l.recs)
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj"}}`)
 	kit, _ := filepath.Abs("../..")
@@ -118,7 +118,7 @@ func resolveFetched(t *testing.T, out gateOut) (string, string) {
 // The job job_next fetches after the resolve intent folded (stResolving) names the mismatch too.
 func TestFetchedResolveJobNamesReplayMismatch(t *testing.T) {
 	m := &port.Mismatch{Checked: "0123456789abcdef", Tree: "t", Files: []string{"b/b.go"}, Dir: "/scratch"}
-	first, again := resolveFetched(t, gateOut{Outcome: outConflict, Mismatch: m,
+	first, again := resolveFetched(t, event.GateOut{Outcome: outConflict, Mismatch: m,
 		Line: "CONFLICT in /scratch: b/b.go (the replayed resolution differs from the checked one)"})
 	for _, want := range []string{"lost edits of the checked one 0123456", "b/b.go", "git diff 0123456 -- b/b.go"} {
 		if !strings.Contains(first, want) {
@@ -132,7 +132,7 @@ func TestFetchedResolveJobNamesReplayMismatch(t *testing.T) {
 
 // A real unmerged conflict through the same path keeps today's wording.
 func TestFetchedResolveJobForUnmergedPathsHasNoMismatchWording(t *testing.T) {
-	first, again := resolveFetched(t, gateOut{Outcome: outConflict, Line: "CONFLICT in /scratch: a/a.go"})
+	first, again := resolveFetched(t, event.GateOut{Outcome: outConflict, Line: "CONFLICT in /scratch: a/a.go"})
 	if !strings.Contains(first, "CONFLICT in /scratch: a/a.go") || strings.Contains(first, "lost edits") {
 		t.Errorf("fetched resolve job: %s", first)
 	}
@@ -495,8 +495,8 @@ func TestStartJobIntegrator(t *testing.T) {
 	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 		}
 	}
@@ -608,10 +608,10 @@ func TestStartJobOtherPatch(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
-	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
+	r.add("pj", "T-1", "start.review", event.KindIntent, event.Start{Agent: "pj-int"})
 	raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
 		Role: "integrator", CallID: "n1"}})
 	if err != nil || raw != `{"state":"none"}` {
@@ -644,8 +644,8 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 			if kind == event.StepResolve {
 				outcome = outConflict
 			}
-			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 			delete(r.a.obs, "w1:p9")
 			f := &startEffects{concFakes: r.fakes["pj"]}
@@ -681,8 +681,8 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	f := &startEffects{concFakes: r.fakes["pj"]}
 	f.start = func(port.Launch) {
 		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
@@ -698,7 +698,7 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	}
 	fx := withAppCfg(r.a, &Loop{Agents: f, Prompter: f, Kit: r.kit})
 	mt := *p.folded.loop["T-2"]
-	d := startData{Agent: mt.agent, Pane: "w1:p2"}
+	d := event.Start{Agent: mt.agent, Pane: "w1:p2"}
 	if !r.a.startWorker(context.Background(), p, fx, mt, event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepStartWork}, d,
 		event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepWork}) {
 		t.Fatal("start failed")
@@ -784,8 +784,8 @@ func heldRig(t *testing.T, agent string) (*concRig, *proj, *heldStart) {
 
 // gateDone records task's lane gate with outcome (green, conflict): its integrator job is next.
 func gateDone(r *concRig, task, outcome string) {
-	r.add("pj", task, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Input: "s"})
-	r.add("pj", task, event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: task, SHA: "c",
+	r.add("pj", task, event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Input: "s"})
+	r.add("pj", task, event.StepGate, event.KindResult, event.GateOut{Outcome: outcome, Candidate: port.Candidate{Task: task, SHA: "c",
 		Target: "b", Patch: "p"}})
 }
 
@@ -796,7 +796,7 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 	t.Parallel()
 	r, p, f := heldRig(t, "pj-l-02")
 	dispatchT2(r)
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	r.run()
 	select {
 	case <-f.entered:

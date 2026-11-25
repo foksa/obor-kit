@@ -113,12 +113,12 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		out, err := fx.Workflow.Prepare(ctx, in.Data.(port.PrepareInput))
 		var refused port.Refused
 		if errors.As(err, &refused) {
-			return prepareOut{Refused: refused.Line}, nil
+			return event.PrepareOut{Refused: refused.Line}, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		return prepareOut{Base: out.Base}, nil
+		return event.PrepareOut{Base: out.Base}, nil
 	}); err != nil {
 		return a.failed(ctx, p, mt, in.Step, err)
 	}
@@ -134,7 +134,7 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // read is no answer: nothing is recorded and the next pass reads again.
 func (a *App) nextStart(p *proj, mt mtask, cfg *config.Config) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
-	d := startData{Lane: mt.lane, Agent: mt.agent}
+	d := event.Start{Lane: mt.lane, Agent: mt.agent}
 	pending := false
 	if r, ok := p.log.Intent(key); ok { // a pending start: its recorded snapshot
 		_ = json.Unmarshal(r.Data, &d)
@@ -288,9 +288,9 @@ func otherAgent(cfg *config.Config, label string, names []string) bool {
 // tasks without force, the agent proven live in another pane) is final: needs-you{start: why}. A start held by a
 // trust dialog (port.TrustDialog) is a start: its result, then the trust needs-you. It runs under
 // work job's intent and carries its wake (startJob).
-func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
+func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d event.Start, work event.Key) bool {
 	pending := p.log.Open(key)
-	var rec startData
+	var rec event.Start
 	if pending {
 		if r, ok := p.log.Intent(key); ok {
 			_ = json.Unmarshal(r.Data, &rec)
@@ -308,7 +308,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 	return a.startJob(ctx, p, mt, in, work, promptData{Agent: mt.agent}, func(ctx context.Context, first string) (any, error) {
 		if moved {
 			if runs := a.runsIn(d.Pane); runs != "" {
-				return startOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started: the start " +
+				return event.StartOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started: the start " +
 					"was recorded in " + rec.Pane + ", gone now, and " + d.Pane + " runs " + runs + ": look at the pane, " +
 					"then obor resume " + mt.task}, nil
 			}
@@ -316,9 +316,9 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 		if replay {
 			switch a.startSeen(p, d) {
 			case seenStarted: // the start that ran carried the same first prompt
-				return startOut{Line: "started (seen in the snapshot)", Agent: d.Agent, Pane: d.Pane}, nil
+				return event.StartOut{Line: "started (seen in the snapshot)", Agent: d.Agent, Pane: d.Pane}, nil
 			case seenUnknown:
-				return startOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started (no " +
+				return event.StartOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started (no " +
 					"session id recorded from the pane, and the terminal reports none): look at the pane, then obor resume " +
 					mt.task}, nil
 			}
@@ -329,11 +329,11 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 		trust, err = trustHeld(s, err) // held: started, its first prompt taken once the dialog is answered
 		switch {
 		case err != nil && startRefused(err):
-			return startOut{Refused: err.Error()}, nil
+			return event.StartOut{Refused: err.Error()}, nil
 		case err != nil:
 			return nil, err
 		}
-		return startOut{Line: s.Line, Agent: d.Agent, Pane: d.Pane, Terminal: s.Terminal, Kind: s.Kind, Session: s.Session,
+		return event.StartOut{Line: s.Line, Agent: d.Agent, Pane: d.Pane, Terminal: s.Terminal, Kind: s.Kind, Session: s.Session,
 			Config: fx.Cfg.Rev()}, nil
 	})
 }
@@ -350,7 +350,7 @@ const (
 // differs from the recorded one → started, the same → not started, unknown on either side → cannot tell. A session
 // is the pane's live one (liveSession: the agent's session recorded from the pane, else herdr's session id), at the
 // intent and now, never whether its transcript file is found.
-func (a *App) startSeen(p *proj, d startData) int {
+func (a *App) startSeen(p *proj, d event.Start) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	o := a.obs[d.Pane]

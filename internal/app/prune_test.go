@@ -82,15 +82,15 @@ func (h *history) add(at time.Time, task string, attempt int, step, kind string,
 // dispatched is task's dispatch of attempt to lane at at, its lane prepared (the lane's row is the task's).
 func (h *history) dispatched(task string, attempt int, lane string, at time.Time) {
 	h.add(at, task, attempt, event.StepDispatched, event.KindFact,
-		dispatchData{Dispatch: port.Dispatch{Lane: lane, Agent: "pj-" + strings.ToLower(lane), Branch: "task/" + task}, Type: "m"})
+		event.Dispatch{Dispatch: port.Dispatch{Lane: lane, Agent: "pj-" + strings.ToLower(lane), Branch: "task/" + task}, Type: "m"})
 	h.add(at, task, attempt, event.StepPrepare, event.KindIntent, nil)
-	h.add(at, task, attempt, event.StepPrepare, event.KindResult, prepareOut{Base: "base0"})
+	h.add(at, task, attempt, event.StepPrepare, event.KindResult, event.PrepareOut{Base: "base0"})
 }
 
 // submitted is task's task_done of attempt from lane at at.
 func (h *history) submitted(task string, attempt int, lane string, at time.Time) {
 	h.add(at, task, attempt, event.StepSubmitted, event.KindFact,
-		submitData{Lane: lane, Agent: "pj-" + strings.ToLower(lane), Report: "Summary: " + task})
+		event.Submit{Lane: lane, Agent: "pj-" + strings.ToLower(lane), Report: "Summary: " + task})
 }
 
 // merged is task dispatched, submitted and merged at attempt 1 on lane, its merge at at; done: its after-merge
@@ -136,10 +136,10 @@ func (h *history) rejected(task, lane string, at time.Time) {
 	h.dispatched(task, 1, lane, at.Add(-2*time.Hour))
 	h.submitted(task, 1, lane, at.Add(-time.Hour))
 	h.add(at, task, 1, event.StepGate, event.KindIntent, nil)
-	h.add(at, task, 1, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "c", Patch: "p"}})
-	h.add(at, task, 1, event.StepReview, event.KindIntent, JobData{Patch: "p"})
+	h.add(at, task, 1, event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "c", Patch: "p"}})
+	h.add(at, task, 1, event.StepReview, event.KindIntent, event.Job{Patch: "p"})
 	h.add(at, task, 1, verdictStep(wire.MethodReject, "j-"+task), event.KindResult,
-		verdictResult{Job: JobID(event.Key{Task: task, Attempt: 1, Step: event.StepReview}), Note: "not this"})
+		event.VerdictResult{Job: JobID(event.Key{Task: task, Attempt: 1, Step: event.StepReview}), Note: "not this"})
 }
 
 // session is agent's session fact id at at (transcript "": not known yet; a given one is the session's own confirmation).
@@ -446,7 +446,7 @@ func TestPrunedTasksOutcomes(t *testing.T) {
 	t.Parallel()
 	root := pruneRoot(t)
 	h := newHistory(t, root)
-	h.add(daysAgo(40), "T-w", 1, event.StepWaiting, event.KindFact, dispatchData{Dispatch: port.Dispatch{Lane: "L-02"},
+	h.add(daysAgo(40), "T-w", 1, event.StepWaiting, event.KindFact, event.Dispatch{Dispatch: port.Dispatch{Lane: "L-02"},
 		After: []string{"T-m"}})
 	h.merged("T-m", "L-01", daysAgo(35), true)
 	h.dispatched("T-d", 1, "L-01", daysAgo(34))
@@ -493,7 +493,7 @@ func TestPruneKeepsPinnedTasksWhole(t *testing.T) {
 	h.merged("T-row", "L-02", daysAgo(31), true) // L-02's row: nothing dispatched there since
 	h.merged("T-start", "L-01", daysAgo(33), true)
 	h.add(daysAgo(33), "T-start", 1, event.StepStartWork, event.KindResult,
-		startOut{Agent: "pj-old", Pane: "w9:p1", Terminal: "t9", Kind: "claude", Session: "s9"})
+		event.StartOut{Agent: "pj-old", Pane: "w9:p1", Terminal: "t9", Kind: "claude", Session: "s9"})
 	h.add(daysAgo(36), event.ReviewTask, 0, event.StepReviewStarted, event.KindFact, ReviewData{ID: "RV-1", Head: "h0"})
 	h.merged("T-fix", "L-01", daysAgo(32), true) // dispatched after RV-1 started, RV-1 still open
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
@@ -518,7 +518,7 @@ func TestPruneKeepsAStartThatDisplacedARow(t *testing.T) {
 	root := pruneRoot(t)
 	h := newHistory(t, root)
 	start := func(task, agent, pane string, at time.Time) {
-		h.add(at, task, 1, event.StepStartWork, event.KindResult, startOut{Agent: agent, Pane: pane, Terminal: "t-" + pane, Kind: "claude"})
+		h.add(at, task, 1, event.StepStartWork, event.KindResult, event.StartOut{Agent: agent, Pane: pane, Terminal: "t-" + pane, Kind: "claude"})
 	}
 	h.dispatched("T-k", 1, "L-01", daysAgo(40)) // open
 	start("T-k", "pj-x", "w1:p1", daysAgo(40))
