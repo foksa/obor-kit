@@ -24,6 +24,13 @@
         "write": [
           "docs/ui/"
         ]
+      },
+      "gemini_advisor": {
+        "model": "gemini",
+        "write": [
+          "docs/research/",
+          "docs/plan/"
+        ]
       }
     },
     "difficulty": {
