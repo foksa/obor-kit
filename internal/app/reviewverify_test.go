@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -102,7 +103,9 @@ func TestVerifyRule(t *testing.T) {
 			}
 			startedReview(t, r)
 			c.setup(r)
-			key, act, ok := verifyRule(context.Background(), r.a, r.p, withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}), r.now)
+			fx := withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+			r.a.verifyRead(context.Background(), r.p, fx)
+			key, act, ok := verifyRule(context.Background(), r.a, r.p, fx, r.now)
 			switch {
 			case c.want == "":
 				if ok {
@@ -126,6 +129,53 @@ func TestVerifyRule(t *testing.T) {
 				if !ok || act.call != nil || !strings.HasPrefix(act.line, c.want) {
 					t.Errorf("ok %t, line %q, call %t; want the line %q", ok, act.line, act.call != nil, c.want)
 				}
+			}
+		})
+	}
+}
+
+// The pass's verify read fills the round and whether a verify is due; the rule acts on those fields alone and writes
+// neither.
+func TestVerifyReadFeedsTheRule(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		merged  bool // both linked tasks merged (false: T-b still open)
+		wantDue bool
+	}{
+		{name: "both linked tasks merged: a verify is due", merged: true, wantDue: true},
+		{name: "a linked task open: no verify is due", merged: false, wantDue: false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := fixRig(t)
+			r.merged("T-a")
+			if c.merged {
+				r.merged("T-b")
+			}
+			r.a.mu.Lock()
+			newest := r.p.folded.loop["T-b"].mergedSeq // the last merge recorded
+			r.a.mu.Unlock()
+			fx := withAppCfg(r.a, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+			r.a.verifyRead(context.Background(), r.p, fx)
+			round, due := r.p.fixes, r.p.verifyDue
+			if round.ID != "RV-5" || len(round.Links) != 2 || strings.Join(round.Covered, ",") != "T-start" ||
+				due != c.wantDue {
+				t.Fatalf("the read: round %+v, due %t; want RV-5's two links, T-start covered, due %t", round, due, c.wantDue)
+			}
+			key, act, ok := verifyRule(context.Background(), r.a, r.p, fx, r.now)
+			if c.wantDue {
+				if !ok || key != newest || act.call == nil || act.line != "" {
+					t.Errorf("the rule on the read: ok %t, key %d (want %d), line %q, call %t; want the brief",
+						ok, key, newest, act.line, act.call != nil)
+				}
+			} else if ok {
+				t.Errorf("the rule on the read: an action (key %d, line %q, call %t), want none while a link is open",
+					key, act.line, act.call != nil)
+			}
+			if r.p.fixes.ID != round.ID || !slices.Equal(r.p.fixes.Links, round.Links) ||
+				!slices.Equal(r.p.fixes.Covered, round.Covered) || r.p.verifyDue != due {
+				t.Errorf("the rule wrote the round: %+v / %t, want %+v / %t", r.p.fixes, r.p.verifyDue, round, due)
 			}
 		})
 	}
