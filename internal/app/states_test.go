@@ -2,7 +2,13 @@ package app
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -395,8 +401,91 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	}
 }
 
-// Every kernel step the merge loop runs has a row of the step table, and the table names no other step: a step added
-// without a row fails here (a step's facts fold as facts and run no step, so they have no row).
+// nonKernelSteps are the event package's Step* constants that take no row of the step table: the facts (a record that
+// folds and runs nothing), the nightly check (the project's own), and the running line's restart item.
+var nonKernelSteps = map[string]bool{
+	event.StepAnswered: true, // an answer's fact (task msg)
+	// A dispatch's and a drop's facts
+	event.StepDispatched: true, event.StepWaiting: true, event.StepDropping: true,
+	// The project's facts: a watch, a prune, a setup edit, a pause, a tool's version
+	event.StepWatch: true, event.StepUnwatch: true, event.StepPruned: true, event.StepConfigSet: true,
+	event.StepPaused: true, event.StepUnpaused: true, event.StepVersion: true,
+	// The merge loop's facts
+	event.StepSubmitted: true, event.StepKept: true, event.StepSendback: true, event.StepMoved: true,
+	event.StepMerged: true, event.StepDelivered: true, event.StepDropped: true, event.StepLost: true,
+	event.StepUnblocked: true, event.StepFailed: true, event.StepSpecSeen: true, event.StepSpecSet: true,
+	event.StepRefetched: true,
+	// A review's facts
+	event.StepReviewRequest: true, event.StepReviewRm: true, event.StepReviewFire: true,
+	event.StepReviewStarted: true, event.StepReviewClosed: true, event.StepReviewClosing: true,
+	// The project's lines and idle acknowledgement
+	event.StepMessage: true, event.StepBriefed: true, event.StepWorked: true, event.StepIdleAck: true,
+	// A watchdog's facts
+	event.StepStalled: true, event.StepNeedsYou: true, event.StepResumed: true,
+	// An agent's stop, and its next turn
+	event.StepStopped: true, event.StepTurned: true,
+	// The project's own steps: the nightly check, and the running line's restart item
+	event.StepNightly: true, event.StepServeRestart: true,
+}
+
+// eventStep is one Step* constant of the event package: its Go name and its record step.
+type eventStep struct{ name, value string }
+
+// eventSteps is the Step* constants the event package's source declares (its test files left out): the constants are
+// the list of steps, not a copy of it in this test.
+func eventSteps(t *testing.T) []eventStep {
+	t.Helper()
+	files, err := os.ReadDir("event")
+	if err != nil {
+		t.Fatalf("read the event package: %v", err)
+	}
+	var out []eventStep
+	for _, f := range files { // ReadDir sorts by name: the errors read in one order
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") || strings.HasSuffix(f.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("event", f.Name()), nil, 0)
+		if err != nil {
+			t.Fatalf("parse event/%s: %v", f.Name(), err)
+		}
+		for _, d := range file.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, s := range gd.Specs {
+				vs, ok := s.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range vs.Names {
+					if !strings.HasPrefix(name.Name, "Step") {
+						continue
+					}
+					if len(vs.Values) != len(vs.Names) {
+						t.Fatalf("event/%s: %s has no value of its own the test can read", f.Name(), name.Name)
+					}
+					lit, ok := vs.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						t.Fatalf("event/%s: %s is no string literal", f.Name(), name.Name)
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err != nil {
+						t.Fatalf("event/%s: %s: %v", f.Name(), name.Name, err)
+					}
+					out = append(out, eventStep{name: name.Name, value: value})
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("precondition: the event package names no Step* constant")
+	}
+	return out
+}
+
+// Every Step* constant of the event package is a kernelSteps row or one of the non-kernel steps above; a constant
+// added without either fails here, naming it.
 func TestKernelStepsHaveRows(t *testing.T) {
 	t.Parallel()
 	rows := map[string]bool{}
@@ -409,18 +498,28 @@ func TestKernelStepsHaveRows(t *testing.T) {
 		}
 		rows[row.step] = true
 	}
-	for _, step := range []string{
-		event.StepPrepare, event.StepStartWork, event.StepWork, event.StepFix, event.StepSync, event.StepWorkerStop,
-		event.StepFree, event.StepSubmit, event.StepGate, event.StepTest, event.StepPublish, event.StepReview,
-		event.StepResolve, event.StepUnpin, event.StepAfterMerge, event.StepStop,
-	} {
-		if !rows[step] {
-			t.Errorf("%s: no row", step)
+	consts := map[string]bool{}
+	for _, c := range eventSteps(t) {
+		consts[c.value] = true
+		switch {
+		case rows[c.value]:
+		case nonKernelSteps[c.value]:
+		default:
+			t.Errorf("%s (%q): no row and not listed as a non-kernel step", c.name, c.value)
 		}
-		delete(rows, step)
 	}
 	for step := range rows {
-		t.Errorf("%s: a row, not a kernel step", step)
+		if !consts[step] {
+			t.Errorf("a row for %q: no event.Step* constant", step)
+		}
+	}
+	for step := range nonKernelSteps {
+		switch {
+		case rows[step]:
+			t.Errorf("%q: a row and a non-kernel step", step)
+		case !consts[step]:
+			t.Errorf("a non-kernel step %q: no event.Step* constant", step)
+		}
 	}
 }
 
@@ -473,16 +572,9 @@ func TestStepTableGivesTheReadersTodaysAnswers(t *testing.T) {
 		}
 	}
 	for _, c := range cases {
-		row := stepOf(c.step)
-		if row == nil {
+		if stepOf(c.step) == nil {
 			t.Fatalf("%s: no row (TestKernelStepsHaveRows)", c.step)
 		}
-		same(t, row.step, c.step, c.step+": row")
-		same(t, row.phase, c.phase, c.step+": running phase")
-		same(t, row.pending, c.pending, c.step+": pending phase")
-		same(t, row.command, c.command, c.step+": command step")
-		same(t, row.busy != nil, c.key != "", c.step+": busy step")
-		same(t, row.after, c.after, c.step+": after-merge step")
 
 		// commandStep: the lines show a command step by its base name and its task; another step's record gives none.
 		base, task, ok := commandStep(event.Record{Task: "T-1", Attempt: 1, Step: c.step})
@@ -515,9 +607,16 @@ func TestStepTableGivesTheReadersTodaysAnswers(t *testing.T) {
 			t.Errorf("%s: busy %q, want %q", c.step, got, want)
 		}
 	}
-	// afterSteps and afterList are the table's after-merge steps, in its order; a keep lane's task runs the first only.
-	if want := []string{event.StepAfterMerge, event.StepStop}; !slices.Equal(afterSteps, want) {
-		t.Errorf("afterSteps %v, want %v", afterSteps, want)
+	// afterSteps and afterList are the case table's after-merge steps, in its order; a keep lane's task runs the first
+	// only.
+	var after []string
+	for _, c := range cases {
+		if c.after {
+			after = append(after, c.step)
+		}
+	}
+	if !slices.Equal(afterSteps, after) {
+		t.Errorf("afterSteps %v, want %v", afterSteps, after)
 	}
 	if got := (&mtask{}).afterList(); !slices.Equal(got, afterSteps) {
 		t.Errorf("afterList %v, want afterSteps %v", got, afterSteps)
