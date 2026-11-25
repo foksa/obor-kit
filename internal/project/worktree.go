@@ -127,7 +127,7 @@ func LinkInto(root, dir string, links []string) (linked []string, err error) {
 // change reconciles the links from the policy and gets back git's error as change gave it; so does a failure of the
 // removal. A link that cannot be made is the error of a change that succeeded. git runs in dir (the removal's status,
 // ls-tree and rev-parse; the link set's queries). The one link handling of the worktrees obor changes with git: a
-// checkout (CheckoutWorktree) and the lane merge (Lane.Sync).
+// checkout (CheckoutWorktree), the lane merge with its commit, and the abort of a merge a cut left open (Lane.Sync).
 func WithLinks(cfg *config.Config, dir, target string, git func(dir string, args ...string) (string, error), say func(line string), change func() error) error {
 	err := removeTrackedLinks(cfg.Root, dir, target, git, say)
 	if err == nil {

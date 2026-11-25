@@ -94,10 +94,12 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 
 // Sync merges in.Target into the task branch in.Dir has checked out (port.LaneSetup.Sync, lane.sync): its commit
 // subject "Merge <target branch> into <branch> (obor: fix attempt <n>)". A merge an earlier cut Sync left open
-// (MERGE_HEAD) is aborted first; a HEAD that is the merge of in.Target already (a cut after the commit) is merged.
-// The lane's obor links are reconciled with the link policy (project.ReconcileLinks) after that abort, around the merge
-// (project.WithLinks: the links the merge would trip over come out of its way, and a merge that stops puts them back)
-// and after a failed merge commit: a cut that left a link out does not outlive the sync.
+// (MERGE_HEAD) is aborted first, with obor's links out of its way (project.WithLinks on HEAD: an abort is a checkout of
+// HEAD, and a link at a path HEAD tracks would make it fail); a HEAD that is the merge of in.Target already (a cut after
+// the commit) is merged. The lane's obor links are reconciled with the link policy (project.ReconcileLinks) after that
+// abort and around the merge and its commit (project.WithLinks: the links the merge would trip over come out of its
+// way, and the reconcile runs once the merge is committed or aborted, never while it is open): a cut that left a link
+// out does not outlive the sync.
 // Then: the target in HEAD's history is current, uncommitted changes (project.LaneDirt: obor's links are not the lane's)
 // are dirty, nothing touched; a merge that stops with unmerged paths is aborted (the lane as it was) and is a conflict
 // naming them; one that stops otherwise is aborted and an error. No lane dir, a lane not on in.Branch and git failures
@@ -114,8 +116,20 @@ func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) 
 	if branch != in.Branch {
 		return port.Synced{}, fmt.Errorf("lane %s is on %q, not on %s", in.Lane, branch, in.Branch)
 	}
-	if err := l.abortMerge(git, in.Dir); err != nil {
-		return port.Synced{}, err
+	if _, open, err := git.Verify(in.Dir, "MERGE_HEAD"); err != nil {
+		return port.Synced{}, fmt.Errorf("read MERGE_HEAD of %s: %w", in.Dir, err)
+	} else if open {
+		var abortErr error // the abort's own error (nil with a links' failure)
+		err := project.WithLinks(l.Cfg, in.Dir, "HEAD", l.linkGit(ctx), l.say, func() error {
+			abortErr = git.MergeAbort(in.Dir)
+			return abortErr
+		})
+		if abortErr != nil {
+			return port.Synced{}, fmt.Errorf("git merge --abort in %s: %w", in.Dir, abortErr)
+		}
+		if err != nil {
+			return port.Synced{}, fmt.Errorf("abort the open merge in %s: %w", in.Dir, err)
+		}
 	}
 	if err := l.reconcileLinks(ctx, in.Dir); err != nil {
 		return port.Synced{}, fmt.Errorf("put back obor's links in %s: %w", in.Dir, err)
@@ -145,24 +159,38 @@ func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) 
 	if len(dirt) > 0 {
 		return port.Synced{Kind: port.SyncDirty, Files: dirt}, nil
 	}
-	// The merge keeps obor's links the way a checkout does (project.WithLinks): a link where the target starts
-	// tracking the path comes out of its way and the tracked file takes the path; a link the merge leaves no file for
-	// comes back. A merge that stops is aborted inside the change, so the links return around a lane as it was.
+	// The merge and its commit keep obor's links the way a checkout does (project.WithLinks): a link where the target
+	// starts tracking the path comes out of its way and the tracked file takes the path; a link the merge leaves no
+	// file for comes back. A merge that stops, or whose commit fails, is aborted inside the change, so the reconcile
+	// sees the merge commit as HEAD or the lane as it was, never an open merge (a link it put at a path HEAD tracks
+	// would make the abort fail).
 	var (
-		mergeErr error    // the merge's own failure (nil: it merged)
-		files    []string // the paths the stopped merge left unmerged
-		unread   error    // the unmerged read's error
-		abortErr error    // the abort's error, after a merge that stopped
+		mergeErr  error    // the merge's own failure (nil: it merged)
+		files     []string // the paths the stopped merge left unmerged
+		unread    error    // the unmerged read's error
+		commitErr error    // the merge commit's failure
+		abortErr  error    // the abort's error, after a merge that stopped or a commit that failed
 	)
+	msg := fmt.Sprintf("Merge %s into %s (obor: fix attempt %d)", l.Cfg.MainBranch(), in.Branch, in.Attempt)
 	err = project.WithLinks(l.Cfg, in.Dir, in.Target, l.linkGit(ctx), l.say, func() error {
-		if mergeErr = git.Merge(in.Dir, in.Target); mergeErr == nil {
-			return nil
+		if mergeErr = git.Merge(in.Dir, in.Target); mergeErr != nil {
+			files, unread = git.Unmerged(in.Dir)
+			abortErr = l.abortMerge(git, in.Dir)
+			return mergeErr
 		}
-		files, unread = git.Unmerged(in.Dir)
-		abortErr = l.abortMerge(git, in.Dir)
-		return mergeErr
+		if commitErr = git.CommitMerge(in.Dir, msg); commitErr != nil {
+			abortErr = l.abortMerge(git, in.Dir)
+			return commitErr
+		}
+		return nil
 	})
 	if err != nil {
+		if commitErr != nil {
+			if abortErr != nil {
+				return port.Synced{}, fmt.Errorf("commit the merge in %s: %v; %w", in.Dir, commitErr, abortErr)
+			}
+			return port.Synced{}, fmt.Errorf("commit the merge in %s: %w", in.Dir, commitErr)
+		}
 		if abortErr != nil {
 			return port.Synced{}, fmt.Errorf("merge %s in %s: %v; %w", in.Target, in.Dir, mergeErr, abortErr)
 		}
@@ -173,16 +201,6 @@ func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) 
 			return port.Synced{Kind: port.SyncConflict, Files: files}, nil
 		}
 		return port.Synced{}, fmt.Errorf("merge %s in %s: %w%s", in.Target, in.Dir, mergeErr, lockHint(in.Dir, mergeErr))
-	}
-	msg := fmt.Sprintf("Merge %s into %s (obor: fix attempt %d)", l.Cfg.MainBranch(), in.Branch, in.Attempt)
-	if err := git.CommitMerge(in.Dir, msg); err != nil {
-		if aerr := l.abortMerge(git, in.Dir); aerr != nil {
-			return port.Synced{}, fmt.Errorf("commit the merge in %s: %v; %w", in.Dir, err, aerr)
-		}
-		if rerr := l.reconcileLinks(ctx, in.Dir); rerr != nil {
-			return port.Synced{}, fmt.Errorf("commit the merge in %s: %v; %w", in.Dir, err, rerr)
-		}
-		return port.Synced{}, fmt.Errorf("commit the merge in %s: %w", in.Dir, err)
 	}
 	sha, ok, err := git.Verify(in.Dir, "HEAD")
 	if err != nil || !ok {
