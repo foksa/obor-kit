@@ -1062,9 +1062,9 @@ func (c *Config) AgentsDir() string {
 }
 
 // RoleDoc is the project's doc of role name, relative to the root: <agents.docs_dir>/<doc file> (roles.Role.DocFile; a
-// custom role's <name>.md).
+// custom role's <name>.md). A name no role row knows follows the custom-role rule too.
 func (c *Config) RoleDoc(name string) string {
-	file := strings.ReplaceAll(name, "_", "-") + ".md"
+	file := roles.Custom(name, nil).DocFile()
 	if rc, ok := c.Role(name); ok {
 		file = rc.Role.DocFile()
 	}

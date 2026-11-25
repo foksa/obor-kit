@@ -122,6 +122,27 @@ func TestValidCustomRoles(t *testing.T) {
 	}
 }
 
+// RoleDoc names a role's doc by one rule outside the kit's table: a custom role's <name>.md, whether a row configures it
+// or not; a table role keeps its own file.
+func TestRoleDocFollowsTheCustomRule(t *testing.T) {
+	p := newProject(t)
+	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
+	p.Config(set("agents.roles.buddy", "sonnet"))
+	c, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []struct{ name, want string }{
+		{"ux_designer", "docs/agents/ux_designer.md"}, // no row: the custom-role rule, not _ → -
+		{"buddy", "docs/agents/buddy.md"},             // a configured custom role
+		{"deep_dive", "docs/agents/deep-dive.md"},     // a table role
+	} {
+		if got := c.RoleDoc(w.name); got != w.want {
+			t.Errorf("RoleDoc(%s) = %q, want %q", w.name, got, w.want)
+		}
+	}
+}
+
 // validate refuses a bad name, a collision with a table role (its name or agent suffix), a write path outside
 // the project or into .obor/, a missing role doc (naming the file to write), an allow_push listing a custom role, an
 // object for a table role and a roles.driver.
