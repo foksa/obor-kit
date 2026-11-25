@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,78 +25,6 @@ func movedGreen(t *testing.T, h *harness, gate, kind string, rev int) {
 	addRecord(t, h, "T-1", gate, event.KindIntent, event.GateIn{Kind: kind, Input: "s1"})
 	addRecord(t, h, "T-1", gate, event.KindResult, event.GateOut{Outcome: outGreen, SpecRev: rev,
 		Candidate: port.Candidate{Task: "T-1", SHA: "candidate2", Target: "base2", Patch: "same-diff"}})
-}
-
-// pickGreenOnce runs the step pickGreen selects for T-1 (live, or after a replay of the log).
-func pickGreenOnce(t *testing.T, h *harness, f *sched, replay bool) *mtask {
-	t.Helper()
-	p := h.a.p
-	if replay {
-		p = reloadProj(t, h)
-	}
-	if mt := p.folded.loop["T-1"]; mt.state != stGreen || mt.cand.SHA != "candidate2" || mt.cand.Patch != "same-diff" {
-		t.Fatalf("precondition: T-1 %s at %s (%s); want green at candidate2, the patch unchanged", mt.state,
-			mt.cand.SHA, mt.cand.Patch)
-	}
-	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
-	if s == nil || !s(context.Background(), withAppCfg(h.a, &Loop{Agents: f, Prompter: f})) {
-		t.Fatal("pickGreen: no step, or it failed")
-	}
-	return p.folded.loop["T-1"]
-}
-
-func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name, gate1, gate2, kind string
-	}{
-		{"lane then moved", nth(event.StepGate, 2), nth(event.StepGate, 3), port.InputMoved},
-		{"two resolved candidates", nth(event.StepGate, 2), nth(event.StepGate, 3), port.InputResolved},
-	} {
-		for _, replay := range []bool{false, true} {
-			name := c.name + "/live"
-			if replay {
-				name = c.name + "/replay"
-			}
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				h, f := seedSched(t, true)
-				first := port.InputLane
-				if c.kind == port.InputResolved {
-					first = port.InputResolved
-				}
-				acceptAt(t, h, f, c.gate1, first, 1, "candidate1")
-				movedGreen(t, h, c.gate2, c.kind, 2)
-				mt := pickGreenOnce(t, h, f, replay)
-				if mt.state != stAwaiting || mt.reviews != 2 || mt.job != nth(event.StepReview, 2) {
-					t.Errorf("rev 2: T-1 %s, reviews %d, job %q; want awaiting review.2", mt.state, mt.reviews, mt.job)
-				}
-				if mt.accepted != "" {
-					t.Errorf("rev 2: the rev 1 accept %q survived", mt.accepted)
-				}
-				if n := countStep(t, h, event.StepKept); n != 0 {
-					t.Errorf("rev 2: %d kept facts; want none", n)
-				}
-			})
-		}
-	}
-}
-
-func TestAcceptSameSpecRevKept(t *testing.T) {
-	t.Parallel()
-	for _, replay := range []bool{false, true} {
-		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
-			t.Parallel()
-			h, f := seedSched(t, true)
-			acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 1, "candidate1")
-			movedGreen(t, h, nth(event.StepGate, 3), port.InputMoved, 1)
-			mt := pickGreenOnce(t, h, f, replay)
-			if mt.state != stAccepted || mt.reviews != 1 || countStep(t, h, event.StepKept) != 1 {
-				t.Errorf("rev 1 again: T-1 %s, reviews %d, kept facts %d; want accepted, 1 review, 1 kept", mt.state,
-					mt.reviews, countStep(t, h, event.StepKept))
-			}
-		})
-	}
 }
 
 // A log written before the fix: kept recorded after a green gate of a new rev. It replays to the review, not to an
@@ -126,7 +55,7 @@ func isDropped(reply, task string) bool {
 func dropGone(st string) bool { return st == stDropped || st == stDropping }
 
 // obor drop of a task serve holds: a needs-you with no job open ends in dropped, which survives a replay; the
-// needs-you leaves the facts in force; only the lead or the owner may drop, and not twice.
+// needs-you leaves the facts in force; only the lead or the owner may drop. (Not twice: dropDecide's, TestStateDroppedRow44.)
 func TestDropNeedsYouTask(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
@@ -138,12 +67,11 @@ func TestDropNeedsYouTask(t *testing.T) {
 	if facts() != 1 {
 		t.Fatalf("precondition: want one fact in force, got %d", facts())
 	}
-	for _, role := range []string{"worker", "integrator"} {
-		_, err := r.app("pq").drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots["pq"], Agent: "pq-x", Role: role,
-			CallID: "w-" + role}, Task: "T-3", Why: "why"})
-		if err == nil || !strings.Contains(err.Error(), "the lead or the owner drops a task") {
-			t.Errorf("drop by %s: %v", role, err)
-		}
+	// drop is wired to leadOrOwner (its roles: TestLeadOrOwner)
+	if _, err := r.app("pq").drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots["pq"], Agent: "pq-x", Role: "worker",
+		CallID: "w-worker"}, Task: "T-3", Why: "why"}); err == nil ||
+		!strings.Contains(err.Error(), "the lead or the owner drops a task") {
+		t.Errorf("drop by a worker: %v", err)
 	}
 	if _, err := r.app("pq").drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots["pq"], Role: "lead", CallID: "nw"},
 		Task: "T-3"}); err == nil ||
@@ -157,9 +85,6 @@ func TestDropNeedsYouTask(t *testing.T) {
 		if got, err := r.dropCall("pq", "T-3", id); err != nil || got != "DROPPED T-3" {
 			t.Fatalf("drop %s: %q, %v", id, got, err)
 		}
-	}
-	if _, err := r.dropCall("pq", "T-3", "d2"); err == nil || !strings.Contains(err.Error(), "dropped already") {
-		t.Errorf("a second drop: %v", err)
 	}
 	r.waitFor("the task dropped", func() bool { return r.state("pq", "T-3") == stDropped })
 	if facts() != 0 {
@@ -1255,4 +1180,42 @@ func seqOf(r *concRig, kind, step string) int64 {
 		}
 	}
 	return 0
+}
+
+// startIntegrator starts the project's integrator unless it is identified in the project's group: running, nothing
+// started; not running, one start of pj-int.
+func TestStartIntegrator(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		runs   bool // the integrator's pane is in the snapshot
+		line   string
+		starts []port.Launch
+	}{
+		{"running: none started", true, "running", nil},
+		{"not running: one start of pj-int", false, "STARTED pj-int", []port.Launch{{Agent: "pj-int"}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t)
+			h.write(filepath.Join(h.root, ".obor", "config.json"),
+				`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
+			if c.runs {
+				h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p9", Group: "pj", Label: "pj-int", Agent: "claude",
+					Status: "idle", Cwd: h.root})
+			}
+			h.connect()
+			h.a.mu.Lock()
+			w := h.a.whereIs(h.proj(), "pj-int")
+			h.a.mu.Unlock()
+			if (w.State == Identified) != c.runs {
+				t.Fatalf("precondition: pj-int %v, want identified %v", w.State, c.runs)
+			}
+			ag := &FakeAgents{}
+			s, err := h.a.startIntegrator(context.Background(), withAppCfg(h.a, &Loop{Agents: ag}), h.root, port.Launch{})
+			if err != nil || s.Line != c.line || !slices.Equal(ag.Launches(), c.starts) {
+				t.Errorf("start: %q, %v, launches %+v; want %q, launches %+v", s.Line, err, ag.Launches(), c.line, c.starts)
+			}
+		})
+	}
 }

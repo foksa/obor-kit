@@ -12,13 +12,12 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
 
 // obor drop of a task with a stored spec and no loop record records the drop at the spec's rev (its why with it) and is
 // the task's outcome: serve lists T-1 dropped (ended), a dispatch of it is refused naming the drop, and a restart's
-// replay folds the same; a new obor spec set (a later rev) revives it: not listed, dispatchable. A task with neither a
+// replay folds the same (a second drop's refusal is dropDecide's: TestStateDroppedRow44); a new obor spec set (a later rev) revives it: not listed, dispatchable. A task with neither a
 // spec nor a loop record is refused.
 func TestDropOfASpecOnlyTaskThenDispatchUntilANewRev(t *testing.T) {
 	t.Parallel()
@@ -51,9 +50,6 @@ func TestDropOfASpecOnlyTaskThenDispatchUntilANewRev(t *testing.T) {
 			}
 			if _, err := r.dispatch("d1", "L-01"); err == nil || !strings.Contains(err.Error(), refused) {
 				t.Errorf("%s: dispatch of the dropped spec: %v; want refused naming the drop", when, err)
-			}
-			if _, err := r.dropCall("x3", "again"); err == nil || !strings.Contains(err.Error(), "T-1 is dropped already") {
-				t.Errorf("%s: a second drop: %v; want refused as dropped", when, err)
 			}
 		}
 		// The same text again is no new rev: still dropped.
@@ -393,35 +389,4 @@ func TestVerdictServeNotRunning(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "obor serve is not running") {
 		t.Errorf("verdict without obor serve: %v", err)
 	}
-}
-
-func TestStartIntegrator(t *testing.T) {
-	t.Parallel()
-	bubble(t, func(t *testing.T) {
-		r := verdictRig(t)
-		ag := &app.FakeAgents{}
-		r.addPane(port.Pane{ID: "w1:p9", Label: "pj-int", Agent: "claude", Status: "idle", Cwd: r.root})
-		r.stop()
-		r.start() // its snapshot has the integrator
-		if n := len(r.app.Status().Project.Agents); n != 3 {
-			t.Fatalf("precondition: %d agents seen, want 3 with the integrator", n)
-		}
-		s, err := app.StartIntegrator(r.app, context.Background(), ag, r.root, port.Launch{})
-		line := s.Line
-		if err != nil || line != "running" || len(ag.Launches()) != 0 {
-			t.Fatalf("integrator running: %q, %v, restarts %+v; want none", line, err, ag.Launches())
-		}
-
-		r.removePane("w1:p9")
-		r.stop()
-		r.start()
-		if n := len(r.app.Status().Project.Agents); n != 2 {
-			t.Fatalf("precondition: %d agents seen, want 2 without the integrator", n)
-		}
-		s, err = app.StartIntegrator(r.app, context.Background(), ag, r.root, port.Launch{})
-		line = s.Line
-		if err != nil || line != "STARTED pj-int" || len(ag.Launches()) != 1 || ag.Launches()[0] != (port.Launch{Agent: "pj-int"}) {
-			t.Errorf("integrator not running: %q, %v, restarts %+v; want one start of pj-int", line, err, ag.Launches())
-		}
-	})
 }
