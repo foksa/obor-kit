@@ -577,7 +577,8 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 		r.submit()
 		for attempt := 2; attempt <= 3; attempt++ {
 			job := r.waitJob("pj-l-01", "T-1/"+string(rune('0'+attempt))+"/fix")
-			for _, want := range []string{"T-1 is sent back to you", "RED check", "call task_done again"} {
+			// fixText's opening sentence is TestFixJobCarriesTheSyncLine's; here the red line reaching the job.
+			for _, want := range []string{"RED check", "call task_done again"} {
 				if !strings.Contains(job, want) {
 					t.Errorf("fix job %d has no %q:\n%s", attempt, want, job)
 				}
