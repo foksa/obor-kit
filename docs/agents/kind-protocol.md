@@ -240,9 +240,9 @@ plugin sends it for a name it knows nothing about ("obor has no rule for OpenCod
 passes only when `ctx.tool.list()` gives it the namespace of an MCP server the runtime reports connected
 (`ctx.mcp.list()`; obor's own always), and never by prefix.
 OpenCode's own tools (`opencode_*`) are classified one by one: its worktree create and remove go as the guard's `Bash`
-event for the git command they run, and a session move as the guard's `Edit` event for the directory the session would
-run in (a lane-bound role's move into another worktree of this repo or another obor project is denied, as a write there
-is); its session rename and read tools pass, and any other is unguarded until obor has a row for it (the catalog is
+event for the git command they run, its session move goes as `unguarded` with the transport's own reason (a session's
+directory is the cwd its tools run in, and the transport does not follow a move: an obor agent stays where obor started
+it), its session rename and read tools pass, and any other is unguarded until obor has a row for it (the catalog is
 re-probed on an OpenCode upgrade). Which tools those are and why are the CLI's facts, so they stay in the
 transport; the decision is the guard's: a deny with
 `tool_input.why` for every session but a role-less one in the main checkout (the owner's own agent), which has no

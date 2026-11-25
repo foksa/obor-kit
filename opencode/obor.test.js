@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import net from "node:net";
-import { toClaudeEvents, toolEvents, connectedServers, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
+import { toClaudeEvents, toolEvents, hasRow, connectedServers, patchPaths, claudeError, errorDetails, tokensPath, modelRef, modelSwitch, promptContext, stopBlock, inboxPath, inboxLines, bindInbox } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name, tool_input });
@@ -59,7 +59,10 @@ const namespaces = new Map([
 ]);
 const servers = new Set(["obor", "probe-b"]);
 const isMCPServer = (id) => servers.has(namespaces.get(id));
-const unguarded = (tool, cwd) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name: "unguarded", tool_input: { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` } });
+const unguarded = (tool, cwd, why = `obor has no rule for OpenCode tool ${tool}: update obor`) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name: "unguarded", tool_input: { tool, why } });
+// moveDenied is opencode_session_move's own why (OPENCODE_DENY): the session's directory is the cwd its tools run in,
+// and the plugin's guard cwd is the start's, so obor denies a move for its agents.
+const moveDenied = "moves the session out of its directory; an obor agent stays where obor started it";
 
 test("toolEvents: execute, opencode's read tools, the tools with no guard rule and an MCP server's tool need no event", async () => {
   for (const tool of ["execute", "read", "glob", "grep", "list", "skill", "question", "webfetch", "websearch", "subagent", "opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource", "opencode_session_rename", "obor_job_next", "probe-b_echo"]) {
@@ -67,16 +70,18 @@ test("toolEvents: execute, opencode's read tools, the tools with no guard rule a
   }
 });
 
-test("toolEvents: opencode's session move goes as the write check on the directory it moves the session to", async () => {
-  const edit = (file_path) => [ev("Edit", { file_path })];
-  assert.deepEqual(await toolEvents("opencode_session_move", { directory: "/w/other" }, cwd, "s1", isMCPServer), edit("/w/other"));
-  // a session named: the session the call moves is the argument's, the destination is the same
-  assert.deepEqual(await toolEvents("opencode_session_move", { sessionID: "s2", directory: "/w/other" }, cwd, "s1", isMCPServer), edit("/w/other"));
-  // the tool's own forms (opencode 2.2: relative to the session's directory or absolute, ~ supported): the guard resolves them
-  assert.deepEqual(await toolEvents("opencode_session_move", { directory: "wt" }, cwd, "s1", isMCPServer), edit("wt"));
-  assert.deepEqual(await toolEvents("opencode_session_move", { directory: "~/wt" }, cwd, "s1", isMCPServer), edit("~/wt"));
-  // no directory: a write naming no file, which the guard denies
-  assert.deepEqual(await toolEvents("opencode_session_move", {}, cwd, "s1", isMCPServer), edit(""));
+test("toolEvents: opencode's session move is a denied row carrying its own why, whatever its destination", async () => {
+  // The guard's decision is its unguarded deny; the row only says why (an obor agent stays where obor started it).
+  for (const args of [{ directory: "/w/other" }, { sessionID: "s2", directory: "wt" }, {}]) {
+    assert.deepEqual(await toolEvents("opencode_session_move", args, cwd, "s1", isMCPServer), [unguarded("opencode_session_move", cwd, moveDenied)], JSON.stringify(args));
+  }
+});
+
+test("hasRow: every own tool obor decides is a row; a name the table lacks is not", () => {
+  for (const tool of ["opencode_session_rename", "opencode_session_move", "opencode_worktree_create", "opencode_worktree_remove", "opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource"]) {
+    assert.equal(hasRow(tool), true, tool);
+  }
+  assert.equal(hasRow("opencode_session_delete"), false);
 });
 
 test("toolEvents: opencode's own worktree tools are the git writes they run", async () => {
@@ -275,7 +280,7 @@ esac
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "connectedServers", "default", "errorDetails", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath", "toolEvents"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["bindInbox", "claudeError", "connectedServers", "default", "errorDetails", "hasRow", "inboxLines", "inboxPath", "modelRef", "modelSwitch", "patchPaths", "promptContext", "sessionHooks", "stopBlock", "toClaudeEvents", "tokensPath", "toolEvents"]);
 });
 
 test("setup: the guard, the context, the prompt and the session events through its tool, session and event hooks", async (t) => {
@@ -382,14 +387,12 @@ test("guard: opencode's worktree tools reach the guard as the git commands they 
   assert.deepEqual(c.map((l) => event(l).tool_input.command), [`git worktree add '${dir}/wt'`, `git worktree remove --force '${dir}/wt'`]);
 });
 
-test("guard: opencode's session move reaches the guard as the write check on its destination", async (t) => {
+test("guard: opencode's session move reaches the guard as a denied tool, its why naming the move", async (t) => {
   const { hooked, calls, event, dir } = await stubPlugin(t);
   await hooked["tool:execute.before"]({ tool: "opencode_session_move", sessionID: "s1", input: { directory: "~/elsewhere" } });
   const c = calls();
   assert.equal(c.length, 1, c.join("\n"));
-  assert.equal(event(c[0]).tool_name, "Edit");
-  assert.equal(event(c[0]).tool_input.file_path, "~/elsewhere");
-  assert.equal(event(c[0]).cwd, dir);
+  assert.deepEqual(event(c[0]), unguarded("opencode_session_move", dir, moveDenied));
 });
 
 test("guard: a tool obor knows nothing about goes to the guard as unguarded, its why naming it", async (t) => {

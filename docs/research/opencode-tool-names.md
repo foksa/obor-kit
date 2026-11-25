@@ -98,15 +98,15 @@ scripted call.
 | id | input (opencode 2.2) | what it does | how obor decides it |
 |---|---|---|---|
 | `opencode_session_rename` | `{sessionID?, title}`; `title` at least 1 character, trimmed, an empty one refused | `session.update({sessionID: sessionID ?? the call's session, title})`: the session's title only — no file, no directory | no event (`OPENCODE_PASS`): the session's own metadata |
-| `opencode_session_move` | `{sessionID?, directory}`; `directory` at least 1 character, "relative to the target session's directory or absolute. Supports ~." | `session.move({sessionID: sessionID ?? the call's session, directory, delivery: "steer"})`: the session's directory — the cwd its tools run in — moves at the next safe boundary. It runs no git command; the TUI's Worktrees dialog moves a session the same way (`api.session.move`) | the guard's `Edit` event for `directory`, as the call gives it (the guard resolves a relative path against the call's cwd and expands `~`): the write check on a path is the guard's lane boundary, so a role whose writes stay in its own tree — a lane worker, a reviewer, a custom role — has a move into another worktree of this repo or another obor project denied, as a write there is ("… a worker edits only inside its lane …"). A move inside its own tree, the owner's own session's move, or one to a directory the write rules do not cover (outside the repo) is no opinion |
+| `opencode_session_move` | `{sessionID?, directory}`; `directory` at least 1 character, "relative to the target session's directory or absolute. Supports ~." | `session.move({sessionID: sessionID ?? the call's session, directory, delivery: "steer"})`: the session's directory — the cwd its tools run in — moves at the next safe boundary. It runs no git command; the TUI's Worktrees dialog moves a session the same way (`api.session.move`) | the guard's `unguarded` event with the row's own why (`OPENCODE_DENY`): "moves the session out of its directory; an obor agent stays where obor started it". The plugin's guard cwd is the start's directory and the transport does not follow a move, so the move is denied for every obor agent whatever the destination; the owner's own session (no role, the main checkout) is no opinion, as for any unguarded call. Its `directory` is not read |
 | `opencode_worktree_create` | `{name}` | `worktree.create({projectID, name})`, which runs `git worktree add` | the guard's `Bash` event for `git worktree add '<name>'` |
 | `opencode_worktree_remove` | `{directory, force?}` | `worktree.remove({projectID, directory, force})`, which runs `git worktree remove [--force]` | the guard's `Bash` event for that command |
 | `opencode_worktree_list` | `{}` | `worktree.list({projectID})` | no event: it only reads |
 | `opencode_models` | `{query?, provider?, all?, limit?, offset?}` | `provider.list` and `model.list`, filtered and paged | no event: it only reads |
 | `opencode_list_mcp_resources`, `opencode_read_mcp_resource` | `{server?}` / `{server, uri}` | the runtime's `resourceCatalog` / `readResource` | no event: they only read |
 
-A `directory` the call leaves out reaches the guard as an empty `Edit` file path, which the guard denies for every
-session: opencode's own schema requires the argument, so the empty one is a renamed or crafted call.
+`opencode_session_move` is denied whatever its arguments: its row reads no `directory` (the guard's decision is the
+same for any), and opencode's own schema requires the argument, so a call that leaves it out gets the same answer.
 
 ### The hook calls (`log/plug.jsonl`; each turn one prompt, the scripted calls below)
 

@@ -114,10 +114,14 @@ const PASS = new Set(["execute", "read", "glob", "grep", "list", "skill", "quest
 
 // OPENCODE_PASS are opencode's own tools (its ids opencode_*, a prefix opencode owns) that only read or rename the
 // session itself (a title is the session's own metadata). Its other own tools are classified too: the worktree ones are
-// git writes and a session move is the directory it runs in (opencodeEvents), and a name neither has is unguarded, as
-// any other tool obor has no row for is (an opencode upgrade adds its tools here:
-// docs/research/opencode-tool-names.md).
+// git writes (OPENCODE_MAP) and a session move is denied (OPENCODE_DENY), and a name none has is unguarded, as any
+// other tool obor has no row for is (an opencode upgrade adds its tools here: docs/research/opencode-tool-names.md).
 const OPENCODE_PASS = new Set(["opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource", "opencode_session_rename"]);
+
+// OPENCODE_DENY are opencode's own tools obor denies through the guard's unguarded event, with their own why: a session
+// move changes the directory the session's tools run in, and the plugin's guard cwd is the start's (the transport does
+// not follow a move), so an obor agent stays where obor started it.
+const OPENCODE_DENY = new Map([["opencode_session_move", "moves the session out of its directory; an obor agent stays where obor started it"]]);
 
 // The kit: this file's real path, two levels up.
 function kitRoot() {
@@ -196,33 +200,37 @@ export function connectedServers(list) {
 }
 
 // unguarded is the event for a tool name obor has no row for: the guard decides it (a deny naming the tool for every
-// agent but the owner's own).
-function unguarded(tool, cwd, sessionID) {
-  return preToolUse("unguarded", { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` }, cwd, sessionID);
+// agent but the owner's own). why is the transport's reason: a row's own for a deliberate deny (OPENCODE_DENY), the
+// generic one naming a tool the table lacks.
+function unguarded(tool, cwd, sessionID, why = `obor has no rule for OpenCode tool ${tool}: update obor`) {
+  return preToolUse("unguarded", { tool, why }, cwd, sessionID);
+}
+
+// OPENCODE_MAP are opencode's own tools obor checks as an event: the guard's shell event for the git command a worktree
+// tool runs (worktree_create adds a worktree; worktree_remove removes one, --force discarding its modified and untracked
+// files; the target is path, or the argument the tool calls it — name for a create, directory for a remove, opencode
+// 2.2).
+const OPENCODE_MAP = new Map([
+  ["opencode_worktree_create", (args, ev) => [ev("Bash", { command: `git worktree add ${shellQuote(args.path ?? args.name ?? "")}` })]],
+  ["opencode_worktree_remove", (args, ev) => [ev("Bash", { command: `git worktree ${args.force ? "remove --force" : "remove"} ${shellQuote(args.path ?? args.directory ?? "")}` })]],
+]);
+
+// hasRow reports whether obor's table has a row for one of opencode's own tools: a PASS row, a DENY row, or one
+// OPENCODE_MAP maps. A name with none goes to the guard as unguarded, naming it; the live tier's OC-L7 asks, so a row
+// that deliberately denies is classified, not a drift WARN.
+export function hasRow(tool) {
+  return OPENCODE_PASS.has(tool) || OPENCODE_DENY.has(tool) || OPENCODE_MAP.has(tool);
 }
 
 // opencodeEvents is one of opencode's own tools as the events obor checks: none for a tool that only reads or renames
-// the session; the guard's shell event for the git command a worktree tool runs (worktree_create adds a worktree,
-// worktree_remove removes one, --force discarding its modified and untracked files; the target is path, or the
-// argument the tool calls it — name for a create, directory for a remove, opencode 2.2); the guard's edit event for the
-// directory a session move would make the session's cwd (opencode 2.2's session_move {sessionID?, directory}, relative
-// to the session's directory or absolute, ~ supported), so the destination gets the write check a write there gets: a
-// role whose writes stay in its own tree moving into another worktree of this repo or another obor project is denied,
-// as a write there is (a lane worker must stay in its lane; the guard's phys resolves the relative and ~ forms); and
-// the unguarded event for a name the table lacks.
+// the session; OPENCODE_MAP's event for a worktree tool; the guard's unguarded event with the row's own why for a tool
+// obor denies (OPENCODE_DENY); and the unguarded event naming a tool the table lacks.
 function opencodeEvents(tool, args, cwd, sessionID) {
   if (OPENCODE_PASS.has(tool)) return [];
-  const ev = (name, input) => preToolUse(name, input, cwd, sessionID);
-  const worktree = (target, verb) => ev("Bash", { command: `git worktree ${verb} ${shellQuote(target)}` });
-  switch (tool) {
-    case "opencode_worktree_create":
-      return [worktree(args.path ?? args.name ?? "", "add")];
-    case "opencode_worktree_remove":
-      return [worktree(args.path ?? args.directory ?? "", args.force ? "remove --force" : "remove")];
-    case "opencode_session_move":
-      return [ev("Edit", { file_path: String(args.directory ?? "") })];
-  }
-  return [unguarded(tool, cwd, sessionID)];
+  const deny = OPENCODE_DENY.get(tool);
+  if (deny) return [unguarded(tool, cwd, sessionID, deny)];
+  const map = OPENCODE_MAP.get(tool);
+  return map ? map(args, (name, input) => preToolUse(name, input, cwd, sessionID)) : [unguarded(tool, cwd, sessionID)];
 }
 
 // toolEvents is one opencode tool call as the events obor checks: [] for a tool that needs no event (PASS, opencode's
