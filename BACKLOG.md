@@ -13,8 +13,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   (T-1573/1574/1579), the append/lane-row error rule (T-1582), the internal/app restructuring (T-1575..T-1588),
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
 - **v0.47.1 released 11-25 night** (tag v0.47.1, main 73204b72): T-1606..T-1611 + the two deep dives and advice
-  (`docs/research/v0.47.1-deep-dives-advice.md`), RV-275/RV-276 closed (4 accepts). Shipped 11-25 (owner). Nothing
-  in flight.
+  (`docs/research/v0.47.1-deep-dives-advice.md`), RV-275/RV-276 closed (4 accepts). Shipped 11-25 (owner). After it: T-1612/T-1613 (a
+  tracked path is never linked; RV-277 closed). Nothing in flight.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
@@ -39,9 +39,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
-- (v0.47.1 advice, after the tag) One rule removes DD-v0.47.1 B F2.1 and RV-267 #2 at the root: a path the worktree's
-  `HEAD` tracks is never linked (`ReconcileLinks`, `internal/project/worktree.go`, ~20-40 lines, one `ls-tree` only when
-  a link is about to be made). Own task, own review.
 - (v0.47.1 advice, after the tag) DD A F2: `recordIn` returns true once appended (`internal/app/loop.go:380`; a failed
   lane-row write now replies "the event log refused it" for a record in the log) + a row in `TestAppendedReactions`.
 - (v0.47.1 advice) The guard has no rule for agy's `update_steps` tool: the agy deep dive was denied its own checklist.
