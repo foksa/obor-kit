@@ -86,16 +86,24 @@ func TestResumeWorkerTakesItsJobEndsTheNeedsYou(t *testing.T) {
 	})
 }
 
-// The same needs-you ends when the worker submits (task_done) instead: the submission is the next attempt.
+// The same needs-you ends when the worker submits (task_done) instead: the submission is the next attempt. The lane
+// holds work (a submission of nothing is refused: its own needs-you), and the facts are read once the submit step ran
+// (task_done answers before it does).
 func TestResumeWorkerSubmitsEndsTheNeedsYou(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := resumeFailedDelivery(t)
+		if f := r.app.Status().Project.Facts; len(f) != 1 {
+			t.Fatalf("precondition: the work.2 needs-you in force, facts %+v", f)
+		}
+		r.work("feature.txt", "feature\n")
 		if reply, err := r.taskDone(report); err != nil || reply != "submitted" {
 			t.Fatalf("task_done: %q, %v", reply, err)
 		}
+		r.waitStep("2 result submit")
+		r.passes()
 		if f := r.app.Status().Project.Facts; len(f) != 0 {
-			t.Errorf("needs-you in force after the submission: %+v", f)
+			t.Errorf("needs-you in force after the submission: %+v; records:\n%s", f, strings.Join(r.steps(), "\n"))
 		}
 	})
 }
