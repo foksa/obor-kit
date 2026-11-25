@@ -163,15 +163,11 @@ func TestRV59LowDiskPendingNightly(t *testing.T) {
 		seed: func(r *concRig, now time.Time) {
 			r.addNightly(step, event.KindIntent, nil, now)
 			a, p := r.app("pj"), r.proj("pj")
-			rec, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: event.StepFailed, Kind: event.KindFact,
+			if _, err := Append(a, p.root, event.Record{Task: event.NightlyTask, Step: event.StepFailed, Kind: event.KindFact,
 				Data: mustJSON(event.FactData{Machine: Machine, Reason: step + ": a git lock", Step: step})},
-				now.Add(-nightlyRetry-time.Minute))
-			if err != nil {
+				now.Add(-nightlyRetry-time.Minute)); err != nil {
 				r.t.Fatal(err)
 			}
-			a.mu.Lock()
-			p.foldRecord(rec)
-			a.mu.Unlock()
 		},
 	}} {
 		t.Run(c.name, func(t *testing.T) {

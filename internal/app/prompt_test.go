@@ -153,23 +153,19 @@ func TestPromptIntegratorJob(t *testing.T) {
 	}
 	p := h.proj()
 	raw, _ := json.Marshal(promptData{Agent: "pj-int", Job: "T-2/1/review"})
-	r, err := p.log.Append(event.Record{Task: "T-2", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt,
-		Data: raw}, h.now)
-	if err != nil {
+	if _, err := Append(h.a, h.root, event.Record{Task: "T-2", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent,
+		Class: event.ClassPrompt, Data: raw}, h.now); err != nil {
 		t.Fatal(err)
 	}
-	p.foldRecord(r)
 	// A job's first start is a fresh session; this job's start ran already ("running"), so its wake is typed.
 	for _, rec := range []event.Record{
 		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindIntent, Class: event.ClassStart,
 			Data: mustJSON(startData{Agent: "pj-int"})},
 		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindResult, Data: mustJSON("running")},
 	} {
-		r, err := p.log.Append(rec, h.now)
-		if err != nil {
+		if _, err := Append(h.a, h.root, rec, h.now); err != nil {
 			t.Fatal(err)
 		}
-		p.foldRecord(r)
 	}
 	refuseOnce(p, event.StepResolve)
 	ctx := context.Background()

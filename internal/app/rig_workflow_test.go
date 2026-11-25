@@ -1038,13 +1038,12 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 	return h, f
 }
 
+// addRecord injects one record of task into pj's live log through serve's one write path (Append): the fold and
+// what it calls for run as they do for serve's own appends.
 func addRecord(t *testing.T, h *harness, task, step, kind string, d any) {
 	t.Helper()
-	p := h.a.p
 	raw, _ := json.Marshal(d)
-	r, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
-	if err != nil {
+	if _, err := Append(h.a, h.root, event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now); err != nil {
 		t.Fatal(err)
 	}
-	p.foldRecord(r)
 }

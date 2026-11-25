@@ -26,118 +26,86 @@ import (
 	"obor/internal/store"
 )
 
-func clock() time.Time { return logNow }
-
-// logDo is one effect under its key, the shape serve uses (App.do): Begin, the effect outside the log, Finish; a key
-// with a result gets it and runs nothing, a failed effect writes no result (the intent stays pending).
-func logDo(l *event.Log, in event.Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
-	r, done, _, err := l.Begin(in, clock())
-	if err != nil {
-		return nil, err
-	}
-	if done {
-		return r.Data, nil
-	}
-	v, err := effect(context.Background())
-	if err != nil {
-		l.Finish(in.Key, nil, false, clock())
-		return nil, err
-	}
-	res, err := l.Finish(in.Key, v, true, clock())
-	return res.Data, err
-}
-
-func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
-	t.Parallel()
-	root := logRoot(t)
-	l, _ := openLog(t, root)
-	runs := 0
-	effect := func(context.Context) (any, error) {
-		runs++
-		return map[string]string{"sha": "abc"}, nil
-	}
-	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "publish"}, Class: event.ClassGit, Data: map[string]string{"target": "main"}}
-	got, err := logDo(l, in, effect)
-	if err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
-		t.Fatalf("Do = %s, %v, runs %d", got, err, runs)
-	}
-	if got, err := logDo(l, in, effect); err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
-		t.Errorf("repeated Do = %s, %v, runs %d; want the stored result and no run", got, err, runs)
-	}
-
-	// After a restart the stored result still answers the key; nothing is pending.
-	l, recs := openLog(t, root)
-	if len(recs) != 2 || recs[0].Kind != event.KindIntent || recs[0].Class != event.ClassGit ||
-		string(recs[0].Data) != `{"target":"main"}` || recs[1].Kind != event.KindResult {
-		t.Fatalf("replay = %+v", recs)
-	}
-	if p := l.Pending(); len(p) != 0 {
-		t.Errorf("pending after a result = %+v", p)
-	}
-	if got, err := logDo(l, in, effect); err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
-		t.Errorf("Do after replay = %s, %v, runs %d; want the stored result and no run", got, err, runs)
-	}
-}
-
-// A failed effect writes no result: the intent is pending and a retry runs the effect again.
-func TestDoFailedEffectStaysPending(t *testing.T) {
-	t.Parallel()
-	l, _ := openLog(t, logRoot(t))
-	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "prompt"}, Class: event.ClassPrompt}
-	if _, err := logDo(l, in, func(context.Context) (any, error) { return nil, errors.New("herdr down") }); err == nil {
-		t.Fatal("a failed effect returned no error")
-	}
-	if p := l.Pending(); len(p) != 1 || p[0].Step != "prompt" || p[0].Class != event.ClassPrompt {
-		t.Errorf("pending = %+v", p)
-	}
-	runs := 0
-	if _, err := logDo(l, in, func(context.Context) (any, error) { runs++; return "sent", nil }); err != nil || runs != 1 {
-		t.Errorf("retry = %v, runs %d", err, runs)
-	}
-	if p := l.Pending(); len(p) != 0 {
-		t.Errorf("pending after the retry = %+v", p)
-	}
-}
-
-// A process killed after the effect and before its result: replay lists the intent as pending with its class.
-func TestDoCrashBetweenEffectAndResult(t *testing.T) {
+// App.do's contract, the one write path every merge-loop step takes: the intent (its class and data) written and
+// folded before the effect runs, the effect's result after it, and the effect run once; a stored result answers the
+// key with no run. A failed effect writes no result (its intent stays pending) and a retry runs it again. A process
+// killed between the intent and its result replays as the intent pending, so the step runs again.
+func TestDoContract(t *testing.T) {
 	t.Parallel()
 	if root := os.Getenv("OBOR_TEST_DO_CRASH"); root != "" {
-		db, err := store.OpenRW(event.DBFile(root))
-		if err != nil {
-			os.Exit(2)
-		}
-		l, _, err := event.OpenLog(db)
-		if err != nil {
-			os.Exit(2)
-		}
-		path := filepath.Join(root, "effect")
-		logDo(l, event.Intent{Key: event.Key{Task: "T-1", Attempt: 2, Step: "start"}, Class: event.ClassStart, Data: map[string]string{"pane": "w1:p1"}},
+		a, p := blockProjAt(t, root)
+		_, _ = a.do(context.Background(), p, event.Intent{Key: event.Key{Task: "T-1", Attempt: 2, Step: "start"},
+			Class: event.ClassStart, Data: map[string]string{"pane": "w1:p1"}},
 			func(context.Context) (any, error) {
-				os.WriteFile(path, nil, 0o644)
+				os.WriteFile(filepath.Join(root, "effect"), nil, 0o644)
 				os.Exit(3) // killed after the effect, before the result
 				return nil, nil
 			})
 		os.Exit(4)
 	}
 	root := logRoot(t)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDoCrashBetweenEffectAndResult$")
-	cmd.Env = append(os.Environ(), "OBOR_TEST_DO_CRASH="+root)
+	a, p := blockProjAt(t, root)
+	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "publish"}, Class: event.ClassGit,
+		Data: map[string]string{"target": "main"}}
+	runs := 0
+	effect := func(context.Context) (any, error) { runs++; return map[string]string{"sha": "abc"}, nil }
+	got, err := a.do(context.Background(), p, in, effect)
+	if err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
+		t.Fatalf("do = %s, %v, runs %d; want the effect's result once", got, err, runs)
+	}
+	recs, err := event.ReadLog(root)
+	if err != nil || len(recs) != 2 || recs[0].Kind != event.KindIntent || recs[0].Class != event.ClassGit ||
+		string(recs[0].Data) != `{"target":"main"}` || recs[1].Kind != event.KindResult ||
+		string(recs[1].Data) != `{"sha":"abc"}` {
+		t.Fatalf("do's records = %+v, %v; want the intent, then its result", recs, err)
+	}
+	if got, err := a.do(context.Background(), p, in, effect); err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
+		t.Errorf("a repeat = %s, %v, runs %d; want the stored result and no run", got, err, runs)
+	}
+
+	// A failed effect writes no result; the retry runs it again.
+	failing := event.Intent{Key: event.Key{Task: "T-2", Attempt: 1, Step: "prompt"}, Class: event.ClassPrompt}
+	if _, err := a.do(context.Background(), p, failing, func(context.Context) (any, error) {
+		return nil, errors.New("herdr down")
+	}); err == nil {
+		t.Fatal("a failed effect returned no error")
+	}
+	if pending := p.log.Pending(); len(pending) != 1 || pending[0].Key() != (event.Key{Task: "T-2", Attempt: 1, Step: "prompt"}) {
+		t.Errorf("after a failed effect: pending %+v, want its intent", pending)
+	}
+	runs = 0
+	if got, err := a.do(context.Background(), p, failing, func(context.Context) (any, error) {
+		runs++
+		return "sent", nil
+	}); err != nil || string(got) != `"sent"` || runs != 1 {
+		t.Errorf("the retry = %s, %v, runs %d; want the result once", got, err, runs)
+	}
+	if pending := p.log.Pending(); len(pending) != 0 {
+		t.Errorf("after the retry: pending %+v", pending)
+	}
+
+	// The child's process, killed inside the effect: the replay leaves its intent pending, so the step runs again.
+	crashRoot := logRoot(t)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDoContract$")
+	cmd.Env = append(os.Environ(), "OBOR_TEST_DO_CRASH="+crashRoot)
 	var ee *exec.ExitError
 	if err := cmd.Run(); !errors.As(err, &ee) || ee.ExitCode() != 3 {
 		t.Fatalf("child = %v, want exit 3 inside the effect", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "effect")); err != nil {
+	if _, err := os.Stat(filepath.Join(crashRoot, "effect")); err != nil {
 		t.Fatalf("precondition: the effect ran: %v", err)
 	}
-	l, recs := openLog(t, root)
-	if len(recs) != 1 || recs[0].Kind != event.KindIntent {
-		t.Fatalf("replay = %+v; want the intent only", recs)
+	b, q := blockProjAt(t, crashRoot)
+	pending := q.log.Pending()
+	if len(pending) != 1 || pending[0].Key() != (event.Key{Task: "T-1", Attempt: 2, Step: "start"}) ||
+		pending[0].Class != event.ClassStart || string(pending[0].Data) != `{"pane":"w1:p1"}` {
+		t.Fatalf("replay pending = %+v; want the intent the crash left", pending)
 	}
-	p := l.Pending()
-	if len(p) != 1 || p[0].Task != "T-1" || p[0].Attempt != 2 || p[0].Step != "start" || p[0].Class != event.ClassStart ||
-		string(p[0].Data) != `{"pane":"w1:p1"}` {
-		t.Errorf("pending = %+v", p)
+	runs = 0
+	got, err = b.do(context.Background(), q, event.Intent{Key: pending[0].Key(), Class: pending[0].Class},
+		func(context.Context) (any, error) { runs++; return "running", nil })
+	if err != nil || string(got) != `"running"` || runs != 1 {
+		t.Errorf("the step after the crash = %s, %v, runs %d; want the effect once", got, err, runs)
 	}
 }
 
@@ -468,7 +436,7 @@ func TestAppendedReactions(t *testing.T) {
 		hooked    bool   // hookAppended fired for r
 		logsGo    bool   // T-1's step logs are removed
 		cuts      string // the waits that end: "" none, "own" r's step's, "task" every wait of T-1
-		settled   int    // T-1's pending intents settled as not run
+		settled   int    // T-1's pending intents r's fold settles as not run
 	}{
 		{name: "an intent", seed: open, r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: gateIn{},
 			state: stSubmitted},
@@ -528,13 +496,17 @@ func TestAppendedReactions(t *testing.T) {
 			}
 			h.a.hooked.Store(&hook)
 			c.r.Data, _ = json.Marshal(c.data)
-			r, err := p.log.Append(c.r, h.now)
-			if err != nil {
-				t.Fatal(err)
+			settledSoFar := func() int {
+				n := 0
+				for _, x := range h.records() {
+					if x.Task == "T-1" && notRunResult(x) {
+						n++
+					}
+				}
+				return n
 			}
-			h.a.mu.Lock()
-			err = h.a.appended(p, r)
-			h.a.mu.Unlock()
+			before := settledSoFar()
+			_, err := Append(h.a, h.root, c.r, h.now)
 			none := func(string) {}
 			h.a.hooked.Store(&none)
 
@@ -544,12 +516,7 @@ func TestAppendedReactions(t *testing.T) {
 			if (err != nil) != c.failLanes {
 				t.Errorf("appended: %v; want an error %v (the lane rows' write fails)", err, c.failLanes)
 			}
-			settled := 0
-			for _, x := range h.records() {
-				if x.Task == "T-1" && notRunResult(x) {
-					settled++
-				}
-			}
+			settled := settledSoFar() - before
 			if settled != c.settled {
 				t.Errorf("settled %d of T-1's pending intents, want %d", settled, c.settled)
 			}
