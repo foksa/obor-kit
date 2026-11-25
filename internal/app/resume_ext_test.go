@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"obor/internal/app"
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 )
 
@@ -35,8 +34,8 @@ func asked(t *testing.T) *loopRig {
 // obor resume of a question (row 16b): once the worker's Blocked: report is in force, the answer ends the question and
 // serve delivers "[obor answer] <text>" to the worker (posted to its session's inbox, as its kind takes a line).
 // A worker cannot answer, an empty answer is refused, a repeated call id gets the stored reply, and an answered task has
-// no question left. The worker's full report submits attempt 1. (That the answer ends the question in the same attempt,
-// with no fix job, is TestResumeRegateOfABlockedReport's.)
+// no question left. The answer ends the question in the same attempt: the task stays working, and the worker's full
+// report submits attempt 1.
 func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
@@ -217,141 +216,47 @@ func TestAnswerAfterTheStopHooksTurn(t *testing.T) {
 	})
 }
 
-// Each needs-you's suggested commands (serve's answers: obor status, the lead's needs-you line) are accepted in the
-// state that needs-you leaves. asks: TestAnswerSendsTheWorkerTheAnswer, TestAnswerAfterTheStopHooksTurn. A drop
-// by lane needs the lane adapters: the dispatch rig's case (the plain rig has none).
-func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
+// A hold's suggested resume (serve's answers: obor status, the lead's needs-you line), run through obor resume's own
+// parser with the lead's decision, is accepted: fact unblocked{reprompt}, and the integrator's next review job carries
+// the decision, after a replay too. Every cause's suggested commands being accepted is TestAnswerPathEveryCause's; a
+// hold resumed with no decision, or with --regate, is refused by TestResumeActByState's rule (TestHoldAndResume's
+// flow); red past K's flags: TestResumeRegate; a refused dispatch step's resume: TestDispatchNeedsYouThenResume.
+func TestResumeOfAHoldCarriesTheDecision(t *testing.T) {
 	t.Parallel()
-	hold := func(r *loopRig) event.Record {
-		r.t.Helper()
+	bubble(t, func(t *testing.T) {
+		r, _ := reviewed(t)
 		if _, err := r.ask(&wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
 			Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
 			Note: "the owner decides on internal/x.go"}); err != nil {
-			r.t.Fatal(err)
-		}
-		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
-		return r.needsYou()
-	}
-	red := func(t *testing.T) (*loopRig, event.Record) {
-		r := newLoopRig(t)
-		r.work("feature.txt", "feature\n")
-		r.submit()
-		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
-			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01","agent":"pj-l-01"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"L-01"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: event.KindFact,
-				Data: []byte(`{"lane":"L-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
-		}...); err != nil {
 			t.Fatal(err)
 		}
-		r.start()
-		r.passes()
-		return r, r.needsYou()
-	}
-	ok := func(t *testing.T, r *loopRig, fact event.Record, verb, text, want string) {
-		t.Helper()
+		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
+		fact := r.needsYou()
+		if p := r.answerOf(fact); !strings.Contains(p, `obor resume T-1 "<decision>"`) {
+			t.Errorf("answers %q: want the resume with the owner's decision", p)
+		}
 		// A pass the needs-you's own step (or a delivery) kicked may still hold T-1 while its herdr call or effect runs;
-		// obor drop and resume answer only a task no step holds (busy). Two passes: the second started after the
-		// needs-you, so it picks no step of T-1; then wait out the one still running.
+		// obor resume answers only a task no step holds (busy). Two passes: the second started after the needs-you, so it
+		// picks no step of T-1; then wait out the one still running.
 		r.passes()
 		r.waitFor("no step of T-1 running", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
-		if reply, err := r.runPath(fact, verb, "p1", text); err != nil || !strings.Contains(reply, want) {
-			t.Fatalf("%s (%s): %q, %v; want %s", r.answerOf(fact), verb, reply, err, want)
+		const want = "RESUMED T-1: reprompt (held)"
+		if reply, err := r.runPath(fact, "resume", "p1", "yes: internal/x.go is in scope"); err != nil ||
+			!strings.Contains(reply, want) {
+			t.Fatalf("%s (resume): %q, %v; want %s", r.answerOf(fact), reply, err, want)
 		}
-	}
-	t.Run("held → resume with the lead's decision", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, _ := reviewed(t)
-			fact := hold(r)
-			if p := r.answerOf(fact); !strings.Contains(p, `obor resume T-1 "<decision>"`) {
-				t.Errorf("answers %q: want the resume with the owner's decision", p)
-			}
-			ok(t, r, fact, "resume", "yes: internal/x.go is in scope", "RESUMED T-1: reprompt (held)")
-			if !r.has(`1 fact unblocked{reprompt}`) {
-				t.Fatalf("want the resume recorded: %q", r.steps())
-			}
-			job := r.waitJob("pj-int", "T-1/1/review.2")
-			if !strings.Contains(job, "Lead's decision on your hold: yes: internal/x.go is in scope\n") {
-				t.Errorf("the review job after the resume does not carry the decision:\n%s", job)
-			}
-			r.stop() // a replay keeps it: the decision is the unblocked fact's
-			r.start()
-			if job := r.waitJob("pj-int", "T-1/1/review.2"); !strings.Contains(job, "Lead's decision on your hold: yes") {
-				t.Errorf("the review job after a restart does not carry the decision:\n%s", job)
-			}
-		})
-	})
-	t.Run("held → resume, no decision: refused", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, _ := reviewed(t)
-			fact := hold(r)
-			r.passes()
-			r.waitFor("no step of T-1 running", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
-			for _, c := range []struct{ to, note, want string }{
-				{"", "", "say the text: obor resume T-1 \"<text>\" sends the integrator its job anew"},
-				{wire.ResumeRegate, "", "--regate does not fit"},
-			} {
-				_, err := r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
-					Agent: "pj-lead", Role: "lead", CallID: "x" + c.to}, Task: "T-1", Flag: c.to, Text: c.note})
-				if err == nil || !strings.Contains(err.Error(), c.want) {
-					t.Errorf("resume --%s %q of a hold: %v; want refused %q", c.to, c.note, err, c.want)
-				}
-			}
-			if r.facts() != 1 || r.has("1 fact unblocked{reprompt}") {
-				t.Errorf("a refused resume ended the hold: %d facts, %q", r.facts(), r.steps())
-			}
-			_ = fact
-		})
-	})
-	t.Run("red past K, neither flag: refused, nothing recorded", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, fact := red(t)
-			if p := r.answerOf(fact); !strings.HasPrefix(p, `obor resume T-1 --regate | obor resume T-1 --sendback "<why>"`) {
-				t.Errorf("answers %q: want the two flags", p)
-			}
-			r.passes()
-			r.waitFor("no step of T-1 running", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
-			_, err := r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
-				Agent: "pj-lead", Role: "lead", CallID: "x1"}, Task: "T-1", Text: "go"})
-			if err == nil {
-				t.Fatal("resume of red past K with no flag: want refused")
-			}
-			if r.has("1 fact unblocked{regate}") {
-				t.Errorf("a refused resume recorded: %q", r.steps())
-			}
-		})
-	})
-	t.Run("red past K → resume --regate", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, fact := red(t)
-			ok(t, r, fact, "resume --regate", "", "RESUMED T-1: regate (red)")
-		})
-	})
-	t.Run("red past K → resume --sendback", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, fact := red(t)
-			ok(t, r, fact, "resume --sendback", "fix the gate", "SENDBACK T-1")
-		})
-	})
-	t.Run("a refused dispatch step → resume", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, _ := refusedRig(t)
-			ok(t, r, r.needsYou(), "resume", "", "RESUMED T-1: retry")
-		})
-	})
-	t.Run("a refused dispatch step → drop", func(t *testing.T) {
-		t.Parallel()
-		bubble(t, func(t *testing.T) {
-			r, _ := refusedRig(t)
-			ok(t, r, r.needsYou(), "drop", "not needed", "DROPPED T-1")
-		})
+		if !r.has(`1 fact unblocked{reprompt}`) {
+			t.Fatalf("want the resume recorded: %q", r.steps())
+		}
+		job := r.waitJob("pj-int", "T-1/1/review.2")
+		if !strings.Contains(job, "Lead's decision on your hold: yes: internal/x.go is in scope\n") {
+			t.Errorf("the review job after the resume does not carry the decision:\n%s", job)
+		}
+		r.stop() // a replay keeps it: the decision is the unblocked fact's
+		r.start()
+		if job := r.waitJob("pj-int", "T-1/1/review.2"); !strings.Contains(job, "Lead's decision on your hold: yes") {
+			t.Errorf("the review job after a restart does not carry the decision:\n%s", job)
+		}
 	})
 }
 

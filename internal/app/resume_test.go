@@ -592,7 +592,8 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 
 // The BACKLOG deadlock: a worker's Blocked "re-gate, not my diff" is a question in force; obor resume
 // --regate gates the lane as it is (fact unblocked{regate}: submitted, the lane submitted afresh), the question ends;
-// with no flag the text is the answer (the question ends, the task stays working), and --sendback does not fit.
+// --sendback does not fit. (With no flag the text is the answer, the question ends and the task stays working in the
+// same attempt: TestAnswerSendsTheWorkerTheAnswer.)
 func TestResumeRegateOfABlockedReport(t *testing.T) {
 	t.Parallel()
 	seed := func(t *testing.T) (*harness, *proj) {
@@ -637,20 +638,6 @@ func TestResumeRegateOfABlockedReport(t *testing.T) {
 			t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
 		}
 	})
-	t.Run("the answer", func(t *testing.T) {
-		t.Parallel()
-		h, p := seed(t)
-		reply, err := resume(h, "a1", "", "yes, it is a flake")
-		if want := "ANSWERED T-1: obor serve sends pj-l-01 the answer"; err != nil || !strings.HasPrefix(reply, want) {
-			t.Fatalf("resume: %q, %v; want %q", reply, err, want)
-		}
-		h.a.mu.Lock()
-		defer h.a.mu.Unlock()
-		if mt := p.folded.loop["T-1"]; p.asks("T-1") || mt.attempt != 1 || mt.state == stSubmitted {
-			t.Errorf("after the answer: question %v, %s attempt %d; want none, the same attempt, not submitted",
-				p.asks("T-1"), mt.state, mt.attempt)
-		}
-	})
 }
 
 // resumeAct by state: each state that takes no resume is refused by its state; a hold's decision reaches the
@@ -669,6 +656,8 @@ func TestResumeActByState(t *testing.T) {
 		{"held", mtask{state: stAwaiting, needs: heldOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}}, "", wire.ResumeReprompt, ""},
 		{"held --sendback", mtask{state: stAwaiting, needs: heldOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}},
 			wire.ResumeSendback, "", "--sendback does not fit: obor resume T-1 sends the integrator its job anew"},
+		{"held --regate", mtask{state: stAwaiting, needs: heldOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}},
+			wire.ResumeRegate, "", "--regate does not fit: obor resume T-1 sends the integrator its job anew"},
 		{"red past K", mtask{state: stRed, needs: heldOf(causeRed)}, "", "", "say --regate or --sendback (red: why)"},
 		{"red past K --regate", mtask{state: stRed, needs: heldOf(causeRed)}, wire.ResumeRegate, wire.ResumeRegate, ""},
 		{"red past K --sendback", mtask{state: stRed, needs: heldOf(causeRed)}, wire.ResumeSendback, actSendback, ""},
@@ -693,6 +682,7 @@ func TestResumeActByState(t *testing.T) {
 		{"a drive's needs-you", mtask{state: stDispatched, drive: true, needs: heldOf("lane")}, "", wire.ResumeRetry, ""},
 		{"working, nothing asked", mtask{state: stWorking}, "", "", "T-1 is working with nothing to resume"},
 		{"gating", mtask{state: stSubmitted}, "", "", "T-1 is submitted; retry when it settles"},
+		{"accepted", mtask{state: stAccepted}, "", "", "resume: T-1 is accepted; retry when it settles"},
 		{"dropped", mtask{state: stDropped}, "", "", "resume: T-1 is dropped"},
 		{"a keyword flag", mtask{state: stGreen}, wire.ResumeReprompt, "", "--reprompt is no flag of obor resume"},
 	} {
@@ -716,7 +706,8 @@ func TestResumeActByState(t *testing.T) {
 // The lead's sendback (obor resume --sendback) is serve's own transition: from a green
 // candidate, an open job or a needs-you of the owner's choice (red past K) the task goes back to its worker as the next
 // attempt, its job, candidate and needs-you ended; a needs-you whose cause takes another action is refused naming it,
-// any other state by name, with nothing recorded.
+// a task not open by name, with nothing recorded. (Which state and flag take which action, a hold's --sendback, a
+// submitted or accepted task's refusal included: TestResumeActByState.)
 func TestLeadSendback(t *testing.T) {
 	t.Parallel()
 	sub := func(r *concRig) {
@@ -753,13 +744,6 @@ func TestLeadSendback(t *testing.T) {
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: causeRed,
 				Reason: "gate red after 2 sendbacks"})
 		}, wire.PhaseNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
-		{"needs-you after a hold", func(r *concRig) {
-			sub(r)
-			gate(r, outGreen)
-			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: event.CauseHeld,
-				Reason: "held: ask the owner", Job: "T-6/1/review"})
-		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 sends the integrator its job anew", 1},
 		{"needs-you after a gate fail", func(r *concRig) {
 			sub(r)
 			gate(r, outFail)
@@ -771,13 +755,6 @@ func TestLeadSendback(t *testing.T) {
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeAfter,
 				Reason: "after: T-6 waits for T-7, which is dropped"})
 		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 retries the failed step", 1},
-		{"accepted", func(r *concRig) {
-			sub(r)
-			gate(r, outGreen)
-			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", verdictStep(wire.MethodAccept, "a1"), event.KindResult, event.VerdictResult{Job: "T-6/1/review", Patch: "p6"})
-		}, stAccepted, "", "resume: T-6 is accepted; retry when it settles", 0},
-		{"submitted", sub, stSubmitted, "", "resume: T-6 is submitted; retry when it settles", 0},
 		{"no task", func(*concRig) {}, "", "", "resume: T-6 is not open in obor serve", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
