@@ -22,8 +22,8 @@ func notRunResult(r event.Record) bool {
 // them: a superseded attempt's (a redispatch, a later submission) or the ended attempt's own (a prompt refused
 // before typing, a start that failed). Kept: a merged attempt's after-merge steps (the loop runs them), a verdict's
 // (its call id's reply is its caller's), and one whose effect ran with its result unwritten (App.do writes that).
-// Called at replay and live once a merged or dropped fact (record) or a reject (verdict) is folded; under mu when the
-// app runs. It is the number of results written.
+// Called at replay and live once a merged or dropped fact is folded (App.appended); under mu when the app runs. It is
+// the number of results written.
 func (a *App) settleEnded(p *proj, task string) int {
 	n := 0
 	for _, r := range p.log.Pending() {
@@ -49,7 +49,7 @@ func (a *App) settleEnded(p *proj, task string) int {
 			a.logf("FAIL event log of %s: %v", p.name, err)
 			return n
 		}
-		p.foldRecord(res)
+		_ = a.appended(p, res) // a lane-row write that fails is tried again on the next change
 		n++
 	}
 	return n

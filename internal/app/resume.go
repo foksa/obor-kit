@@ -407,7 +407,6 @@ func (a *App) leadSendback(p *proj, c wire.ResumeReq, mt mtask) (string, error) 
 	}
 	var v verdictResult
 	_ = json.Unmarshal(r.Data, &v)
-	p.foldRecord(r) // the next attempt's begun
 	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, Dash(c.Agent))
 	a.wake()
