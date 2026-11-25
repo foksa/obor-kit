@@ -139,7 +139,6 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `dispatch.go` | `obor dispatch`: the lane and task a dispatch takes | `App.dispatchCall` |
 | `drive.go` | the owner's drive and land: `obor drive`, `obor land`, the driving state | `App.driveCall` |
 | `effects.go` | `JobID` | `JobID` |
-| `exit.go` | the socket's exit request: serve ends gracefully, `obor stop` | `App.exitCall` |
 | `feed.go` | the socket's `events` request: the event feed after a seq, streamed with `--follow` | `App.feed` |
 | `fetch.go` | jobs by fetch: the wake, the first fetch's delivered fact, the job a call names | `App.jobNext` |
 | `finish.go` | `awaitsTaskDone` (whose attempt is its worker's and no task_done yet), `inLoop` (what the merge loop holds) | `mtask.awaitsTaskDone` |
@@ -187,16 +186,17 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `serve.go` | New, Serve, run, the serve flock | `Serve` |
 | `sessions.go` | the agents' recorded sessions | `App.sessionCall` |
 | `settle.go` | settling a task's open records when it ends | `App.settleEnded` |
+| `socket.go` | the socket's server half: `Listen`, the methods, the skew notes, the started and exit requests (`obor stop`) | `App.Listen` |
 | `specs.go` | the specs table: `obor spec set` and the readers | `App.specSet` |
 | `states.go` | the state table | `init` |
-| `status.go` | the status snapshot and `Listen`: the socket's server half | `App.Status` |
+| `status.go` | the status snapshot: what serve shows now | `App.Status` |
 | `steps.go` | scratch/after steps, submit, gate, publish, unpin, fix | `App.scratchStep` |
 | `stopped.go` | the agents' stop report (`stopped` call): a worker's and a role's stop | `App.stoppedCall` |
 | `stopstep.go` | a task worker's stop as a step of the merge loop, for a move or a drop | `mtask.foldStop` |
 | `stopwake.go` | the wake of a stopped agent at its rate limit's reset | `App.stopWakes` |
 | `toast.go` | the owner's herdr toast, a rule action's best-effort after | `App.toast` |
 | `trust.go` | a pane's trust prompt: the needs-you it raises and its answer | `trustHeld` |
-| `verbs.go` | `leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs` | `leadOr` |
+| `verbs.go` | `leadOrOwner`: the lead's and the owner's admission of a method, its one refusal line; `leadOr`: a custom role's grant by its `roles.<name>.verbs` | `leadOrOwner` |
 | `verdict.go` | a job's verdict call and its fold | `App.verdict` |
 | `versions.go` | the versions of the tools obor drives: the periodic read, fact `version`, the rule that lines the lead on a change | `App.versionTick` |
 | `waiting.go` | a dispatch that waits for the tasks it names (`--after`) or for a lane: fold, pick, dispatch | `App.waitTask` |

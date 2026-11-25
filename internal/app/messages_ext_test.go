@@ -368,7 +368,7 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 			want string
 		}{
 			{wire.SendReq{Envelope: wire.Envelope{Role: "worker", Agent: "pj-l-01"}, Text: "x", From: "other"},
-				"a lead or the owner"},
+				"the lead or the owner sends"},
 			{wire.SendReq{From: "other"}, "a text is required"},
 			{wire.SendReq{Text: "x"}, "the sender project is required"},
 		} {

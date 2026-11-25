@@ -163,6 +163,7 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 		return "", errors.New(wire.MethodReview + ": a call id is required")
 	}
 	p, reply, stored := a.callProj(wire.MethodReview, c.Envelope)
+	refused := leadOrOwner(wire.MethodReview, "requests a review", c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodReview, c.Root)
@@ -170,8 +171,8 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 		return reply, nil
 	case !a.merges(p):
 		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("review: the lead or the owner requests a review, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return "", refused
 	}
 	// The reads, with no lock: the review config and the --after tasks' specs (consulted for the tasks the log does not
 	// know). Then one a.mu section: a pass's claim is either made before the check (refused) or sees the fold.

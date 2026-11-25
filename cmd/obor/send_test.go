@@ -102,9 +102,9 @@ func TestSendRequest(t *testing.T) {
 		t.Errorf("the own project's serve got %+v", calls)
 	}
 
-	startFakeServe(t, q.Root, wire.Status{}, "", "send: a lead or the owner sends, not pj-l1 (role worker)")
+	startFakeServe(t, q.Root, wire.Status{}, "", "send: the lead or the owner sends, not pj-l1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, env, "send", "other", "x"); rc != 1 ||
-		stdout != "FAIL send: a lead or the owner sends, not pj-l1 (role worker)\n" {
+		stdout != "FAIL send: the lead or the owner sends, not pj-l1 (role worker)\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}
 }

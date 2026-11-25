@@ -62,7 +62,7 @@ func TestNightlySwitch(t *testing.T) {
 	}
 
 	for _, refusal := range []string{"config: nightly.at takes a local time HH:MM (00:00 to 23:59), or null (off)",
-		"config: the owner or the lead changes the setup, not pj-l-01 (role worker)"} {
+		"config_set: the lead or the owner changes the setup, not pj-l-01 (role worker)"} {
 		refusing := startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "", refusal)
 		if rc, stdout, _ := run(t, p.Root, env, "nightly", "on", "25:00"); rc != 1 || stdout != "FAIL "+refusal+"\n" {
 			t.Errorf("serve's refusal: exit %d, %q; want FAIL %s", rc, stdout, refusal)

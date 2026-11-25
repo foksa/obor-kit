@@ -30,7 +30,7 @@ func TestCustomRoleVerbsAdmission(t *testing.T) {
 		}
 		methods := map[string]method{
 			wire.MethodSpecSet: {func() wire.Req { return &wire.SpecSetReq{Task: "T-9", Spec: "no title"} },
-				"spec set: only the lead or the owner sets a spec, not %s (role %s)",
+				"spec_set: the lead or the owner sets a spec, not %s (role %s)",
 				"spec set T-9: "},
 			wire.MethodDispatch: {func() wire.Req {
 				return &wire.DispatchReq{Task: "T-9", Lane: "L-99",
@@ -41,7 +41,7 @@ func TestCustomRoleVerbsAdmission(t *testing.T) {
 				"watch: the lead or the owner watches, not %s (role %s)",
 				"watch: --rm needs a task"},
 			wire.MethodSend: {func() wire.Req { return &wire.SendReq{} },
-				"send: a lead or the owner sends, not %s (role %s)", "send: a text is required"},
+				"send: the lead or the owner sends, not %s (role %s)", "send: a text is required"},
 			wire.MethodBrief: {func() wire.Req { return &wire.BriefReq{} },
 				"brief: the lead or the owner briefs, not %s (role %s)",
 				"brief: the role agent is required"},

@@ -121,11 +121,12 @@ func (a *App) resumeNightly(p *proj, c wire.ResumeReq) (string, error) {
 	if reply, stored := p.folded.calls[verdictStep(wire.MethodResume, c.CallID)]; stored {
 		return reply, nil
 	}
+	refused := leadOrOwner(wire.MethodResume, "resumes a task", c.Envelope)
 	switch {
 	case !p.merging:
 		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("resume: the lead or the owner resumes a task, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return "", refused
 	case c.Flag != "":
 		return "", errors.New(`resume nightly: no flag: say the why, obor resume nightly "<why>"`)
 	case strings.TrimSpace(c.Text) == "":
@@ -172,11 +173,12 @@ func (a *App) resumeDecide(p *proj, c wire.ResumeReq) (string, mtask, string, er
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
+	refused := leadOrOwner(wire.MethodResume, "resumes a task", c.Envelope)
 	switch {
 	case !p.merging:
 		return "", mtask{}, "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", mtask{}, "", fmt.Errorf("resume: the lead or the owner resumes a task, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return "", mtask{}, "", refused
 	case mt.task == "":
 		return "", mtask{}, "", fmt.Errorf("resume: %s is not open in obor serve", c.Task)
 	}

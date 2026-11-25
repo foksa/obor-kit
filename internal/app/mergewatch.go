@@ -171,8 +171,7 @@ func (a *App) watchCall(c wire.WatchReq) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.cfgNow, wire.MethodWatch, c.Envelope, fmt.Sprintf("watch: the lead or the owner watches, not %s (role %s)", Dash(c.Agent),
-		c.Role)); err != nil {
+	if err := leadOr(p.cfgNow, wire.MethodWatch, "watches", c.Envelope); err != nil {
 		return "", err
 	}
 	switch {
