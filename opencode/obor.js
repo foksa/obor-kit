@@ -112,11 +112,12 @@ const AGENT_KIND = "opencode";
 // invoke_subagent is.
 const PASS = new Set(["execute", "read", "glob", "grep", "list", "skill", "question", "webfetch", "websearch", "subagent"]);
 
-// OPENCODE_PASS are opencode's own tools (its ids opencode_*, a prefix opencode owns) that only read. Its other own
-// tools are classified too: the worktree ones are git writes (opencodeEvents), and a name neither has is unguarded, as
+// OPENCODE_PASS are opencode's own tools (its ids opencode_*, a prefix opencode owns) that only read or rename the
+// session itself (a title is the session's own metadata). Its other own tools are classified too: the worktree ones are
+// git writes and a session move is the directory it runs in (opencodeEvents), and a name neither has is unguarded, as
 // any other tool obor has no row for is (an opencode upgrade adds its tools here:
 // docs/research/opencode-tool-names.md).
-const OPENCODE_PASS = new Set(["opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource"]);
+const OPENCODE_PASS = new Set(["opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource", "opencode_session_rename"]);
 
 // The kit: this file's real path, two levels up.
 function kitRoot() {
@@ -200,24 +201,33 @@ function unguarded(tool, cwd, sessionID) {
   return preToolUse("unguarded", { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` }, cwd, sessionID);
 }
 
-// opencodeEvents is one of opencode's own tools as the events obor checks: none for a tool that only reads; the guard's
-// shell event for the git command a worktree tool runs (worktree_create adds a worktree, worktree_remove removes one,
-// --force discarding its modified and untracked files; the target is path, or the argument the tool calls it — name for
-// a create, directory for a remove, opencode 2.2); and the unguarded event for a name the table lacks.
+// opencodeEvents is one of opencode's own tools as the events obor checks: none for a tool that only reads or renames
+// the session; the guard's shell event for the git command a worktree tool runs (worktree_create adds a worktree,
+// worktree_remove removes one, --force discarding its modified and untracked files; the target is path, or the
+// argument the tool calls it — name for a create, directory for a remove, opencode 2.2); the guard's edit event for the
+// directory a session move would make the session's cwd (opencode 2.2's session_move {sessionID?, directory}, relative
+// to the session's directory or absolute, ~ supported), so the destination gets the write check a write there gets: a
+// role whose writes stay in its own tree moving into another worktree of this repo or another obor project is denied,
+// as a write there is (a lane worker must stay in its lane; the guard's phys resolves the relative and ~ forms); and
+// the unguarded event for a name the table lacks.
 function opencodeEvents(tool, args, cwd, sessionID) {
   if (OPENCODE_PASS.has(tool)) return [];
-  const worktree = (target, verb) => preToolUse("Bash", { command: `git worktree ${verb} ${shellQuote(target)}` }, cwd, sessionID);
+  const ev = (name, input) => preToolUse(name, input, cwd, sessionID);
+  const worktree = (target, verb) => ev("Bash", { command: `git worktree ${verb} ${shellQuote(target)}` });
   switch (tool) {
     case "opencode_worktree_create":
       return [worktree(args.path ?? args.name ?? "", "add")];
     case "opencode_worktree_remove":
       return [worktree(args.path ?? args.directory ?? "", args.force ? "remove --force" : "remove")];
+    case "opencode_session_move":
+      return [ev("Edit", { file_path: String(args.directory ?? "") })];
   }
   return [unguarded(tool, cwd, sessionID)];
 }
 
 // toolEvents is one opencode tool call as the events obor checks: [] for a tool that needs no event (PASS, opencode's
-// own read tools), toClaudeEvents' mapping for a tool it maps, opencodeEvents for opencode's own tools, and [] for a
+// own read tools and its session rename), toClaudeEvents' mapping for a tool it maps, opencodeEvents for opencode's own
+// tools, and [] for a
 // namespaced tool the isMCPServer lookup counts as an MCP server's (obor's own, or one the runtime reports connected,
 // connectedServers). The hook gives an inner call of execute an id and never its namespace, and a prefix says nothing
 // (obor_foo_bar is obor's foo_bar or a server obor_foo's bar), so the lookup is exact. Any other name goes to the

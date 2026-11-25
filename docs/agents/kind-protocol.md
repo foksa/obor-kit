@@ -240,8 +240,10 @@ plugin sends it for a name it knows nothing about ("obor has no rule for OpenCod
 passes only when `ctx.tool.list()` gives it the namespace of an MCP server the runtime reports connected
 (`ctx.mcp.list()`; obor's own always), and never by prefix.
 OpenCode's own tools (`opencode_*`) are classified one by one: its worktree create and remove go as the guard's `Bash`
-event for the git command they run, its read tools pass, and any other is unguarded until obor has a row for it (the
-catalog is re-probed on an OpenCode upgrade). Which tools those are and why are the CLI's facts, so they stay in the
+event for the git command they run, and a session move as the guard's `Edit` event for the directory the session would
+run in (a lane-bound role's move into another worktree of this repo or another obor project is denied, as a write there
+is); its session rename and read tools pass, and any other is unguarded until obor has a row for it (the catalog is
+re-probed on an OpenCode upgrade). Which tools those are and why are the CLI's facts, so they stay in the
 transport; the decision is the guard's: a deny with
 `tool_input.why` for every session but a role-less one in the main checkout (the owner's own agent), which has no
 opinion. In a stopped project (`obor stop`) no hook loads: a transport runs none (agy's reads `.obor/state/stopped`).

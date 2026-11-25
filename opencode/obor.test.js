@@ -62,9 +62,21 @@ const isMCPServer = (id) => servers.has(namespaces.get(id));
 const unguarded = (tool, cwd) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "opencode", tool_name: "unguarded", tool_input: { tool, why: `obor has no rule for OpenCode tool ${tool}: update obor` } });
 
 test("toolEvents: execute, opencode's read tools, the tools with no guard rule and an MCP server's tool need no event", async () => {
-  for (const tool of ["execute", "read", "glob", "grep", "list", "skill", "question", "webfetch", "websearch", "subagent", "opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource", "obor_job_next", "probe-b_echo"]) {
+  for (const tool of ["execute", "read", "glob", "grep", "list", "skill", "question", "webfetch", "websearch", "subagent", "opencode_worktree_list", "opencode_models", "opencode_list_mcp_resources", "opencode_read_mcp_resource", "opencode_session_rename", "obor_job_next", "probe-b_echo"]) {
     assert.deepEqual(await toolEvents(tool, {}, cwd, "s1", isMCPServer), [], tool);
   }
+});
+
+test("toolEvents: opencode's session move goes as the write check on the directory it moves the session to", async () => {
+  const edit = (file_path) => [ev("Edit", { file_path })];
+  assert.deepEqual(await toolEvents("opencode_session_move", { directory: "/w/other" }, cwd, "s1", isMCPServer), edit("/w/other"));
+  // a session named: the session the call moves is the argument's, the destination is the same
+  assert.deepEqual(await toolEvents("opencode_session_move", { sessionID: "s2", directory: "/w/other" }, cwd, "s1", isMCPServer), edit("/w/other"));
+  // the tool's own forms (opencode 2.2: relative to the session's directory or absolute, ~ supported): the guard resolves them
+  assert.deepEqual(await toolEvents("opencode_session_move", { directory: "wt" }, cwd, "s1", isMCPServer), edit("wt"));
+  assert.deepEqual(await toolEvents("opencode_session_move", { directory: "~/wt" }, cwd, "s1", isMCPServer), edit("~/wt"));
+  // no directory: a write naming no file, which the guard denies
+  assert.deepEqual(await toolEvents("opencode_session_move", {}, cwd, "s1", isMCPServer), edit(""));
 });
 
 test("toolEvents: opencode's own worktree tools are the git writes they run", async () => {
@@ -84,7 +96,7 @@ test("toolEvents: a namespace that is no MCP server's, and a name obor knows not
   // A plugin's namespace passes nothing: a namespace identifies a source, not an MCP server.
   assert.deepEqual(await toolEvents("probe-plug_probe_code", { text: "c" }, cwd, "s1", isMCPServer), [unguarded("probe-plug_probe_code", cwd)]);
   // opencode's own tools are classified one by one: one the table does not know is unguarded too.
-  assert.deepEqual(await toolEvents("opencode_session_rename", { title: "x" }, cwd, "s1", isMCPServer), [unguarded("opencode_session_rename", cwd)]);
+  assert.deepEqual(await toolEvents("opencode_session_delete", { x: 1 }, cwd, "s1", isMCPServer), [unguarded("opencode_session_delete", cwd)]);
   // A mapped tool keeps its guard event.
   assert.deepEqual(await toolEvents("shell", { command: "ls" }, cwd, "s1", isMCPServer), [ev("Bash", { command: "ls" })]);
 });
@@ -330,7 +342,7 @@ test("guard: execute, the tools with no guard rule and an MCP server's inner id 
     { name: "probe-b", status: { status: "connected" } },
   ];
   const { hooked, calls } = await stubPlugin(t, { tools, mcp });
-  for (const tool of ["execute", "read", "glob", "skill", "question", "webfetch", "websearch", "subagent", "obor_job_next", "probe-b_echo", "opencode_list_mcp_resources"]) {
+  for (const tool of ["execute", "read", "glob", "skill", "question", "webfetch", "websearch", "subagent", "obor_job_next", "probe-b_echo", "opencode_list_mcp_resources", "opencode_session_rename"]) {
     await hooked["tool:execute.before"]({ tool, sessionID: "s1", input: {} });
   }
   assert.deepEqual(calls(), []);
@@ -368,6 +380,16 @@ test("guard: opencode's worktree tools reach the guard as the git commands they 
   const c = calls();
   assert.deepEqual(c.map((l) => event(l).tool_name), ["Bash", "Bash"]);
   assert.deepEqual(c.map((l) => event(l).tool_input.command), [`git worktree add '${dir}/wt'`, `git worktree remove --force '${dir}/wt'`]);
+});
+
+test("guard: opencode's session move reaches the guard as the write check on its destination", async (t) => {
+  const { hooked, calls, event, dir } = await stubPlugin(t);
+  await hooked["tool:execute.before"]({ tool: "opencode_session_move", sessionID: "s1", input: { directory: "~/elsewhere" } });
+  const c = calls();
+  assert.equal(c.length, 1, c.join("\n"));
+  assert.equal(event(c[0]).tool_name, "Edit");
+  assert.equal(event(c[0]).tool_input.file_path, "~/elsewhere");
+  assert.equal(event(c[0]).cwd, dir);
 });
 
 test("guard: a tool obor knows nothing about goes to the guard as unguarded, its why naming it", async (t) => {
