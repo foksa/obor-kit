@@ -988,8 +988,9 @@ only when `ctx.tool.list()` gives it a namespace and the runtime reports that MC
 obor's own always), never by prefix: a plugin's namespace is no
 server's and goes to the guard as unguarded. OpenCode's own tools (`opencode_*`) are classified one by one:
 `worktree_create` and `worktree_remove` go as the guard's `Bash` event for the git command they run (`git worktree
-add`, `git worktree remove [--force]`), its read tools (`worktree_list`, `models`, the MCP resource readers) pass, and
-any other is unguarded. OpenCode's tool catalog is re-probed on an upgrade
+add`, `git worktree remove [--force]`), `session_move` goes as unguarded with the transport's own reason (an obor
+agent stays where obor started it), `session_rename` and its read tools (`worktree_list`, `models`, the MCP resource
+readers) pass, and any other is unguarded. OpenCode's tool catalog is re-probed on an upgrade
 (`docs/research/opencode-tool-names.md`). The session context
 → `session-start` (with the session id the plugin's events name, so the session is recorded and a restart resumes it
 with `--session <id>`; a resumed start runs it at plugin start, the id read from `OBOR_OPENCODE_RESUME` (the kind's start sets it on a resume and unsets it on a fresh start; the plugin's server process inherits the TUI's env, not its argv), so the session's
