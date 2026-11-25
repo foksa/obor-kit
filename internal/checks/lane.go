@@ -95,10 +95,13 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 // Sync merges in.Target into the task branch in.Dir has checked out (port.LaneSetup.Sync, lane.sync): its commit
 // subject "Merge <target branch> into <branch> (obor: fix attempt <n>)". A merge an earlier cut Sync left open
 // (MERGE_HEAD) is aborted first; a HEAD that is the merge of in.Target already (a cut after the commit) is merged.
-// The merge keeps obor's links the way a checkout does (project.WithLinks). Then: the target in HEAD's history is
-// current, uncommitted changes (project.LaneDirt: obor's links are not the lane's) are dirty, nothing touched; a merge
-// that stops with unmerged paths is aborted (the lane as it was) and is a conflict naming them; one that stops otherwise
-// is aborted and an error. No lane dir, a lane not on in.Branch and git failures are errors (retry).
+// The lane's obor links are reconciled with the link policy (project.ReconcileLinks) after that abort, around the merge
+// (project.WithLinks: the links the merge would trip over come out of its way, and a merge that stops puts them back)
+// and after a failed merge commit: a cut that left a link out does not outlive the sync.
+// Then: the target in HEAD's history is current, uncommitted changes (project.LaneDirt: obor's links are not the lane's)
+// are dirty, nothing touched; a merge that stops with unmerged paths is aborted (the lane as it was) and is a conflict
+// naming them; one that stops otherwise is aborted and an error. No lane dir, a lane not on in.Branch and git failures
+// are errors (retry).
 func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) {
 	if !project.IsDir(in.Dir) {
 		return port.Synced{}, fmt.Errorf("no lane dir %s", in.Dir)
@@ -113,6 +116,9 @@ func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) 
 	}
 	if err := l.abortMerge(git, in.Dir); err != nil {
 		return port.Synced{}, err
+	}
+	if err := l.reconcileLinks(ctx, in.Dir); err != nil {
+		return port.Synced{}, fmt.Errorf("put back obor's links in %s: %w", in.Dir, err)
 	}
 	head, ok, err := git.Verify(in.Dir, "HEAD")
 	if err != nil || !ok {
@@ -173,6 +179,9 @@ func (l Lane) Sync(ctx context.Context, in port.SyncInput) (port.Synced, error) 
 		if aerr := l.abortMerge(git, in.Dir); aerr != nil {
 			return port.Synced{}, fmt.Errorf("commit the merge in %s: %v; %w", in.Dir, err, aerr)
 		}
+		if rerr := l.reconcileLinks(ctx, in.Dir); rerr != nil {
+			return port.Synced{}, fmt.Errorf("commit the merge in %s: %v; %w", in.Dir, err, rerr)
+		}
 		return port.Synced{}, fmt.Errorf("commit the merge in %s: %w", in.Dir, err)
 	}
 	sha, ok, err := git.Verify(in.Dir, "HEAD")
@@ -195,6 +204,12 @@ func (l Lane) abortMerge(git laneGit, dir string) error {
 		return fmt.Errorf("git merge --abort in %s: %w", dir, err)
 	}
 	return nil
+}
+
+// reconcileLinks puts back each obor link the lane's link policy wants and the lane lacks (project.ReconcileLinks:
+// the policy alone, no memory of what an earlier call removed), a line per link to l.Out.
+func (l Lane) reconcileLinks(ctx context.Context, dir string) error {
+	return project.ReconcileLinks(l.Cfg, dir, l.linkGit(ctx), l.say)
 }
 
 // cmpErr is err, else an error of why (a read that answered nothing).

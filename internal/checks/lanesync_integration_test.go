@@ -40,10 +40,53 @@ func linkIn(fx checkoutFx) port.SyncInput {
 	return port.SyncInput{Task: "T-01", Attempt: 2, Lane: "L-01", Dir: fx.lane, Branch: fx.branch, Target: fx.cand}
 }
 
+// laneShared makes the lane's own commit of shared.txt, which fx.cand tracks with other content, so fx.cand conflicts
+// with the lane there; it returns the lane's head.
+func laneShared(t *testing.T, fx checkoutFx) string {
+	t.Helper()
+	fx.p.Write(filepath.Join(fx.lane, "shared.txt"), "the lane's own\n")
+	fx.p.Git(fx.lane, "add", "shared.txt")
+	fx.p.Git(fx.lane, "commit", "-q", "-m", "the lane's shared")
+	return fx.p.Git(fx.lane, "rev-parse", "HEAD")
+}
+
+// crashRemovedLink removes the lane's link at fx.path as a cut sync does before its merge (project.WithLinks'
+// removal), and checks it is gone.
+func crashRemovedLink(t *testing.T, fx checkoutFx) {
+	t.Helper()
+	dst := filepath.Join(fx.lane, fx.path)
+	if err := os.Remove(dst); err != nil {
+		t.Fatalf("remove the link: %v", err)
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		t.Fatalf("precondition: %s is still there", dst)
+	}
+}
+
+// commitFailShim is an executable git for the lane that fails its commit (CommitMerge) and runs git for everything else:
+// a merge commit that fails after the merge itself succeeded.
+func commitFailShim(t *testing.T) string {
+	t.Helper()
+	shim := filepath.Join(t.TempDir(), "git-nocommit")
+	script := `#!/bin/sh
+if [ "$3" = commit ]; then
+	echo "the commit failed" >&2
+	exit 1
+fi
+exec git "$@"
+`
+	if err := os.WriteFile(shim, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return shim
+}
+
 // lane.sync keeps obor's links the way a checkout does (project.WithLinks): the target that starts tracking a link's
 // path does not stop the merge (the link comes out of its way, the tracked file takes the path); a merge that stops
 // puts the link back; the replay of a merge a crash left open reconciles it; an ordinary untracked file is never
-// removed, and the lane stays as it was.
+// removed, and the lane stays as it was. A cut that left the link out does not outlive the sync either: a replay whose
+// retry conflicts, a cut after the removal before the merge, and a merge commit that fails all put it back
+// (project.ReconcileLinks).
 func TestLaneSyncKeepsTheLinks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -132,6 +175,71 @@ func TestLaneSyncKeepsTheLinks(t *testing.T) {
 		}
 		if again, err := l.Sync(ctx, linkIn(fx)); err != nil || again.Kind != s.Kind || again.SHA != s.SHA {
 			t.Errorf("Sync again: %+v, %v; want %+v", again, err, s)
+		}
+	})
+
+	for _, path := range []string{project.PluginSettings, "conf/local.env"} {
+		t.Run("the replay of a conflicting merge a crash left open, "+path+": conflict, the link back", func(t *testing.T) {
+			t.Parallel()
+			fx := newCheckoutFx(t, path, "shared.txt")
+			head := laneShared(t, fx)
+			// the crash: the earlier sync had removed the link, then the merge stopped on shared.txt and stayed open
+			crashRemovedLink(t, fx)
+			if _, err := project.Git(fx.lane, "merge", "-q", "--no-commit", "--no-ff", fx.cand); err == nil {
+				t.Fatal("precondition: the crash's merge did not stop")
+			}
+			if !gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+				t.Fatal("precondition: the crash left no MERGE_HEAD")
+			}
+			s, err := Lane{Cfg: fx.cfg}.Sync(ctx, linkIn(fx))
+			if err != nil || s.Kind != port.SyncConflict || !slices.Equal(s.Files, []string{"shared.txt"}) {
+				t.Fatalf("Sync: %+v, %v; want a conflict in shared.txt", s, err)
+			}
+			fx.isLink(t, "after the replayed conflict")
+			keptRegular(t, filepath.Join(fx.lane, "shared.txt"), "the lane's own\n")
+			if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != head {
+				t.Errorf("HEAD %s; want %s, untouched", h, head)
+			}
+			if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+				t.Error("the replay left the merge open")
+			}
+		})
+	}
+
+	t.Run("a cut after the link's removal, before the merge: the conflict, the link back", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, project.PluginSettings, "shared.txt")
+		head := laneShared(t, fx)
+		crashRemovedLink(t, fx)
+		if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Fatal("precondition: the cut left a merge open")
+		}
+		s, err := Lane{Cfg: fx.cfg}.Sync(ctx, linkIn(fx))
+		if err != nil || s.Kind != port.SyncConflict || !slices.Equal(s.Files, []string{"shared.txt"}) {
+			t.Fatalf("Sync: %+v, %v; want a conflict in shared.txt", s, err)
+		}
+		fx.isLink(t, "after the conflict")
+		keptRegular(t, filepath.Join(fx.lane, "shared.txt"), "the lane's own\n")
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != head {
+			t.Errorf("HEAD %s; want %s, untouched", h, head)
+		}
+	})
+
+	t.Run("a failed merge commit: aborted, the link back", func(t *testing.T) {
+		t.Parallel()
+		fx := newCheckoutFx(t, project.PluginSettings)
+		head := fx.p.Git(fx.lane, "rev-parse", "HEAD")
+		l := Lane{Cfg: fx.cfg, Git: commitFailShim(t)}
+		_, err := l.Sync(ctx, linkIn(fx))
+		if err == nil || !strings.Contains(err.Error(), "commit the merge") {
+			t.Fatalf("Sync: %v; want the merge commit's failure", err)
+		}
+		fx.isLink(t, "after the failed merge commit")
+		if h := fx.p.Git(fx.lane, "rev-parse", "HEAD"); h != head {
+			t.Errorf("HEAD %s; want %s, the abort's", h, head)
+		}
+		if gitOK(fx.lane, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
+			t.Error("the failed commit's abort left the merge open")
 		}
 	})
 
