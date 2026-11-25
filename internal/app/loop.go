@@ -114,9 +114,20 @@ func resumeDefaultOf(cause string) string {
 	return resumeDefault[cause]
 }
 
-// afterSteps are a merged task's steps, in order (a keep lane's task runs the first only: afterList). A result of
-// any other step folds as no step's.
-var afterSteps = []string{event.StepAfterMerge, event.StepStop}
+// afterSteps are a merged task's steps, in the step table's order (a keep lane's task runs the first only: afterList).
+// A result of any other step folds as no step's.
+var afterSteps = afterStepsOf()
+
+// afterStepsOf is the step table's after-merge steps, in its order.
+func afterStepsOf() []string {
+	var out []string
+	for _, row := range kernelSteps {
+		if row.after {
+			out = append(out, row.step)
+		}
+	}
+	return out
+}
 
 // afterList is mt's after-merge steps: a keep lane's task (its dispatch's Keep) runs after_merge only, its
 // agent stays, idle, for the lane's next task; every other task's are afterSteps.

@@ -2,7 +2,13 @@ package app
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -395,35 +401,245 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	}
 }
 
-// The step overlay is the task's open gate or publish: gating or merging while its effect runs (a running one
-// wins over a pending one), else gate pending or publish pending; another step's intent (a prompt) or a task-less one
-// (nightly) gives none. A watchdog's needs-you blocks its task and any task on its lane.
-func TestPhaseOverlaysFromTheLog(t *testing.T) {
-	t.Parallel()
-	rec := func(task, step string) event.Record {
-		return event.Record{Task: task, Attempt: 1, Step: step, Kind: event.KindIntent}
+// nonKernelSteps are the event package's Step* constants that take no row of the step table: the facts (a record that
+// folds and runs nothing), the nightly check (the project's own), and the running line's restart item.
+var nonKernelSteps = map[string]bool{
+	event.StepAnswered: true, // an answer's fact (task msg)
+	// A dispatch's and a drop's facts
+	event.StepDispatched: true, event.StepWaiting: true, event.StepDropping: true,
+	// The project's facts: a watch, a prune, a setup edit, a pause, a tool's version
+	event.StepWatch: true, event.StepUnwatch: true, event.StepPruned: true, event.StepConfigSet: true,
+	event.StepPaused: true, event.StepUnpaused: true, event.StepVersion: true,
+	// The merge loop's facts
+	event.StepSubmitted: true, event.StepKept: true, event.StepSendback: true, event.StepMoved: true,
+	event.StepMerged: true, event.StepDelivered: true, event.StepDropped: true, event.StepLost: true,
+	event.StepUnblocked: true, event.StepFailed: true, event.StepSpecSeen: true, event.StepSpecSet: true,
+	event.StepRefetched: true,
+	// A review's facts
+	event.StepReviewRequest: true, event.StepReviewRm: true, event.StepReviewFire: true,
+	event.StepReviewStarted: true, event.StepReviewClosed: true, event.StepReviewClosing: true,
+	// The project's lines and idle acknowledgement
+	event.StepMessage: true, event.StepBriefed: true, event.StepWorked: true, event.StepIdleAck: true,
+	// A watchdog's facts
+	event.StepStalled: true, event.StepNeedsYou: true, event.StepResumed: true,
+	// An agent's stop, and its next turn
+	event.StepStopped: true, event.StepTurned: true,
+	// The project's own steps: the nightly check, and the running line's restart item
+	event.StepNightly: true, event.StepServeRestart: true,
+}
+
+// eventStep is one Step* constant of the event package: its Go name and its record step.
+type eventStep struct{ name, value string }
+
+// eventSteps is the Step* constants the event package's source declares (its test files left out): the constants are
+// the list of steps, not a copy of it in this test.
+func eventSteps(t *testing.T) []eventStep {
+	t.Helper()
+	files, err := os.ReadDir("event")
+	if err != nil {
+		t.Fatalf("read the event package: %v", err)
 	}
-	gate1, pub2 := rec("T-1", "gate"), rec("T-2", "publish.2")
-	p := &proj{exec: map[event.Key]time.Time{gate1.Key(): time.Now()}}
-	got := p.stepPhases([]event.Record{rec("T-1", "gate.2"), gate1, pub2, rec("T-3", "prompt.work"),
-		rec("T-4", "publish"), rec("", "nightly.1")})
-	want := map[string]string{"T-1": wire.PhaseGating, "T-2": wire.PhasePublishPending, "T-4": wire.PhasePublishPending}
-	if len(got) != len(want) {
-		t.Errorf("step phases %v, want %v", got, want)
-	}
-	for task, w := range want {
-		if got[task] != w {
-			t.Errorf("%s: step phase %q, want %q", task, got[task], w)
+	var out []eventStep
+	for _, f := range files { // ReadDir sorts by name: the errors read in one order
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") || strings.HasSuffix(f.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("event", f.Name()), nil, 0)
+		if err != nil {
+			t.Fatalf("parse event/%s: %v", f.Name(), err)
+		}
+		for _, d := range file.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, s := range gd.Specs {
+				vs, ok := s.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range vs.Names {
+					if !strings.HasPrefix(name.Name, "Step") {
+						continue
+					}
+					if len(vs.Values) != len(vs.Names) {
+						t.Fatalf("event/%s: %s has no value of its own the test can read", f.Name(), name.Name)
+					}
+					lit, ok := vs.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						t.Fatalf("event/%s: %s is no string literal", f.Name(), name.Name)
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err != nil {
+						t.Fatalf("event/%s: %s: %v", f.Name(), name.Name, err)
+					}
+					out = append(out, eventStep{name: name.Name, value: value})
+				}
+			}
 		}
 	}
-	p.exec[pub2.Key()] = time.Now()
-	if got := p.stepPhases([]event.Record{pub2}); got["T-2"] != wire.PhaseMerging {
-		t.Errorf("its publish running: %q, want merging", got["T-2"])
+	if len(out) == 0 {
+		t.Fatal("precondition: the event package names no Step* constant")
 	}
+	return out
+}
 
+// Every Step* constant of the event package is a kernelSteps row or one of the non-kernel steps above; a constant
+// added without either fails here, naming it.
+func TestKernelStepsHaveRows(t *testing.T) {
+	t.Parallel()
+	rows := map[string]bool{}
+	for _, row := range kernelSteps {
+		if row.step == "" {
+			t.Fatal("a step table row names no step")
+		}
+		if rows[row.step] {
+			t.Errorf("%s: two rows", row.step)
+		}
+		rows[row.step] = true
+	}
+	consts := map[string]bool{}
+	for _, c := range eventSteps(t) {
+		consts[c.value] = true
+		switch {
+		case rows[c.value]:
+		case nonKernelSteps[c.value]:
+		default:
+			t.Errorf("%s (%q): no row and not listed as a non-kernel step", c.name, c.value)
+		}
+	}
+	for step := range rows {
+		if !consts[step] {
+			t.Errorf("a row for %q: no event.Step* constant", step)
+		}
+	}
+	for step := range nonKernelSteps {
+		switch {
+		case rows[step]:
+			t.Errorf("%q: a row and a non-kernel step", step)
+		case !consts[step]:
+			t.Errorf("a non-kernel step %q: no event.Step* constant", step)
+		}
+	}
+}
+
+// The step table gives the four readers today's answers per kernel step: whether the running and pending lines show
+// it (commandStep), the phase its open intent runs or waits under (stepPhases), whether its open intent makes its task
+// busy (busy, by the attempt's own counter) and where it sits among a merged task's steps (afterSteps, afterList).
+func TestStepTableGivesTheReadersTodaysAnswers(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	cases := []struct {
+		step    string
+		phase   string // stepPhases: its open intent running
+		pending string // stepPhases: its open intent waiting
+		command bool   // commandStep: a command step the lines show
+		key     string // busy: its open intent's key in the attempt ("" : not a busy step)
+		after   bool   // afterSteps: one of a merged task's steps
+	}{
+		{step: event.StepPrepare},
+		{step: event.StepStartWork},
+		{step: event.StepWork},
+		{step: event.StepFix},
+		{step: event.StepSync},
+		{step: event.StepWorkerStop},
+		{step: event.StepFree},
+		{step: event.StepSubmit},
+		{step: event.StepGate, phase: wire.PhaseGating, pending: wire.PhaseGatePending, command: true, key: "gate.2"},
+		{step: event.StepTest, phase: wire.PhaseTesting, pending: wire.PhaseTestPending, command: true, key: "test.3"},
+		{step: event.StepPublish, phase: wire.PhaseMerging, pending: wire.PhasePublishPending, command: true,
+			key: "publish.4"},
+		{step: event.StepReview},
+		{step: event.StepResolve},
+		{step: event.StepUnpin},
+		{step: event.StepAfterMerge, command: true, after: true},
+		{step: event.StepStop, after: true},
+	}
+	// busy: an open intent of each step under a task of its own, in one log, the attempt's counters apart (gate.2 is
+	// its first gate, test.3 its second test, publish.4 its third publish).
+	l, _ := openLog(t, logRoot(t))
+	bp := &proj{log: l, folded: newFolded()}
+	for _, c := range cases {
+		task := "B-" + c.step
+		bp.folded.loop[task] = &mtask{task: task, attempt: 1, state: stWorking,
+			attemptVars: attemptVars{gates: 1, tests: 2, pubs: 3}}
+		step := c.step
+		if c.key != "" {
+			step = c.key
+		}
+		if _, err := l.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: event.KindIntent}, logNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range cases {
+		if stepOf(c.step) == nil {
+			t.Fatalf("%s: no row (TestKernelStepsHaveRows)", c.step)
+		}
+
+		// commandStep: the lines show a command step by its base name and its task; another step's record gives none.
+		base, task, ok := commandStep(event.Record{Task: "T-1", Attempt: 1, Step: c.step})
+		wantBase, wantTask := "", ""
+		if c.command {
+			wantBase, wantTask = c.step, "T-1"
+		}
+		if ok != c.command || base != wantBase || task != wantTask {
+			t.Errorf("%s: commandStep %q %q %v, want %q %q %v", c.step, base, task, ok, wantBase, wantTask, c.command)
+		}
+
+		// stepPhases: its open intent waits under its pending phase; running, under its phase. A running intent wins over
+		// a waiting one of the same task.
+		waiting := event.Record{Task: "T-1", Attempt: 1, Step: c.step, Kind: event.KindIntent}
+		running := event.Record{Task: "T-1", Attempt: 1, Step: nth(c.step, 2), Kind: event.KindIntent}
+		sp := &proj{exec: map[event.Key]time.Time{running.Key(): now}}
+		if got := sp.stepPhases([]event.Record{waiting}); got["T-1"] != c.pending {
+			t.Errorf("%s waiting: phase %q, want %q", c.step, got["T-1"], c.pending)
+		}
+		if got := sp.stepPhases([]event.Record{waiting, running}); got["T-1"] != c.phase {
+			t.Errorf("%s running: phase %q, want %q", c.step, got["T-1"], c.phase)
+		}
+
+		// busy: its open intent makes its task busy under the attempt's counter's key; another step's does not.
+		want := ""
+		if c.key != "" {
+			want = fmt.Sprintf("B-%s has %s pending", c.step, c.key)
+		}
+		if got := bp.busy("B-" + c.step); got != want {
+			t.Errorf("%s: busy %q, want %q", c.step, got, want)
+		}
+	}
+	// afterSteps and afterList are the case table's after-merge steps, in its order; a keep lane's task runs the first
+	// only.
+	var after []string
+	for _, c := range cases {
+		if c.after {
+			after = append(after, c.step)
+		}
+	}
+	if !slices.Equal(afterSteps, after) {
+		t.Errorf("afterSteps %v, want %v", afterSteps, after)
+	}
+	if got := (&mtask{}).afterList(); !slices.Equal(got, afterSteps) {
+		t.Errorf("afterList %v, want afterSteps %v", got, afterSteps)
+	}
+	if got := (&mtask{disp: event.Dispatch{Keep: true}}).afterList(); !slices.Equal(got, afterSteps[:1]) {
+		t.Errorf("a keep lane's afterList %v, want %v", got, afterSteps[:1])
+	}
+	// The nightly check is the project's own command step: no task, so no phase overlay.
+	night := event.Record{Task: event.NightlyTask, Step: event.StepNightly + ".2026-11-01", Kind: event.KindIntent}
+	if base, task, ok := commandStep(night); !ok || base != event.StepNightly || task != "" {
+		t.Errorf("nightly: commandStep %q %q %v, want nightly and no task", base, task, ok)
+	}
+	if got := (&proj{exec: map[event.Key]time.Time{}}).stepPhases([]event.Record{night}); len(got) != 0 {
+		t.Errorf("nightly: step phases %v, want none", got)
+	}
+}
+
+// A watchdog's needs-you blocks its task and any task on its lane.
+func TestWatchdogNeedsYouBlocksItsTaskAndLane(t *testing.T) {
+	t.Parallel()
 	stalled := event.Record{Task: "T-9", Step: event.StepNeedsYou, Kind: event.KindFact,
 		Data: []byte(`{"lane":"L-01","reason":"stalled"}`)}
-	p = &proj{folded: folded{active: map[string][]event.Record{"T-9": {stalled}}}}
+	p := &proj{folded: folded{active: map[string][]event.Record{"T-9": {stalled}}}}
 	if !p.blocked(&mtask{task: "T-1", lane: "L-01"}) || !p.blocked(&mtask{task: "T-9"}) {
 		t.Error("a needs-you on the lane or the task: not blocked")
 	}
