@@ -89,6 +89,15 @@ func (x *fx) lastStart() string {
 	return starts[len(starts)-1]
 }
 
+// stopped is every write, key and prompt the terminal was sent ("": none): a refusal before the stop sends none.
+func (x *fx) stopped() []string {
+	var out []string
+	for _, m := range []string{"Write", "SendKeys", "Prompt"} {
+		out = append(out, x.calls(m)...)
+	}
+	return out
+}
+
 // The start's session decision, one row per case of its rule, at the launcher (obor restart, serve's restart and a
 // dispatch's start are one Launch): the session it resumes or a fresh start, what it says, and the agent's recorded
 // session after it — a session the start resumes or adopts is recorded with the start's kind, whether or not the kind
@@ -119,6 +128,14 @@ func TestRestartSessionDecision(t *testing.T) {
 		fail               string // the refusal ("": none)
 		recorded           string // the agent's current session after it, "<id> <kind>" ("": none; "*": not checked)
 	}{
+		{name: "none recorded, a live Claude reviewer: refused, nothing stopped (RV-275)",
+			x:    func(t *testing.T) *fx { return reviewerOn(t, "opus") },
+			pane: func(x *fx) { x.agent("w1:p7", "pj-rev", "claude", "idle") },
+			fail: "no session to resume for pj-rev (pass --fresh to start a new one)"},
+		{name: "none recorded, a program in the role's pane, no agent field: refused",
+			x:    func(t *testing.T) *fx { return reviewerOn(t, "opus") },
+			pane: func(x *fx) { x.shell("w1:p7", "pj-rev", "").Foreground = 2 },
+			fail: "no session to resume for pj-rev (pass --fresh to start a new one)"},
 		{name: "same kind recorded, none live: the record resumes, recorded",
 			x: func(t *testing.T) *fx { return reviewerOn(t, "neon", agyRec) }, pane: shell,
 			resumed: "conv-1", argv: "--conversation conv-1", said: []string{"resuming conv-1 (from record)"},
@@ -220,6 +237,9 @@ func TestRestartSessionDecision(t *testing.T) {
 				lacks(t, out, "from herdr", "herdr's session not adopted")
 				if x.startCall() != "" {
 					t.Error("nothing started")
+				}
+				if stopped := x.stopped(); len(stopped) > 0 {
+					t.Errorf("nothing stopped: %q", stopped)
 				}
 				return
 			}

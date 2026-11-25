@@ -47,7 +47,7 @@ func TestLaunchSessionStep(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			c.tg.Agent, c.tg.Pane = "pj-l-01", "w1:p3"
 			var out bytes.Buffer
-			sid, src, record, err := x.launcher(&out).SessionOf(c.tg, c.req)
+			sid, src, record, err := x.launcher(&out).SessionOf(context.Background(), c.tg, c.req)
 			switch {
 			case c.fail != "":
 				if err == nil || err.Error() != c.fail {

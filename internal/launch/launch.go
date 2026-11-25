@@ -20,11 +20,12 @@
 //	         or identity whose cwd is outside this project; a NoStop start into the --pane the caller named takes it at its
 //	         shell whatever its cwd (it runs no agent and carries no other agent's label).
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
-//	         names itself: Claude); --fresh: a new one. None: a role agent starts fresh, said; a lane's agent FAILs
-//	         (pass --fresh), checked before anything is stopped. A fresh start of a kind whose sessions obor names
-//	         records the id obor chose before the agent runs. A recorded Claude sid resumes from the transcript the
-//	         session itself reported (the SessionStart hook's path); none anywhere (never prompted): starts fresh,
-//	         said. A session of another kind than the dispatch's type starts fresh, said.
+//	         names itself: Claude); --fresh: a new one. None: a role agent starts fresh, said, only at a pane that runs
+//	         no agent; a role agent's pane that runs one, and a lane's agent, FAIL (pass --fresh), checked before
+//	         anything is stopped. A fresh start of a kind whose sessions obor names records the id obor chose before
+//	         the agent runs. A recorded Claude sid resumes from the transcript the session itself reported (the
+//	         SessionStart hook's path); none anywhere (never prompted): starts fresh, said. A session of another kind
+//	         than the dispatch's type starts fresh, said.
 //	Stop     see Stop; port.Launch.NoStop refuses instead (the agent already running, another agent in its lane
 //	         worktree, another program in its pane), nothing stopped. A child the pane's shell stopped (Ctrl+Z: herdr
 //	         then sees an idle shell) → FAIL with a hint, before anything is stopped or typed: no fg resume.
@@ -563,7 +564,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			return port.Started{}, err
 		}
 	}
-	resumed, err := l.sessionOf(t, req)
+	resumed, err := l.sessionOf(ctx, t, req)
 	if err != nil {
 		return port.Started{}, err
 	}
@@ -743,12 +744,14 @@ type resumption struct {
 // A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the
 // recorded id, and a session with no record is a new one. Nothing recorded and nothing to adopt, with neither req.Fresh
 // nor a first prompt the request carries (carries): a role agent (no lane row; the integrator counts) starts fresh,
-// said; a lane's agent is a Fail (it has lost its context, and a person picks --fresh). A session the rule puts aside
-// (another kind's record, a transcript gone) starts fresh, said. Every session the start resumes, recorded or adopted,
-// is recorded with the start's kind once the agent runs (record): an adopted session becomes the agent's current one
+// said, only when its pane runs no agent (at its shell, or no pane yet: the first start, a stopped role); a pane that
+// runs one (herdr names it, or its shell does not hold the foreground) is a Fail before anything is stopped, as a
+// lane's agent is (it has lost its context, and a person picks --fresh). A session the rule puts aside (another
+// kind's record, a transcript gone) starts fresh, said. Every session the start resumes, recorded or adopted, is
+// recorded with the start's kind once the agent runs (record): an adopted session becomes the agent's current one
 // whether or not its kind reports sessions or fires a start hook on resume (agy: neither), so the next restart, the
 // keep-lane identity and the context readers read it, not a stale record.
-func (l *Launcher) sessionOf(t *target, req Request) (resumption, error) {
+func (l *Launcher) sessionOf(ctx context.Context, t *target, req Request) (resumption, error) {
 	kinds := l.Cfg.Kinds()
 	if !kinds.Resumes(t.kind) {
 		if t.sid != "" {
@@ -785,7 +788,7 @@ func (l *Launcher) sessionOf(t *target, req Request) (resumption, error) {
 		r = resumption{sid: live, src: "herdr"}
 	case live != "" && adopts && (t.entry.Agent == t.kind || t.entry.Agent == ""): // no record: herdr's of this kind
 		r = resumption{sid: live, src: "herdr"}
-	case !carries(req) && t.info.Role != "" && t.info.Lane == "": // a role agent never started yet
+	case !carries(req) && t.info.Role != "" && t.info.Lane == "" && !l.runsAgent(ctx, t): // no agent in its pane
 		l.say("no session recorded for %s: new session", t.agent)
 		return resumption{}, nil
 	case !carries(req):
@@ -795,6 +798,16 @@ func (l *Launcher) sessionOf(t *target, req Request) (resumption, error) {
 	}
 	r.record = true
 	return r, nil
+}
+
+// runsAgent: the pane t starts in runs an agent now, by either field the target has for it: herdr names an agent on the
+// pane's entry, or (herdr naming none) the pane's shell does not hold the foreground. No pane yet (the caller places
+// one: the first start, or a stopped role's pane is gone): nothing runs there.
+func (l *Launcher) runsAgent(ctx context.Context, t *target) bool {
+	if t.entry.Agent != "" {
+		return true
+	}
+	return t.pane != "" && !l.atShell(ctx, t.pane)
 }
 
 // opening is a start's first prompt decision (firstPrompt): the prompt its argv carries ("": none, a resume's), the
