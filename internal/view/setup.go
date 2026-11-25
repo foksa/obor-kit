@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/config"
@@ -247,7 +247,7 @@ func distribution(db *sql.DB, now time.Time) []DispatchCount {
 	recent, all := map[cell]int{}, map[cell]int{}
 	cutoff := now.Add(-distributionWindow)
 	for _, r := range recs {
-		d := app.Describe(r)
+		d := describe.Describe(r)
 		if d.Lane == "" { // not a dispatch that placed a task on a lane (or unreadable)
 			continue
 		}

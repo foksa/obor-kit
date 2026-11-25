@@ -135,7 +135,6 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `cfg.go` | where the core reads the project's config: `Loop.Cfg` for a pass and the verbs that take a Loop, `proj.cfgNow` at the other entries | `proj.cfgNow` |
 | `configset.go` | the owner's setup edit from obor web, through the `ConfigFile` port | `App.configCall` |
 | `cutwait.go` | a wait that is cut (uncounted waits, `cutWaits`, `cutEnd`) | `App.uncounted` |
-| `describe.go` | a record as the readers word it, decoded with the types serve writes it with; the view's one reader of record data | `Describe` |
 | `disk.go` | low disk: free space below diskLow is a needs-you that holds the gate and the nightly | `App.diskTick` |
 | `dispatch.go` | `obor dispatch`: the lane and task a dispatch takes | `App.dispatchCall` |
 | `drive.go` | the owner's drive and land: `obor drive`, `obor land`, the driving state | `App.driveCall` |
@@ -258,6 +257,11 @@ on a file missing from this table or a listed file that is gone); the entry is t
   `Scratch*`) and the `Backup` client. The event feed (`feed.go`): `FeedRecord` (a record and its task's spec `Ref`), `FeedSince` (the
   one read of it: serve's and `obor events`' while serve is down) and the `Feed` client. It imports `app/event`, `store` and `project`, never `app`; `mcp`, `launch`,
   `checks`, `view` and `web` import it instead of `app`. `Listen` and the handlers stay in `app`.
+- `app/describe` (core, a leaf below `app`): a record as the readers word it, decoded with the types serve writes it
+  with: `Describe` (`Described`, the event list's line and the facts the pages read), the event kinds
+  (`Kind*`: the web's icons and filters), `NeedsText` (a needs-you fact's text) and `Age` (an age as obor status
+  writes it). It imports `app/event`, `app/review` and `app/wire` only, never `app`: the view, the web and `obor
+  events` read records here, so a change in the core does not select them.
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,
   result after).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 )
@@ -526,7 +527,7 @@ func TestPermissionDialogKeepsCommandAndOptions(t *testing.T) {
 			if c.want != "" && q != c.want {
 				t.Fatalf("question = %q, want %q", q, c.want)
 			}
-			text := NeedsText(event.FactData{Reason: "blocked", Pane: "w1:p1", Question: q})
+			text := describe.NeedsText(event.FactData{Reason: "blocked", Pane: "w1:p1", Question: q})
 			for _, want := range []string{c.command, c.lastOption, "answer in pane w1:p1"} {
 				if want != "" && !strings.Contains(text, want) {
 					t.Errorf("needs-you text %q does not carry %q", text, want)

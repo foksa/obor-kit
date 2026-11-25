@@ -46,7 +46,7 @@ func (b Background) Text() string {
 	return b.Command
 }
 
-// Line is what a view shows of b, its age (app.Age) given: `bg: <description or command> · 15m` for a recorded
+// Line is what a view shows of b, its age (describe.Age) given: `bg: <description or command> · 15m` for a recorded
 // background call, `running <command> · 15m` for any other long process.
 func (b Background) Line(age string) string {
 	if b.Background {

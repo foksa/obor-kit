@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
@@ -49,9 +50,6 @@ const reviewDue = 3
 // maxBriefFiles caps the files a brief lists; the rest is named by the git command that lists them.
 const maxBriefFiles = 100
 
-// ReviewData is a review fact's data (review.Data: the package that folds the reviews owns it).
-type ReviewData = review.Data
-
 // reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and the open review it
 // waits for once due (held: the last pass's, not folded; "": none).
 type reviewReq struct {
@@ -76,7 +74,7 @@ type reviewClaim struct {
 // foldReview folds r, a fact of the review key, and its data d (review.State.Fold's result) into the project's
 // review requests: a request opens (replacing the open one) and ends a failed start's needs-you; --rm and a firing
 // end it. A start and a close are the review fold's (review.State.Fold); here a close's call is stored.
-func (p *proj) foldReview(r event.Record, d ReviewData) {
+func (p *proj) foldReview(r event.Record, d review.Data) {
 	method := wire.MethodReview
 	switch r.Step {
 	case event.StepReviewClosed:
@@ -200,7 +198,7 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 	if by == "" {
 		by = "owner"
 	}
-	d := ReviewData{By: by, Call: c.CallID}
+	d := review.Data{By: by, Call: c.CallID}
 	step := event.StepReviewRequest
 	switch end := p.reviewOutcome(c.After); {
 	case c.Clear && open == nil:
@@ -230,7 +228,7 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 			d.Reply = "REVIEW REQUESTED (after " + strings.Join(c.After, ",") + ")"
 		}
 		if open != nil {
-			d.Reply += " (replaces the request of " + Age(a.opt.Now().Sub(open.at)) + " ago)"
+			d.Reply += " (replaces the request of " + describe.Age(a.opt.Now().Sub(open.at)) + " ago)"
 		}
 	}
 	if !a.recordLocked(p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact}, d) {
@@ -244,9 +242,9 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 // counted (reviewDueTick), else "" (under mu).
 func (p *proj) reviewStatus(now time.Time) string {
 	if q := p.folded.review; q != nil {
-		s := "since " + Age(now.Sub(q.at)) + " (now"
+		s := "since " + describe.Age(now.Sub(q.at)) + " (now"
 		if len(q.after) > 0 {
-			s = "since " + Age(now.Sub(q.at)) + " (after " + strings.Join(q.after, ",")
+			s = "since " + describe.Age(now.Sub(q.at)) + " (after " + strings.Join(q.after, ",")
 			if w := p.reviewWaits(q.after); len(w) > 0 {
 				s += ", waiting " + strings.Join(w, ",")
 			}
@@ -454,7 +452,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	if end != "" {
 		m := event.Message{To: p.out.Lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
-	} else if a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, ReviewData{Request: q.seq}) {
+	} else if a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, review.Data{Request: q.seq}) {
 		a.fireReview(ctx, p, fx, q, setup, cfgErr)
 	}
 	a.mu.Lock()
@@ -505,7 +503,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 	}
 	var lost error
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
-		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
+		review.Data{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+event.StepReviewStarted))
 	}
 	if _, ok := a.recordBrief(p, fx.Cfg, s.Agent, "obor", "", "", brief, false, nil); !ok {

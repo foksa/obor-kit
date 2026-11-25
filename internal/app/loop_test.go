@@ -22,6 +22,7 @@ import (
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 )
@@ -357,7 +358,7 @@ func TestReplayStateText(t *testing.T) {
 	}
 	for _, step := range []string{"review.fix", "review.verify.request"} {
 		r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact},
-			ReviewData{ID: "RV-5", Tasks: []string{"T-a"}, Note: "check #2", By: "obor", Call: "f1", Reply: "FIX LINKED"})
+			review.Data{ID: "RV-5", Tasks: []string{"T-a"}, Note: "check #2", By: "obor", Call: "f1", Reply: "FIX LINKED"})
 	}
 	old := readLog(t, r.p.root)
 	if len(old) != len(recs)+2 {

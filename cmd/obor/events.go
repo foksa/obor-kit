@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/wire"
 	"obor/internal/help"
 	"obor/internal/store"
@@ -127,7 +127,7 @@ func feedFromStore(root string, seq int64, each func(wire.FeedRecord) error) (in
 	}
 }
 
-// printFeedRecord prints r as obor events shows it: its JSON line, or the text line (app.Describe's wording of it when
+// printFeedRecord prints r as obor events shows it: its JSON line, or the text line (describe.Describe's wording of it when
 // it has one).
 func printFeedRecord(r wire.FeedRecord, asJSON bool) error {
 	if asJSON {
@@ -142,7 +142,7 @@ func printFeedRecord(r wire.FeedRecord, asJSON bool) error {
 	if r.Ref != "" {
 		line += " ref " + r.Ref
 	}
-	if d := app.Describe(r.Record); d.Line != "" {
+	if d := describe.Describe(r.Record); d.Line != "" {
 		line += " — " + d.Line
 	}
 	_, err := fmt.Fprintln(out, line)

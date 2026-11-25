@@ -11,6 +11,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/store"
@@ -123,7 +124,7 @@ func TestReviewRequest(t *testing.T) {
 			r.mustCall("r1", nil, "", false)
 			seq := r.p.folded.review.seq
 			// A crash right after the firing fact: nothing else of the start ran.
-			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, ReviewData{Request: seq})
+			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, review.Data{Request: seq})
 			r.reload()
 			if r.facts(event.StepReviewFire) != 1 {
 				t.Fatal("precondition: no firing fact")
@@ -200,7 +201,7 @@ func TestReviewRequest(t *testing.T) {
 		{"a queued request waits while RV-5 is open, then fires after its close fact", func(t *testing.T, r *reviewRig) {
 			r.started()
 			// A request already in the log (one obor review start recorded before RV-5's start, or an older serve's).
-			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, ReviewData{By: "pj-lead", Note: "next"})
+			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, review.Data{By: "pj-lead", Note: "next"})
 			if r.p.folded.review == nil || !r.a.roleIdle(r.p, "pj-rev") {
 				t.Fatal("precondition: no request open, or the reviewer is not idle")
 			}
@@ -423,7 +424,7 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
 	r.mergedAt("T-c", "ccccccc3")
-	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-5", Head: "ddddddd4", Tasks: []string{"T-a", "T-b"}})
+	r.fact(event.ReviewTask, event.StepReviewStarted, review.Data{ID: "RV-5", Head: "ddddddd4", Tasks: []string{"T-a", "T-b"}})
 	s, err := ReviewConfig(loadCfg(t, r.p.root))
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"obor/internal/config"
 	"time"
 
+	"obor/internal/app/describe"
 	"obor/internal/app/port"
 )
 
@@ -19,7 +20,7 @@ func roleDone(agent string) string { return "role.done." + agent }
 
 // roleDoneLine is the lead's line for agent, done for age with no open work.
 func roleDoneLine(agent string, age time.Duration) string {
-	return "[obor] " + agent + " done " + Age(age) + ", no open work — obor restart " + agent + " --stop (the next " +
+	return "[obor] " + agent + " done " + describe.Age(age) + ", no open work — obor restart " + agent + " --stop (the next " +
 		"obor brief starts it fresh)"
 }
 

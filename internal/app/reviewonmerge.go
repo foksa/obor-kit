@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"obor/internal/app/event"
+	"obor/internal/app/review"
 	"slices"
 	"time"
 )
@@ -66,7 +67,7 @@ type mergedTask struct {
 // as the asker.
 func reviewOnMergeAction(a *App, p *proj, task string) action {
 	return action{call: func(context.Context) error {
-		d := ReviewData{Note: "Review: on merge (" + task + ")", By: "obor"}
+		d := review.Data{Note: "Review: on merge (" + task + ")", By: "obor"}
 		if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, d) {
 			return errors.New("the event log refused the review request")
 		}

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -181,7 +181,7 @@ type Role struct {
 // error, its lines).
 type NeedsYou struct {
 	Task string `json:"task"`
-	// Reason is the fact's text (app.NeedsText): its reason, then a blocked pane's question and where a person
+	// Reason is the fact's text (describe.NeedsText): its reason, then a blocked pane's question and where a person
 	// answers it.
 	Reason string `json:"reason"`
 	Answer string `json:"answer,omitempty"` // the commands that answer it (serve's ProjectStatus.Answers)
@@ -306,7 +306,7 @@ func needsYou(ps wire.ProjectStatus) []NeedsYou {
 		if f.Step != event.StepNeedsYou {
 			continue
 		}
-		n := NeedsYou{Task: f.Task, Reason: app.NeedsText(f.Fact()), Answer: ps.Answers[f.Seq]}
+		n := NeedsYou{Task: f.Task, Reason: describe.NeedsText(f.Fact()), Answer: ps.Answers[f.Seq]}
 		if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
 			n.Since = t.Unix()
 		}

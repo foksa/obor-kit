@@ -24,6 +24,10 @@
       "full_s": 34.2,
       "git_procs": 0
     },
+    "obor/internal/app/describe": {
+      "full_s": 0.5,
+      "git_procs": 0
+    },
     "obor/internal/app/event": {
       "full_s": 0.4,
       "git_procs": 0

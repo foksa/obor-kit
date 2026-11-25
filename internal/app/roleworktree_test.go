@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 )
 
@@ -16,7 +17,7 @@ func startedHead(t *testing.T, h *harness) string {
 	t.Helper()
 	for _, rec := range readLog(t, h.root) {
 		if rec.Task == event.ReviewTask && rec.Step == event.StepReviewStarted {
-			var d ReviewData
+			var d review.Data
 			_ = json.Unmarshal(rec.Data, &d)
 			return d.Head
 		}
