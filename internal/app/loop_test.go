@@ -22,6 +22,7 @@ import (
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 )
 
@@ -425,5 +426,149 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 		r.count("pj", "T-5", event.KindFact, event.StepFailed) +
 		r.count("pj", "T-6", event.KindFact, event.StepFailed); n != 0 {
 		t.Errorf("failed steps %d, want none: a cut lane test would be one", n)
+	}
+}
+
+// What follows an appended record is decided from the record and the fold's change alone (App.appended), at every
+// site that appends: the test hook on every record but an intent; the task's step logs when the fold ended it (a
+// rejected task and a merged one with after-merge steps to run are not ended); a fact's waits (cutEndFact: every wait
+// of its task) and a result's own step's wait; the pending intents of the task a merged or dropped fact ends; and the
+// lane rows' write, whose failure is the call's error whatever the record.
+func TestAppendedReactions(t *testing.T) {
+	t.Parallel()
+	open := func(t *testing.T, h *harness) { // T-1 submitted, its submit intent pending
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+		addRecord(t, h, "T-1", event.StepSubmit, event.KindIntent, map[string]string{"lane": "L-01"})
+	}
+	merged := func(t *testing.T, h *harness) { // T-1 merged, after_merge done, its stop's intent pending
+		open(t, h)
+		addRecord(t, h, "T-1", event.StepMerged, event.KindFact, event.MergedData{Head: "abcdef0"})
+		addRecord(t, h, "T-1", event.StepAfterMerge, event.KindIntent, nil)
+		addRecord(t, h, "T-1", event.StepAfterMerge, event.KindResult, "done")
+		addRecord(t, h, "T-1", event.StepStop, event.KindIntent, nil)
+	}
+	reviewing := func(t *testing.T, h *harness) { // T-1's review job out, a superseded intent pending
+		addRecord(t, h, "T-1", event.StepDispatched, event.KindFact,
+			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-1"}})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+		addRecord(t, h, "T-1", event.StepSubmit, event.KindIntent, map[string]string{"lane": "L-01"})
+		addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{})
+		addRecord(t, h, "T-1", event.StepGate, event.KindResult,
+			gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c", Patch: "p"}})
+		addRecord(t, h, "T-1", event.StepReview, event.KindIntent, JobData{Patch: "p"})
+	}
+	reject := verdictStep(wire.MethodReject, "rj")
+	for _, c := range []struct {
+		name      string
+		seed      func(*testing.T, *harness)
+		r         event.Record
+		data      any
+		failLanes bool   // the lane rows' write fails
+		state     string // T-1's after the fold
+		hooked    bool   // hookAppended fired for r
+		logsGo    bool   // T-1's step logs are removed
+		cuts      string // the waits that end: "" none, "own" r's step's, "task" every wait of T-1
+		settled   int    // T-1's pending intents settled as not run
+	}{
+		{name: "an intent", seed: open, r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: gateIn{},
+			state: stSubmitted},
+		{name: "a result that ends nothing", seed: open, r: event.Record{Step: event.StepSubmit, Kind: event.KindResult},
+			data: submitOut{Refused: "no"}, state: stSubmitted, hooked: true, cuts: "own"},
+		{name: "the last after-merge step's result: the task ended", seed: merged,
+			r: event.Record{Step: event.StepStop, Kind: event.KindResult}, data: "done", state: stMerged, hooked: true,
+			logsGo: true, cuts: "own"},
+		{name: "a reject's result: not ended, nothing settled", seed: reviewing,
+			r: event.Record{Step: reject, Kind: event.KindResult}, data: verdictResult{Job: "T-1/1/review", Note: "no"},
+			state: stRejected, hooked: true, cuts: "own"},
+		{name: "a watchdog fact", seed: open, r: event.Record{Step: event.StepNeedsYou, Kind: event.KindFact},
+			data: event.FactData{Lane: "L-01", Reason: reasonAsks + "which file"}, state: stSubmitted, hooked: true,
+			cuts: "task"},
+		{name: "a merged fact: after-merge steps to run", seed: open,
+			r: event.Record{Step: event.StepMerged, Kind: event.KindFact}, data: event.MergedData{Head: "abcdef0"},
+			state: stMerged, hooked: true, cuts: "task", settled: 1},
+		{name: "a dropped fact: the task ended", seed: open,
+			r: event.Record{Step: event.StepDropped, Kind: event.KindFact}, data: event.FactData{Reason: "not needed"},
+			state: stDropped, hooked: true, logsGo: true, cuts: "task", settled: 1},
+		{name: "an intent, the lane rows' write failing", seed: open,
+			r: event.Record{Step: event.StepGate, Kind: event.KindIntent}, data: gateIn{}, failLanes: true,
+			state: stSubmitted},
+		{name: "a fact, the lane rows' write failing", seed: open,
+			r:    event.Record{Step: event.StepNeedsYou, Kind: event.KindFact},
+			data: event.FactData{Lane: "L-01", Reason: reasonAsks + "which file"}, failLanes: true, state: stSubmitted,
+			hooked: true, cuts: "task"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, _ := logsHarness(t)
+			p := h.proj()
+			c.seed(t, h)
+			c.r.Task, c.r.Attempt = "T-1", 1
+			log := logFile(t, h, "T-1", "check")
+			own, sibling, foreign := c.r.Key(), event.Key{Task: "T-1", Attempt: 1, Step: "sibling"},
+				event.Key{Task: "T-2", Attempt: 1, Step: event.StepGate}
+			for _, k := range []event.Key{own, sibling, foreign} {
+				p.cuts[k] = &cutWait{n: 1, timer: time.NewTimer(time.Hour)}
+			}
+			pending := len(p.log.Pending())
+			if pending == 0 || p.taskEnded("T-1") || !p.cutWaits(own) || !p.cutWaits(sibling) {
+				t.Fatalf("precondition: %d pending intents, T-1 ended %v, waits %v/%v; want pending, open, waiting",
+					pending, p.taskEnded("T-1"), p.cutWaits(own), p.cutWaits(sibling))
+			}
+			if c.failLanes {
+				p.folded.lr.rows["L-09"] = store.LaneRow{Lane: "L-09", Task: "T-9"} // a row to write: the write fails
+				if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var hooks atomic.Int32
+			hook := func(point string) {
+				if point == hookAppended {
+					hooks.Add(1)
+				}
+			}
+			h.a.hooked.Store(&hook)
+			c.r.Data, _ = json.Marshal(c.data)
+			r, err := p.log.Append(c.r, h.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.a.mu.Lock()
+			err = h.a.appended(p, r)
+			h.a.mu.Unlock()
+			none := func(string) {}
+			h.a.hooked.Store(&none)
+
+			if got := p.folded.loop["T-1"].state; got != c.state {
+				t.Errorf("T-1 is %s, want %s", got, c.state)
+			}
+			if (err != nil) != c.failLanes {
+				t.Errorf("appended: %v; want an error %v (the lane rows' write fails)", err, c.failLanes)
+			}
+			settled := 0
+			for _, x := range h.records() {
+				if x.Task == "T-1" && notRunResult(x) {
+					settled++
+				}
+			}
+			if settled != c.settled {
+				t.Errorf("settled %d of T-1's pending intents, want %d", settled, c.settled)
+			}
+			// The hook fires for r and for each not-run result its settlement appends (results, through appended).
+			if want := settled; c.hooked && hooks.Load() != int32(1+want) || !c.hooked && hooks.Load() != 0 {
+				t.Errorf("hookAppended fired %d times, want r's (%v) and %d settlements'", hooks.Load(), c.hooked, want)
+			}
+			if _, err := os.Stat(log); os.IsNotExist(err) != c.logsGo {
+				t.Errorf("T-1's step log removed: %v, want %v", os.IsNotExist(err), c.logsGo)
+			}
+			if got, want := !p.cutWaits(own), c.cuts != ""; got != want {
+				t.Errorf("r's own wait ended: %v, want %v", got, want)
+			}
+			if got, want := !p.cutWaits(sibling), c.cuts == "task"; got != want {
+				t.Errorf("T-1's other wait ended: %v, want %v", got, want)
+			}
+			if !p.cutWaits(foreign) {
+				t.Error("T-2's wait ended")
+			}
+		})
 	}
 }

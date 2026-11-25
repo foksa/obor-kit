@@ -233,8 +233,8 @@ func (p *proj) onAPerson(task string) bool {
 
 // setLanes installs p's lanes as read now. A task a lane took since the last read starts with no timer running; a
 // task no lane holds open any more (submitted and in the merge loop, lane freed or moved on) has no watchdog in force
-// (nothing recorded). An unknown lane (its read failed) is no observation: it keeps the task it held (keptTask)
-// and that task its facts; a lane read now that holds the task wins.
+// (nothing recorded; the lanes table follows). An unknown lane (its read failed) is no observation: it keeps the task
+// it held (keptTask) and that task its facts; a lane read now that holds the task wins.
 func (p *proj) setLanes(ls []port.Lane) {
 	ls = append([]port.Lane(nil), ls...)
 	for i, l := range ls {
@@ -263,10 +263,15 @@ func (p *proj) setLanes(ls []port.Lane) {
 			p.tasks[task] = &watch{lane: l}
 		}
 	}
+	cleared := false
 	for task := range p.folded.active {
 		if _, ok := open[task]; !ok && !projectKey(task) {
 			p.clear(task)
+			cleared = true
 		}
+	}
+	if cleared && p.folded.lr.live {
+		_ = p.syncLanes() // the rows follow this clear as they follow a fold (a row's blocked); a failed write is tried again
 	}
 }
 

@@ -401,22 +401,43 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return 0, false
 	}
-	a.hook(hookAppended)
-	was := p.taskEnded(r.Task)
-	p.foldRecord(r)
-	a.endTaskLogs(p, r.Task, was) // a merged or dropped fact, or an outside merge that needs none, ends it
-	if r.Kind == event.KindFact {
-		p.cutEndFact(r)
-	}
-	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
-		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
-	}
-	err = p.laneRowsErr()
-	if err != nil {
-		a.logf("FAIL lane rows of %s: %v", p.name, err)
+	if a.appended(p, r) != nil {
 		return 0, false
 	}
 	return r.Seq, true
+}
+
+// appended folds r, which p's log has just appended, and runs what the fold calls for (under mu): every append of a
+// running app ends here, in the a.mu section that wrote it (the live fold order is the log's; the replay folds with
+// foldRecord alone). What runs follows from r and the fold's change alone, never from the caller:
+//   - hookAppended, before the fold, on every record but an intent: a test holds a writer there, between its append
+//     and its fold; a verdict's intent and result are one section, so its point is the result;
+//   - endTaskLogs when the fold ended r's task (mtask.ended: not before, now);
+//   - cutEndFact on a fact, cutEnd of r's key on a result (its step's result is in the log);
+//   - settleEnded on a merged or dropped fact: the task's pending intents never run (the not-run results it writes
+//     come back here as results, which settle nothing);
+//   - laneRowsErr, always: its error is the result, logged here; the caller decides whether its step goes on.
+func (a *App) appended(p *proj, r event.Record) error {
+	if r.Kind != event.KindIntent {
+		a.hook(hookAppended)
+	}
+	was := p.taskEnded(r.Task)
+	p.foldRecord(r)
+	a.endTaskLogs(p, r.Task, was)
+	switch r.Kind {
+	case event.KindFact:
+		p.cutEndFact(r)
+		if r.Step == event.StepMerged || r.Step == event.StepDropped {
+			a.settleEnded(p, r.Task)
+		}
+	case event.KindResult:
+		p.cutEnd(r.Key())
+	}
+	if err := p.laneRowsErr(); err != nil {
+		a.logf("FAIL lane rows of %s (%s %s %s): %v", p.name, r.Task, r.Step, r.Kind, err)
+		return err
+	}
+	return nil
 }
 
 // do runs effect once for in (the log's Begin and Finish) and folds its intent (once written: the effect runs) and its
@@ -451,19 +472,19 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if run {
-		delete(p.exec, in.Key)
-		a.markLanes(p) // obor's own operation: a worktree may have changed
-		if r, err = a.doFinish(p, in, v, err); err != nil {
+	if !run { // a stored result: the step goes on only once the rows are written, as after one written now
+		if err := p.laneRowsErr(); err != nil {
+			a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
 			return nil, err
 		}
-		p.cutEnd(in.Key)
-		was := p.taskEnded(r.Task)
-		p.foldRecord(r)               // its append and this fold are one section: the live fold order is the log's
-		a.endTaskLogs(p, r.Task, was) // the last after-merge step's result ends a merged task
+		return r.Data, nil
 	}
-	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
-		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
+	delete(p.exec, in.Key)
+	a.markLanes(p) // obor's own operation: a worktree may have changed
+	if r, err = a.doFinish(p, in, v, err); err != nil {
+		return nil, err
+	}
+	if err := a.appended(p, r); err != nil { // the result is in the log: the next pass finds it stored, above
 		return nil, err
 	}
 	return r.Data, nil
@@ -481,14 +502,8 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 			return r, false, err
 		}
 		delete(p.unwritten, in.Key)
-		was := p.taskEnded(r.Task)
-		p.foldRecord(r)               // here, not after do's next lock: a record appended meanwhile folds after it
-		a.endTaskLogs(p, r.Task, was) // a stored after-merge result ends a merged task too
-		if err := p.laneRowsErr(); err != nil {
-			a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
-			return r, false, err
-		}
-		return r, false, nil
+		err = a.appended(p, r) // here, not after do's next lock: a record appended meanwhile folds after it
+		return r, false, err
 	}
 	r, done, wrote, err := p.log.Begin(in, a.opt.Now())
 	switch {
@@ -498,7 +513,9 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 	case done:
 		return r, false, nil
 	case wrote: // before the effect: a verdict on a job the prompt just delivered finds it open (a start's try: folded.starts)
-		p.foldRecord(r)
+		if err := a.appended(p, r); err != nil {
+			return r, false, err // the intent stays pending: no effect runs on rows not written
+		}
 	}
 	p.exec[in.Key] = a.opt.Now() // obor status' running line shows it, elapsed from now
 	return r, true, nil

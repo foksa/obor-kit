@@ -368,7 +368,7 @@ func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return false
 	}
-	p.foldRecord(r)
+	_ = a.appended(p, r) // the fact is recorded: a lane-row write that fails is tried again on the next check
 	a.logf("%s %s %s (%s, pane %s)", p.name, task, r, w.lane.Name, v.pane.ID)
 	return true
 }

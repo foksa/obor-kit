@@ -11,13 +11,13 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"obor/internal/app/wire"
 )
 
 // A task's step logs go when the task ends (logs.go): merged with its after-merge steps done, or dropped; a
 // rejected task is not ended, a merged one still running its after-merge steps is not either. The end's
 // transition removes them, and serve's load removes the leftovers of every task it folds as ended. The sweep's
-// leftovers are internal/project's tests; these are serve's own ends.
+// leftovers are internal/project's tests; these are serve's own ends (which record ends a task and what runs then:
+// TestAppendedReactions).
 
 // logsHarness is a merging pj with serve's lines captured (a failed log removal's one line).
 func logsHarness(t *testing.T) (*harness, *bytes.Buffer) {
@@ -80,18 +80,6 @@ func runAfter(t *testing.T, h *harness, task, step string) {
 
 func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 	t.Parallel()
-	t.Run("merged, after_merge and stop done: the red logs go", func(t *testing.T) {
-		t.Parallel()
-		h, _ := logsHarness(t)
-		mergedFacts(t, h, "T-1")
-		check, after := logFile(t, h, "T-1", "check"), logFile(t, h, "T-1", "after_merge")
-		logThere(t, check) // merged alone: its steps still run
-		for _, step := range afterSteps {
-			runAfter(t, h, "T-1", step)
-		}
-		logGone(t, check)
-		logGone(t, after)
-	})
 	t.Run("merged, after_merge failed: its logs stay until the stop completes the end", func(t *testing.T) {
 		t.Parallel()
 		h, _ := logsHarness(t)
@@ -128,41 +116,6 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 			runAfter(t, h, "T-8", step)
 		}
 		logGone(t, former)
-	})
-	t.Run("dropped: its logs go", func(t *testing.T) {
-		t.Parallel()
-		h, _ := logsHarness(t)
-		check := logFile(t, h, "T-3", "check")
-		if _, ok := h.a.recordSeq(h.proj(), event.Record{Task: "T-3", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
-			event.FactData{Reason: "not needed"}); !ok {
-			t.Fatal("the dropped fact was not recorded")
-		}
-		logGone(t, check)
-	})
-	t.Run("rejected: its logs stay", func(t *testing.T) {
-		t.Parallel()
-		h, _ := logsHarness(t)
-		addRecord(t, h, "T-4", event.StepDispatched, event.KindFact,
-			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-4"}})
-		addRecord(t, h, "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
-		addRecord(t, h, "T-4", event.StepGate, event.KindIntent, gateIn{})
-		addRecord(t, h, "T-4", event.StepGate, event.KindResult,
-			gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4", SHA: "c", Patch: "p"}})
-		addRecord(t, h, "T-4", event.StepReview, event.KindIntent, JobData{Patch: "p"})
-		if got := h.proj().folded.loop["T-4"].state; got != stAwaiting {
-			t.Fatalf("precondition: T-4 is %s, not awaiting the review", got)
-		}
-		check := logFile(t, h, "T-4", "check")
-		// The reject goes through serve's record path, which is where an end's logs would be removed.
-		if _, ok := h.a.recordSeq(h.proj(), event.Record{Task: "T-4", Attempt: 1,
-			Step: verdictStep(wire.MethodReject, "j-T-4"), Kind: event.KindResult},
-			verdictResult{Job: JobID(event.Key{Task: "T-4", Attempt: 1, Step: event.StepReview}), Note: "not this"}); !ok {
-			t.Fatal("the reject was not recorded")
-		}
-		if got := h.proj().folded.loop["T-4"].state; got != stRejected {
-			t.Fatalf("T-4 is %s, not rejected", got)
-		}
-		logThere(t, check)
 	})
 	t.Run("T-10 ends, T-100 is open: T-100's logs stay (exact id)", func(t *testing.T) {
 		t.Parallel()

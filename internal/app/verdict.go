@@ -216,32 +216,29 @@ func (a *App) verdict(ctx context.Context, c wire.VerdictReq) (string, error) {
 	}
 	var v verdictResult
 	_ = json.Unmarshal(r.Data, &v)
-	was := p.closed(c.Task)
-	p.foldRecord(r) // its time as the log wrote it: a sendback's, the next attempt's begun
-	if !was && p.closed(c.Task) {
-		a.settleEnded(p, c.Task) // rejected: its cleared watchdog notifications never run
-	}
 	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, c.Agent)
 	a.wake()
 	return v.Reply, nil
 }
 
-// verdictRecord writes the verdict in and its result v (under mu: a verdict's effect is only its reply, so the
-// intent, the result and their folds are one section): the intent folded once written, the result (the
-// stored one when in has one) returned for the caller to fold in the same section.
+// verdictRecord writes the verdict in and its result v and folds each once written (under mu: a verdict's effect is
+// only its reply, so the intent, the result and their folds are one section); the result is returned (the stored
+// one when in has one, not folded again: it was folded when written). Its time is the log's: a sendback's, the next
+// attempt's begun. The reply is given once the result is in the log: a lane-row write that fails is logged and tried
+// again on the next change.
 func (a *App) verdictRecord(p *proj, in event.Intent, v verdictResult) (event.Record, error) {
 	r, done, wrote, err := p.log.Begin(in, a.opt.Now())
 	if err != nil || done {
 		return r, err
 	}
 	if wrote {
-		p.foldRecord(r)
+		_ = a.appended(p, r)
 	}
 	if r, err = p.log.Finish(in.Key, v, true, a.opt.Now()); err != nil {
 		return r, err
 	}
-	a.hook(hookAppended)
+	_ = a.appended(p, r)
 	return r, nil
 }
 

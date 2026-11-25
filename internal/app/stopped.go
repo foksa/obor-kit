@@ -265,7 +265,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return false
 	}
-	p.foldRecord(r)
+	_ = a.appended(p, r) // the stop is recorded: a lane-row write that fails is tried again on the next change
 	a.logf("%s %s %s (%s, turn %s)", p.name, task, r, w.lane.Name, e.turn.ID)
 	return true
 }
