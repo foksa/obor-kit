@@ -231,7 +231,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) 
 	}
 	l.Dir = filepath.Clean(l.Dir)
 	agent := roles.DriveAgent(cfg.AgentName("worker", l.Name))
-	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Effort: effort, Type: ref,
+	d := event.Dispatch{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Effort: effort, Type: ref,
 		Drive: true, Caller: callerOf(c.Envelope), Call: c.CallID, Reply: driveReply(task, l.Name, agent, ref)}
 	if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("drive: the event log of %s refused it", p.name)
@@ -335,7 +335,7 @@ func (a *App) landCall(c wire.LandReq) (string, error) {
 	}
 	a.hook(hookLandCheck)
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSubmitted, Kind: event.KindFact},
-		submitData{Lane: mt.lane, Agent: mt.agent, Call: c.CallID, Report: report, Land: true}) {
+		event.Submit{Lane: mt.lane, Agent: mt.agent, Call: c.CallID, Report: report, Land: true}) {
 		return "", fmt.Errorf("land: the event log of %s refused it", p.name)
 	}
 	a.wake()

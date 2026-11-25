@@ -53,7 +53,7 @@ func (v *versionRig) facts() []string {
 		if r.Task != event.VersionTask {
 			continue
 		}
-		var d versionData
+		var d event.Version
 		if r.Kind != event.KindFact || r.Step != event.StepVersion || json.Unmarshal(r.Data, &d) != nil {
 			v.t.Fatalf("a record of task version that is no version fact: %+v", r)
 		}
@@ -251,10 +251,10 @@ func TestVersionOfTheTerminal(t *testing.T) {
 func TestVersionReplay(t *testing.T) {
 	t.Parallel()
 	v := newVersionRig(t)
-	v.fact(event.VersionTask, event.StepVersion, versionData{What: "claude", Version: claude322})
-	v.fact(event.VersionTask, event.StepVersion, versionData{What: "claude", Version: claude400, Was: claude322})
-	v.fact(event.VersionTask, event.StepVersion, versionData{Version: "9"})  // no tool: folds to nothing
-	v.fact(event.VersionTask, event.StepVersion, versionData{What: "codex"}) // no version: folds to nothing
+	v.fact(event.VersionTask, event.StepVersion, event.Version{What: "claude", Version: claude322})
+	v.fact(event.VersionTask, event.StepVersion, event.Version{What: "claude", Version: claude400, Was: claude322})
+	v.fact(event.VersionTask, event.StepVersion, event.Version{Version: "9"})  // no tool: folds to nothing
+	v.fact(event.VersionTask, event.StepVersion, event.Version{What: "codex"}) // no version: folds to nothing
 	seq := v.seq("claude")
 	rs := []rule{{name: ruleVersion, when: versionRule}}
 
@@ -262,7 +262,7 @@ func TestVersionReplay(t *testing.T) {
 	v.a.mu.Lock()
 	got := v.proj().folded.versions
 	v.a.mu.Unlock()
-	if len(got) != 1 || got["claude"] != (versionAt{versionData{What: "claude", Version: claude400, Was: claude322}, seq}) {
+	if len(got) != 1 || got["claude"] != (versionAt{event.Version{What: "claude", Version: claude400, Was: claude322}, seq}) {
 		t.Fatalf("replayed versions %+v, want claude's newest alone (seq %d)", got, seq)
 	}
 	if key, _, ok := v.rule(); !ok || key != seq {

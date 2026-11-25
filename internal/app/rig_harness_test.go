@@ -30,8 +30,8 @@ import (
 func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev int, sha string) {
 	t.Helper()
 	ctx := context.Background()
-	addRecord(t, h, "T-1", gate, event.KindIntent, gateIn{Kind: kind, Input: "s1"})
-	addRecord(t, h, "T-1", gate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
+	addRecord(t, h, "T-1", gate, event.KindIntent, event.GateIn{Kind: kind, Input: "s1"})
+	addRecord(t, h, "T-1", gate, event.KindResult, event.GateOut{Outcome: outGreen, SpecRev: rev,
 		Candidate: port.Candidate{Task: "T-1", SHA: sha, Target: "base1", Patch: "same-diff"}})
 	p := h.a.p
 	mt := *p.folded.loop["T-1"]
@@ -100,10 +100,10 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 	h.a.mu.Lock()
 	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
-	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outConflict})
 	acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 1, "candidate1")
 	return h, f
 }
@@ -217,8 +217,8 @@ func (h *harness) applySids() {
 // started writes serve's start of agent in pane (terminal term, session sid; "": none) to the log: agent.start's
 // intent and result.
 func (h *harness) started(agent, pane, term, sid string) {
-	in, _ := json.Marshal(startData{Lane: "L-01", Agent: agent, Pane: pane})
-	res, _ := json.Marshal(startOut{Line: "STARTED " + agent, Agent: agent, Pane: pane, Terminal: term, Kind: "claude",
+	in, _ := json.Marshal(event.Start{Lane: "L-01", Agent: agent, Pane: pane})
+	res, _ := json.Marshal(event.StartOut{Line: "STARTED " + agent, Agent: agent, Pane: pane, Terminal: term, Kind: "claude",
 		Session: sid})
 	h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindIntent, Class: event.ClassStart, Data: in},
 		event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindResult, Data: res})
@@ -424,9 +424,9 @@ func (b *blockLog) copy() *blockLog { return &blockLog{recs: slices.Clone(b.recs
 // dispatched: attempt 1 of blockTask dispatched to L-01, prepared and started, its work job delivered (working).
 func dispatched() *blockLog {
 	b := &blockLog{}
-	b.fact(1, event.StepDispatched, dispatchData{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
-	b.result(1, event.StepPrepare, nil, prepareOut{Base: "base"})
-	b.result(1, event.StepStartWork, nil, startOut{Agent: "pj-w1"})
+	b.fact(1, event.StepDispatched, event.Dispatch{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
+	b.result(1, event.StepPrepare, nil, event.PrepareOut{Base: "base"})
+	b.result(1, event.StepStartWork, nil, event.StartOut{Agent: "pj-w1"})
 	b.add(1, event.StepWork, event.KindIntent, nil)
 	b.fact(1, event.StepDelivered, event.FactData{Job: JobID(event.Key{Task: blockTask, Attempt: 1, Step: event.StepWork})})
 	return b
@@ -434,31 +434,31 @@ func dispatched() *blockLog {
 
 // submitted: attempt n submitted by its worker and pinned; its gate's intent written.
 func (b *blockLog) submitted(n int) *blockLog {
-	b.fact(n, event.StepSubmitted, submitData{Lane: "L-01", Agent: "pj-w1", Report: "Summary: x"})
-	b.result(n, event.StepSubmit, nil, submitOut{SHA: fmt.Sprintf("sha%d", n)})
+	b.fact(n, event.StepSubmitted, event.Submit{Lane: "L-01", Agent: "pj-w1", Report: "Summary: x"})
+	b.result(n, event.StepSubmit, nil, event.SubmitOut{SHA: fmt.Sprintf("sha%d", n)})
 	return b
 }
 
 func (b *blockLog) gate(n int, outcome string) *blockLog {
-	out := gateOut{Outcome: outcome, Line: "gate " + outcome}
+	out := event.GateOut{Outcome: outcome, Line: "gate " + outcome}
 	if outcome == outGreen {
 		out.Candidate = port.Candidate{SHA: "cand", Patch: "patch"}
 	}
-	return b.result(n, event.StepGate, gateIn{Kind: port.InputLane, Lane: "L-01"}, out)
+	return b.result(n, event.StepGate, event.GateIn{Kind: port.InputLane, Lane: "L-01"}, out)
 }
 
 // review: attempt n green and its review job out.
 func (b *blockLog) review(n int) *blockLog {
-	return b.gate(n, outGreen).add(n, event.StepReview, event.KindIntent, JobData{Patch: "patch"})
+	return b.gate(n, outGreen).add(n, event.StepReview, event.KindIntent, event.Job{Patch: "patch"})
 }
 
-func (b *blockLog) verdict(n int, method, job string, v verdictResult) *blockLog {
+func (b *blockLog) verdict(n int, method, job string, v event.VerdictResult) *blockLog {
 	v.Job = JobID(event.Key{Task: blockTask, Attempt: n, Step: job})
 	return b.result(n, verdictStep(method, "c"+method), nil, v)
 }
 
 func (b *blockLog) accepted(n int) *blockLog {
-	return b.review(n).verdict(n, wire.MethodAccept, event.StepReview, verdictResult{Patch: "patch", Reply: "ACCEPTED"})
+	return b.review(n).verdict(n, wire.MethodAccept, event.StepReview, event.VerdictResult{Patch: "patch", Reply: "ACCEPTED"})
 }
 
 // blockProj replays recs as a log serve opens: written to a new log, then read back and folded.
@@ -588,11 +588,11 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	h.a.mu.Lock()
 	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1",
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1",
 		Report: report})
-	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, SpecRev: 1,
 		Candidate: port.Candidate{Task: "T-1", Lane: "L-01", SHA: "c1", Target: "base1", Patch: "patch1"}})
 	if mt := h.a.p.folded.loop["T-1"]; mt.state != stGreen || mt.report != report {
 		t.Fatalf("precondition: T-1 %s with report %q; want green with the submitted report", mt.state, mt.report)
@@ -650,8 +650,8 @@ func since(h *harness) time.Time {
 
 // resolvedGate folds a resolved gate's intent and green result under gate: the task's own patch, green at rev.
 func (b *blockLog) resolvedGate(gate string, rev int) *blockLog {
-	return b.add(1, gate, event.KindIntent, gateIn{Kind: port.InputResolved, Lane: "L-01"}).
-		result(1, gate, nil, gateOut{Outcome: outGreen, SpecRev: rev,
+	return b.add(1, gate, event.KindIntent, event.GateIn{Kind: port.InputResolved, Lane: "L-01"}).
+		result(1, gate, nil, event.GateOut{Outcome: outGreen, SpecRev: rev,
 			Candidate: port.Candidate{Task: blockTask, SHA: "candidate2", Target: "base2", Base: "base", Patch: "diff"}})
 }
 

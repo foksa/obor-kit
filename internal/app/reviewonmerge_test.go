@@ -75,13 +75,13 @@ func TestReviewOnMergeRule(t *testing.T) {
 	rejectedB := func(t *testing.T, r *reviewRig) {
 		t.Helper()
 		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: event.StepGate, Kind: event.KindResult},
-			gateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "cand", Patch: "patch"}})
-		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent}, JobData{Patch: "patch"})
+			event.GateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "cand", Patch: "patch"}})
+		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent}, event.Job{Patch: "patch"})
 		if mt := r.p.folded.loop["T-b"]; mt == nil || mt.state != stAwaiting {
 			t.Fatalf("precondition: T-b not awaiting its review: %+v", mt)
 		}
 		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: verdictStep(wire.MethodReject, "j1"), Kind: event.KindResult},
-			verdictResult{Job: JobID(event.Key{Task: "T-b", Attempt: 1, Step: event.StepReview}), Note: "not this"})
+			event.VerdictResult{Job: JobID(event.Key{Task: "T-b", Attempt: 1, Step: event.StepReview}), Note: "not this"})
 		if mt := r.p.folded.loop["T-b"]; mt == nil || mt.state != stRejected {
 			t.Fatalf("precondition: T-b not rejected: %+v", mt)
 		}

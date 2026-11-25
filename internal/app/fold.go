@@ -25,7 +25,7 @@ func (p *proj) foldStart(r event.Record) {
 	if r.Kind != event.KindResult || step != event.StepStartWork && !strings.HasPrefix(step, stepStart) {
 		return
 	}
-	var out startOut
+	var out event.StartOut
 	if json.Unmarshal(r.Data, &out) != nil || out.Refused != "" || out.Agent == "" || out.Pane == "" {
 		return
 	}

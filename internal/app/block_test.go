@@ -17,8 +17,8 @@ import (
 
 // redPastK: two red gates sent back, the third red (sendbacks K).
 func redPastK() *blockLog {
-	b := dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, noteData{Note: "gate red"})
-	b.submitted(2).gate(2, outRed).fact(2, event.StepSendback, noteData{Note: "gate red"})
+	b := dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, event.Note{Note: "gate red"})
+	b.submitted(2).gate(2, outRed).fact(2, event.StepSendback, event.Note{Note: "gate red"})
 	return b.submitted(3).gate(3, outRed)
 }
 
@@ -30,31 +30,31 @@ type blockCase struct {
 
 func blockCases() []blockCase {
 	k := redPastK()
-	sendbacksK := dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, noteData{Note: "gate red"}).
-		submitted(2).gate(2, outRed).fact(2, event.StepSendback, noteData{Note: "gate red"}).submitted(3).review(3).
-		verdict(3, wire.MethodSendback, event.StepReview, verdictResult{Note: "again"})
-	resolve := dispatched().submitted(1).gate(1, outConflict).add(1, event.StepResolve, event.KindIntent, JobData{Patch: "patch"}).
-		verdict(1, wire.MethodReject, event.StepResolve, verdictResult{Note: "cannot"})
+	sendbacksK := dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, event.Note{Note: "gate red"}).
+		submitted(2).gate(2, outRed).fact(2, event.StepSendback, event.Note{Note: "gate red"}).submitted(3).review(3).
+		verdict(3, wire.MethodSendback, event.StepReview, event.VerdictResult{Note: "again"})
+	resolve := dispatched().submitted(1).gate(1, outConflict).add(1, event.StepResolve, event.KindIntent, event.Job{Patch: "patch"}).
+		verdict(1, wire.MethodReject, event.StepResolve, event.VerdictResult{Note: "cannot"})
 	gateFail := dispatched().submitted(1).gate(1, outFail)
-	submitRefused := dispatched().fact(1, event.StepSubmitted, submitData{Lane: "L-01", Agent: "pj-w1", Report: "Summary: x"}).
-		result(1, event.StepSubmit, nil, submitOut{Refused: "no commit"})
-	gateFailed := dispatched().submitted(1).add(1, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01"}).
+	submitRefused := dispatched().fact(1, event.StepSubmitted, event.Submit{Lane: "L-01", Agent: "pj-w1", Report: "Summary: x"}).
+		result(1, event.StepSubmit, nil, event.SubmitOut{Refused: "no commit"})
+	gateFailed := dispatched().submitted(1).add(1, event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01"}).
 		failed(1, event.StepGate, "boom", tries)
-	publish := dispatched().submitted(1).accepted(1).result(1, event.StepPublish, nil, gateOut{Outcome: outFail, Line: "push refused"})
-	resolvedFail := dispatched().submitted(1).gate(1, outConflict).add(1, event.StepResolve, event.KindIntent, JobData{Patch: "patch"}).
-		verdict(1, wire.MethodResolved, event.StepResolve, verdictResult{SHA: "res"}).
-		result(1, nth(event.StepGate, 2), gateIn{Kind: port.InputResolved, Lane: "L-01"}, gateOut{Outcome: outFail, Line: "boom"})
+	publish := dispatched().submitted(1).accepted(1).result(1, event.StepPublish, nil, event.GateOut{Outcome: outFail, Line: "push refused"})
+	resolvedFail := dispatched().submitted(1).gate(1, outConflict).add(1, event.StepResolve, event.KindIntent, event.Job{Patch: "patch"}).
+		verdict(1, wire.MethodResolved, event.StepResolve, event.VerdictResult{SHA: "res"}).
+		result(1, nth(event.StepGate, 2), event.GateIn{Kind: port.InputResolved, Lane: "L-01"}, event.GateOut{Outcome: outFail, Line: "boom"})
 	prepRefused := &blockLog{}
-	prepRefused.fact(1, event.StepDispatched, dispatchData{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"}).
-		result(1, event.StepPrepare, nil, prepareOut{Refused: "dirty lane"})
+	prepRefused.fact(1, event.StepDispatched, event.Dispatch{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"}).
+		result(1, event.StepPrepare, nil, event.PrepareOut{Refused: "dirty lane"})
 	waiting := &blockLog{}
-	waiting.fact(1, event.StepWaiting, dispatchData{After: []string{"T-0"}, Reply: "WAITING"})
-	fixUndelivered := dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, noteData{Note: "gate red"}).
+	waiting.fact(1, event.StepWaiting, event.Dispatch{After: []string{"T-0"}, Reply: "WAITING"})
+	fixUndelivered := dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, event.Note{Note: "gate red"}).
 		add(2, event.StepFix, event.KindIntent, nil)
-	merged := dispatched().submitted(1).accepted(1).result(1, event.StepPublish, nil, gateOut{Outcome: outMerged, Line: "merged"}).
+	merged := dispatched().submitted(1).accepted(1).result(1, event.StepPublish, nil, event.GateOut{Outcome: outMerged, Line: "merged"}).
 		fact(1, event.StepMerged, event.MergedData{Head: "cand"}).add(1, event.StepAfterMerge, event.KindIntent, nil).
 		failed(1, event.StepAfterMerge, "boom", tries)
-	rejected := dispatched().submitted(1).review(1).verdict(1, wire.MethodReject, event.StepReview, verdictResult{Note: "no"}).
+	rejected := dispatched().submitted(1).review(1).verdict(1, wire.MethodReject, event.StepReview, event.VerdictResult{Note: "no"}).
 		result(1, event.StepUnpin, nil, "unpinned")
 	held := dispatched().submitted(1).review(1).fact(1, event.StepNeedsYou, event.FactData{Lane: "L-01", Machine: Machine,
 		Reason: "held: which way", Merge: true, Cause: event.CauseHeld, Job: JobID(event.Key{Task: blockTask, Attempt: 1, Step: event.StepReview})})
@@ -84,15 +84,15 @@ func blockCases() []blockCase {
 		{"after-merge step failed", merged.copy().needs(1, event.StepAfterMerge+failedSuffix, "after_merge failed: boom")},
 		{"rejected", rejected.copy().needs(1, causeRejected, "rejected by the integrator: no")},
 		{"held review verdict", held.copy()},
-		{"held review, accepted", held.copy().verdict(1, wire.MethodAccept, event.StepReview, verdictResult{Patch: "patch"})},
+		{"held review, accepted", held.copy().verdict(1, wire.MethodAccept, event.StepReview, event.VerdictResult{Patch: "patch"})},
 		{"held review, lead's sendback", held.copy().result(1, verdictStep(wire.MethodSendback, "lead"), nil,
-			verdictResult{Job: JobID(event.Key{Task: blockTask, Attempt: 1, Step: event.StepReview}), Note: "redo", Lead: true})},
+			event.VerdictResult{Job: JobID(event.Key{Task: blockTask, Attempt: 1, Step: event.StepReview}), Note: "redo", Lead: true})},
 		{"stalled review job, held", stalled.copy()},
 		{"stalled resolve job, held", dispatched().submitted(1).gate(1, outConflict).add(1, event.StepResolve, event.KindIntent,
-			JobData{Patch: "patch"}).needs(1, causeStalled, "job stalled: integrator gone")},
+			event.Job{Patch: "patch"}).needs(1, causeStalled, "job stalled: integrator gone")},
 		{"resolved gate step failed, held", dispatched().submitted(1).gate(1, outConflict).add(1, event.StepResolve, event.KindIntent,
-			JobData{Patch: "patch"}).verdict(1, wire.MethodResolved, event.StepResolve, verdictResult{SHA: "res"}).
-			add(1, nth(event.StepGate, 2), event.KindIntent, gateIn{Kind: port.InputResolved, Lane: "L-01"}).
+			event.Job{Patch: "patch"}).verdict(1, wire.MethodResolved, event.StepResolve, event.VerdictResult{SHA: "res"}).
+			add(1, nth(event.StepGate, 2), event.KindIntent, event.GateIn{Kind: port.InputResolved, Lane: "L-01"}).
 			failed(1, nth(event.StepGate, 2), "boom", tries).needs(1, event.StepGate+failedSuffix, "gate.2 failed: boom")},
 		{"held, merged outside", gateFail.copy().needs(1, causeGate, "gate: gate fail").fact(1, event.StepMerged, event.MergedData{Outside: true})},
 		{"held, dropped", gateFail.copy().needs(1, causeGate, "gate: gate fail").fact(1, event.StepDropped, event.FactData{Reason: "no"})},
@@ -188,7 +188,7 @@ func blockResume(t *testing.T, c blockCase) string {
 			if mt.openJob() {
 				job = JobID(mt.jobKey())
 			}
-			l.result(mt.attempt, verdictStep(wire.MethodSendback, "lead"), nil, verdictResult{Job: job, Note: "redo", Lead: true})
+			l.result(mt.attempt, verdictStep(wire.MethodSendback, "lead"), nil, event.VerdictResult{Job: job, Note: "redo", Lead: true})
 		} else {
 			l.fact(mt.attempt, event.StepUnblocked, event.FactData{Lane: mt.lane, Machine: Machine, Reason: act, Merge: true,
 				Cause: mt.needs.fact.Fact().Cause, Note: "decided"})
@@ -319,15 +319,15 @@ func (notLanded) Landed(context.Context, string) (bool, error) { return false, n
 // to the worker (a gate's or a start's failure) stays in force.
 func TestWorkerTakesItsJobEndsFailedDelivery(t *testing.T) {
 	t.Parallel()
-	work := func(cause string, start startOut) *blockLog {
+	work := func(cause string, start event.StartOut) *blockLog {
 		b := &blockLog{}
-		b.fact(1, event.StepDispatched, dispatchData{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
-		b.result(1, event.StepPrepare, nil, prepareOut{Base: "base"})
+		b.fact(1, event.StepDispatched, event.Dispatch{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
+		b.result(1, event.StepPrepare, nil, event.PrepareOut{Base: "base"})
 		b.result(1, event.StepStartWork, nil, start)
 		b.add(1, event.StepWork, event.KindIntent, nil)
 		return b.needs(1, cause, cause+": probe")
 	}
-	started := startOut{Agent: "pj-w1"}
+	started := event.StartOut{Agent: "pj-w1"}
 	job := func(attempt int, step string) string {
 		return JobID(event.Key{Task: blockTask, Attempt: attempt, Step: step})
 	}
@@ -335,15 +335,15 @@ func TestWorkerTakesItsJobEndsFailedDelivery(t *testing.T) {
 	// refetch finds them.
 	refetch := func(cause string) *blockLog {
 		b := &blockLog{}
-		b.fact(1, event.StepDispatched, dispatchData{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
-		b.result(1, event.StepPrepare, nil, prepareOut{Base: "base"})
+		b.fact(1, event.StepDispatched, event.Dispatch{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
+		b.result(1, event.StepPrepare, nil, event.PrepareOut{Base: "base"})
 		b.result(1, event.StepStartWork, nil, started)
 		b.add(1, event.StepWork, event.KindIntent, nil)
 		b.fact(1, event.StepDelivered, event.FactData{Lane: "L-01", Job: job(1, event.StepWork), Merge: true})
 		return b.needs(1, cause, cause+": probe")
 	}
 	fix := func(cause string) *blockLog {
-		return dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, noteData{Note: "red"}).
+		return dispatched().submitted(1).gate(1, outRed).fact(1, event.StepSendback, event.Note{Note: "red"}).
 			add(2, event.StepFix, event.KindIntent, nil).needs(2, cause, cause+": probe")
 	}
 	for _, c := range []struct {
@@ -361,7 +361,7 @@ func TestWorkerTakesItsJobEndsFailedDelivery(t *testing.T) {
 		{"retry.fix failed", fix("retry.fix" + failedSuffix), true, 2, job(2, event.StepFix), ""},
 		{"fix not delivered", fix(causeUndelivered), true, 2, job(2, event.StepFix), ""},
 		{"gate failed", work(causeGate, started), false, 1, job(1, event.StepWork), ""},
-		{"start failed", work(event.StepStartWork+failedSuffix, startOut{Refused: "no pane"}), false, 1, job(1, event.StepWork), ""},
+		{"start failed", work(event.StepStartWork+failedSuffix, event.StartOut{Refused: "no pane"}), false, 1, job(1, event.StepWork), ""},
 		{"work failed, refetched", refetch(event.StepWork + failedSuffix), true, 1, job(1, event.StepWork), job(1, event.StepWork)},
 		{"gate failed, refetched", refetch(causeGate), false, 1, job(1, event.StepWork), job(1, event.StepWork)},
 		{"another job, refetched", refetch(event.StepWork + failedSuffix), false, 1, job(1, event.StepWork), job(1, "work.2")},

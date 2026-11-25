@@ -80,11 +80,11 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 	}, {
 		name: "resolved", state: stResolved, kind: port.InputResolved,
 		seed: func(r *concRig) {
-			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict,
+			r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outConflict,
 				Candidate: port.Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
 			r.add("pj", "T-1", event.StepResolve, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/resolve", Patch: "p"})
 			r.add("pj", "T-1", wire.MethodResolved+".v1", event.KindResult,
-				verdictResult{Job: "T-1/1/resolve", Reply: "RESOLVED T-1", SHA: "rs"})
+				event.VerdictResult{Job: "T-1/1/resolve", Reply: "RESOLVED T-1", SHA: "rs"})
 		},
 	}, {
 		name: "moved", state: stMoved, kind: port.InputMoved,
@@ -105,7 +105,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 			gates := p.folded.loop["T-1"].gates
 			r.a.mu.Unlock()
 			step := nth(event.StepGate, gates+1)
-			r.add("pj", "T-1", step, event.KindIntent, gateIn{Kind: c.kind, Lane: "L-01", Input: "s1"})
+			r.add("pj", "T-1", step, event.KindIntent, event.GateIn{Kind: c.kind, Lane: "L-01", Input: "s1"})
 
 			f := &diskCount{}
 			f.free.Store(gib)

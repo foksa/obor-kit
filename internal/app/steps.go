@@ -68,7 +68,7 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	case event.StepAfterMerge: // no data: its effect is mt.cand
 		effect = func(ctx context.Context) (any, error) { return fx.Workflow.AfterMerge(ctx, mt.cand) }
 	case event.StepStop:
-		in.Class, in.Data = event.ClassStart, stopData{Lane: mt.lane, Agent: mt.agent}
+		in.Class, in.Data = event.ClassStart, event.Stop{Lane: mt.lane, Agent: mt.agent}
 		effect = func(ctx context.Context) (any, error) { return a.stopWorker(ctx, p, fx, mt) }
 	}
 	if _, err := a.do(ctx, p, in, effect); err != nil {
@@ -178,7 +178,7 @@ func submitID(attempt int, step string) string {
 // the owner decides, as for a gate's fail.
 func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepSubmit, mt.submits+1)}, Class: event.ClassGit,
-		Data: submitData{Lane: mt.lane, Agent: mt.agent}}
+		Data: event.Submit{Lane: mt.lane, Agent: mt.agent}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		title, err := titleOf(p, mt.task)
 		if err != nil {
@@ -188,12 +188,12 @@ func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			subjectOf(title, mt.report))
 		var refused port.Refused
 		if errors.As(err, &refused) { // final: the owner decides
-			return submitOut{Refused: refused.Line}, nil
+			return event.SubmitOut{Refused: refused.Line}, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		return submitOut{SHA: sha}, nil
+		return event.SubmitOut{SHA: sha}, nil
 	}); err != nil {
 		return a.failed(ctx, p, mt, in.Step, err)
 	}
@@ -213,7 +213,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		g.Resolved = mt.resolved // a replayed resolution must equal the checked one
 	}
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}, Class: event.ClassGit,
-		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
+		Data: event.GateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
 	g.Command = func(name string) { // obor status' running line names the command while it runs; "" between two
 		a.mu.Lock()
 		if p.running == in.Key {
@@ -244,25 +244,25 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 }
 
 // gateResult is the gate outcome o of task as its result.
-func gateResult(task string, o port.GateOutcome) gateOut {
+func gateResult(task string, o port.GateOutcome) event.GateOut {
 	switch o.Kind {
 	case port.OutcomeGreen:
 		line := "GREEN " + task
 		if o.Candidate.Checks != "" {
 			line += " (" + o.Candidate.Checks + ")"
 		}
-		return gateOut{Outcome: outGreen, Line: line, Candidate: o.Candidate}
+		return event.GateOut{Outcome: outGreen, Line: line, Candidate: o.Candidate}
 	case port.OutcomeRed:
-		return gateOut{Outcome: outRed, Line: o.Line}
+		return event.GateOut{Outcome: outRed, Line: o.Line}
 	case port.OutcomeConflict:
 		if o.Mismatch != nil { // the reason and the checked resolution reach the resolve job
-			return gateOut{Outcome: outConflict, Line: o.Line, Mismatch: o.Mismatch}
+			return event.GateOut{Outcome: outConflict, Line: o.Line, Mismatch: o.Mismatch}
 		}
-		return gateOut{Outcome: outConflict, Line: fmt.Sprintf("CONFLICT in %s: %s", o.Dir, strings.Join(o.Files, ", "))}
+		return event.GateOut{Outcome: outConflict, Line: fmt.Sprintf("CONFLICT in %s: %s", o.Dir, strings.Join(o.Files, ", "))}
 	case port.OutcomeFail:
-		return gateOut{Outcome: outFail, Line: o.Line}
+		return event.GateOut{Outcome: outFail, Line: o.Line}
 	}
-	return gateOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown gate outcome %q", task, o.Kind)}
+	return event.GateOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown gate outcome %q", task, o.Kind)}
 }
 
 // laneStep starts effect, mt's lane test (key step), in its own goroutine outside the scratch token (see
@@ -294,7 +294,7 @@ func (a *App) laneStep(ctx context.Context, p *proj, mt mtask, step string, effe
 // test runs the attempt's next lane test (row 18b): the class's checks on the candidate in the task's lane.
 func (a *App) test(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepTest, mt.tests+1)},
-		Class: event.ClassGit, Data: testIn{Candidate: mt.cand.SHA, Target: mt.cand.Target, Lane: mt.lane}}
+		Class: event.ClassGit, Data: event.TestIn{Candidate: mt.cand.SHA, Target: mt.cand.Target, Lane: mt.lane}}
 	ti := port.TestInput{Task: mt.task, Lane: mt.lane, Branch: mt.disp.Branch, SHA: mt.cand.SHA, Target: mt.cand.Target}
 	ti.Command = func(name string) { // obor status' running line names the command while it runs (as a gate's)
 		a.mu.Lock()
@@ -317,16 +317,16 @@ func (a *App) test(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 }
 
 // testResult is the lane test outcome o of task as its result.
-func testResult(task string, o port.TestOutcome) testOut {
+func testResult(task string, o port.TestOutcome) event.TestOut {
 	switch o.Kind {
 	case port.OutcomeGreen:
-		return testOut{Outcome: outGreen, Line: o.Line, Checks: o.Checks}
+		return event.TestOut{Outcome: outGreen, Line: o.Line, Checks: o.Checks}
 	case port.OutcomeRed:
-		return testOut{Outcome: outRed, Line: o.Line}
+		return event.TestOut{Outcome: outRed, Line: o.Line}
 	case port.OutcomeFail:
-		return testOut{Outcome: outFail, Line: o.Line}
+		return event.TestOut{Outcome: outFail, Line: o.Line}
 	}
-	return testOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown test outcome %q", task, o.Kind)}
+	return event.TestOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown test outcome %q", task, o.Kind)}
 }
 
 // publish fast-forwards the target to the accepted candidate (row 33): merged, already in the target (a crash after
@@ -342,16 +342,16 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		}
 		switch o.Kind {
 		case port.PublishMerged:
-			return gateOut{Outcome: outMerged, Line: "MERGED " + mt.task}, nil
+			return event.GateOut{Outcome: outMerged, Line: "MERGED " + mt.task}, nil
 		case port.PublishAlready:
-			return gateOut{Outcome: outMerged, Line: "MERGED " + mt.task + " (already in the target)"}, nil
+			return event.GateOut{Outcome: outMerged, Line: "MERGED " + mt.task + " (already in the target)"}, nil
 		case port.PublishMoved:
-			return gateOut{Outcome: outMoved, Line: fmt.Sprintf("MOVED %s: the target is at %s, not %s", mt.task, o.Head,
+			return event.GateOut{Outcome: outMoved, Line: fmt.Sprintf("MOVED %s: the target is at %s, not %s", mt.task, o.Head,
 				mt.cand.Target)}, nil
 		case port.PublishPending:
-			return gateOut{Outcome: outPending, Line: "PENDING " + mt.task + ": the merge is asked for, not done yet"}, nil
+			return event.GateOut{Outcome: outPending, Line: "PENDING " + mt.task + ": the merge is asked for, not done yet"}, nil
 		case port.PublishHold:
-			return gateOut{Outcome: outHold, Line: fmt.Sprintf("HOLD %s: the main checkout has local changes to %s",
+			return event.GateOut{Outcome: outHold, Line: fmt.Sprintf("HOLD %s: the main checkout has local changes to %s",
 				mt.task, strings.Join(o.Files, ", "))}, nil
 		}
 		return nil, fmt.Errorf("unknown publish outcome %q", o.Kind)
@@ -364,7 +364,7 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	a.mu.Unlock()
 	if moved {
 		return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepMoved, Kind: event.KindFact},
-			noteData{Note: mt.line})
+			event.Note{Note: mt.line})
 	}
 	return true
 }

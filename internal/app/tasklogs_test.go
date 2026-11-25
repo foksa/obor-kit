@@ -64,7 +64,7 @@ func logGone(t *testing.T, path string) {
 // mergedFacts is task's submitted and merged facts at attempt 1 (its after-merge steps not run yet).
 func mergedFacts(t *testing.T, h *harness, task string) {
 	t.Helper()
-	addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+	addRecord(t, h, task, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 	addRecord(t, h, task, event.StepMerged, event.KindFact, event.MergedData{Head: "abcdef0"})
 }
 
@@ -107,7 +107,7 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 		mergedFacts(t, h, "T-8")
 		former := logFile(t, h, "T-8", "check")
 		addRecord(t, h, "T-9", event.StepDispatched, event.KindFact,
-			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-9"}})
+			event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-9"}})
 		if mt := h.proj().folded.loop["T-8"]; mt == nil || mt.ended() {
 			t.Fatalf("precondition: T-8 reads ended (%+v) after L-01 took T-9", mt)
 		}
@@ -136,7 +136,7 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 			t.Fatal("the dropped fact was not recorded")
 		}
 		addRecord(t, h, "T-7", event.StepDispatched, event.KindFact,
-			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-7"}})
+			event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-7"}})
 		mergedFacts(t, h, "T-7")
 		check := logFile(t, h, "T-7", "check")
 		for _, step := range afterSteps {
@@ -181,8 +181,8 @@ func TestTaskLogsGoAtLoad(t *testing.T) {
 		}
 	}
 	addRecord(t, h, "T-4", event.StepDispatched, event.KindFact,
-		dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-4"}})
-	addRecord(t, h, "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+		event.Dispatch{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-4"}})
+	addRecord(t, h, "T-4", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01"})
 	endedLogs := []string{
 		logFile(t, h, "T-1", "check"),
 		logFile(t, h, "T-2", "after_merge"),

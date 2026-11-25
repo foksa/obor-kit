@@ -103,11 +103,11 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 		h.a.rulePass(context.Background(), rules, withAppCfg(h.a, &Loop{Agents: s}))
 	}
 	submitted := func(t *testing.T, h *harness, _ *reviewStopSpy) { // its task done, no integrator job yet
-		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 	}
 	green := func(t *testing.T, h *harness, s *reviewStopSpy) {
 		submitted(t, h, s)
-		addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen,
+		addRecord(t, h, "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen,
 			Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"}})
 	}
 	jobOut := func(t *testing.T, h *harness, s *reviewStopSpy) { // the review job is out
@@ -116,11 +116,11 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 	}
 	answered := func(t *testing.T, h *harness, s *reviewStopSpy) { // the job's verdict is in
 		jobOut(t, h, s)
-		addRecord(t, h, "T-1", "accept.c1", event.KindResult, verdictResult{Job: "T-1/1/review", Patch: "p1"})
+		addRecord(t, h, "T-1", "accept.c1", event.KindResult, event.VerdictResult{Job: "T-1/1/review", Patch: "p1"})
 	}
 	started := func(t *testing.T, h *harness, s *reviewStopSpy) { // serve starts it again: the verdict is not its start's
 		answered(t, h, s)
-		addRecord(t, h, "T-1", stepStart+event.StepReview, event.KindResult, startOut{Line: "STARTED pj-int",
+		addRecord(t, h, "T-1", stepStart+event.StepReview, event.KindResult, event.StartOut{Line: "STARTED pj-int",
 			Agent: "pj-int", Pane: "w1:int", Kind: "claude"})
 	}
 	status := func(id, status, agent string) step {

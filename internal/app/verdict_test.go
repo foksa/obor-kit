@@ -20,9 +20,9 @@ import (
 // movedGreen publishes T-1 into a moved target and gates it green again at rev, the patch unchanged.
 func movedGreen(t *testing.T, h *harness, gate, kind string, rev int) {
 	t.Helper()
-	addRecord(t, h, "T-1", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved})
-	addRecord(t, h, "T-1", gate, event.KindIntent, gateIn{Kind: kind, Input: "s1"})
-	addRecord(t, h, "T-1", gate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
+	addRecord(t, h, "T-1", event.StepPublish, event.KindResult, event.GateOut{Outcome: outMoved})
+	addRecord(t, h, "T-1", gate, event.KindIntent, event.GateIn{Kind: kind, Input: "s1"})
+	addRecord(t, h, "T-1", gate, event.KindResult, event.GateOut{Outcome: outGreen, SpecRev: rev,
 		Candidate: port.Candidate{Task: "T-1", SHA: "candidate2", Target: "base2", Patch: "same-diff"}})
 }
 
@@ -105,7 +105,7 @@ func TestAcceptKeptAfterRevChangeReplaysToReview(t *testing.T) {
 	h, f := seedSched(t, true)
 	acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 1, "candidate1")
 	movedGreen(t, h, nth(event.StepGate, 3), port.InputMoved, 2)
-	addRecord(t, h, "T-1", event.StepKept, event.KindFact, JobData{Patch: "same-diff"})
+	addRecord(t, h, "T-1", event.StepKept, event.KindFact, event.Job{Patch: "same-diff"})
 	p := reloadProj(t, h)
 	if countStep(t, h, event.StepKept) != 1 {
 		t.Fatal("precondition: the log carries the kept fact")
@@ -252,7 +252,7 @@ func laneT2(t *testing.T) (*concRig, *proj, *concFakes) {
 	t.Helper()
 	r := newConcRig(t)
 	dispatchT2(r)
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "target"})
 	r.run()
 	t.Cleanup(r.stop)
 	return r, r.proj("pj"), r.fakes["pj"]
@@ -464,7 +464,7 @@ func TestDropFreeFailsAfterTheRecord(t *testing.T) {
 
 // needsYouT7 leaves pq's T-7 needs-you at attempt 1: a submission of it records attempt 2.
 func needsYouT7(r *concRig) {
-	r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
+	r.add("pq", "T-7", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-07", Agent: "pq-l-07"})
 	r.add("pq", "T-7", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-07", Merge: true, Cause: causeGate, Reason: "owner"})
 }
 
@@ -541,7 +541,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 	}
 	// dropAfterNext records the race's outcome by hand: submitted at attempt 2, then dropped at attempt 1.
 	dropAfterNext := func(r *concRig) {
-		r.addAt("pq", "T-7", 2, event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
+		r.addAt("pq", "T-7", 2, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-07", Agent: "pq-l-07"})
 		if s := r.state("pq", "T-7"); s != stSubmitted {
 			r.t.Fatalf("precondition: T-7 is %s after its next attempt's submission, want submitted", s)
 		}
@@ -566,18 +566,18 @@ func TestDroppedEndsTheTask(t *testing.T) {
 		{"dropped at N after submitted at N+1", func(t *testing.T, r *concRig) { dropAfterNext(r) }, stDropped, 2},
 		{"late gate result after dropped", func(t *testing.T, r *concRig) {
 			dropAfterNext(r)
-			r.addAt("pq", "T-7", 2, event.StepSubmit, event.KindResult, submitOut{SHA: "s7"})
-			r.addAt("pq", "T-7", 2, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-7",
+			r.addAt("pq", "T-7", 2, event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s7"})
+			r.addAt("pq", "T-7", 2, event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-7",
 				SHA: "c7", Target: "b", Patch: "p"}})
 		}, stDropped, 2},
 		{"late verdict result after dropped", func(t *testing.T, r *concRig) {
 			dropAfterNext(r)
-			r.addAt("pq", "T-7", 2, verdictStep(wire.MethodAccept, "v9"), event.KindResult, verdictResult{Job: "T-7/2/review",
+			r.addAt("pq", "T-7", 2, verdictStep(wire.MethodAccept, "v9"), event.KindResult, event.VerdictResult{Job: "T-7/2/review",
 				Reply: "ACCEPTED", Patch: "p"})
 		}, stDropped, 2},
 		{"dispatch after dropped", func(t *testing.T, r *concRig) {
 			dropAfterNext(r)
-			r.addAt("pq", "T-7", 3, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-07", Agent: "pq-l-07",
+			r.addAt("pq", "T-7", 3, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-07", Agent: "pq-l-07",
 				Target: "target", Branch: "task/T-7"})
 		}, stDispatched, 3},
 	} {
@@ -737,46 +737,46 @@ var dropStartCases = []struct {
 	{"publish", "pr", "T-4", "publish", acceptT4},
 	{"moved gate (gate.2)", "pr", "T-4", "gate", func(r *concRig) {
 		acceptT4(r)
-		r.add("pr", "T-4", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved, Line: "moved"})
+		r.add("pr", "T-4", event.StepPublish, event.KindResult, event.GateOut{Outcome: outMoved, Line: "moved"})
 	}},
 	{"numbered publish (publish.2)", "pr", "T-4", "publish", func(r *concRig) {
 		acceptT4(r)
-		r.add("pr", "T-4", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved, Line: "moved"})
-		r.add("pr", "T-4", nth(event.StepGate, 2), event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4",
+		r.add("pr", "T-4", event.StepPublish, event.KindResult, event.GateOut{Outcome: outMoved, Line: "moved"})
+		r.add("pr", "T-4", nth(event.StepGate, 2), event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4",
 			SHA: "c2", Target: "b", Patch: "p"}})
-		r.add("pr", "T-4", event.StepKept, event.KindFact, JobData{Patch: "p"})
+		r.add("pr", "T-4", event.StepKept, event.KindFact, event.Job{Patch: "p"})
 	}},
 	{"resolved gate", "pq", "T-3", "gate", func(r *concRig) {
-		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-3", SHA: "c",
+		r.add("pq", "T-3", event.StepGate, event.KindResult, event.GateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 		r.add("pq", "T-3", event.StepResolve, event.KindIntent, promptData{Agent: "pq-int", Job: "T-3/1/resolve", Patch: "p"})
 		r.add("pq", "T-3", event.StepResolve, event.KindResult, "sent")
-		r.add("pq", "T-3", verdictStep(wire.MethodResolved, "r1"), event.KindResult, verdictResult{Job: "T-3/1/resolve", SHA: "m"})
+		r.add("pq", "T-3", verdictStep(wire.MethodResolved, "r1"), event.KindResult, event.VerdictResult{Job: "T-3/1/resolve", SHA: "m"})
 	}},
 	{"submit", "pq", "T-6", "submit", func(r *concRig) {
-		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06"})
+		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-06"})
 	}},
 	{"review", "pq", "T-3", "restart", func(r *concRig) {
-		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-3", SHA: "c",
+		r.add("pq", "T-3", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 	}},
 	{"resolve", "pq", "T-3", "restart", func(r *concRig) {
-		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-3", SHA: "c",
+		r.add("pq", "T-3", event.StepGate, event.KindResult, event.GateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 	}},
 	{"prepare", "pj", "T-2", "prepare", dispatchT2},
 	{"start", "pj", "T-2", "restart", func(r *concRig) {
 		dispatchT2(r)
-		r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+		r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	}},
 	{"work", "pj", "T-2", "prompt", func(r *concRig) {
 		dispatchT2(r)
-		r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
-		r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Pane: "w1:p2"})
+		r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
+		r.add("pj", "T-2", event.StepStartWork, event.KindResult, event.StartOut{Pane: "w1:p2"})
 	}},
 	{"fix", "pq", "T-7", "prompt", func(r *concRig) {
-		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
-		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
+		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-07", Agent: "pq-l-07"})
+		r.add("pq", "T-7", event.StepSendback, event.KindFact, event.Note{Note: "fix it"})
 		// its lane.sync ran (row 24a): the fix job is the selected step
 		r.addAt("pq", "T-7", 2, event.StepSync, event.KindResult, syncOut{Outcome: port.SyncCurrent})
 		r.worker("pq", "w2:p7", "pq-l-07") // for its fix job's wake (an agent no pane proves gets none)
@@ -922,8 +922,8 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
 	delete(r.a.obs, "w1:p9") // no integrator runs: the review job's step starts it
 	entered, fetch := make(chan struct{}), make(chan struct{})
@@ -983,8 +983,8 @@ func TestDropAndSubmission(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) *concRig {
 		r := newConcRig(t)
-		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
-		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
+		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-07", Agent: "pq-l-07"})
+		r.add("pq", "T-7", event.StepSendback, event.KindFact, event.Note{Note: "fix it"})
 		return r
 	}
 	t.Run("control: task_done submits", func(t *testing.T) {
@@ -1122,8 +1122,8 @@ func TestEarlyVerdict(t *testing.T) {
 	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 		}
 	}

@@ -35,7 +35,7 @@ func TestStartFitsSeesTheSessionAStartAdopted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "RESTARTED", Agent: "pj-l-01",
+	addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, event.StartOut{Line: "RESTARTED", Agent: "pj-l-01",
 		Pane: "w1:p1", Kind: "claude", Session: "live-1", Config: cfg.Rev()})
 	staleRecord(t, h)
 	pane := port.Pane{ID: "w1:p1", Session: "live-1"} // herdr's agent_session: the session the pane runs

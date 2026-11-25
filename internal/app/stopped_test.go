@@ -57,9 +57,9 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 				tasks = append(tasks, c.then)
 			}
 			for _, task := range tasks {
-				addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+				addRecord(t, h, task, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 					Agent: "pj-l-01", Branch: "task/" + task, Target: "b"})
-				addRecord(t, h, task, event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+				addRecord(t, h, task, event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 			}
 			p := h.a.p
 			for _, task := range tasks {

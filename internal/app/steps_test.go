@@ -18,7 +18,7 @@ import (
 func TestHeldGateBlocksNothingElse(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
 		"pj-wt", "L-02"), Agent: "pj-l-02", Target: "target", Branch: "task/T-2"})
 	r.run()
 	defer r.stop()
@@ -187,12 +187,12 @@ func TestGateAndTestResultsFold(t *testing.T) {
 		data       any
 	}
 	gate := func(kind, base string) []rec {
-		return []rec{{event.StepGate, event.KindIntent, gateIn{Kind: kind, Lane: "L-01", Input: "s1"}},
-			{event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Line: "GREEN T-1",
+		return []rec{{event.StepGate, event.KindIntent, event.GateIn{Kind: kind, Lane: "L-01", Input: "s1"}},
+			{event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Line: "GREEN T-1",
 				Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "t1", Base: base, Patch: "p"}}}}
 	}
 	test := func(outcome string) rec {
-		return rec{event.StepTest, event.KindResult, testOut{Outcome: outcome, Line: outcome + " line", Checks: "check 1 pass"}}
+		return rec{event.StepTest, event.KindResult, event.TestOut{Outcome: outcome, Line: outcome + " line", Checks: "check 1 pass"}}
 	}
 	for _, c := range []struct {
 		name   string
@@ -210,8 +210,8 @@ func TestGateAndTestResultsFold(t *testing.T) {
 		{"a failed test", append(gate(port.InputLane, "b0"), test(outFail)), stCandidate, "", true},
 	} {
 		p := &proj{folded: newFolded()}
-		all := append([]rec{{event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"}},
-			{event.StepSubmit, event.KindResult, submitOut{SHA: "s1"}}}, c.recs...)
+		all := append([]rec{{event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"}},
+			{event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"}}}, c.recs...)
 		for _, x := range all {
 			raw, _ := json.Marshal(x.data)
 			p.foldLoop(event.Record{Task: "T-1", Attempt: 1, Step: x.step, Kind: x.kind, Data: raw})

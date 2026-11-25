@@ -106,8 +106,8 @@ func TestPausedScratchReservation(t *testing.T) {
 			}
 			p := h.a.p
 			h.a.needsYou(p, p.folded.loop["T-1"], cause, cause)
-			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
-			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
+			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-02"})
+			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s2"})
 			p = reloadProj(t, h)
 			mt := p.folded.loop["T-1"]
 			want := stResolving
@@ -165,8 +165,8 @@ func TestPausedScratchReleased(t *testing.T) {
 				cause = causeSendbacks
 			}
 			h.a.needsYou(p, p.folded.loop["T-1"], cause, "held")
-			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
-			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
+			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-02"})
+			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s2"})
 			if !busy(p, "T-2") {
 				t.Fatal("precondition: the paused T-1 holds the scratch")
 			}
@@ -182,7 +182,7 @@ func TestPausedScratchReleased(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "sendback":
-				addRecord(t, h, "T-1", event.StepSendback, event.KindFact, noteData{Note: "fix"})
+				addRecord(t, h, "T-1", event.StepSendback, event.KindFact, event.Note{Note: "fix"})
 			}
 			if busy(p, "T-2") {
 				t.Fatalf("%s: T-1 (%s, %+v) still holds the scratch", release, p.folded.loop["T-1"].state, p.folded.loop["T-1"].needs)
@@ -208,8 +208,8 @@ func TestMergeLoopNeedsIntegrator(t *testing.T) {
 			}
 			continue
 		}
-		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
-		addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
+		addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
 		h.pass(context.Background())
 		if len(f.gated) != 0 {
 			t.Errorf("no integrator: gated %v; want observe-only", f.gated)
@@ -454,8 +454,8 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			} else { // a review job: T-1 gated green, its review job out
 				h, f = seedSched(t, false)
 				serveHarness(t, h, true)
-				addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
-				addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+				addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
+				addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
 				f.Launch(context.Background(), port.Launch{})
 				h.pass(context.Background())
 				mt := h.a.p.folded.loop["T-1"]
@@ -555,8 +555,8 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	h.a.mu.Lock()
 	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
-	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
 	return h, g
 }
 

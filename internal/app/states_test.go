@@ -49,7 +49,7 @@ func checkRow(t *testing.T, w rowWant) {
 	}
 	for _, m := range []string{wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved} {
 		c := mt
-		c.verdict(m, verdictResult{Patch: "p", Note: "why", SHA: "s"})
+		c.verdict(m, event.VerdictResult{Patch: "p", Note: "why", SHA: "s"})
 		want, takes := w.verdicts[m]
 		if !takes {
 			want = mt.shown()
@@ -241,7 +241,7 @@ func TestStateWaitingRow2a(t *testing.T) {
 		{"T-3 dropped, T-2 open", map[string]string{"T-2": stWorking, "T-3": stDropped}, true}, // needs-you
 		{"T-2 rejected", map[string]string{"T-2": stRejected, "T-3": stWorking}, true},
 	} {
-		mt := mtask{task: "T-1", attempt: 1, state: stWaiting, disp: dispatchData{After: []string{"T-2", "T-3"}}}
+		mt := mtask{task: "T-1", attempt: 1, state: stWaiting, disp: event.Dispatch{After: []string{"T-2", "T-3"}}}
 		p := &proj{dispatching: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}}
 		for task, st := range c.deps {
 			if st != "" {

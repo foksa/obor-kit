@@ -28,7 +28,7 @@ func TestWatchRule(t *testing.T) {
 	}
 	dropped := func(task, why string) lineStep {
 		return func(t *testing.T, h *harness) {
-			addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+			addRecord(t, h, task, event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01"})
 			addRecord(t, h, task, event.StepDropped, event.KindFact, event.FactData{Reason: why, Merge: true})
 		}
 	}

@@ -58,7 +58,7 @@ func (a *App) waitTask(p *proj, c wire.DispatchReq, ls []port.Lane, keep bool) (
 			c.Task, mt.shown())
 	}
 	caller := callerOf(c.Envelope)
-	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Keep: keep,
+	d := event.Dispatch{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Keep: keep,
 		Caller: caller, Call: c.CallID, Reply: fmt.Sprintf("WAITING %s after %s (queued)", c.Task, strings.Join(open, ", ")) + idleNote(ls, "", held)}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
@@ -87,7 +87,7 @@ func (m *mtask) nextAttempt() int {
 
 // foldWaiting folds fact waiting: the task waits for its After tasks (no lane held: the lane is the dispatch's).
 func (p *proj) foldWaiting(r event.Record) {
-	var d dispatchData
+	var d event.Dispatch
 	_ = json.Unmarshal(r.Data, &d)
 	next := &mtask{task: r.Task, attempt: r.Attempt, state: stWaiting, disp: d, dispSeq: r.Seq} // its seq: oldest first
 	if mt := p.folded.loop[r.Task]; mt != nil && !states[mt.state].ended {

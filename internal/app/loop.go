@@ -181,7 +181,7 @@ type mtask struct {
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's); lane.prepare's
 	// base (""), its refusal or agent.start's (refused; its cause: refusedCause); the step counters (the last N used); agent.start done.
-	disp                    dispatchData
+	disp                    event.Dispatch
 	at                      time.Time
 	dispSeq                 int64
 	base, refused           string
@@ -215,7 +215,7 @@ type attemptVars struct {
 	mismatch       *port.Mismatch     // the last gate's replay mismatch (nil: none)
 	kind           string             // the attempt's last gate's kind: lane, resolved, moved
 	job            string             // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
-	patch          string             // the patch hash that job was prompted with (its intent's JobData)
+	patch          string             // the patch hash that job was prompted with (its intent's event.Job)
 	delivered      bool               // the integrator took that job (fact delivered)
 	lost           int                // how often the integrator exited with a job open since the last resume
 	fixed          bool               // stWorking: the fix job of this attempt is out
@@ -235,57 +235,6 @@ type failure struct {
 	at  time.Time
 	why string // the failed fact's reason: "<step>: <err>"
 }
-
-// Records' data.
-type (
-	submitData struct {
-		Lane  string `json:"lane"`
-		Agent string `json:"agent,omitempty"`
-		Pane  string `json:"pane,omitempty"`
-		Call  string `json:"call,omitempty"` // task_done's call id ("": a done file's watch)
-		// Report is task_done's report ("": a done file's submission).
-		Report string `json:"report,omitempty"`
-		// Land: obor land's submission of the owner's drive, Report its summary, Call its call id.
-		Land bool `json:"land,omitempty"`
-	}
-	stopData struct {
-		Lane  string `json:"lane"`
-		Agent string `json:"agent,omitempty"`
-		Force bool   `json:"force,omitempty"` // worker.stop's: a working agent stopped too
-	}
-	gateIn struct {
-		Kind  string `json:"kind"` // lane, resolved, moved
-		Lane  string `json:"lane"`
-		Input string `json:"input,omitempty"` // the sha the gate merges (resolved: checks)
-	}
-	submitOut struct {
-		SHA     string `json:"sha,omitempty"`
-		Refused string `json:"refused,omitempty"` // Scratch.Submit's final refusal
-	}
-	gateOut struct {
-		Outcome   string         `json:"outcome"` // a gate's green, red, conflict, fail; a publish's merged, moved, hold
-		Line      string         `json:"line"`
-		Candidate port.Candidate `json:"candidate"`
-		SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message
-		// Mismatch: a conflict whose replayed resolution lost edits of the checked one
-		Mismatch *port.Mismatch `json:"mismatch,omitempty"`
-	}
-	// testIn is a lane test's intent (row 18b): the candidate it tests, the target it was merged onto, the lane.
-	testIn struct {
-		Candidate string `json:"candidate"`
-		Target    string `json:"target"`
-		Lane      string `json:"lane"`
-	}
-	// testOut is a lane test's result: green, red or fail, its line and the checks' summary.
-	testOut struct {
-		Outcome string `json:"outcome"`
-		Line    string `json:"line"`
-		Checks  string `json:"checks,omitempty"`
-	}
-	noteData struct {
-		Note string `json:"note"`
-	}
-)
 
 // nth is step's N-th key within an attempt: step, step.2, step.3 …
 func nth(step string, n int) string {
@@ -817,7 +766,7 @@ func (a *App) pickGreen(p *proj, mt mtask) step {
 	if mt.accepted != "" && mt.accepted == mt.cand.Patch {
 		return func(context.Context, *Loop) bool {
 			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepKept, Kind: event.KindFact},
-				JobData{Patch: mt.cand.Patch})
+				event.Job{Patch: mt.cand.Patch})
 		}
 	}
 	return func(ctx context.Context, fx *Loop) bool {
@@ -837,7 +786,7 @@ func (a *App) pickRed(p *proj, mt mtask) step {
 	if mt.sendbacks < K || mt.drive {
 		return func(context.Context, *Loop) bool {
 			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepSendback, Kind: event.KindFact},
-				noteData{Note: mt.line})
+				event.Note{Note: mt.line})
 		}
 	}
 	return func(context.Context, *Loop) bool {

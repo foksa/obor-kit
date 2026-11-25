@@ -398,14 +398,14 @@ func (a *App) leadSendback(p *proj, c wire.ResumeReq, mt mtask) (string, error) 
 		reply = fmt.Sprintf("SENDBACK %s (job %s)", c.Task, job)
 	}
 	in := event.Intent{Key: event.Key{Task: c.Task, Attempt: mt.attempt, Step: verdictStep(method, c.CallID)},
-		Class: event.ClassFact, Data: verdictData{Job: job, Caller: c.Agent, Note: c.Text}}
+		Class: event.ClassFact, Data: event.Verdict{Job: job, Caller: c.Agent, Note: c.Text}}
 	a.mu.Lock()
-	r, err := a.verdictRecord(p, in, verdictResult{Job: job, Reply: reply, Note: c.Text, Lead: true})
+	r, err := a.verdictRecord(p, in, event.VerdictResult{Job: job, Reply: reply, Note: c.Text, Lead: true})
 	if err != nil {
 		a.mu.Unlock()
 		return "", err
 	}
-	var v verdictResult
+	var v event.VerdictResult
 	_ = json.Unmarshal(r.Data, &v)
 	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, Dash(c.Agent))

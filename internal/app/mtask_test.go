@@ -23,8 +23,8 @@ func TestLoopTasksSortedByName(t *testing.T) {
 // gateRev.
 func firstConflictResolved(gateRev int) *blockLog {
 	b := dispatched().submitted(1).gate(1, outConflict).
-		add(1, event.StepResolve, event.KindIntent, JobData{Patch: "payload"}).
-		verdict(1, wire.MethodResolved, event.StepResolve, verdictResult{SHA: "res"})
+		add(1, event.StepResolve, event.KindIntent, event.Job{Patch: "payload"}).
+		verdict(1, wire.MethodResolved, event.StepResolve, event.VerdictResult{SHA: "res"})
 	return b.resolvedGate(nth(event.StepGate, 2), gateRev)
 }
 
@@ -33,16 +33,16 @@ func firstConflictResolved(gateRev int) *blockLog {
 // the same patch.
 func acceptedThenMovedConflict(gateRev int) *blockLog {
 	b := dispatched().submitted(1)
-	b.result(1, event.StepGate, gateIn{Kind: port.InputLane, Lane: "L-01"}, gateOut{Outcome: outGreen, SpecRev: 0,
+	b.result(1, event.StepGate, event.GateIn{Kind: port.InputLane, Lane: "L-01"}, event.GateOut{Outcome: outGreen, SpecRev: 0,
 		Candidate: port.Candidate{SHA: "candidate1", Target: "base1", Base: "base", Patch: "diff"}})
-	b.add(1, event.StepTest, event.KindIntent, testIn{})
-	b.result(1, event.StepTest, nil, testOut{Outcome: outGreen, Line: "GREEN T-1", Checks: "rc=0"})
-	b.add(1, event.StepReview, event.KindIntent, JobData{Patch: "diff"})
-	b.verdict(1, wire.MethodAccept, event.StepReview, verdictResult{Patch: "diff", Reply: "ACCEPTED"})
-	b.result(1, event.StepPublish, nil, gateOut{Outcome: outMoved})
-	b.result(1, nth(event.StepGate, 2), gateIn{Kind: port.InputMoved, Lane: "L-01", Input: "s1"}, gateOut{Outcome: outConflict})
-	b.add(1, event.StepResolve, event.KindIntent, JobData{Patch: "diff"})
-	b.verdict(1, wire.MethodResolved, event.StepResolve, verdictResult{SHA: "res"})
+	b.add(1, event.StepTest, event.KindIntent, event.TestIn{})
+	b.result(1, event.StepTest, nil, event.TestOut{Outcome: outGreen, Line: "GREEN T-1", Checks: "rc=0"})
+	b.add(1, event.StepReview, event.KindIntent, event.Job{Patch: "diff"})
+	b.verdict(1, wire.MethodAccept, event.StepReview, event.VerdictResult{Patch: "diff", Reply: "ACCEPTED"})
+	b.result(1, event.StepPublish, nil, event.GateOut{Outcome: outMoved})
+	b.result(1, nth(event.StepGate, 2), event.GateIn{Kind: port.InputMoved, Lane: "L-01", Input: "s1"}, event.GateOut{Outcome: outConflict})
+	b.add(1, event.StepResolve, event.KindIntent, event.Job{Patch: "diff"})
+	b.verdict(1, wire.MethodResolved, event.StepResolve, event.VerdictResult{SHA: "res"})
 	return b.resolvedGate(nth(event.StepGate, 3), gateRev)
 }
 
@@ -71,8 +71,8 @@ func TestResolvedConflictKeepsPriorAcceptOnly(t *testing.T) {
 			}
 			// The lane test green: row 20 keeps a bound accept, else row 19 sends the review job (a first conflict
 			// has none to keep).
-			c.log.add(1, event.StepTest, event.KindIntent, testIn{})
-			c.log.result(1, event.StepTest, nil, testOut{Outcome: outGreen, Line: "GREEN T-1", Checks: "rc=0"})
+			c.log.add(1, event.StepTest, event.KindIntent, event.TestIn{})
+			c.log.result(1, event.StepTest, nil, event.TestOut{Outcome: outGreen, Line: "GREEN T-1", Checks: "rc=0"})
 			_, p = blockProj(t, c.log.recs)
 			mt = p.folded.loop[blockTask]
 			kept := mt.accepted != "" && mt.accepted == mt.cand.Patch
@@ -88,8 +88,8 @@ func TestResolvedConflictKeepsPriorAcceptOnly(t *testing.T) {
 func TestResolvedConflictRedTestNeverPublishes(t *testing.T) {
 	t.Parallel()
 	b := firstConflictResolved(0)
-	b.add(1, event.StepTest, event.KindIntent, testIn{})
-	b.result(1, event.StepTest, nil, testOut{Outcome: outRed, Line: "RED check"})
+	b.add(1, event.StepTest, event.KindIntent, event.TestIn{})
+	b.result(1, event.StepTest, nil, event.TestOut{Outcome: outRed, Line: "RED check"})
 	_, p := blockProj(t, b.recs)
 	mt := p.folded.loop[blockTask]
 	if mt.state != stRed || mt.accepted != "" {

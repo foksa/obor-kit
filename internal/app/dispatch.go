@@ -47,68 +47,6 @@ type Specs interface {
 	Check(ctx context.Context, task, text string) (refusal string, err error)
 }
 
-// Records' data.
-type (
-	dispatchData struct {
-		port.Dispatch          // first: the record's lane, dir, agent, branch, target, redo
-		Force         bool     `json:"force,omitempty"`
-		Level         string   `json:"level,omitempty"`  // the spec's difficulty level the models came from
-		Types         []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]`
-		Effort        string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default)
-		// Type is the model ref the dispatch chose, `<model>[:<effort>]`: the lane row's type. "": a record
-		// that records none, or a waiting one.
-		Type  string   `json:"type,omitempty"`
-		After []string `json:"after,omitempty"` // waiting: the tasks it waits for
-		// Drive: the owner's drive (obor drive): no worker, no work job; after lane.prepare the task is driving.
-		Drive bool `json:"drive,omitempty"`
-		// Fix: a move's outstanding fix of the attempt it moved, a sendback's or a red gate's text; the moved
-		// attempt's work job carries it.
-		Fix string `json:"fix,omitempty"`
-		// Stop: the worker the merge loop stops (with force) before the step that needs the lane: a move's (the
-		// redo's, before lane.prepare), or a keep lane's live agent whose recorded start does not run this dispatch's
-		// model (keepStop: stopped between tasks, the dispatch's model started). "": none.
-		Stop string `json:"stop,omitempty"`
-		// Keep: the lane is a keep lane (config.LaneKeep), as the config said at the dispatch: the merged task's
-		// after-merge steps keep its agent (afterList), the start runs only when the lane has no live agent
-		// (nextDispatch: only when its recorded start runs this dispatch's model), and a waiting one queues for its
-		// lane in the scheduler's order (keepAhead).
-		Keep   bool   `json:"keep,omitempty"`
-		Caller string `json:"caller,omitempty"`
-		Call   string `json:"call,omitempty"`
-		Reply  string `json:"reply"`
-	}
-	prepareOut struct {
-		Base    string `json:"base,omitempty"`
-		Refused string `json:"refused,omitempty"`
-	}
-	// startData is agent.start's intent: the lane's pane and the agent in it at intent time (Ran; Session herdr's
-	// session id of it, "": none known), what a replay compares the snapshot with. It runs under its job's intent and
-	// carries its wake (startJob).
-	startData struct {
-		Lane    string `json:"lane"`
-		Agent   string `json:"agent"`
-		Pane    string `json:"pane"`
-		Ran     bool   `json:"ran,omitempty"`
-		Session string `json:"sid,omitempty"`
-	}
-	// startOut is agent.start's result, and the integrator's start.<job> (not "running"): not refused, its job's
-	// delivery (startJob). Agent, Pane, Terminal, Kind, Session: the agent started there, the pane's terminal id, its
-	// kind and herdr's session id of it ("": none reported, or a replay that saw it in the snapshot): the start row of
-	// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev).
-	// The start's row keeps it, so a keep lane reuses the agent only while the config is that same config
-	// (startFits). agent.start's alone: the integrator's start.<job> carries none.
-	startOut struct {
-		Line     string `json:"line,omitempty"`
-		Agent    string `json:"agent,omitempty"`
-		Pane     string `json:"pane,omitempty"`
-		Terminal string `json:"terminal,omitempty"`
-		Kind     string `json:"kind,omitempty"`
-		Session  string `json:"sid,omitempty"`
-		Config   string `json:"config,omitempty"`
-		Refused  string `json:"refused,omitempty"`
-	}
-)
-
 // dispatchCall answers the socket's dispatch request: a call id is required and a repeated one gets the stored reply,
 // as does a dispatch of a waiting task (whatever its call id). --model on a task its worker works on moves it
 // (move.go): the move is recorded at once, and the merge loop stops the worker before the new model's start.
@@ -183,7 +121,7 @@ func (a *App) waitQueue(p *proj, c wire.DispatchReq, qe queueError) (string, err
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	d := dispatchData{Force: c.Force, Level: qe.level, Types: qe.types, Keep: true, Caller: callerOf(c.Envelope), Call: c.CallID}
+	d := event.Dispatch{Force: c.Force, Level: qe.level, Types: qe.types, Keep: true, Caller: callerOf(c.Envelope), Call: c.CallID}
 	d.Lane = qe.lane
 	d.Reply = fmt.Sprintf("WAITING %s (queued): %s", c.Task, qe.why()) + idleNote(qe.ls, "", held)
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
@@ -376,7 +314,7 @@ func (a *App) waitLane(p *proj, c wire.DispatchReq, nl noLaneError) (string, err
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c.Envelope),
+	d := event.Dispatch{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c.Envelope),
 		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + levelNote(nl.level, nl.types) + idleNote(nl.ls, "", held)}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
@@ -510,7 +448,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	}
 	agent := cfg.AgentName("worker", l.Name) // derived (a lane pane's old label is no name of the worker)
 	caller := callerOf(c.Envelope)
-	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
+	d := event.Dispatch{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Stop: a.keepStop(p, cfg, l, agent, ref),
 		Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
@@ -556,7 +494,7 @@ func (m *mtask) redoable() bool {
 
 // foldDispatch folds fact dispatch: a new attempt of the task, dispatched. A redo of a needs-you keeps the sendbacks.
 func (p *proj) foldDispatch(r event.Record) {
-	var d dispatchData
+	var d event.Dispatch
 	_ = json.Unmarshal(r.Data, &d)
 	at, _ := time.Parse(time.RFC3339, r.TS)
 	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at,

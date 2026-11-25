@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/store"
 )
 
@@ -147,4 +148,162 @@ type Pruned struct {
 type PrunedRef struct {
 	Name string `json:"name"`
 	SHA  string `json:"sha"`
+}
+
+// Submit is a submission's fact data: the lane, the agent and its pane, the call that made it and the report.
+type Submit struct {
+	Lane  string `json:"lane"`
+	Agent string `json:"agent,omitempty"`
+	Pane  string `json:"pane,omitempty"`
+	Call  string `json:"call,omitempty"` // task_done's call id ("": a done file's watch)
+	// Report is task_done's report ("": a done file's submission).
+	Report string `json:"report,omitempty"`
+	// Land: obor land's submission of the owner's drive, Report its summary, Call its call id.
+	Land bool `json:"land,omitempty"`
+}
+
+// Stop is agent.stop's (worker.stop's) data: the lane, the agent and whether a working one is stopped too.
+type Stop struct {
+	Lane  string `json:"lane"`
+	Agent string `json:"agent,omitempty"`
+	Force bool   `json:"force,omitempty"` // worker.stop's: a working agent stopped too
+}
+
+// GateIn is a gate's intent data (row 18): the kind, the lane and the sha the gate merges (resolved: checks).
+type GateIn struct {
+	Kind  string `json:"kind"` // lane, resolved, moved
+	Lane  string `json:"lane"`
+	Input string `json:"input,omitempty"` // the sha the gate merges (resolved: checks)
+}
+
+// SubmitOut is a submission's result: the lane's commit pinned, or its final refusal.
+type SubmitOut struct {
+	SHA     string `json:"sha,omitempty"`
+	Refused string `json:"refused,omitempty"` // Scratch.Submit's final refusal
+}
+
+// GateOut is a gate's or a publish's result: the outcome, its line, the candidate it made, the spec rev in its
+// merge's message and, for a conflict, the replay mismatch that lost edits of the checked one.
+type GateOut struct {
+	Outcome   string         `json:"outcome"` // a gate's green, red, conflict, fail; a publish's merged, moved, hold
+	Line      string         `json:"line"`
+	Candidate port.Candidate `json:"candidate"`
+	SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message
+	// Mismatch: a conflict whose replayed resolution lost edits of the checked one
+	Mismatch *port.Mismatch `json:"mismatch,omitempty"`
+}
+
+// TestIn is a lane test's intent data (row 18b): the candidate it tests, the target it was merged onto, the lane.
+type TestIn struct {
+	Candidate string `json:"candidate"`
+	Target    string `json:"target"`
+	Lane      string `json:"lane"`
+}
+
+// TestOut is a lane test's result: green, red or fail, its line and the checks' summary.
+type TestOut struct {
+	Outcome string `json:"outcome"`
+	Line    string `json:"line"`
+	Checks  string `json:"checks,omitempty"`
+}
+
+// Note is a sendback's, a fix job's or a held drive's data: the note it carries.
+type Note struct {
+	Note string `json:"note"`
+}
+
+// Dispatch is a dispatch or waiting fact's data: the lane, dir, agent, branch, target and redo (port.Dispatch
+// first), the models the request resolved, its flags and the call with its reply.
+type Dispatch struct {
+	port.Dispatch          // first: the record's lane, dir, agent, branch, target, redo
+	Force         bool     `json:"force,omitempty"`
+	Level         string   `json:"level,omitempty"`  // the spec's difficulty level the models came from
+	Types         []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]`
+	Effort        string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default)
+	// Type is the model ref the dispatch chose, `<model>[:<effort>]`: the lane row's type. "": a record
+	// that records none, or a waiting one.
+	Type  string   `json:"type,omitempty"`
+	After []string `json:"after,omitempty"` // waiting: the tasks it waits for
+	// Drive: the owner's drive (obor drive): no worker, no work job; after lane.prepare the task is driving.
+	Drive bool `json:"drive,omitempty"`
+	// Fix: a move's outstanding fix of the attempt it moved, a sendback's or a red gate's text; the moved
+	// attempt's work job carries it.
+	Fix string `json:"fix,omitempty"`
+	// Stop: the worker the merge loop stops (with force) before the step that needs the lane: a move's (the
+	// redo's, before lane.prepare), or a keep lane's live agent whose recorded start does not run this dispatch's
+	// model (keepStop: stopped between tasks, the dispatch's model started). "": none.
+	Stop string `json:"stop,omitempty"`
+	// Keep: the lane is a keep lane (config.LaneKeep), as the config said at the dispatch: the merged task's
+	// after-merge steps keep its agent (afterList), the start runs only when the lane has no live agent
+	// (nextDispatch: only when its recorded start runs this dispatch's model), and a waiting one queues for its
+	// lane in the scheduler's order (keepAhead).
+	Keep   bool   `json:"keep,omitempty"`
+	Caller string `json:"caller,omitempty"`
+	Call   string `json:"call,omitempty"`
+	Reply  string `json:"reply"`
+}
+
+// PrepareOut is lane.prepare's result: the base it prepared, or its refusal.
+type PrepareOut struct {
+	Base    string `json:"base,omitempty"`
+	Refused string `json:"refused,omitempty"`
+}
+
+// Start is agent.start's intent: the lane's pane and the agent in it at intent time (Ran; Session herdr's
+// session id of it, "": none known), what a replay compares the snapshot with. It runs under its job's intent and
+// carries its wake (startJob).
+type Start struct {
+	Lane    string `json:"lane"`
+	Agent   string `json:"agent"`
+	Pane    string `json:"pane"`
+	Ran     bool   `json:"ran,omitempty"`
+	Session string `json:"sid,omitempty"`
+}
+
+// StartOut is agent.start's result, and the integrator's start.<job> (not "running"): not refused, its job's
+// delivery (startJob). Agent, Pane, Terminal, Kind, Session: the agent started there, the pane's terminal id, its
+// kind and herdr's session id of it ("": none reported, or a replay that saw it in the snapshot): the start row of
+// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev).
+// The start's row keeps it, so a keep lane reuses the agent only while the config is that same config
+// (startFits). agent.start's alone: the integrator's start.<job> carries none.
+type StartOut struct {
+	Line     string `json:"line,omitempty"`
+	Agent    string `json:"agent,omitempty"`
+	Pane     string `json:"pane,omitempty"`
+	Terminal string `json:"terminal,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Session  string `json:"sid,omitempty"`
+	Config   string `json:"config,omitempty"`
+	Refused  string `json:"refused,omitempty"`
+}
+
+// Job is a review or resolve prompt intent's data: the candidate's patch hash an accept must name.
+type Job struct {
+	Patch string `json:"patch,omitempty"`
+}
+
+// Verdict is a verdict's intent data; VerdictResult its result, the stored reply.
+type Verdict struct {
+	Job    string `json:"job"`
+	Caller string `json:"caller"`
+	Patch  string `json:"patch,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+// VerdictResult is a verdict's result: the stored reply.
+type VerdictResult struct {
+	Job   string `json:"job"`
+	Reply string `json:"reply"`
+	Patch string `json:"patch,omitempty"`
+	Note  string `json:"note,omitempty"`
+	SHA   string `json:"sha,omitempty"`  // resolved: the merge pinned at refs/obor/resolved/<task>, the gate's input
+	Lead  bool   `json:"lead,omitempty"` // a sendback of the lead's or the owner's (leadSendback)
+}
+
+// Version is fact version's data: the tool (an agent kind's name, or the project's terminal kind), its version as
+// read, and the one the log held before ("": the first sighting).
+type Version struct {
+	What    string `json:"what"`
+	Version string `json:"version"`
+	Was     string `json:"was,omitempty"`
 }

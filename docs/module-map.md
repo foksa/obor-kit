@@ -225,9 +225,11 @@ on a file missing from this table or a listed file that is gone); the entry is t
   for an agent's status on the terminal's own `port.Panes` subscription, a refresh subscribed again). It imports
   `app/port`, `progstatus` and `project` only.
 - `app/event` (core, a leaf below `app`): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
-  `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
-  types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
-  `Dump`, `RecentEvents`, `RecordsOf`, `MessagesTo`, `Since`, `Facts`, `FactTasks`, `DBFile`: the view's queries) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only.
+  `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the data type of
+  every record kind serve writes (`Pause`, `Message`, `MergedData`, `Submit`, `Stop`, `GateIn`, `GateOut`,
+  `TestIn`, `TestOut`, `Note`, `Dispatch`, `PrepareOut`, `Start`, `StartOut`, `Job`, `Verdict`, `VerdictResult`,
+  `Version`, `SpecSet`, `ConfigSet`, `Pruned`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
+  `Dump`, `RecentEvents`, `RecordsOf`, `MessagesTo`, `Since`, `Facts`, `FactTasks`, `DBFile`: the view's queries) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` and `app/port` (a dispatch's, a gate's and a start's data carry the port's types) only.
 - `app/identity` (core, a leaf below `app`): a project's identity table, `Registry`, and its rules: the start
   rows (`RecordStart`, `Start`), `Reconcile` (the tie rules over `Claims`, the strongest proof of each agent and
   terminal), `Proof`, `CrossCheck`, the lookups `WhoIs` and `Lookup` (`whereIs`'s one query), `TermOf`, `SameSession`.

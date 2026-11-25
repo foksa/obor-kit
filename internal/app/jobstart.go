@@ -35,13 +35,13 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	replay := p.log.Open(start)
 	a.mu.Lock()
 	w := a.whereIs(p, p.integrator)
-	d, live := startData{Agent: p.integrator}, ""
+	d, live := event.Start{Agent: p.integrator}, ""
 	if w.State == Identified {
 		live = p.liveSession(p.integrator, w.Pane)
 		d.Pane, d.Ran, d.Session = w.Pane.ID, true, live
 	}
 	if r, ok := p.log.Intent(start); ok { // a pending start: its recorded data
-		d = startData{}
+		d = event.Start{}
 		_ = json.Unmarshal(r.Data, &d)
 	}
 	// the job's first start: a new session, unless a pending one shows its session started
@@ -74,7 +74,7 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 				case s.Line == "running":
 					return s.Line, nil
 				}
-				return startOut{Line: s.Line, Agent: p.integrator, Pane: s.Pane, Terminal: s.Terminal, Kind: s.Kind,
+				return event.StartOut{Line: s.Line, Agent: p.integrator, Pane: s.Pane, Terminal: s.Terminal, Kind: s.Kind,
 					Session: s.Session}, nil
 			})
 		if trust != nil { // after the start's facts: the trust needs-you of the start the dialog holds
@@ -100,7 +100,7 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 // snapshot (w) shows no integrator, or the session the intent saw (the start did not replace it): live, the session
 // of the integrator's pane now (liveSession), is the intent's. A session id unknown at the intent or now cannot
 // tell: no second start (it no-ops, the wake typed), as a new session does.
-func freshAgain(d startData, w Where, live string) bool {
+func freshAgain(d event.Start, w Where, live string) bool {
 	if w.State != Identified {
 		return true
 	}
@@ -148,7 +148,7 @@ var errNoCarry = errors.New("the start did not carry the job's wake")
 // job), their numbered and recovery variants. The job's intent (P, data: the job's prompt data) is written first, so
 // the job is open while its agent starts (job_next hands it out, a verdict or task_done answers it); the start in (S)
 // runs under it, launch starting the agent with the job's wake as its first prompt (first; a kind that takes no first
-// prompt ignores it). A start that started its agent (a startOut, not refused) is the job's delivery: result "sent
+// prompt ignores it). A start that started its agent (an event.StartOut, not refused) is the job's delivery: result "sent
 // (start prompt)", its delivery timers start. Any other outcome leaves the job's intent pending: the caller types its
 // wake (harmless after a start that did carry it). False: the start failed (counted) or nothing was decided.
 func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, job event.Key, data promptData,
@@ -160,7 +160,7 @@ func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, 
 		carried := false
 		_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 			v, err := launch(ctx, wakeLine(data.Job))
-			out, ok := v.(startOut)
+			out, ok := v.(event.StartOut)
 			carried = err == nil && ok && out.Refused == ""
 			return v, err
 		})

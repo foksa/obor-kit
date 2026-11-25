@@ -434,10 +434,10 @@ func TestResumeSerialisesWithTaskDone(t *testing.T) {
 			if mt.state != stSubmitted || mt.attempt != 1 {
 				t.Fatalf("T-1 %s attempt %d after the race; want submitted in attempt 1", mt.state, mt.attempt)
 			}
-			addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"}) // the lane's commit, then its gate
+			addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"}) // the lane's commit, then its gate
 			gate := p.folded.loop["T-1"].stepName()
-			addRecord(t, h, "T-1", gate, event.KindIntent, gateIn{Kind: "lane", Lane: "L-01", Input: "s1"})
-			addRecord(t, h, "T-1", gate, event.KindResult, gateOut{Outcome: outGreen,
+			addRecord(t, h, "T-1", gate, event.KindIntent, event.GateIn{Kind: "lane", Lane: "L-01", Input: "s1"})
+			addRecord(t, h, "T-1", gate, event.KindResult, event.GateOut{Outcome: outGreen,
 				Candidate: port.Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
 			if st := p.folded.loop["T-1"].state; st != stGreen {
 				t.Fatalf("precondition: T-1 %s after its gate; want green", st)
@@ -480,12 +480,12 @@ func TestTaskDoneCannotReopenConcurrentOutsideMerge(t *testing.T) {
 		t.Errorf("late task_done reopened task as %s", st)
 	}
 	// The lane may already have been reused before a legacy late fact lands.
-	addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Agent: "pj-l-01"})
-	addRecord(t, h, "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "new-base"})
+	addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Agent: "pj-l-01"})
+	addRecord(t, h, "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "new-base"})
 	if got := p.laneTask("L-01"); got != "T-2" {
 		t.Fatalf("precondition: lane holds %q, want T-2", got)
 	}
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01"})
 	if st := p.folded.loop["T-1"].state; st != stMerged {
 		t.Errorf("late submitted fact reopened task as %s", st)
 	}
@@ -519,7 +519,7 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 		}, "T-1 has gate running"},
 		{"a pending gate intent", func(h *harness, p *proj) {
 			h.a.mu.Unlock()
-			addRecord(h.t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: "lane", Lane: "L-01"})
+			addRecord(h.t, h, "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: "lane", Lane: "L-01"})
 			h.a.mu.Lock()
 		}, "T-1 has gate pending"},
 	}
@@ -719,12 +719,12 @@ func TestResumeActByState(t *testing.T) {
 func TestLeadSendback(t *testing.T) {
 	t.Parallel()
 	sub := func(r *concRig) {
-		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06", Agent: "pq-l-06"})
-		r.add("pq", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})
+		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-06", Agent: "pq-l-06"})
+		r.add("pq", "T-6", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s6"})
 	}
 	gate := func(r *concRig, outcome string) {
-		r.add("pq", "T-6", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-06", Input: "s6"})
-		r.add("pq", "T-6", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Line: "gate " + outcome,
+		r.add("pq", "T-6", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-06", Input: "s6"})
+		r.add("pq", "T-6", event.StepGate, event.KindResult, event.GateOut{Outcome: outcome, Line: "gate " + outcome,
 			Candidate: port.Candidate{Task: "T-6", SHA: "c-T-6", Target: "b", Patch: "p6"}})
 	}
 	for _, c := range []struct {
@@ -766,7 +766,7 @@ func TestLeadSendback(t *testing.T) {
 				Reason: "gate: gate fail"})
 		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 gates it again", 1},
 		{"needs-you with no lane", func(r *concRig) { // a waiting task: no lane, no worker to send the task to
-			r.add("pq", "T-6", event.StepWaiting, event.KindFact, dispatchData{After: []string{"T-7"}})
+			r.add("pq", "T-6", event.StepWaiting, event.KindFact, event.Dispatch{After: []string{"T-7"}})
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeAfter,
 				Reason: "after: T-6 waits for T-7, which is dropped"})
 		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 retries the failed step", 1},
@@ -774,7 +774,7 @@ func TestLeadSendback(t *testing.T) {
 			sub(r)
 			gate(r, outGreen)
 			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", verdictStep(wire.MethodAccept, "a1"), event.KindResult, verdictResult{Job: "T-6/1/review", Patch: "p6"})
+			r.add("pq", "T-6", verdictStep(wire.MethodAccept, "a1"), event.KindResult, event.VerdictResult{Job: "T-6/1/review", Patch: "p6"})
 		}, stAccepted, "", "resume: T-6 is accepted; retry when it settles", 0},
 		{"submitted", sub, stSubmitted, "", "resume: T-6 is submitted; retry when it settles", 0},
 		{"no task", func(*concRig) {}, "", "", "resume: T-6 is not open in obor serve", 0},

@@ -902,8 +902,8 @@ type workflowOf struct {
 
 // greenTask gates task green in r's project pj with candidate c.
 func greenTask(r *concRig, task string, c port.Candidate) {
-	r.add("pj", task, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	r.add("pj", task, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: c})
+	r.add("pj", task, event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	r.add("pj", task, event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: c})
 }
 
 // The identity table (registry.go), its case table, on the watchdogs'
@@ -1031,10 +1031,10 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 	if !serve {
 		return h, f
 	}
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
-	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, event.Submit{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, event.SubmitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outConflict})
 	return h, f
 }
 

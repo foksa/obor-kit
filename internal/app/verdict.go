@@ -18,29 +18,7 @@ import (
 // and resolved, and hold (the job stays open, the owner decides); and the lead's or the owner's drop. They are
 // validated and recorded here (obor resume: resume.go); the merge loop (loop.go) acts on them.
 
-// The integrator's job steps (StepReview, StepResolve) are in internal/app/event; their data is JobData.
-
-// JobData is a review or resolve prompt intent's data: the candidate's patch hash an accept must name.
-type JobData struct {
-	Patch string `json:"patch,omitempty"`
-}
-
-// verdictData is a verdict's intent data; verdictResult its result, the stored reply.
-type verdictData struct {
-	Job    string `json:"job"`
-	Caller string `json:"caller"`
-	Patch  string `json:"patch,omitempty"`
-	Note   string `json:"note,omitempty"`
-}
-
-type verdictResult struct {
-	Job   string `json:"job"`
-	Reply string `json:"reply"`
-	Patch string `json:"patch,omitempty"`
-	Note  string `json:"note,omitempty"`
-	SHA   string `json:"sha,omitempty"`  // resolved: the merge pinned at refs/obor/resolved/<task>, the gate's input
-	Lead  bool   `json:"lead,omitempty"` // a sendback of the lead's or the owner's (leadSendback)
-}
+// The integrator's job steps (StepReview, StepResolve) are in internal/app/event; their data is event.Job.
 
 // verdictStep is the step of a verdict: <method>.<call id>.
 func verdictStep(method, callID string) string { return method + "." + callID }
@@ -63,7 +41,7 @@ func verdictMethod(step string) (method, callID string) {
 func (p *proj) foldJob(r event.Record) {
 	switch {
 	case r.Kind == event.KindFact && (r.Step == event.StepDispatched || r.Step == event.StepWaiting):
-		var d dispatchData
+		var d event.Dispatch
 		_ = json.Unmarshal(r.Data, &d)
 		method := wire.MethodDispatch
 		if d.Drive { // obor drive's
@@ -73,7 +51,7 @@ func (p *proj) foldJob(r event.Record) {
 			p.folded.calls[verdictStep(method, d.Call)] = d.Reply
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepSubmitted:
-		var d submitData
+		var d event.Submit
 		_ = json.Unmarshal(r.Data, &d)
 		switch {
 		case d.Call != "" && d.Land: // obor land's
@@ -113,7 +91,7 @@ func (p *proj) foldJob(r event.Record) {
 		if method == "" {
 			return
 		}
-		var v verdictResult
+		var v event.VerdictResult
 		_ = json.Unmarshal(r.Data, &v)
 		p.folded.calls[method+"."+id] = v.Reply
 		p.folded.verdicts++ // a verdict came (rolestop.go)
@@ -203,18 +181,18 @@ func (a *App) verdict(ctx context.Context, c wire.VerdictReq) (string, error) {
 		}
 	}
 	in := event.Intent{Key: event.Key{Task: c.Task, Attempt: key.Attempt, Step: verdictStep(method, c.CallID)}, Class: event.ClassFact,
-		Data: verdictData{Job: JobID(key), Caller: c.Agent, Patch: c.Patch, Note: c.Note}}
+		Data: event.Verdict{Job: JobID(key), Caller: c.Agent, Patch: c.Patch, Note: c.Note}}
 	reply = fmt.Sprintf("%s %s (job %s)", strings.ToUpper(method), c.Task, JobID(key))
 	if method == wire.MethodSendback && sendbacks >= K {
 		reply += fmt.Sprintf(": sent back %d times already, the owner decides", K)
 	}
 	a.mu.Lock()
-	r, err := a.verdictRecord(p, in, verdictResult{Job: JobID(key), Reply: reply, Patch: c.Patch, Note: c.Note, SHA: sha})
+	r, err := a.verdictRecord(p, in, event.VerdictResult{Job: JobID(key), Reply: reply, Patch: c.Patch, Note: c.Note, SHA: sha})
 	if err != nil {
 		a.mu.Unlock()
 		return "", err
 	}
-	var v verdictResult
+	var v event.VerdictResult
 	_ = json.Unmarshal(r.Data, &v)
 	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, c.Agent)
@@ -227,7 +205,7 @@ func (a *App) verdict(ctx context.Context, c wire.VerdictReq) (string, error) {
 // one when in has one, not folded again: it was folded when written). Its time is the log's: a sendback's, the next
 // attempt's begun. The reply is given once the result is in the log: a lane-row write that fails is logged and tried
 // again on the next change.
-func (a *App) verdictRecord(p *proj, in event.Intent, v verdictResult) (event.Record, error) {
+func (a *App) verdictRecord(p *proj, in event.Intent, v event.VerdictResult) (event.Record, error) {
 	r, done, wrote, err := p.log.Begin(in, a.opt.Now())
 	if err != nil || done {
 		return r, err
@@ -265,7 +243,7 @@ func (a *App) hold(p *proj, c wire.VerdictReq, job event.Key) (string, error) {
 	a.mu.Unlock()
 	if drive { // a drive's hold goes back to its owner: the job ends, the lead gets a line, no needs-you
 		if !a.record(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepSendback, Kind: event.KindFact},
-			noteData{Note: "held: " + c.Note}) {
+			event.Note{Note: "held: " + c.Note}) {
 			return "", fmt.Errorf("hold: the event log of %s refused it", p.name)
 		}
 		a.wake()

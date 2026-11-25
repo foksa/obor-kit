@@ -619,7 +619,7 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 session", "before")
 	p := h.proj()
 	h.a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
-		submitData{Lane: "L-01", Agent: "pj-l-01"})
+		event.Submit{Lane: "L-01", Agent: "pj-l-01"})
 	h.a.mu.Lock()
 	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	mt := p.folded.loop["T-1"]
@@ -937,7 +937,7 @@ func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
 	h.connect()
 	p := h.proj()
 	h.a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
-		submitData{Lane: "L-01", Agent: "pj-l-01"})
+		event.Submit{Lane: "L-01", Agent: "pj-l-01"})
 	h.a.mu.Lock()
 	mt := p.folded.loop["T-1"]
 	mt.state = stPublished
@@ -1171,7 +1171,7 @@ func TestLabelOfAnotherAgentWaitsForItsOwnPane(t *testing.T) {
 // pendingStart is a pending agent.start intent of T-1 in pane: serve recorded the start and never its result.
 func pendingStart(t *testing.T, h *harness, pane string) {
 	t.Helper()
-	addRecord(t, h, "T-1", event.StepStartWork, event.KindIntent, startData{Lane: "L-01", Agent: "pj-l-01", Pane: pane})
+	addRecord(t, h, "T-1", event.StepStartWork, event.KindIntent, event.Start{Lane: "L-01", Agent: "pj-l-01", Pane: pane})
 }
 
 // replays_test.go: agent.start's replay of a pending intent whose recorded pane is gone: the start
@@ -1200,7 +1200,7 @@ func TestStartReplayStartsInThePaneChosenAgain(t *testing.T) {
 	if ag.pane != "w1:p3" || ag.restarts != 1 {
 		t.Errorf("launched %d time(s) in %q, want once in w1:p3", ag.restarts, ag.pane)
 	}
-	var out startOut
+	var out event.StartOut
 	if err := json.Unmarshal([]byte(h.result(event.StepStartWork)), &out); err != nil {
 		t.Fatal(err)
 	}
@@ -1253,7 +1253,7 @@ func TestStartReplayIntoAPaneRunningAnAgentCannotTell(t *testing.T) {
 	if ag.restarts != 0 {
 		t.Errorf("launched %d time(s) in %q, want none", ag.restarts, ag.pane)
 	}
-	var out startOut
+	var out event.StartOut
 	if err := json.Unmarshal([]byte(h.result(event.StepStartWork)), &out); err != nil {
 		t.Fatal(err)
 	}

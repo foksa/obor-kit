@@ -43,7 +43,7 @@ func (p *proj) foldLanes(r event.Record) {
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepSubmitted:
 		p.folded.lr.submitted[r.Task] = event.RecordTime(r).Unix()
-		var d submitData
+		var d event.Submit
 		_ = json.Unmarshal(r.Data, &d)
 		if d.Lane == "" || p.folded.lr.rows[d.Lane].Task == r.Task { // an ended task's submission never folds (foldRecord)
 			return
@@ -69,7 +69,7 @@ func (p *proj) foldLanes(r event.Record) {
 		if step != event.StepPrepare || mt == nil || mt.attempt != r.Attempt || !mt.is(stDispatched) && !mt.is(stDriving) {
 			return
 		}
-		var d prepareOut
+		var d event.PrepareOut
 		_ = json.Unmarshal(r.Data, &d)
 		if d.Base == "" || d.Refused != "" {
 			return
@@ -88,7 +88,7 @@ func (p *proj) foldLanes(r event.Record) {
 // gate merges; a resubmission moves it): port.FreeState frees a landed lane at that commit, or at a lane HEAD the
 // target's history holds. A refused submit pins none and changes nothing; a new prepare clears it.
 func (p *proj) foldSubmitHead(r event.Record) {
-	var d submitOut
+	var d event.SubmitOut
 	if json.Unmarshal(r.Data, &d) != nil || d.SHA == "" {
 		return
 	}

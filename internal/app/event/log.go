@@ -1,6 +1,7 @@
-// Package event is the event log's leaf: the records a project's serve appends, their keys, steps and fact data, the
-// append-only Log over the store's events table, and the readers (ReadLog, Dump, ReadMerges). It imports no other
-// obor package but store, so readers and adapters take the log without the core (the app split).
+// Package event is the event log's leaf: the records a project's serve appends, their keys, steps and the data each
+// kind carries, the append-only Log over the store's events table, and the readers (ReadLog, Dump, ReadMerges). It
+// imports no other obor package but store and app/port, so readers and adapters take the log without the core (the
+// app split).
 package event
 
 import (

@@ -290,7 +290,7 @@ func verdictRig(t *testing.T) *rig {
 	write(t, filepath.Join(r.root, ".obor", "config.json"),
 		`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	r.loop = func(string) (*app.Loop, error) { return nil, errors.New("no adapters") }
-	data, _ := json.Marshal(app.JobData{Patch: "p1"})
+	data, _ := json.Marshal(event.Job{Patch: "p1"})
 	if err := app.WriteLog(r.root, r.clock.Now(),
 		event.Record{Task: "T-1", Attempt: 2, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01"}`)},
 		event.Record{Task: "T-1", Attempt: 2, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt, Data: data},

@@ -28,7 +28,7 @@ func TestStatusEndedIsTheStateTablesEnded(t *testing.T) {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`)
 	h.connect()
 	for _, task := range []string{"T-1", "T-2"} {
-		addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+		addRecord(t, h, task, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 			Agent: "pj-l-01", Branch: "task/" + task, Target: "b1"})
 	}
 	addRecord(t, h, "T-2", event.StepDropped, event.KindFact, event.FactData{Reason: "why"})
@@ -53,7 +53,7 @@ func TestStatusShipsTheWaitingRank(t *testing.T) {
 	a, p := lineApp(t, lineRoot(t), &now)
 	for _, task := range []string{"T-20", "T-10"} { // the reversed dispatch order: T-20's waiting fact first
 		if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepWaiting, Kind: event.KindFact},
-			dispatchData{Level: "medium", Types: []string{"sonnet"}}) {
+			event.Dispatch{Level: "medium", Types: []string{"sonnet"}}) {
 			t.Fatalf("the log refused %s's waiting fact", task)
 		}
 	}
@@ -85,7 +85,7 @@ func TestStatusFreeLanesFollowLaneHolds(t *testing.T) {
 	if ps := h.a.Status().Project; ps == nil {
 		t.Fatal("precondition: serve has no project")
 	}
-	addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: h.lane("L-02"),
+	addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: h.lane("L-02"),
 		Agent: "pj-l-02", Branch: "task/T-2", Target: "b1"})
 	h.a.mu.Lock()
 	h.a.p.lanes = []port.Lane{{Name: "L-01", State: port.LaneFree}, {Name: "L-02", State: port.LaneWorking}}
@@ -272,7 +272,7 @@ func TestStatusCarriesTheSpecsRef(t *testing.T) {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`)
 	h.connect()
 	for _, task := range []string{"T-1", "T-2"} {
-		addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+		addRecord(t, h, task, event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-01", Dir: h.lane("L-01"),
 			Agent: "pj-l-01", Branch: "task/" + task, Target: "b1"})
 	}
 	if _, _, err := store.SetSpec(h.a.p.log.DB(), "T-1", "# T-1 — A\n\nDifficulty: medium\nRef: JIRA-12\n", "", "lead",

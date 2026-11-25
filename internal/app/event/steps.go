@@ -48,14 +48,14 @@ const StepAnswered = "answered"
 
 // The dispatch's steps.
 const (
-	StepDispatched = "dispatch"     // fact: the request passed its refusals (data: dispatchData)
-	StepWaiting    = "waiting"      // fact: the request waits for its After tasks to merge (data: dispatchData)
-	StepPrepare    = "lane.prepare" // intent/result (G), lane.prepare.N after a refusal: PrepareInput → prepareOut
-	StepStartWork  = "agent.start"  // intent/result (S), agent.start.N after a refusal: startData → startOut
+	StepDispatched = "dispatch"     // fact: the request passed its refusals (data: Dispatch)
+	StepWaiting    = "waiting"      // fact: the request waits for its After tasks to merge (data: Dispatch)
+	StepPrepare    = "lane.prepare" // intent/result (G), lane.prepare.N after a refusal: port.PrepareInput → PrepareOut
+	StepStartWork  = "agent.start"  // intent/result (S), agent.start.N after a refusal: Start → StartOut
 	StepWork       = "work"         // prompt intent (P), work.N after obor resume: the worker's job
 	// StepWorkerStop is the merge loop's stop of a task's worker before the step that needs its lane: a move's
 	// (before the redo's lane.prepare) or a drop's (before lane.free).
-	// intent/result (S), worker.stop.N after a refusal obor resume retries: stopData → stopOut.
+	// intent/result (S), worker.stop.N after a refusal obor resume retries: Stop → stopOut.
 	StepWorkerStop = "worker.stop"
 )
 
@@ -86,19 +86,19 @@ const (
 
 // The merge loop's steps (the integrator's jobs: StepReview, StepResolve; its verdicts: <method>.<call id>).
 const (
-	StepSubmitted  = "submitted"    // fact: the worker's task_done submits the task (data: submitData, its report)
-	StepSubmit     = "submit"       // intent/result (G), submit.N: the lane's commit pinned → submitOut
-	StepGate       = "gate"         // intent/result (G), gate.N within an attempt: the slot's merge and compile, gateIn → gateOut
-	StepTest       = "test"         // intent/result (G), test.N: the class's checks in the lane, testIn → testOut
+	StepSubmitted  = "submitted"    // fact: the worker's task_done submits the task (data: Submit, its report)
+	StepSubmit     = "submit"       // intent/result (G), submit.N: the lane's commit pinned → SubmitOut
+	StepGate       = "gate"         // intent/result (G), gate.N within an attempt: the slot's merge and compile, GateIn → GateOut
+	StepTest       = "test"         // intent/result (G), test.N: the class's checks in the lane, TestIn → TestOut
 	StepKept       = "accept.kept"  // fact: the re-gated patch is the one accepted
-	StepSendback   = "sendback"     // fact: the gate is red, back to the worker (data: noteData)
-	StepFix        = "fix"          // prompt intent (P) of the new attempt: the worker's fix job (data: noteData)
+	StepSendback   = "sendback"     // fact: the gate is red, back to the worker (data: Note)
+	StepFix        = "fix"          // prompt intent (P) of the new attempt: the worker's fix job (data: Note)
 	StepSync       = "lane.sync"    // intent/result (G), once per fix attempt before its fix job: port.SyncInput → syncOut
-	StepPublish    = "publish"      // intent/result (G), publish.N: the candidate → gateOut
+	StepPublish    = "publish"      // intent/result (G), publish.N: the candidate → GateOut
 	StepMoved      = "target.moved" // fact: the target moved under the candidate
-	StepMerged     = "merged"       // fact (data: mergedData)
+	StepMerged     = "merged"       // fact (data: MergedData)
 	StepAfterMerge = "after_merge"  // intent/result (G): merge.after
-	StepStop       = "agent.stop"   // intent/result (S): the lane's worker stopped (data: stopData)
+	StepStop       = "agent.stop"   // intent/result (S): the lane's worker stopped (data: Stop)
 	StepUnpin      = "unpin"        // intent/result (G): a rejected task's pins deleted
 	StepDelivered  = "delivered"    // fact: the agent fetched its job (job_next)
 	StepDropped    = "dropped"      // fact: the lead dropped the task (obor drop): terminal, no more steps (data: FactData{Reason, Agent})
@@ -143,11 +143,11 @@ const (
 // no needs-you and no brief open to the reviewer or the deep dive), with a why (data: idleAck, Key and Why).
 const StepIdleAck = "idle.ack"
 
-// StepVersion is the fact of a tool's version as serve read it (task VersionTask; data: versionData).
+// StepVersion is the fact of a tool's version as serve read it (task VersionTask; data: Version).
 const StepVersion = "version"
 
 // Job steps: the integrator's jobs, prompted by the merge loop as intents with these steps (a later job of the same
-// attempt: review.2, resolve.2 …); their data is JobData.
+// attempt: review.2, resolve.2 …); their data is Job.
 const (
 	StepReview  = "review"  // awaiting-accept: accept, sendback or reject
 	StepResolve = "resolve" // resolving: resolved or reject

@@ -93,7 +93,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 		worker = cfg.AgentName("worker", mt.lane)
 	}
 	attempt := mt.attempt + 1
-	d := dispatchData{Lane: mt.lane, Dir: dir, Agent: worker, Branch: mt.disp.Branch, Target: mt.disp.Target, Redo: true,
+	d := event.Dispatch{Lane: mt.lane, Dir: dir, Agent: worker, Branch: mt.disp.Branch, Target: mt.disp.Target, Redo: true,
 		Force: c.Force, Types: c.Types, Effort: effort, Type: ref, Stop: worker, Caller: callerOf(c.Envelope),
 		Call: c.CallID, Reply: moveReply(c.Task, mt.lane, mt.disp.Type, ref, worker)}
 	if mt.is(stWorking) && mt.work == "" { // a sent-back attempt (sendback, red gate): its fix moves with it

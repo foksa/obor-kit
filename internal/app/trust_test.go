@@ -154,8 +154,8 @@ func TestWorkerStartHeldByTrustDialog(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, event.Dispatch{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, event.PrepareOut{Base: "b"})
 	sc := &screens{text: map[string]string{"w1:p2": trustDialogScreen}}
 	r.a.opt.Screen = sc.Screen
 	f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p2", resume: true} // a fresh start: held, not failed
@@ -166,7 +166,7 @@ func TestWorkerStartHeldByTrustDialog(t *testing.T) {
 	}
 	start := event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepStartWork}
 	work := event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepWork}
-	if !r.a.startWorker(context.Background(), p, fx, mt, start, startData{Agent: mt.agent, Pane: "w1:p2"}, work) {
+	if !r.a.startWorker(context.Background(), p, fx, mt, start, event.Start{Agent: mt.agent, Pane: "w1:p2"}, work) {
 		t.Fatal("the start held by the dialog failed")
 	}
 	if !p.log.Done(start) || !p.log.Done(work) || !p.folded.loop[mt.task].started {
@@ -286,8 +286,8 @@ func TestWorkerStartRuleResumeAtTrustDialogFails(t *testing.T) {
 func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 	t.Parallel()
 	gate := func(r *concRig) {
-		r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
-		r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1",
+		r.add("pj", "T-1", event.StepGate, event.KindIntent, event.GateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
+		r.add("pj", "T-1", event.StepGate, event.KindResult, event.GateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1",
 			SHA: "c", Target: "b", Patch: "p"}})
 	}
 	review := event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}
@@ -296,8 +296,8 @@ func TestIntegratorJobStartAtTrustDialog(t *testing.T) {
 		r := newConcRig(t)
 		p := r.proj("pj")
 		gate(r)
-		r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
-		r.add("pj", "T-1", "start.review", event.KindResult, startOut{Line: "STARTED", Agent: "pj-int", Pane: "w1:p9"})
+		r.add("pj", "T-1", "start.review", event.KindIntent, event.Start{Agent: "pj-int"})
+		r.add("pj", "T-1", "start.review", event.KindResult, event.StartOut{Line: "STARTED", Agent: "pj-int", Pane: "w1:p9"})
 		delete(r.a.obs, "w1:p9")
 		f := &startEffects{concFakes: r.fakes["pj"], trust: "w1:p9", resume: true}
 		mt := *p.folded.loop["T-1"]
