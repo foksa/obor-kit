@@ -39,6 +39,15 @@ func bubbleWatched(t *testing.T, w *wallWatch, f func(t *testing.T)) {
 
 func inBubble(t *testing.T) bool { return watchOf(t) != nil }
 
+// rigTick is a rig serve's tick (Options.Tick): 20 ms in a bubble, whose time is free while each tick costs a check
+// and a merge pass; 2 ms outside one, where a wait for the next tick is wall time.
+func rigTick(t *testing.T) time.Duration {
+	if inBubble(t) {
+		return 20 * time.Millisecond
+	}
+	return 2 * time.Millisecond
+}
+
 // watchOf is the wall watch of t's bubble (nil outside one).
 func watchOf(t *testing.T) *wallWatch {
 	w, _ := bubbles.Load(t)

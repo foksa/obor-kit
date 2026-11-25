@@ -50,6 +50,7 @@ type hcRig struct {
 	t      *testing.T
 	core   *hctest.Core
 	root   string
+	home   string // Options.Home: the agents' home beside the project
 	fr     *lostRestorer
 	app    *app.App
 	adopt  func(ctx context.Context) (int, error) // Options.Adopt (nil: none)
@@ -65,7 +66,8 @@ const (
 
 func newHCRig(t *testing.T) *hcRig {
 	t.Helper()
-	r := &hcRig{t: t, core: hctest.New(), root: filepath.Join(t.TempDir(), "pj"), fr: &lostRestorer{}}
+	base := t.TempDir()
+	r := &hcRig{t: t, core: hctest.New(), root: filepath.Join(base, "pj"), home: filepath.Join(base, "home"), fr: &lostRestorer{}}
 	if err := os.MkdirAll(filepath.Join(r.root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +87,9 @@ func newHCRig(t *testing.T) *hcRig {
 func (r *hcRig) start() {
 	r.t.Helper()
 	r.out = &syncBuf{}
-	r.app = app.New(app.Options{Root: r.root, Tick: 2 * time.Millisecond, Retry: 5 * time.Millisecond,
-		Out: r.out, Procs: quietProcs, Refresh: port.Refreshed, Restore: r.fr, Adopt: r.adopt}, hc.Panes{C: r.core.Client()}, &laneTable{})
+	r.app = app.New(app.Options{Root: r.root, Tick: rigTick(r.t), Retry: 5 * time.Millisecond,
+		Out: r.out, Procs: quietProcs, Refresh: port.Refreshed, Restore: r.fr, Adopt: r.adopt, Home: r.home},
+		hc.Panes{C: r.core.Client()}, &laneTable{})
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {
@@ -344,7 +347,7 @@ func newTrialRig(t *testing.T) *trialRig {
 	p := testkit.NewPlain(t)
 	lanes := map[string]string{"L-01": p.PlainLane("L-01", ""), "L-02": p.PlainLane("L-02", "")}
 	p.Config(testkit.Set("agents.roles", map[string]any{"integrator": "", "reviewer": "opus"}))
-	r := &trialRig{hcRig: &hcRig{t: t, core: hctest.New(), root: p.Root, fr: &lostRestorer{}}}
+	r := &trialRig{hcRig: &hcRig{t: t, core: hctest.New(), root: p.Root, home: t.TempDir(), fr: &lostRestorer{}}}
 	pl := &launch.Restorer{Env: p.Env(), H: r.core.Client(),
 		Sessions:  store.CurrentAt,
 		LaneState: func(*config.Config, config.Lane) string { return port.LaneFree },

@@ -116,7 +116,7 @@ type loopRig struct {
 	loopErr         error // what the Loop adapters' constructor fails with (nil: none; under mu)
 
 	disp *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
-	tick time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 2 ms); set before start
+	tick time.Duration  // the watchdogs' tick, each a merge-loop pass (0: rigTick); set before start
 	// stepRetry, stepRetryMax: the wait before an uncounted step's next try and its cap (0: 5 ms, 40 ms); set
 	// before start
 	stepRetry, stepRetryMax time.Duration
@@ -140,6 +140,9 @@ type loopRig struct {
 	// integrator pj-int start with no inbox record, so their job wakes are typed; a test of posted
 	// wakes records them (inbox.record).
 	inbox *rigInbox
+
+	home string    // Options.Home: the agents' home, under the test's temp dir (a transcript a test needs goes here)
+	cfg  rigConfig // the config the Loop factory hands each pass, read again when the files change
 
 	clock  *clock // the app's clock, kept across restarts
 	app    *app.App
@@ -187,7 +190,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 		opt(&o)
 	}
 	p := testkit.NewDir(t)
-	r := &loopRig{term: newTerm(map[string]string{"w1": "proj"}), t: t, p: p, lanes: &laneTable{},
+	r := &loopRig{term: newTerm(map[string]string{"w1": "proj"}), t: t, p: p, lanes: &laneTable{}, home: t.TempDir(),
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
 	r.lane = p.Lane("L-01", "task/T-1")
 	edits := []func(map[string]any){testkit.Set("agents.roles.integrator", "")}
@@ -419,7 +422,7 @@ func (r *loopRig) launch() {
 	}
 	at, c := r.adapter(), r.tt
 	r.out = &syncBuf{}
-	tick := 2 * time.Millisecond
+	tick := rigTick(r.t)
 	if r.tick != 0 {
 		tick = r.tick
 	}
@@ -430,7 +433,7 @@ func (r *loopRig) launch() {
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
 		StepRetry: retry, StepRetryMax: retryMax, DriveWait: r.driveWait,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
-		Info: at.Info, Screen: at.Screen, Procs: quietProcs, Refresh: port.Refreshed,
+		Info: at.Info, Screen: at.Screen, Procs: quietProcs, Refresh: port.Refreshed, Home: r.home,
 		Loop: func(root string) (*app.Loop, error) {
 			r.mu.Lock()
 			err := r.loopErr
@@ -442,7 +445,7 @@ func (r *loopRig) launch() {
 			if r.nightOf != nil {
 				night = r.nightOf()
 			}
-			cfg, err := config.Load(root)
+			cfg, err := r.cfg.load(root)
 			if err != nil {
 				return nil, err
 			}
@@ -461,6 +464,46 @@ func (r *loopRig) launch() {
 		_ = r.app.Serve(ctx)
 	}()
 	r.t.Cleanup(r.stop)
+}
+
+// rigConfig is the config a rig's Loop factory hands each pass: config.Load once, and again when .obor/config.json
+// or .obor/local.json changed since (its size or mtime), so a test's config edit reaches the next pass as serve's
+// per-pass read would. Serve's own reads (its tick's reconcile) are serve's, not this.
+type rigConfig struct {
+	mu    sync.Mutex
+	root  string
+	stamp string
+	cfg   *config.Config
+}
+
+func (c *rigConfig) load(root string) (*config.Config, error) {
+	stamp := configStamp(root) // before the read: a write between the two reads again on the next pass
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cfg != nil && c.root == root && c.stamp == stamp {
+		return c.cfg, nil
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		c.cfg = nil
+		return nil, err
+	}
+	c.root, c.stamp, c.cfg = root, stamp, cfg
+	return cfg, nil
+}
+
+// configStamp is the size and mtime of the project's two config files ("-" for one that is missing).
+func configStamp(root string) string {
+	var b strings.Builder
+	for _, name := range []string{"config.json", "local.json"} {
+		fi, err := os.Stat(filepath.Join(root, ".obor", name))
+		if err != nil {
+			b.WriteString("-;")
+			continue
+		}
+		fmt.Fprintf(&b, "%d/%d;", fi.Size(), fi.ModTime().UnixNano())
+	}
+	return b.String()
 }
 
 // stop ends the app; Serve returns once its merge loop has stopped.
