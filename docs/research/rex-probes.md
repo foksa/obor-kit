@@ -24,7 +24,7 @@ Agents: Claude Code 2.1.332, codex-cli 0.172.0, opencode 2.2.0, agy 1.5.16.
   whoever started the server (here: this herdr pane, so a block had `OBOR_ROLE=researcher` and this pane's
   `HERDR_PANE_ID`). Rex adds `REX_BLOCK`, `REX_SESSION`, `REX_BIN_DIR`, `TERM_PROGRAM=rex`, and appends the bundle's
   `rex` directory to `PATH`, but sets no server address.
-- **Go/no-go: no blocker found, R12 not answered.** Sessions and blocks made through the API run with no client
+- **Go/no-go: go.** R12 passed on the owner's app (below). Sessions and blocks made through the API run with no client
   attached and `--focus=false` keeps the active window; whether they show in the app was not probed, because that
   needs the owner's app. D4: `rex api call` costs ~30 ms per call (process start included); `rex events` exits 4 with
   "server went away" when the server stops.
@@ -81,6 +81,8 @@ and after, diffed.
 flags in the plan. Without it, the registry entry lands in the owner's data directory.
 
 ## R12: blocks made through the API, with nobody attaching
+
+**Owner's check (11-25, Rex 0.1.0-preview.23, the real app): passes.** `rex run --focus=false --label r12 -- zsh` from a terminal outside Rex opened a new tab in the app with nobody attaching, and the app stayed on the tab the owner was in. Go for step 9.
 
 **Not answered for the app.** Showing in the app needs the owner's app connected to the scratch server, which the
 rules exclude. What the server says:
