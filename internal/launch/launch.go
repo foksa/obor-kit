@@ -743,10 +743,12 @@ type resumption struct {
 //
 // A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude) never adopts herdr's: obor chose the
 // recorded id, and a session with no record is a new one. Nothing recorded and nothing to adopt, with neither req.Fresh
-// nor a first prompt the request carries (carries): a role agent (no lane row; the integrator counts) starts fresh,
-// said, only when its pane runs no agent (at its shell, or no pane yet: the first start, a stopped role); a pane that
-// runs one (herdr names it, or its shell does not hold the foreground) is a Fail before anything is stopped, as a
-// lane's agent is (it has lost its context, and a person picks --fresh). A session the rule puts aside (another
+// nor a first prompt the request carries (carries): a role agent other than the lead (no lane row; the integrator
+// counts) starts fresh, said, only when its pane runs no agent (at its shell, or no pane yet: the first start, a
+// stopped role); a pane that runs one (herdr names it, or its shell does not hold the foreground) is a Fail before
+// anything is stopped, as a lane's agent is (it has lost its context, and a person picks --fresh). The lead is a Fail
+// too, its pane at its shell included: its fresh start is obor lead's or a handoff restart's (req.Fresh), so a plain
+// restart of it with nothing to resume keeps the refusal. A session the rule puts aside (another
 // kind's record, a transcript gone) starts fresh, said. Every session the start resumes, recorded or adopted, is
 // recorded with the start's kind once the agent runs (record): an adopted session becomes the agent's current one
 // whether or not its kind reports sessions or fires a start hook on resume (agy: neither), so the next restart, the
@@ -788,7 +790,7 @@ func (l *Launcher) sessionOf(ctx context.Context, t *target, req Request) (resum
 		r = resumption{sid: live, src: "herdr"}
 	case live != "" && adopts && (t.entry.Agent == t.kind || t.entry.Agent == ""): // no record: herdr's of this kind
 		r = resumption{sid: live, src: "herdr"}
-	case !carries(req) && t.info.Role != "" && t.info.Lane == "" && !l.runsAgent(ctx, t): // no agent in its pane
+	case !carries(req) && t.info.Role != "" && t.info.Role != "lead" && t.info.Lane == "" && !l.runsAgent(ctx, t): // no agent in its pane
 		l.say("no session recorded for %s: new session", t.agent)
 		return resumption{}, nil
 	case !carries(req):
