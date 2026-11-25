@@ -13,10 +13,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   (T-1573/1574/1579), the append/lane-row error rule (T-1582), the internal/app restructuring (T-1575..T-1588),
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
 - **In flight (11-25 night, owner picked "fix, then release"):** T-1606 merged 5ae535c (its review on merge runs).
-  T-1607 (RV-275 #1) merged, RV-275 closed. Deep dive A done (nothing blocks; 2 cheap code findings), held at
-  `~/Work/obor-dd-hold/DD-v0.47.1-a.md`; deep dive B on gemini briefed (→ DD-v0.47.1-b.md, config c7d140a2). When it
-  finishes: set `agents.roles.deep_dive` back to `opus:high`, move A back, the advisor verifies both; fix what it says
-  blocks, then `make release`.
+  T-1607 (RV-275 #1) merged, RV-275 closed. Deep dives done: A (opus) nothing blocks; B (gemini) hold: 3 lane.sync
+  blockers F2.1-F2.3 (docs/reviews/DD-v0.47.1-{a,b}.md, gitignored). Role back on opus:high (bee57d29). Advisor briefed
+  → docs/research/v0.47.1-deep-dives-advice.md: fix wave from it (split by files), then `make release`.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
