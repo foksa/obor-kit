@@ -337,7 +337,10 @@ type AgentStatus struct {
 	Lane    string `json:"lane,omitempty"`
 	Task    string `json:"task,omitempty"`
 	Status  string `json:"status"`
-	Age     int64  `json:"age"`
+	// Note is the terminal's own line on that status (port.Pane.Note: hc's blocked kind and msg, an error's msg), ""
+	// when none: obor status and the web show it, nothing decides on it.
+	Note string `json:"note,omitempty"`
+	Age  int64  `json:"age"`
 	// The agent's current recorded session (sessions.go): its id, transcript file and start (Unix seconds);
 	// none while the pane's agent is not identified or has none recorded.
 	Session    string `json:"session,omitempty"`

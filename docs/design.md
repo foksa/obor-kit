@@ -822,7 +822,9 @@ verified; adopting leads hear of it by `obor send`. A project's serve picks a ne
 
 ## herdr integration (2026-10-09 — user direction)
 obor should be as simple and as integrated as possible: the terminal's own status is the source of agent state
-(herdr's agent detection; on hc, the status each agent reports itself, OSC 7501, which hc relays); obor does no
+(herdr's agent detection; on hc, the status each agent reports itself, OSC 7501, which hc relays: its word decides,
+`error` as idle, and its blocked kind and msg or an error's msg are the pane's note, sanitized and shown on the agent's
+`obor status` line, a blocked pane's needs-you and the web, never decided on); obor does no
 Claude/Codex screen parsing of its own beyond what exists, and removes it as the terminal grows the API. obor ships no
 herdr plugin: serve restores its panes itself ("After a herdr restart" above).
 - **The terminal is the project's** (`project.terminal`, read at serve's start): herdr, the default, or hc

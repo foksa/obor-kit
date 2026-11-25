@@ -631,6 +631,30 @@ func TestStatusDoneRoleHint(t *testing.T) {
 	matchLine(t, text, `^agent pj-l-01: done 1h$`, "the worker's line, no hint")
 }
 
+// an agent's pane note follows its status word: in parentheses on an agent's own line, after the status on its lane's;
+// an agent without one has the line as before.
+func TestStatusAgentNote(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	st := upProject()
+	st.Serve.Since, st.Serve.SinceTime = now.Add(-time.Hour).Format(time.RFC3339), now.Add(-time.Hour)
+	st.Lanes = []view.Lane{{Lane: port.Lane{Name: "L-01", State: "working", Task: "T-1", Agent: "pj-l-01"}, Column: "working",
+		AgentStatus: "blocked", AgentNote: "question: Trust this folder?"}}
+	st.Agents = []wire.AgentStatus{
+		{Machine: "local", Group: "pj", Pane: "w1:p3", Name: "pj-rev", Agent: "claude", Status: "blocked", Age: 120,
+			Note: "permission: approve Bash: ls"},
+		{Machine: "local", Group: "pj", Pane: "w1:p4", Name: "pj-int", Agent: "claude", Status: "idle", Age: 60},
+		{Machine: "local", Group: "pj", Pane: "w1:p1", Name: "pj-l-01", Lane: "L-01", Agent: "claude", Status: "blocked", Age: 30,
+			Note: "question: Trust this folder?"},
+	}
+	var b bytes.Buffer
+	writeStatus(&b, st, now)
+	text := b.String()
+	matchLine(t, text, `^agent pj-rev: blocked \(permission: approve Bash: ls\) 2m$`, "the reviewer's line and its note")
+	matchLine(t, text, `^agent pj-int: idle 1m$`, "the integrator's line, no note")
+	matchLine(t, text, `^L-01 .*  agent: pj-l-01 \(blocked, question: Trust this folder\?\)$`, "the lane's agent, its status and note")
+}
+
 // a role agent serve stopped once its work was done, with no pane running it, is `stopped`: the status line
 // `agent <name>: stopped`; a role serve did not stop has no such line.
 func TestStatusStoppedRole(t *testing.T) {

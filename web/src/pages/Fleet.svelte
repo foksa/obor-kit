@@ -15,6 +15,7 @@
   import { briefBadge, briefBusy, briefCards, briefStage, briefTone } from "../lib/brief";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
+  import Note from "../ui/Note.svelte";
   import Stat from "../ui/Stat.svelte";
   import Section from "../ui/Section.svelte";
   import EventList from "../ui/EventList.svelte";
@@ -135,7 +136,7 @@
             {#if p.waiting?.length}
               <div class="waiting" aria-label="Waiting for you">
                 {#each p.waiting as w (w.agent)}
-                  <a href={href.agent(p.name, w.agent)} title="{w.role}{w.lane ? ' on ' + w.lane : ''}: its pane waits at a prompt"><Pill state="needs-you" text={waitingText(w, Math.max(tick.now, Date.now() / 1000))} /></a>
+                  <a class="wait" href={href.agent(p.name, w.agent)} title="{w.role}{w.lane ? ' on ' + w.lane : ''}: its pane waits at a prompt"><Pill state="needs-you" text={waitingText(w, Math.max(tick.now, Date.now() / 1000))} /><Note text={w.note} /></a>
                 {/each}
               </div>
             {/if}
@@ -221,6 +222,7 @@
   .path { font-size: 11px; color: var(--muted); }
   .err { margin: 0; color: var(--bad); }
   .waiting { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+  .wait { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
   .strip { display: flex; gap: 4px; }
   .lane-dot {
     flex: 1; min-width: 0; height: 24px; border-radius: 5px; display: flex; align-items: center; justify-content: center;

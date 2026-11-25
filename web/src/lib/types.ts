@@ -71,6 +71,7 @@ export interface Lane {
   mode?: string; // "keep": a keep lane, its agent kept between tasks
   agent?: string;
   agent_status?: string;
+  agent_note?: string; // its agent's pane note (hc: the blocked kind and msg): shown only
   free: boolean;
   column: string;
   since?: number;
@@ -93,6 +94,7 @@ export interface Role {
   agent: string;
   type?: string; // the model it runs, as the Setup page names it ("opus:high")
   status?: string;
+  note?: string; // its pane's note (hc: the blocked kind and msg): shown only
   age?: number;
   brief?: BriefStatus;
   session?: string;
@@ -136,6 +138,7 @@ export interface AgentStatus {
   lane?: string;
   task?: string;
   status: string;
+  note?: string; // the terminal's own line on that status (hc: the blocked kind and msg, an error's msg): shown only
   age: number;
   session?: string;
   transcript?: string;
@@ -303,12 +306,14 @@ export interface LaneDot {
 }
 
 // Waiting is an agent whose pane waits for the owner's input (serve's status blocked): its name, role (a lane's
-// worker: "worker", with its lane) and since when (epoch seconds; absent: unknown).
+// worker: "worker", with its lane), since when (epoch seconds; absent: unknown) and its pane's note (what it waits
+// for, as the terminal says: hc's blocked kind and msg; absent: none).
 export interface Waiting {
   agent: string;
   role: string;
   lane?: string;
   since?: number;
+  note?: string;
 }
 
 export interface ProjectsEntry {

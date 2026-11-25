@@ -163,6 +163,7 @@ type verdict struct {
 	step, reason string    // the fact due ("": none)
 	cause        string    // its cause (a worker's stop: causeStopped)
 	question     string    // a blocked pane's question, its visible lines ("" when not read)
+	note         string    // a blocked pane's note (port.Pane.Note), shown after the reason
 	pane         port.Pane // the pane the fact names
 }
 
@@ -203,7 +204,7 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 		}
 	case o.Status == "blocked":
 		if !p.has(task, event.StepNeedsYou, "blocked") {
-			v.step, v.reason = event.StepNeedsYou, "blocked"
+			v.step, v.reason, v.note = event.StepNeedsYou, "blocked", o.Note
 			if e := ev[o.ID]; e != nil {
 				v.question = e.question
 			}
@@ -360,7 +361,7 @@ func (a *App) evidence(ctx context.Context, p *proj, pane port.Pane) *evidence {
 func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
 	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Group: v.pane.Group,
 		Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason, Question: v.question,
-		Cause: v.cause}) // strings: cannot fail
+		PaneNote: v.note, Cause: v.cause}) // strings: cannot fail
 	now := a.opt.Now()
 	r, err := p.log.Append(event.Record{Task: task, Step: v.step, Kind: event.KindFact, Data: data}, now)
 	if err != nil {
