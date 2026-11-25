@@ -247,8 +247,9 @@ func TestValidate(t *testing.T) {
 		{name: "terminal herdr", edits: []edit{set("project.terminal", "herdr")}},
 		// hc: every codex model of the fixture starts with its kind's flag (HCRequiredArgs), so none is refused.
 		{name: "terminal hc", edits: []edit{set("project.terminal", "hc")}},
+		{name: "terminal rex", edits: []edit{set("project.terminal", "rex")}},
 		{name: "terminal unknown kind", edits: []edit{set("project.terminal", "x")},
-			want: []string{`FAIL .project.terminal: must be one of herdr, hc, got "x"`}},
+			want: []string{`FAIL .project.terminal: must be one of herdr, hc, rex, got "x"`}},
 		{name: "slots.lane_cpus fine", edits: []edit{set("lanes.cpus", 1)}},
 		{name: "slots.lane_cpus zero", edits: []edit{set("lanes.cpus", 0)},
 			want: []string{"FAIL .lanes.cpus: must be a positive integer, got 0"}},

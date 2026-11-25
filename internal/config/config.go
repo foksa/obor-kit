@@ -239,19 +239,21 @@ func (c *Config) WorkflowKind() string {
 	return DefaultWorkflow
 }
 
-// The terminal kinds obor has an adapter for: herdr (internal/herdr), the default, and herdr-core (internal/hc),
-// experimental: its live tier does not gate.
+// The terminal kinds obor has an adapter for: herdr (internal/herdr), the default; herdr-core (internal/hc) and Rex
+// (internal/rex), experimental: their live tiers do not gate.
 const (
 	DefaultTerminal = "herdr"
 	TerminalHC      = "hc"
+	TerminalRex     = "rex"
 )
 
-var TerminalKinds = []string{DefaultTerminal, TerminalHC}
+var TerminalKinds = []string{DefaultTerminal, TerminalHC, TerminalRex}
 
 // TerminalPaneVars is each terminal kind's own pane variable (the terminal sets it in every pane it runs): the one
 // place the names are written. cmd/obor's terminal table reads them for the caller's terminal, project.PaneOf for the
 // pane; they live here because the adapters import project and project cannot import cmd/obor.
-var TerminalPaneVars = map[string]string{DefaultTerminal: "HERDR_PANE_ID", TerminalHC: "HC_TERMINAL_ID"}
+var TerminalPaneVars = map[string]string{DefaultTerminal: "HERDR_PANE_ID", TerminalHC: "HC_TERMINAL_ID",
+	TerminalRex: "REX_BLOCK"}
 
 // TerminalKind is project.terminal, else DefaultTerminal.
 func (c *Config) TerminalKind() string {

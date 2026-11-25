@@ -110,8 +110,8 @@ func KindFile(root string) string {
 // serve's start) is another than the one its records belong to (KindFile), the old terminal's instance and panes' runs
 // are removed, so neither restores nor skips anything on the new terminal and serve watches it afresh; then KindFile
 // names the project's kind. The identity table's start rows name the old terminal's pane and terminal ids, which no
-// pane of the new one has (herdr's wN:pN and term_…, hc's tN), so every agent is identified afresh by its label and
-// session; each agent's next start replaces its row.
+// pane of the new one has (herdr's wN:pN and term_…, hc's tN, Rex's block:…), so every agent is identified afresh by
+// its label and session; each agent's next start replaces its row.
 func (a *App) dropOtherKind() {
 	a.mu.Lock()
 	kind := ""

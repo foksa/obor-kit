@@ -73,7 +73,7 @@ var Commands = []Command{
 		"delete the task branches of merged tasks (--unmerged: of tasks dropped over 14 days ago) and the clean worktrees of lanes and roles the config no longer names; each line has the tip sha it had; --dry-run lists only", "project"},
 	{"version", "obor version", "this binary's version and where it came from", "project"},
 	{"help", "obor help", "this list", "project"},
-	{"init", "obor init [--name N] [--prefix P] [--terminal herdr|hc]",
+	{"init", "obor init [--name N] [--prefix P] [--terminal herdr|hc|rex]",
 		"set up a project: plugin, git hooks, .obor/config.json, lanes, agent panes, obor serve, then it starts the lead, in this pane when it is alone in its tab (a lead already running is left as it is); a new project's terminal is the one it is typed in (else the one that runs: herdr when both), --terminal picks it", "setup"},
 	{"uninstall", "obor uninstall [--dry-run] [--discard] [--purge] [--force]",
 		"undo obor init: agents, serve, panes, worktrees, task branches, git hooks, plugin and project list go; .obor/config.json and the store stay (--purge: the store too; --discard: dirty worktrees and unmerged branches too; --force: open tasks too)", "setup"},

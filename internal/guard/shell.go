@@ -678,7 +678,7 @@ loop:
 		}
 	case "sed":
 		s.sed(W, k)
-	case "hc", "herdr-app":
+	case "hc", "herdr-app", "rex":
 		g.terminalCLI(name, W[k+1:])
 	default:
 		if kind, ok := g.cfg.Kinds().ByProgram(name); ok {
@@ -696,13 +696,18 @@ loop:
 // terminalCLI denies them.
 var hcWrites = []string{"run", "kill", "rm", "send", "keys", "interrupt", "label", "attach", "server", "update"}
 
-// terminalCLI: in every agent's session but the lead's (restricted), the hc and herdr-app commands that make, end, type
-// into or relabel terminals are denied: hc's verbs of hcWrites, a bare `hc` (it attaches) and `herdr-app do` (any
-// window command). Any terminal of the session is reachable from inside one, so they are a way around dispatch and the
-// role's write limits. Reads stay allowed: hc ls, get, read, wait, schema, events, an option alone (--version), any
-// --help; herdr-app ls, status, commands.
+// terminalCLI: in every agent's session but the lead's (restricted), the hc, herdr-app and rex commands that make, end,
+// type into or relabel terminals are denied: hc's verbs of hcWrites, a bare `hc` (it attaches), `herdr-app do` (any
+// window command) and every rex command but its reads (rexCLI). Any terminal of the session is reachable from inside
+// one (a rex in a Rex block reaches the default server: docs/research/rex-probes.md R4), so they are a way around
+// dispatch and the role's write limits. Reads stay allowed: hc ls, get, read, wait, schema, events, an option alone
+// (--version), any --help; herdr-app ls, status, commands; rex's of rexReads.
 func (g *guard) terminalCLI(name string, args []string) {
 	if !g.restricted || slices.Contains(args, "--help") || slices.Contains(args, "-h") {
+		return
+	}
+	if name == "rex" {
+		g.rexCLI(args)
 		return
 	}
 	verb := subcommand(args, nil)
@@ -718,6 +723,66 @@ func (g *guard) terminalCLI(name string, args []string) {
 		deny("herdr-app do runs a window command (spaces, tabs, terminals) — a way around dispatch and the " + g.role +
 			"'s write limits; only the lead drives the window (reads are fine: herdr-app ls, status, commands, --help)")
 	}
+}
+
+// rexValueOpts are the rex options that take a value (`rex --help` and its commands' own: -S server, -C client, -s
+// session, -b block, -w window): the command words are the other words.
+var rexValueOpts = []string{"-S", "--server", "-C", "--client", "--color", "--timeout", "-s", "--session", "-b",
+	"--block", "-w", "--window"}
+
+// rexReads are the rex commands that only read (`rex --help`, Rex 0.1.0-preview.21): a command with nil reads with any
+// words after it; a resource reads only by the subcommands listed ("": the resource alone; `call`: a method of
+// rexReadMethods). It is an allowlist: a command Rex adds is denied until it is read here.
+var rexReads = map[string][]string{
+	"ls": nil, "list": nil, "capture": nil, "events": nil, "wait": nil, "actions": nil, "keymap": nil, "whoami": nil,
+	"version": nil, "help": nil, "completion": nil,
+	"session": {"ls", "list", "inspect"}, "window": {"ls", "list", "inspect"}, "client": {"ls", "list", "inspect"},
+	"block":  {"ls", "list", "inspect", "types", "capture", "stream", "call"},
+	"api":    {"ls", "list", "describe", "call"},
+	"server": {"status", "logs"}, "config": {"check"}, "hosts": {"list", "check"}, "home": {""},
+	"terminfo": {"status", "show"}, "skill": {"status", "show"}, "forward": {"ls", "list"}, "fwd": {"ls", "list"},
+}
+
+// rexReadMethods are the API and block methods that only read (`rex api call`, `rex block call`): the server's
+// version and status, the sessions, blocks and views, a target's resolution, the method list, and a terminal block's
+// process, program status and text, by the block method's name or its API name.
+var rexReadMethods = []string{"server.version", "server.status", "session.list", "session.list_blocks", "session.view",
+	"target.resolve", "help.all", "process", "program_status", "format", "com.superlogical.terminal.process",
+	"com.superlogical.terminal.program_status", "com.superlogical.terminal.format"}
+
+// rexCLI denies every rex command line that is no read of rexReads: a bare rex (it attaches to a session), a command
+// that makes, ends, types into, moves or relabels sessions, windows and blocks (new, run, split, send, send-key, kill,
+// close, rename, do …), a call of a method that is no read, and the server's, config's, hosts', terminal type's and
+// agent skill's changes (server run/start/stop, config reload, …).
+func (g *guard) rexCLI(args []string) {
+	pos := positionals(args, rexValueOpts)
+	if len(pos) == 0 {
+		deny("rex (it attaches to a session) is a way around dispatch and the " + g.role + "'s write limits; only the " +
+			"lead drives terminals (reads are fine: rex ls, capture, events, wait, api describe, --help)")
+	}
+	subs, ok := rexReads[pos[0]]
+	sub := ""
+	if len(pos) > 1 {
+		sub = pos[1]
+	}
+	n := 1 // the words that name the command in the denial
+	switch {
+	case ok && subs == nil:
+		return
+	case ok && sub == "call" && slices.Contains(subs, sub):
+		if len(pos) > 2 && slices.Contains(rexReadMethods, pos[2]) {
+			return
+		}
+		n = 3
+	case ok && slices.Contains(subs, sub):
+		return
+	case ok:
+		n = 2
+	}
+	deny("rex " + strings.Join(pos[:min(n, len(pos))], " ") + " creates, ends, types into or relabels sessions, " +
+		"windows or blocks, or changes the server — a way around dispatch and the " + g.role + "'s write limits; only " +
+		"the lead drives terminals (reads are fine: rex ls, capture, events, wait, session/window/block ls and " +
+		"inspect, api describe, api call of a read method, --help)")
 }
 
 // gitWrites: the git verbs a worker may not run (git); after an unresolved command word they deny for every role.

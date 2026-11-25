@@ -285,9 +285,10 @@ on a file missing from this table or a listed file that is gone); the entry is t
   (`start.go`: `app/shellpane`'s start over the terminal record), `setup.go` (`RenameProject`, `ResumeHint`; `Place` is not built
   yet), and `contract.go` (what obor sends and reads, checked against a committed copy of hc's schema); `hc/hctest` is
   its fake (test helper).
-- `rex`: the Rex client, the third terminal adapter (`docs/plan/terminal-adapters.md` step 9; no project selects it
-  yet): the `rex` CLI on PATH, one `rex api call` per request and its errors (`client.go`: exit status 4 is no server,
-  Rex's `code=` its answer), a terminal block as a pane (its session's label the group, its label the label, the root
+- `rex`: the Rex client, the third terminal adapter (`docs/plan/terminal-adapters.md` step 9; `project.terminal`
+  "rex"): the `rex` CLI on PATH, one `rex api call` per request and its errors (`client.go`: exit status 4 is no server,
+  Rex's `code=` its answer; no `rex` on PATH the refusal naming the app bundle's directory, `Check` for `obor setup
+  check`), a terminal block as a pane (its session's label the group, its label the label, the root
   `program_status` record as a `progstatus.Report` only while its `owner.pid` is the foreground) and `port.Panes`
   (`panes.go`; `Notify` by `osnotify`), one `rex events --all --json` with the client lines dropped, synced before
   the snapshot, its block events applied and its exit a refresh (`stream.go`), `port.PaneControl` and
@@ -329,7 +330,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
   `internal/hc` imports it, for the hc layout; `herdrapptest` is its fake (test helper).
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
-- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban, the `hc`/`herdr-app` terminal writes outside the lead), Stop (the worker's
+- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban, the `hc`/`herdr-app` terminal writes and every `rex` command but its reads outside the lead), Stop (the worker's
   task_done, and every agent's live background run), StopFailure, SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
   starts agents through the launcher's one start (`port.Launcher.Launch`, given setup's placement and refusing rather

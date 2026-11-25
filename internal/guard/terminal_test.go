@@ -35,3 +35,57 @@ func TestTerminalCLIDeniedOutsideTheLead(t *testing.T) {
 		bash("worker", L, "herdr-app do space.close", "herdr-app do runs a window command"))
 	check(t, f.Project, cases)
 }
+
+// In every agent's session but the lead's, every rex command that is no read is denied, wrapped or by path too: a bare
+// rex (it attaches), the commands that make, end, type into, move or relabel sessions, windows and blocks, a call of a
+// write method, and the server's and setup's changes. The reads (ls, capture, events, wait, the resources' ls and
+// inspect, api describe, a call of a read method, any --help) stay allowed. The lead and the owner's role-less session
+// in the main checkout run them all.
+func TestRexCLIDeniedOutsideTheLead(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P, L := f.P, f.L
+	const why = "a way around dispatch"
+	var cases []tc
+	for _, cmd := range []string{"rex", "rex --autostart=false", "rex new work", "rex run -- claude", "rex split",
+		"rex send -b block:1 'do it'", "rex send-key -s s1 -b block:1 enter", "rex kill s1", "rex do layout.lua",
+		"rex focus block:1", "rex zoom", "rex move block:1", "rex swap block:1 block:2", "rex resize block:1",
+		"rex forward new 8080", "rex fwd open 8080", "rex login-server",
+		"rex session new x", "rex session rename s1 y", "rex session kill s1", "rex session move s1",
+		"rex window new", "rex window close w1", "rex window rename w1 x", "rex window focus w1",
+		"rex block new", "rex block send -b block:1 x", "rex block send-key enter", "rex block close block:1",
+		"rex block rename block:1 x", "rex block call write '{\"data\":\"ls\\n\"}'", "rex block call -b block:1 clear",
+		"rex api call session.create '{\"label\":\"x\"}'", "rex api call block.event @ev.json", "rex api call",
+		"rex api call -s work session.destroy", "rex api call com.superlogical.terminal.write '{}'",
+		"rex server stop", "rex server run --listen unix:///tmp/s.sock", "rex server start", "rex server install",
+		"rex config reload", "rex home set h1", "rex hosts add h1", "rex terminfo setup", "rex skill setup",
+		"rex session", "rex -S unix:///tmp/s.sock send x", "rex --server unix:///tmp/s.sock kill s1",
+		"/Applications/Rex\\ Beta.app/Contents/Helpers/Rex\\ Server.rex/Contents/MacOS/rex send x",
+		"env XDG_RUNTIME_DIR=/tmp/x rex send x"} {
+		cases = append(cases, bash("worker", L, cmd, why))
+		cases = append(cases, bash("lead", P, cmd, ""))
+		cases = append(cases, bash("-", P, cmd, ""))
+	}
+	for _, role := range []string{"integrator", "reviewer"} {
+		cases = append(cases, bash(role, P, "rex send -b block:1 x", "only the lead drives terminals"),
+			bash(role, P, "rex ls", ""))
+	}
+	for _, cmd := range []string{"rex ls", "rex list --json", "rex capture -b block:1", "rex events --all --json",
+		"rex wait block:1", "rex actions", "rex keymap", "rex whoami", "rex version", "rex help send", "rex completion zsh",
+		"rex session ls", "rex session inspect s1", "rex window list", "rex block ls -s s1", "rex block inspect --json",
+		"rex block types", "rex block capture -b block:1", "rex block stream -b block:1", "rex block call process",
+		"rex block call -b block:1 format '{\"format\":\"text\"}'", "rex client ls", "rex api ls", "rex api describe session.view",
+		"rex api call server.status", "rex api call -s work session.view", "rex --autostart=false api call session.list",
+		"rex api call com.superlogical.terminal.program_status '{}'", "rex server status", "rex server logs",
+		"rex config check", "rex hosts list", "rex home", "rex terminfo status", "rex skill show", "rex forward ls",
+		"rex send --help", "rex server stop -h", "rex -S unix:///tmp/s.sock ls", "echo rex send x", "grep 'rex kill' notes.md"} {
+		cases = append(cases, bash("worker", L, cmd, ""))
+	}
+	cases = append(cases,
+		bash("worker", L, "rex", "rex (it attaches to a session)"),
+		bash("worker", L, "rex ls && rex send -b block:1 x", "rex send creates, ends, types into or relabels sessions"),
+		bash("worker", L, "rex block close block:1", "rex block close creates"),
+		bash("worker", L, "rex api call session.create '{}'", "rex api call session.create creates"),
+		bash("worker", L, "rex server stop", "rex server stop creates, ends"))
+	check(t, f.Project, cases)
+}
