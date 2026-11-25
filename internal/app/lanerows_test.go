@@ -29,13 +29,10 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 		t.Helper()
 		h.now = h.now.Add(time.Minute)
 		raw, _ := json.Marshal(d)
-		r, err := p.log.Append(event.Record{Task: task, Attempt: attempt, Step: step, Kind: kind, Data: raw}, h.now)
+		r, err := Append(a, h.root, event.Record{Task: task, Attempt: attempt, Step: step, Kind: kind, Data: raw}, h.now)
 		if err != nil {
 			t.Fatal(err)
 		}
-		a.mu.Lock()
-		p.foldRecord(r)
-		a.mu.Unlock()
 		return r
 	}
 	table := func(when string, want ...store.LaneRow) {
@@ -121,18 +118,14 @@ func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2},"agents":{"roles":{"integrator":""}}}`)
 	h.connect()
-	a, p := h.a, h.proj()
+	a := h.a
 	add := func(task, step, kind string, d any) {
 		t.Helper()
 		h.now = h.now.Add(time.Minute)
 		raw, _ := json.Marshal(d)
-		r, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
-		if err != nil {
+		if _, err := Append(a, h.root, event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now); err != nil {
 			t.Fatal(err)
 		}
-		a.mu.Lock()
-		p.foldRecord(r)
-		a.mu.Unlock()
 	}
 	blocked := func(when string, want bool) {
 		t.Helper()
@@ -202,13 +195,9 @@ func TestLaneRowLandedByAMergeOutside(t *testing.T) {
 		t.Helper()
 		h.now = h.now.Add(time.Minute)
 		raw, _ := json.Marshal(d)
-		r, err := p.log.Append(event.Record{Task: "T-1", Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
-		if err != nil {
+		if _, err := Append(a, h.root, event.Record{Task: "T-1", Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now); err != nil {
 			t.Fatal(err)
 		}
-		a.mu.Lock()
-		p.foldRecord(r)
-		a.mu.Unlock()
 	}
 	add(event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b1"})

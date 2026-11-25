@@ -118,6 +118,23 @@ func Admit(a *App, root string) (release func(), err error) {
 	return a.admit(context.Background(), p, "config_set")
 }
 
+// Append appends r to the log of a's project at root and folds it as serve does (App.appended), in one a.mu
+// section: the one write path the tests inject through. A record a later load folds with foldRecord alone (a crash
+// left it) is not this: it goes to WriteLog.
+func Append(a *App, root string, r event.Record, now time.Time) (event.Record, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(root)
+	if p == nil {
+		return event.Record{}, errors.New("no served project at " + root)
+	}
+	r, err := p.log.Append(r, now)
+	if err != nil {
+		return r, err
+	}
+	return r, a.appended(p, r)
+}
+
 // WriteLog appends recs (stamped now) to the event log of root, whose serve is stopped (a crash left them).
 func WriteLog(root string, now time.Time, recs ...event.Record) error {
 	db, err := store.OpenRW(event.DBFile(root))

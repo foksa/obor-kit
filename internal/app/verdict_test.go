@@ -1054,14 +1054,10 @@ func TestDropAndSubmission(t *testing.T) {
 		attempt := p.folded.loop["T-7"].attempt
 		r.app("pq").mu.Unlock()
 		for _, n := range []int{attempt, attempt + 1} { // decided before the drop, recorded after
-			rec, err := p.log.Append(event.Record{Task: "T-7", Attempt: n, Step: event.StepSubmitted, Kind: event.KindFact,
-				Data: []byte(`{"lane":"L-07","agent":"pq-l-07"}`)}, r.app("pq").opt.Now())
-			if err != nil {
+			if _, err := Append(r.app("pq"), p.root, event.Record{Task: "T-7", Attempt: n, Step: event.StepSubmitted,
+				Kind: event.KindFact, Data: []byte(`{"lane":"L-07","agent":"pq-l-07"}`)}, r.app("pq").opt.Now()); err != nil {
 				t.Fatal(err)
 			}
-			r.app("pq").mu.Lock()
-			p.foldRecord(rec)
-			r.app("pq").mu.Unlock()
 			if s := r.state("pq", "T-7"); s != stDropped {
 				t.Errorf("a submitted fact (attempt %d) after dropped: %s", n, s)
 			}

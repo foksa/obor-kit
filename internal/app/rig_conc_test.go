@@ -427,18 +427,14 @@ func (r *concRig) status(name string) wire.ProjectStatus {
 	return wire.ProjectStatus{}
 }
 
-// add appends a record to project name's log and folds it.
+// add appends a record to project name's log through serve's one write path (Append).
 func (r *concRig) add(name, task, step, kind string, d any) {
 	r.t.Helper()
 	a, p := r.app(name), r.proj(name)
 	raw, _ := json.Marshal(d)
-	rec, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, a.opt.Now())
-	if err != nil {
+	if _, err := Append(a, p.root, event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, a.opt.Now()); err != nil {
 		r.t.Fatal(err)
 	}
-	a.mu.Lock()
-	p.foldRecord(rec)
-	a.mu.Unlock()
 }
 
 func (r *concRig) proj(name string) *proj {
@@ -582,18 +578,14 @@ func (r *concRig) concLoop(name string) *Loop {
 	return fx
 }
 
-// addNightly appends a nightly record (its key: attempt 0) at at and folds it.
+// addNightly appends a nightly record (its key: attempt 0) at at through serve's one write path (Append).
 func (r *concRig) addNightly(step, kind string, d any, at time.Time) {
 	r.t.Helper()
 	a, p := r.app("pj"), r.proj("pj")
 	raw, _ := json.Marshal(d)
-	rec, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: step, Kind: kind, Data: raw}, at)
-	if err != nil {
+	if _, err := Append(a, p.root, event.Record{Task: event.NightlyTask, Step: step, Kind: kind, Data: raw}, at); err != nil {
 		r.t.Fatal(err)
 	}
-	a.mu.Lock()
-	p.foldRecord(rec)
-	a.mu.Unlock()
 }
 
 // runStep runs name's task's next production step once (App.next: begin, the step, release) and waits for the effects
@@ -654,13 +646,9 @@ func (r *concRig) addAt(name, task string, n int, step, kind string, d any) {
 	r.t.Helper()
 	a, p := r.app(name), r.proj(name)
 	raw, _ := json.Marshal(d)
-	rec, err := p.log.Append(event.Record{Task: task, Attempt: n, Step: step, Kind: kind, Data: raw}, a.opt.Now())
-	if err != nil {
+	if _, err := Append(a, p.root, event.Record{Task: task, Attempt: n, Step: step, Kind: kind, Data: raw}, a.opt.Now()); err != nil {
 		r.t.Fatal(err)
 	}
-	a.mu.Lock()
-	p.foldRecord(rec)
-	a.mu.Unlock()
 }
 
 // worker puts an idle claude pane labelled agent into proj's group and reconciles its identity table.

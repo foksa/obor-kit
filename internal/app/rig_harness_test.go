@@ -949,15 +949,11 @@ func (h *harness) setLane(task string, done bool) {
 	if !done {
 		return
 	}
-	h.a.mu.Lock()
-	defer h.a.mu.Unlock()
-	if p := h.a.p; p != nil {
-		rec, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact,
-			Data: []byte(`{"lane":"L-01"}`)}, h.a.opt.Now())
-		if err != nil {
+	if h.a.p != nil {
+		if _, err := Append(h.a, h.root, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted,
+			Kind: event.KindFact, Data: []byte(`{"lane":"L-01"}`)}, h.a.opt.Now()); err != nil {
 			h.t.Fatal(err)
 		}
-		p.foldRecord(rec)
 	}
 }
 
