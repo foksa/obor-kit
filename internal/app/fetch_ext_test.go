@@ -324,6 +324,9 @@ func TestFetchBlockedAsks(t *testing.T) {
 		if err != nil || !strings.Contains(reply, "the owner is told") || !strings.Contains(reply, "stop and wait") {
 			t.Fatalf("task_done Blocked: %q, %v", reply, err)
 		}
+		if row, ok, err := r.laneRow("L-01"); err != nil || !ok || row.Task != "T-1" || !row.Blocked {
+			t.Fatalf("L-01's row after the Blocked: report: %+v, present %v, %v; want T-1's row blocked", row, ok, err)
+		}
 		r.waitStep(asks)
 		r.waitFor("one notification", func() bool { return len(r.notifications()) == 1 })
 		if r.hasPrefix("1 fact submitted") || r.taskState() != "working" {
