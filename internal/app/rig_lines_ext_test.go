@@ -12,7 +12,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/config"
 	"obor/internal/store"
 	"regexp"
 	"slices"
@@ -681,9 +680,9 @@ func (r *loopRig) startWithAgents(agents port.Launcher) {
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Info: at.Info, Screen: at.Screen, Procs: quietProcs, Refresh: port.Refreshed,
+		Now: r.clock.Now, Out: r.out, Info: at.Info, Screen: at.Screen, Procs: quietProcs, Refresh: port.Refreshed, Home: r.home,
 		Loop: func(root string) (*app.Loop, error) {
-			cfg, err := config.Load(root)
+			cfg, err := r.cfg.load(root)
 			if err != nil {
 				return nil, err
 			}

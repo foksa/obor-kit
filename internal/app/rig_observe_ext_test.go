@@ -28,6 +28,7 @@ type rig struct {
 	t     *testing.T
 	root  string // the project "pj"
 	wt    string // its lanes' parent dir
+	home  string // Options.Home: the agents' home beside them (a transcript a test needs goes here)
 	lanes *laneTable
 	clock *clock
 
@@ -53,6 +54,7 @@ func newRig(t *testing.T) *rig {
 	base := t.TempDir()
 	r := &rig{term: newTerm(map[string]string{"w1": "pj", "w2": "other"}), t: t, root: filepath.Join(base, "pj"),
 		wt:    filepath.Join(base, "pj-wt"),
+		home:  filepath.Join(base, "home"),
 		lanes: &laneTable{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}}
 	if err := os.MkdirAll(filepath.Join(r.root, ".obor"), 0o755); err != nil {
@@ -542,10 +544,10 @@ func (r *rig) start() {
 		at = r.term.adapter()
 	}
 	r.out = &syncBuf{}
-	r.app = app.New(app.Options{Root: r.root, Tick: 2 * time.Millisecond, Retry: 5 * time.Millisecond,
+	r.app = app.New(app.Options{Root: r.root, Tick: rigTick(r.t), Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
 		Now: r.clock.Now, Out: r.out, Info: at.Info, Screen: at.Screen, Procs: r.procsFn, Refresh: port.Refreshed,
-		Loop: r.loop, Restore: r.restore}, at.Panes, r.lanes)
+		Home: r.home, Loop: r.loop, Restore: r.restore}, at.Panes, r.lanes)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {
