@@ -12,7 +12,7 @@ From v0.46.x. Nothing to change in a herdr or hc project.
 **Rex (experimental)** can be a project's terminal: `project.terminal: "rex"`. To try it:
 
 1. Put Rex's CLI on your `PATH` (it ships inside the app; obor never runs it from there):
-   ```sh
+   ```text
    ln -s "/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex" ~/.local/bin/rex
    ```
 2. In a Rex block, in an empty folder: `obor lead`. `obor init` picks Rex because it runs in a Rex block
