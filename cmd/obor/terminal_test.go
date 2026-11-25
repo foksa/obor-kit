@@ -12,6 +12,7 @@ import (
 	"obor/internal/hc"
 	"obor/internal/herdr"
 	"obor/internal/project"
+	"obor/internal/rex"
 	"obor/internal/setup"
 )
 
@@ -59,8 +60,29 @@ func TestTerminalSelectsHC(t *testing.T) {
 	}
 }
 
+// The selector builds Rex's adapter for project.terminal "rex": its panes, control and setup over one client of the
+// rex CLI on PATH, with the CLI's PATH check as its check; serve's copy is the same terminal (no core to hold).
+func TestTerminalSelectsRex(t *testing.T) {
+	t.Parallel()
+	rexCfg := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalRex}}}
+	term, err := terminal(rexCfg, project.Env(func(string) (string, bool) { return "", false }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := term.Panes.(rex.Panes)
+	cl, cok := term.Setup.(*rex.Client)
+	if !ok || !cok || p.C != cl || cl.Bin != "" || cl.Server != "" || term.Check == nil || term.Control == nil {
+		t.Fatalf("Rex's terminal: panes %T, setup %T, check set %v; want Rex's over one client of rex on PATH",
+			term.Panes, term.Setup, term.Check != nil)
+	}
+	if sp, ok := serveTerminal(rexCfg, term).Panes.(rex.Panes); !ok || sp.C != cl {
+		t.Errorf("serve's Rex terminal changed: %T", serveTerminal(rexCfg, term).Panes)
+	}
+}
+
 // A serve launchd starts gets the terminal's own variables the caller has: hc's session names (HC_SOCKET, HC_SESSION,
-// the three XDG_ dirs) on hc, herdr's socket on herdr; never the other kind's.
+// the three XDG_ dirs) on hc, herdr's socket on herdr, the CLI's server registry (XDG_RUNTIME_DIR) on Rex; never
+// another kind's.
 func TestTerminalEnvByKind(t *testing.T) {
 	t.Parallel()
 	vars := map[string]string{"HC_SOCKET": "/s", "HC_SESSION": "obor", "XDG_RUNTIME_DIR": "/r", "XDG_STATE_HOME": "/st",
@@ -81,6 +103,10 @@ func TestTerminalEnvByKind(t *testing.T) {
 	if got := names(nil); !slices.Equal(got, []string{"HERDR_SOCKET_PATH=/h"}) {
 		t.Errorf("herdr's serve env %q, want its socket only", got)
 	}
+	rexCfg := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalRex}}}
+	if got := names(rexCfg); !slices.Equal(got, []string{"XDG_RUNTIME_DIR=/r"}) {
+		t.Errorf("Rex's serve env %q, want the CLI's registry dir only", got)
+	}
 }
 
 // Serve's adoption of hidden terminals exists for hc, whose setup offers the capability, and not for herdr: nothing is
@@ -97,8 +123,9 @@ func TestAdopterOnlyWhereTheTerminalOffersIt(t *testing.T) {
 }
 
 // obor init's terminal, §2 of the init flow: --terminal wins; with none, the pane the caller sits in
-// (HC_TERMINAL_ID: hc, HERDR_PANE_ID: herdr); both set: herdr, a FAIL when hc's core holds a pane's identity; neither:
-// the one that answers, herdr when both do (with the line that says how to get hc), a FAIL when none does.
+// (REX_BLOCK: rex, whatever else is set: a block inherits the Rex server's environment; HC_TERMINAL_ID: hc,
+// HERDR_PANE_ID: herdr); hc's and herdr's both set: herdr, a FAIL when hc's core holds a pane's identity; none set: the
+// one that answers, herdr when both do (with the line that says how to get hc), a FAIL when none does.
 func TestDetectTerminal(t *testing.T) {
 	t.Parallel()
 	const bothLine = "terminal herdr (herdr and hc both run; for hc: obor init --terminal hc, or run it in a herdr-app terminal)"
@@ -127,6 +154,15 @@ func TestDetectTerminal(t *testing.T) {
 		{name: "neither, hc only", hc: true, kind: "hc"},
 		{name: "neither, both answer", herdr: true, hc: true, kind: "herdr", line: bothLine},
 		{name: "neither, none answers", bad: "FAIL no terminal runs: start herdr or open herdr-app, then obor init again"},
+		{name: "rex block only", env: map[string]string{"REX_BLOCK": "block:1"}, kind: "rex"},
+		{name: "rex block only, herdr and hc up", env: map[string]string{"REX_BLOCK": "block:1"}, herdr: true, hc: true,
+			kind: "rex"},
+		{name: "rex block with an inherited herdr pane", env: map[string]string{"REX_BLOCK": "block:1", "HERDR_PANE_ID": "p1"},
+			herdr: true, kind: "rex"},
+		{name: "rex block with inherited herdr and hc names", env: map[string]string{"REX_BLOCK": "block:1",
+			"HERDR_PANE_ID": "p1", "HC_TERMINAL_ID": "t1"}, herdr: true, hc: true, leaked: []string{"HERDR_PANE_ID"}, kind: "rex"},
+		{name: "flag herdr beats a rex block", env: map[string]string{"REX_BLOCK": "block:1"}, flag: "herdr", kind: "herdr"},
+		{name: "flag rex beats herdr's pane", env: map[string]string{"HERDR_PANE_ID": "p1"}, flag: "rex", herdr: true, kind: "rex"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -190,6 +226,7 @@ func TestInitTerminalKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	hcCfg := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalHC}}}
+	rexCfg := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalRex}}}
 	for _, c := range []struct {
 		name, line string
 		env        map[string]string
@@ -205,6 +242,10 @@ func TestInitTerminalKind(t *testing.T) {
 		{"no terminal key (herdr), in hc", "terminal herdr (from .obor/config.json; the config wins, change project.terminal to switch)",
 			hcEnv, &config.Config{}, nil, "herdr"},
 		{"no terminal key, in herdr", "", map[string]string{"HERDR_PANE_ID": "p1"}, &config.Config{}, nil, "herdr"},
+		{"rex config, in a Rex block that inherited a herdr pane", "",
+			map[string]string{"REX_BLOCK": "block:1", "HERDR_PANE_ID": "p1"}, rexCfg, nil, "rex"},
+		{"hc config, in a Rex block", "terminal hc (from .obor/config.json; the config wins, change project.terminal to switch)",
+			map[string]string{"REX_BLOCK": "block:1"}, hcCfg, nil, "hc"},
 	} {
 		kind, line, rest, err := run(c.env, c.cfg, c.args...)
 		if err != nil || kind != c.kind || line != c.line || !slices.Equal(rest, []string{"--terminal", c.kind}) {

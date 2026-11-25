@@ -17,6 +17,7 @@ import (
 	"obor/internal/hc"
 	"obor/internal/herdr"
 	"obor/internal/project"
+	"obor/internal/rex"
 	"obor/internal/service"
 	"obor/internal/setup"
 )
@@ -45,6 +46,11 @@ var terminals = []terminalKind{
 			cl := hc.New(env)
 			cl.Kinds = kinds
 			return port.Terminal{Panes: hc.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
+		}},
+	{Name: config.TerminalRex, PaneVar: config.TerminalPaneVars[config.TerminalRex], Env: rex.EnvNames, Group: "session",
+		Build: func(_ project.Env, kinds func() agents.Kinds) port.Terminal {
+			cl := &rex.Client{Kinds: kinds}
+			return port.Terminal{Panes: rex.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
 		}},
 }
 
@@ -142,9 +148,10 @@ func realProbes(env project.Env) terminalProbes {
 }
 
 // detectTerminal is the terminal a new project gets (obor init; the caller decides it once, before any write, only
-// when the project has no config): flag (--terminal) when set; else the one the caller sits in (HC_TERMINAL_ID: hc,
-// HERDR_PANE_ID: herdr); both set: herdr, unless hc's core holds a pane's identity (a FAIL); neither: the one that
-// answers, herdr when both do (line says how to get hc), no terminal answering is a FAIL.
+// when the project has no config): flag (--terminal) when set; else the one the caller sits in (callerTerminal:
+// REX_BLOCK: rex, HC_TERMINAL_ID: hc, HERDR_PANE_ID: herdr); hc's and herdr's both set: herdr, unless hc's core holds a
+// pane's identity (a FAIL); none set: the one of herdr and hc that answers, herdr when both do (line says how to get
+// hc), neither answering is a FAIL. Rex is never probed: a rex call from outside a block reaches the default server.
 func detectTerminal(ctx context.Context, env project.Env, flag string, p terminalProbes) (kind, line string, err error) {
 	if flag != "" {
 		return flag, "", nil
@@ -208,8 +215,13 @@ func initTerminalKind(ctx context.Context, env project.Env, root string, cfg *co
 	return kind, line, append(rest, "--terminal", kind), nil
 }
 
-// callerTerminal is the terminal the caller's pane belongs to by its environment ("": neither, or both).
+// callerTerminal is the terminal the caller's pane belongs to by its environment: REX_BLOCK set is Rex whatever else
+// is (a block inherits the Rex server's whole environment, another terminal's pane variable with it:
+// docs/research/rex-probes.md R4); else the one kind whose variable is set ("": none, or both).
 func callerTerminal(env project.Env) string {
+	if env.Get(paneVarOf(config.TerminalRex)) != "" {
+		return config.TerminalRex
+	}
 	in := ""
 	for _, k := range terminals {
 		if env.Get(k.PaneVar) == "" {

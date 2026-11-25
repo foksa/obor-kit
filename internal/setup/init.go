@@ -15,7 +15,7 @@ import (
 	"obor/internal/project"
 )
 
-// initArgs parses [--name N] [--prefix P] [--terminal herdr|hc]; terminal "": herdr.
+// initArgs parses [--name N] [--prefix P] [--terminal herdr|hc|rex]; terminal "": herdr.
 func initArgs(args []string) (name, prefix, terminal string, err error) {
 	for len(args) > 0 {
 		if len(args) < 2 || args[1] == "" {

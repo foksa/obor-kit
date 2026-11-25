@@ -3,7 +3,8 @@
 // --json` as the event stream. It implements port.Panes (Panes: the snapshot, the stream, Notify), port.PaneControl
 // and port.AgentStarter (Client: control.go, the start by internal/app/shellpane) and port.TerminalSetup (Client:
 // setup.go, place.go). A pane is a terminal block: the block's id is the pane's id, its session's label the pane's
-// group and its own label the pane's label (a label Rex made up is none). No project's terminal is Rex yet.
+// group and its own label the pane's label (a label Rex made up is none). A project picks it with
+// project.terminal "rex".
 //
 // Every failure is an *Error: Rex's own answer carries its code (not_found and session_not_found → port.NotFound); a
 // server that does not answer (the CLI's exit status 4: none runs at the address, or it went away) is port.NotRunning.
@@ -16,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -98,15 +100,51 @@ func (cl *Client) args(rest ...string) []string {
 	return append(a, rest...)
 }
 
-// command is the CLI with args, bounded by ctx; an error when no rex is on PATH.
-func (cl *Client) command(ctx context.Context, op string, args ...string) (*exec.Cmd, error) {
-	bin := cl.Bin
-	if bin == "" {
-		p, err := exec.LookPath("rex")
-		if err != nil {
-			return nil, &Error{Op: op, Msg: "no rex on PATH (Rex's CLI ships in the app bundle: put its directory on PATH)"}
+// BundleDir is the directory Rex's app keeps its CLI in: the hint of the refusal when no rex is on PATH. obor never
+// runs the CLI from there itself.
+const BundleDir = "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS"
+
+// EnvNames are the environment variables that pick the server a caller's rex reaches: XDG_RUNTIME_DIR moves the CLI's
+// server registry (docs/research/rex-probes.md R10), so a serve launchd starts carries the caller's.
+var EnvNames = []string{"XDG_RUNTIME_DIR"}
+
+// bin is the CLI the client runs: Bin, else rex on the PATH of the CLI's environment (Env's, else obor's own); none
+// is an error named op that names BundleDir, never a path guessed.
+func (cl *Client) bin(op string) (string, error) {
+	if cl.Bin != "" {
+		return cl.Bin, nil
+	}
+	path := os.Getenv("PATH")
+	if cl.Env != nil {
+		path = ""
+		for _, kv := range cl.Env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+				path = v
+			}
 		}
-		bin = p
+	}
+	p, err := project.LookPath(path, "rex")
+	if err != nil {
+		return "", &Error{Op: op, Msg: "no rex on PATH: Rex's CLI ships in its app bundle, put " + BundleDir + " on PATH"}
+	}
+	return p, nil
+}
+
+// Check is `obor setup check`'s line for Rex: the CLI obor runs (bin), or the refusal naming the bundle's directory.
+// It runs nothing.
+func (cl *Client) Check(context.Context) (string, error) {
+	bin, err := cl.bin("check")
+	if err != nil {
+		return "", err
+	}
+	return "rex CLI " + bin, nil
+}
+
+// command is the CLI with args, bounded by ctx; an error when no rex is on PATH (bin).
+func (cl *Client) command(ctx context.Context, op string, args ...string) (*exec.Cmd, error) {
+	bin, err := cl.bin(op)
+	if err != nil {
+		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, bin, cl.args(args...)...)
 	cmd.Env = cl.Env

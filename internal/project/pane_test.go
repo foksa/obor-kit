@@ -8,14 +8,16 @@ import (
 )
 
 // Pane is the one resolver of an agent's pane: OBOR_PANE (every start obor makes exports it), else the pane variable of
-// the project's terminal kind (herdr HERDR_PANE_ID, hc HC_TERMINAL_ID; another kind's variable is never read), an empty
-// value read as unset, else ErrNoPane naming what it read.
+// the project's terminal kind (herdr HERDR_PANE_ID, hc HC_TERMINAL_ID, rex REX_BLOCK; another kind's variable is
+// never read), an empty value read as unset, else ErrNoPane naming what it read.
 func TestPane(t *testing.T) {
 	t.Parallel()
 	herdr := (*config.Config)(nil) // no config: the default kind
 	hc := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalHC}}}
-	if herdr.TerminalKind() != config.DefaultTerminal || hc.TerminalKind() != config.TerminalHC {
-		t.Fatalf("precondition: kinds %q and %q, want herdr and hc", herdr.TerminalKind(), hc.TerminalKind())
+	rex := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalRex}}}
+	if herdr.TerminalKind() != config.DefaultTerminal || hc.TerminalKind() != config.TerminalHC || rex.TerminalKind() != "rex" {
+		t.Fatalf("precondition: kinds %q, %q and %q, want herdr, hc and rex", herdr.TerminalKind(), hc.TerminalKind(),
+			rex.TerminalKind())
 	}
 	for _, c := range []struct {
 		name    string
@@ -42,8 +44,18 @@ func TestPane(t *testing.T) {
 			map[string]string{"OBOR_PANE": "", "HC_TERMINAL_ID": "t7"}, "t7", ""},
 		{"hc: empty names read as unset", hc, map[string]string{"OBOR_PANE": "", "HC_TERMINAL_ID": ""}, "",
 			"no pane: neither OBOR_PANE nor HC_TERMINAL_ID is set"},
-		{"a kind with no pane variable: OBOR_PANE only", &config.Config{Data: config.Data{Project: config.Project{Terminal: "rex"}}},
-			map[string]string{"HERDR_PANE_ID": "w1:p3"}, "", "no pane: OBOR_PANE is not set (terminal rex has no pane variable)"},
+		{"herdr: REX_BLOCK is Rex's, never read", herdr, map[string]string{"REX_BLOCK": "block:9"}, "",
+			"no pane: neither OBOR_PANE nor HERDR_PANE_ID is set"},
+		{"hc: REX_BLOCK is Rex's, never read", hc, map[string]string{"REX_BLOCK": "block:9"}, "",
+			"no pane: neither OBOR_PANE nor HC_TERMINAL_ID is set"},
+		{"rex: REX_BLOCK only: the fallback", rex, map[string]string{"REX_BLOCK": "block:9"}, "block:9", ""},
+		{"rex: OBOR_PANE wins", rex, map[string]string{"OBOR_PANE": "block:2", "REX_BLOCK": "block:9"}, "block:2", ""},
+		{"rex: inherited HERDR_PANE_ID and HC_TERMINAL_ID are never taken for the pane", rex,
+			map[string]string{"HERDR_PANE_ID": "w1:p3", "HC_TERMINAL_ID": "t7", "REX_BLOCK": "block:9"}, "block:9", ""},
+		{"rex: another kind's variable alone names no pane", rex, map[string]string{"HERDR_PANE_ID": "w1:p3", "HC_TERMINAL_ID": "t7"},
+			"", "no pane: neither OBOR_PANE nor REX_BLOCK is set"},
+		{"a kind with no pane variable: OBOR_PANE only", &config.Config{Data: config.Data{Project: config.Project{Terminal: "zellij"}}},
+			map[string]string{"HERDR_PANE_ID": "w1:p3"}, "", "no pane: OBOR_PANE is not set (terminal zellij has no pane variable)"},
 	} {
 		env := Env(func(k string) (string, bool) { v, ok := c.env[k]; return v, ok })
 		got, err := PaneOf(c.cfg, env)
@@ -62,7 +74,7 @@ func TestPane(t *testing.T) {
 // PaneVars, the names a process that is no agent's drops, hold every kind's pane variable and OBOR_PANE.
 func TestPaneVarsEveryKind(t *testing.T) {
 	t.Parallel()
-	for _, v := range []string{"OBOR_PANE", "HERDR_PANE_ID", "HC_TERMINAL_ID"} {
+	for _, v := range []string{"OBOR_PANE", "HERDR_PANE_ID", "HC_TERMINAL_ID", "REX_BLOCK"} {
 		found := false
 		for _, p := range PaneVars {
 			found = found || p == v

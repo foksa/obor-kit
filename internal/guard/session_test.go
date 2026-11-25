@@ -134,10 +134,10 @@ func TestSessionWorkerRows(t *testing.T) {
 func TestSessionLeadAndIntegratorHookLines(t *testing.T) {
 	t.Parallel()
 	f, _ := sessionFx(t, true)
-	// the lead drives terminals; the integrator's line names the hc/herdr-app denial
+	// the lead drives terminals; the integrator's line names the hc/herdr-app/rex denial
 	for role, hooks := range map[string]string{
 		"lead":       "Hooks: git push, pkill/killall by pattern and headless agent runs (agy -p, claude -p, codex exec, opencode run, x-agent -p) are denied;",
-		"integrator": "Hooks: git push, pkill/killall by pattern, headless agent runs (agy -p, claude -p, codex exec, opencode run, x-agent -p) and the hc/herdr-app commands that drive terminals are denied",
+		"integrator": "Hooks: git push, pkill/killall by pattern, headless agent runs (agy -p, claude -p, codex exec, opencode run, x-agent -p) and the hc/herdr-app/rex commands that drive terminals are denied",
 	} {
 		out := f.session(t, f.Root, "", "OBOR_ROLE="+role)
 		contains(t, out, role, "obor: role "+role, hooks, "0 deny rules from rules.deny_commands")

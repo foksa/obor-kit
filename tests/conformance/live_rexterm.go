@@ -22,6 +22,8 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
+	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/rex"
 )
 
@@ -201,9 +203,10 @@ func rexScrubbed(rl *rexLab, cl *rex.Client, kind, pane string) bool {
 }
 
 // rexTermIdentity is RX-T2: the obor server the agent started (the stub) runs in the lane with the env line's identity
-// (OBOR_PANE the block, OBOR_ROLE worker) and none of the server's (no HERDR_ name, no Claude session marker of its).
+// (OBOR_PANE the block, OBOR_ROLE worker) and none of the server's (no HERDR_ name, no Claude session marker of its);
+// obor's pane resolver on a Rex project (project.PaneOf) reads the block from it, by OBOR_PANE and by REX_BLOCK alone.
 func rexTermIdentity(l *lab, kind, pane string) {
-	where := at("internal/rex/env.go", "func (e blockEnv) command") + ", " + rexPlan
+	where := at("internal/rex/env.go", "func (e blockEnv) command") + ", " + at("internal/project/pane.go", "func PaneOf") + ", " + rexPlan
 	rs := l.waitRecords("mcp", "", 30*time.Second)
 	if len(rs) == 0 {
 		report("FAIL", "RX-T2", kind+": the agent started no obor MCP server in 30 s", where)
@@ -211,18 +214,32 @@ func rexTermIdentity(l *lab, kind, pane string) {
 	}
 	r := rs[len(rs)-1]
 	herdr := envNames(r.Env, "^HERDR_")
-	fact := fmt.Sprintf("%s: the obor server sees OBOR_PANE=%q OBOR_ROLE=%q REX_BLOCK=%q, cwd %s, HERDR_ names %v, CLAUDE_CODE_SESSION_ID=%q",
-		kind, r.Env[agents.PaneVar], r.Env["OBOR_ROLE"], r.Env["REX_BLOCK"], r.Cwd, herdr, r.Env["CLAUDE_CODE_SESSION_ID"])
+	rexCfg := &config.Config{Data: config.Data{Project: config.Project{Terminal: config.TerminalRex}}}
+	recEnv := project.Env(func(k string) (string, bool) { v, ok := r.Env[k]; return v, ok })
+	got, perr := project.PaneOf(rexCfg, recEnv)
+	noObor := project.Env(func(k string) (string, bool) { // the fallback alone: the pane variable Rex sets
+		if k == agents.PaneVar {
+			return "", false
+		}
+		return recEnv(k)
+	})
+	fallback, ferr := project.PaneOf(rexCfg, noObor)
+	fact := fmt.Sprintf("%s: the obor server sees OBOR_PANE=%q OBOR_ROLE=%q REX_BLOCK=%q, cwd %s, HERDR_ names %v, CLAUDE_CODE_SESSION_ID=%q; "+
+		"project.PaneOf on rex → %q (%v), without OBOR_PANE → %q (%v)",
+		kind, r.Env[agents.PaneVar], r.Env["OBOR_ROLE"], r.Env["REX_BLOCK"], r.Cwd, herdr, r.Env["CLAUDE_CODE_SESSION_ID"],
+		got, orOK(perr), fallback, orOK(ferr))
 	if r.Env[agents.PaneVar] != pane || r.Env["OBOR_ROLE"] != "worker" || len(herdr) > 0 || !same(r.Cwd, l.lane) ||
-		r.Env["CLAUDE_CODE_SESSION_ID"] == "leak-session" || r.Env["HC_TERMINAL_ID"] != "" {
-		report("FAIL", "RX-T2", fact+"; want the block, worker, the lane, none of the server's identity", where)
+		r.Env["CLAUDE_CODE_SESSION_ID"] == "leak-session" || r.Env["HC_TERMINAL_ID"] != "" || got != pane ||
+		r.Env["REX_BLOCK"] != "" && fallback != pane {
+		report("FAIL", "RX-T2", fact+"; want the block, worker, the lane, none of the server's identity, the block as the pane "+
+			"by either variable", where)
 		return
 	}
 	report("PASS", "RX-T2", fact, where)
 }
 
 // rexTermTurn is RX-T3: one "Reply with exactly OK" through the guarded Prompt (paste, Enter); the turn ends
-// (WaitStatus) and OK is on the screen.
+// (WaitStatus) and OK is on the screen within 15 s of it.
 func rexTermTurn(cl *rex.Client, control port.PaneControl, kind, pane string) {
 	where := at("internal/rex/control.go", "func (cl *Client) Prompt") + ", " + at("internal/rex/control.go", "func (cl *Client) WaitStatus")
 	ctx := context.Background()
@@ -234,10 +251,13 @@ func rexTermTurn(cl *rex.Client, control port.PaneControl, kind, pane string) {
 	}
 	worked := poll(30*time.Second, func() bool { p, err := cl.Pane(ctx, pane); return err == nil && p.Status == "working" })
 	werr := cl.WaitStatus(ctx, pane, []string{"idle", "done"}, 180*time.Second)
-	screen, _ := cl.Screen(ctx, pane, 0)
-	ok := okLine(screen)
-	fact := fmt.Sprintf("%s: Prompt began; working seen %v; WaitStatus %s after %.1fs; OK on screen %v", kind, worked, orOK(werr),
-		time.Since(t0).Seconds(), ok)
+	settled := time.Since(t0)
+	// the screen may draw the reply after the status says the turn ended (OpenCode's idle comes first): looked for up
+	// to 15 s, as on hc
+	var screen string
+	ok := poll(15*time.Second, func() bool { screen, _ = cl.Screen(ctx, pane, 0); return okLine(screen) })
+	fact := fmt.Sprintf("%s: Prompt began; working seen %v; WaitStatus %s after %.1fs; OK on screen %v after %.1fs", kind, worked,
+		orOK(werr), settled.Seconds(), ok, time.Since(t0).Seconds())
 	if werr != nil || !ok {
 		report("FAIL", "RX-T3", fact+"; "+tail(screen, 6), where)
 		return

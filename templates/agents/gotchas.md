@@ -35,6 +35,16 @@ otherwise.
 - Codex's trust and update prompts report no status in hc (2026-11-20) → the start reads the screen for the trust
   dialog as on herdr; answer an update prompt in the pane.
 
+## Rex (`project.terminal: "rex"`)
+- `rex` inside any block reaches the default server, the one obor drives (no address variable is set; 2026-11-25) →
+  `rex` commands that make, end, type into or relabel sessions, windows and blocks, a write method's `api call` and
+  `server …` changes are denied in every agent's pane but the lead's; reads (`rex ls`, `capture`, `events`, `wait`,
+  `session`/`window`/`block ls` and `inspect`, `api describe`, `--help`) are fine.
+- No `rex` on `PATH` (the CLI ships inside the app bundle) → `obor setup check` and serve fail naming the directory to
+  put on `PATH`: `/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS`.
+- A block inherits the Rex server's whole environment, a server started from an obor pane included (2026-11-25) →
+  obor's own blocks drop those names; a block you open by hand keeps them: start agents through obor.
+
 ## Claude Code
 - Workers often run long checks as a background shell and go idle → the idle state proves nothing: the worker's
   `task_done` (obor serve's submission, `obor status --facts`), not the idle state, is the signal.

@@ -80,7 +80,7 @@ import (
 )
 
 // InitUsage is obor init's usage line.
-const InitUsage = "usage: obor init [--name N] [--prefix P] [--terminal herdr|hc]"
+const InitUsage = "usage: obor init [--name N] [--prefix P] [--terminal herdr|hc|rex]"
 
 // pluginTimeout bounds each claude plugin call.
 var pluginTimeout = 2 * time.Minute
@@ -94,7 +94,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	s.terminal = kind
-	// terminal check: on a terminal with one (hc) the first step, before any write: a leaked core is a FAIL.
+	// terminal check: on a terminal with one (hc, Rex) the first step, before any write: a leaked core, or no rex on
+	// PATH, is a FAIL.
 	var termLine string
 	if s.Check != nil {
 		if termLine, err = s.Check(ctx); err != nil {
