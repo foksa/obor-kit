@@ -102,7 +102,7 @@ func (cl *Client) args(rest ...string) []string {
 
 // BundleDir is the directory Rex's app keeps its CLI in: the hint of the refusal when no rex is on PATH. obor never
 // runs the CLI from there itself.
-const BundleDir = "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS"
+const BundleDir = "/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS"
 
 // EnvNames are the environment variables that pick the server a caller's rex reaches: XDG_RUNTIME_DIR moves the CLI's
 // server registry (docs/research/rex-probes.md R10), so a serve launchd starts carries the caller's.

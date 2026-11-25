@@ -36,7 +36,7 @@ const rexPlan = "docs/plan/terminal-adapters.md step 9"
 
 // rexBundle is where the Rex app keeps its CLI: the driver links it into its scratch PATH when no rex is on PATH (the
 // adapter itself never looks there).
-const rexBundle = "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex"
+const rexBundle = rex.BundleDir + "/rex"
 
 // rexLab is the throwaway server.
 type rexLab struct {

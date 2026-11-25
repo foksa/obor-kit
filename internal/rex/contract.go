@@ -2,7 +2,7 @@ package rex
 
 // Sent is every method this client calls and, for each, the params it puts in the call: the one list of what obor
 // depends on in Rex's API. TestSchemaHasSent checks it against the committed copy of `rex api describe --json` for
-// these methods (testdata/rex-api-18.describe.json, API revision 18), and TestSentCoversCallSites keeps it in step with
+// these methods (testdata/rex-api-19.describe.json, API revision 19), and TestSentCoversCallSites keeps it in step with
 // the call sites in this package. A block method (Terminal + ".process") takes its block's session_id and block_id and
 // its own args (Args) under args (blockParams). A call that sends a new method or param adds it here in the same
 // change.
