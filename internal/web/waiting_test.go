@@ -25,14 +25,16 @@ func overviewOf(t *testing.T, v view.Project) ProjectsEntry {
 }
 
 // TestOverviewListsAgentsWaitingForYou: a blocked lead, a blocked role agent and a blocked lane worker are the
-// entry's three waiting agents, each with its role and since when (serve's age back from now); the needs-you count
-// stays serve's records.
+// entry's three waiting agents, each with its role, since when (serve's age back from now) and its pane's note as
+// text (markup kept as written, for the page to escape; none when the pane has none); the needs-you count stays
+// serve's records.
 func TestOverviewListsAgentsWaitingForYou(t *testing.T) {
 	t.Parallel()
 	v := view.Project{Serve: view.Serve{Up: true},
-		Lead:     &view.Role{Role: "lead", Agent: "pj-lead", Status: "blocked", Age: 21},
-		Roles:    []view.Role{{Role: "reviewer", Agent: "pj-rev", Status: "blocked", Age: 60}},
-		Lanes:    []view.Lane{{Lane: port.Lane{Name: "L-01", Task: "T-01", Agent: "pj-l1"}, AgentStatus: "blocked", Column: "working"}},
+		Lead:  &view.Role{Role: "lead", Agent: "pj-lead", Status: "blocked", Age: 21, Note: "permission: approve Bash: ls"},
+		Roles: []view.Role{{Role: "reviewer", Agent: "pj-rev", Status: "blocked", Age: 60}},
+		Lanes: []view.Lane{{Lane: port.Lane{Name: "L-01", Task: "T-01", Agent: "pj-l1"}, AgentStatus: "blocked",
+			AgentNote: "question: <b>Trust</b> this folder?", Column: "working"}},
 		Agents:   []wire.AgentStatus{{Name: "pj-l1", Lane: "L-01", Status: "blocked", Age: 300}},
 		NeedsYou: []view.NeedsYou{{Task: "T-02", Reason: "held"}}}
 	before := time.Now().Unix()
@@ -42,16 +44,17 @@ func TestOverviewListsAgentsWaitingForYou(t *testing.T) {
 		t.Errorf("needs-you %d, want 1: serve's records only, the waiting agents counted apart", e.NeedsYou)
 	}
 	want := []struct {
-		agent, role, lane string
-		age               int64
-	}{{"pj-lead", "lead", "", 21}, {"pj-rev", "reviewer", "", 60}, {"pj-l1", "worker", "L-01", 300}}
+		agent, role, lane, note string
+		age                     int64
+	}{{"pj-lead", "lead", "", "permission: approve Bash: ls", 21}, {"pj-rev", "reviewer", "", "", 60},
+		{"pj-l1", "worker", "L-01", "question: <b>Trust</b> this folder?", 300}}
 	if len(e.Waiting) != len(want) {
 		t.Fatalf("waiting %+v, want the lead, the reviewer and L-01's worker", e.Waiting)
 	}
 	for i, w := range want {
 		g := e.Waiting[i]
-		if g.Agent != w.agent || g.Role != w.role || g.Lane != w.lane {
-			t.Errorf("waiting[%d] %+v, want %s (%s, lane %q)", i, g, w.agent, w.role, w.lane)
+		if g.Agent != w.agent || g.Role != w.role || g.Lane != w.lane || g.Note != w.note {
+			t.Errorf("waiting[%d] %+v, want %s (%s, lane %q, note %q)", i, g, w.agent, w.role, w.lane, w.note)
 		}
 		if g.Since < before-w.age || g.Since > after-w.age {
 			t.Errorf("waiting[%d] since %d, want now less its age %ds (%d..%d)", i, g.Since, w.age, before-w.age, after-w.age)

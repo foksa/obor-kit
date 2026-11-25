@@ -46,7 +46,7 @@ func (a *App) Status() wire.Status {
 				continue
 			}
 			as := wire.AgentStatus{Machine: Machine, Group: o.pane.Group, Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
-				Agent: o.pane.Agent, Status: o.pane.Status, Age: int64(now.Sub(o.since) / time.Second)}
+				Agent: o.pane.Agent, Status: o.pane.Status, Note: o.pane.Note, Age: int64(now.Sub(o.since) / time.Second)}
 			if _, ok := done[as.Name]; ok {
 				as.Hint = roleStopHint(as.Name)
 			}

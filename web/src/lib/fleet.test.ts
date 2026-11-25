@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { render } from "svelte/server";
+import Note from "../ui/Note.svelte";
 import { fleetRoles, projectState, waitingText } from "./fleet";
 import type { ProjectsEntry } from "./types";
 
@@ -53,6 +55,17 @@ describe("the agents waiting for you", () => {
   });
   it("render the line without an age when since is unknown", () => {
     expect(waitingText({ agent: "pj-rev", role: "reviewer" }, 1300)).toBe("waiting for you: pj-rev");
+  });
+  it("show the pane's note as one muted line, its full text in the title, markup as text", () => {
+    const { body } = render(Note, { props: { text: "question: <b>Trust</b> this folder?" } });
+    expect(body).toContain('class="note muted small ell');
+    expect(body).toContain("question: &lt;b>Trust&lt;/b> this folder?</span>");
+    expect(body).toContain('title="question: &lt;b>Trust&lt;/b> this folder?"');
+    expect(body).not.toContain("<b>");
+  });
+  it("show no note when the pane has none", () => {
+    expect(render(Note, { props: { text: "" } }).body).not.toContain("note");
+    expect(render(Note, { props: {} }).body).not.toContain("note");
   });
 });
 

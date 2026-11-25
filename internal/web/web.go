@@ -257,33 +257,35 @@ type LaneDot struct {
 	view.Task
 }
 
-// Waiting is an agent waiting for the owner's input: its name, its role (a lane's worker: "worker", with its lane) and
-// since when its pane waits (epoch seconds; 0: unknown).
+// Waiting is an agent waiting for the owner's input: its name, its role (a lane's worker: "worker", with its lane),
+// since when its pane waits (epoch seconds; 0: unknown) and its pane's note (wire.AgentStatus.Note: what it waits for,
+// as the terminal says; "": none), shown as text.
 type Waiting struct {
 	Agent string `json:"agent"`
 	Role  string `json:"role"`
 	Lane  string `json:"lane,omitempty"`
 	Since int64  `json:"since,omitempty"`
+	Note  string `json:"note,omitempty"`
 }
 
 // waitingOf is v's agents whose pane is blocked at now (epoch seconds): the lead, the role agents, then each lane's
-// worker; a pane's age is serve's, as of the read.
+// worker; a pane's age and note are serve's, as of the read.
 func waitingOf(v view.Project, now int64) []Waiting {
 	out := []Waiting{}
 	since := func(age int64) int64 { return now - age }
 	if v.Lead != nil && v.Lead.Status == "blocked" {
-		out = append(out, Waiting{Agent: v.Lead.Agent, Role: "lead", Since: since(v.Lead.Age)})
+		out = append(out, Waiting{Agent: v.Lead.Agent, Role: "lead", Since: since(v.Lead.Age), Note: v.Lead.Note})
 	}
 	for _, r := range v.Roles {
 		if r.Status == "blocked" {
-			out = append(out, Waiting{Agent: r.Agent, Role: r.Role, Since: since(r.Age)})
+			out = append(out, Waiting{Agent: r.Agent, Role: r.Role, Since: since(r.Age), Note: r.Note})
 		}
 	}
 	for _, l := range v.Lanes {
 		if l.AgentStatus != "blocked" {
 			continue
 		}
-		w := Waiting{Agent: l.Agent, Role: "worker", Lane: l.Name}
+		w := Waiting{Agent: l.Agent, Role: "worker", Lane: l.Name, Note: l.AgentNote}
 		for _, a := range v.Agents {
 			if a.Name == l.Agent && a.Lane == l.Name {
 				w.Since = since(a.Age)

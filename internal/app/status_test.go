@@ -824,3 +824,25 @@ func TestWaitingNeedsYouDropCommand(t *testing.T) {
 		t.Error("waiting task has no lane; advertised drop command cannot run")
 	}
 }
+
+// An agent's line in obor status carries its pane's Note (hc's blocked kind and msg); a pane without one carries none.
+func TestStatusCarriesThePaneNote(t *testing.T) {
+	t.Parallel()
+	h, _ := newIdentHarness(t)
+	h.connect()
+	h.add(port.Pane{ID: "w1:p5", Group: "pj", Cwd: h.root, Agent: "claude", Status: "blocked", Label: "pj-rev",
+		Terminal: "t5", Note: "permission: approve Bash: ls"})
+	got := map[string]wire.AgentStatus{}
+	for _, as := range h.a.Status().Project.Agents {
+		got[as.Pane] = as
+	}
+	if len(got) != 2 || got["w1:p1"].Status != "idle" || got["w1:p5"].Status != "blocked" {
+		t.Fatalf("precondition: agents %+v, want w1:p1 idle and w1:p5 blocked", got)
+	}
+	if n := got["w1:p5"].Note; n != "permission: approve Bash: ls" {
+		t.Errorf("w1:p5's note %q, want its pane's", n)
+	}
+	if n := got["w1:p1"].Note; n != "" {
+		t.Errorf("w1:p1's note %q, want none (its pane has none)", n)
+	}
+}

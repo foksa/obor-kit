@@ -20,6 +20,9 @@ const (
 	fgSub      = `{"argv":["/bin/zsh","-l"],"cwd":"/private/tmp/obhc-3752525046/work/sub","name":"zsh","pid":34044}`
 	statusWork = `{"records":{},"reported":true,"status":{"app":"claude-code","state":"working"}}`
 	statusNull = `{"records":{},"reported":true,"status":null}`
+	// statusAsk and statusAsk2: blocked on one dialog, then on the next (its msg alone changes)
+	statusAsk  = `{"records":{},"reported":true,"status":{"app":"claude-code","state":"blocked","kind":"permission","msg":"approve Bash: ls"}}`
+	statusAsk2 = `{"records":{},"reported":true,"status":{"app":"claude-code","state":"blocked","kind":"permission","msg":"approve Bash: rm x"}}`
 	turn1      = `{"state":null,"turn":1}`
 	labelsW2   = `{"labels":{"obor.agent":"w2","obor.project":"cap"}}`
 	labelsOut  = `{"labels":{"obor.agent":"w2"}}`
@@ -70,7 +73,7 @@ func ended(t *testing.T, st *port.Stream) error {
 }
 
 // The stream applies each event to its copy of the record and sends the whole pane when it changed: the cwd a
-// foreground event follows, a status and its kind, labels (a label change; obor.project removed: out of the group),
+// foreground event follows, a status and its kind, a blocked status's note (a new msg alone changes the pane), labels (a label change; obor.project removed: out of the group),
 // a new terminal, its end. A repeated foreground, a turn event, a heartbeat at the last seq and the removal of a
 // terminal that already ended send nothing.
 func TestStreamEvents(t *testing.T) {
@@ -87,6 +90,18 @@ func TestStreamEvents(t *testing.T) {
 		{"the same foreground again", "t1", "foreground", fgSub, nil},
 		{"a status", "t1", "status", statusWork, &port.Event{Kind: port.EventStatus, Pane: "t1", Status: "working", Agent: "claude",
 			New: func() port.Pane { p := base; p.Status, p.Agent = "working", "claude"; return p }()}},
+		{"blocked on a dialog", "t1", "status", statusAsk, &port.Event{Kind: port.EventStatus, Pane: "t1", Status: "blocked", Agent: "claude",
+			New: func() port.Pane {
+				p := base
+				p.Status, p.Agent, p.Note = "blocked", "claude", "permission: approve Bash: ls"
+				return p
+			}()}},
+		{"blocked on the next dialog: the note alone changes", "t1", "status", statusAsk2, &port.Event{Kind: port.EventStatus, Pane: "t1", Status: "blocked", Agent: "claude",
+			New: func() port.Pane {
+				p := base
+				p.Status, p.Agent, p.Note = "blocked", "claude", "permission: approve Bash: rm x"
+				return p
+			}()}},
 		{"status cleared at the shell", "t1", "status", statusNull, &port.Event{Kind: port.EventStatus, Pane: "t1", New: base}},
 		{"a turn", "t1", "turn", turn1, nil},
 		{"relabelled", "t1", "labels", labelsW2, &port.Event{Kind: port.EventStatus, Pane: "t1",

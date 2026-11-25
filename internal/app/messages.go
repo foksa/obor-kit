@@ -856,9 +856,13 @@ func needsToast(p *proj, r event.Record) (title, body string) {
 }
 
 // NeedsText is a needs-you fact's text for the lead's line, the owner's toast and the view (obor status, the web):
-// its reason, then a blocked pane's question and where a person answers it.
+// its reason (a blocked pane's note after it, in parentheses), then a blocked pane's question and where a person
+// answers it.
 func NeedsText(d event.FactData) string {
 	text := oneLine(d.Reason)
+	if n := oneLine(d.PaneNote); n != "" {
+		text += " (" + n + ")"
+	}
 	if d.Question == "" {
 		return text
 	}

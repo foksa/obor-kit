@@ -36,6 +36,10 @@ type Pane struct {
 	// has none. A stream never changes a pane's Run in an event: it ends as a refresh (Refreshed), so the change shows
 	// in the next snapshot, which serve's restore compares.
 	Run string
+	// Note is the terminal's own one-line description of the agent's status (hc: what its OSC 7501 record says, such
+	// as "permission: approve Bash: ls"), "" when it gives none: shown (obor status, a blocked pane's needs-you, the
+	// web), never decided on.
+	Note string
 }
 
 // Ready: the pane's agent is idle: it takes a prompt now (done is idle with an unviewed reply).

@@ -203,7 +203,8 @@ func laneSection(st view.Project, now time.Time) []string {
 	}
 	for _, a := range st.Agents {
 		if a.Lane == "" {
-			line := fmt.Sprintf("agent %s: %s %s", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
+			line := fmt.Sprintf("agent %s: %s%s %s", app.Dash(a.Name), a.Status, paneNote(a.Note),
+				app.Age(time.Duration(a.Age)*time.Second))
 			if a.Hint != "" { // a role agent done with no open work: how the lead stops it
 				line += " → " + a.Hint
 			}
@@ -227,9 +228,17 @@ func writeBackground(w io.Writer, bs []view.Background) {
 	}
 }
 
+// paneNote is " (<note>)" after an agent's status word for its pane's note (wire.AgentStatus.Note), "" without one.
+func paneNote(note string) string {
+	if note == "" {
+		return ""
+	}
+	return " (" + note + ")"
+}
+
 // laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column, the task's
 // age and id, then serve's state of t (the task serve has on l, Project.TaskOn), the effort its dispatch named,
-// a dirty or warned worktree and the agent; a keep lane says so, with its queue.
+// a dirty or warned worktree and the agent (its status and its pane's note); a keep lane says so, with its queue.
 func laneLine(l view.Lane, t view.Task) string {
 	ago := "-"
 	if l.DoneAge != nil {
@@ -259,7 +268,11 @@ func laneLine(l view.Lane, t view.Task) string {
 	if l.Agent != "" {
 		line += "  agent: " + l.Agent
 		if l.AgentStatus != "" {
-			line += " (" + l.AgentStatus + ")"
+			status := l.AgentStatus
+			if l.AgentNote != "" {
+				status += ", " + l.AgentNote
+			}
+			line += " (" + status + ")"
 		}
 	}
 	if l.Mode == config.LaneKeep {

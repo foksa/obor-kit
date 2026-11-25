@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
@@ -52,8 +53,8 @@ type Foreground struct {
 // status.app (kindOf, of kinds: the project's; never foreground.name, which is Claude's version), else the obor.kind
 // label obor's start set,
 // its status hc's word, with `error` as idle (the turn ended, the agent takes a prompt again; its msg is logged where
-// a wait reads it). With no status, a program other than the terminal's own in the foreground is unknown; the
-// terminal's own program (its shell) is no agent.
+// a wait reads it), and its Note what the status says (Status.note). With no status, a program other than the
+// terminal's own in the foreground is unknown; the terminal's own program (its shell) is no agent.
 func (r Record) pane(kinds agents.Kinds) port.Pane {
 	p := port.Pane{ID: r.Address, Terminal: r.Address, Group: r.Labels[LabelProject], Label: r.Labels[LabelAgent], Cwd: r.Cwd}
 	if r.PID != 0 {
@@ -65,7 +66,7 @@ func (r Record) pane(kinds agents.Kinds) port.Pane {
 	switch {
 	case r.Status != nil:
 		p.Agent = cmp.Or(kindOf(kinds, r.Status.App), r.Labels[LabelKind])
-		p.Status = statusWord(r.Status.State)
+		p.Status, p.Note = statusWord(r.Status.State), r.Status.note()
 	case r.programRuns():
 		p.Status = "unknown"
 	}
@@ -105,6 +106,43 @@ func statusWord(s string) string {
 		return "idle"
 	}
 	return "unknown"
+}
+
+// note is s as port.Pane.Note: blocked its kind and msg ("permission: approve Bash: ls", either alone when the other
+// is empty), error "error: <msg>" (or "error"), any other word its msg ("" when none); each part and the whole shown
+// (sanitized). The word itself decides (statusWord); the note is shown only.
+func (s *Status) note() string {
+	kind, msg := sanitized(s.Kind), sanitized(s.Msg)
+	switch s.State {
+	case "blocked":
+		return sanitized(joined(kind, msg))
+	case "error":
+		return sanitized(joined("error", msg))
+	}
+	return msg
+}
+
+// noteMax is the most runes a note shows: a longer one is cut to it, its last rune "…".
+const noteMax = 160
+
+// sanitized is s, text an agent wrote, as obor shows it on one line: control characters (C0, DEL, C1) dropped,
+// whitespace runs one space, trimmed, at most noteMax runes ("…" ending a cut one). No markup is read or written:
+// a page escapes it as any text.
+func sanitized(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r):
+			return ' '
+		case unicode.IsControl(r): // C0, DEL and C1
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if rs := []rune(s); len(rs) > noteMax {
+		s = strings.TrimRight(string(rs[:noteMax-1]), " ") + "…"
+	}
+	return s
 }
 
 // Panes is port.Panes over the core: every live terminal of it is a pane, its Group its obor.project label.

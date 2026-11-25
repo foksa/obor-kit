@@ -116,6 +116,8 @@ type Lane struct {
 	port.Lane
 	Op          string `json:"op,omitempty"`
 	AgentStatus string `json:"agent_status,omitempty"`
+	// AgentNote is the agent's pane note as serve sees it (wire.AgentStatus.Note), "" when none: shown only.
+	AgentNote string `json:"agent_note,omitempty"`
 	// Free: no task holds the lane: its state column is the one free rule's free or dirty-free (port.FreeState: its
 	// row's task landed at the lane's HEAD or a lane HEAD the target holds, or it has none) and so serve has no phase of a
 	// task on it (a free lane keeps its last branch's task).
@@ -167,6 +169,7 @@ type Role struct {
 	Agent   string            `json:"agent"`
 	Type    string            `json:"type,omitempty"`
 	Status  string            `json:"status,omitempty"`
+	Note    string            `json:"note,omitempty"` // its pane's note (wire.AgentStatus.Note): shown only
 	Age     int64             `json:"age,omitempty"`
 	Brief   *wire.BriefStatus `json:"brief,omitempty"`
 	Session string            `json:"session,omitempty"`
@@ -343,7 +346,7 @@ func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, r
 		l.Warning = "no-plugin"
 	}
 	if a, ok := serveAgent(ps, s.Name); ok { // else the lane's derived agent (s.Agent), no status
-		l.Agent, l.AgentStatus = a.Name, a.Status
+		l.Agent, l.AgentStatus, l.AgentNote = a.Name, a.Status, a.Note
 	}
 	l.Column = l.State
 	if phase := v.TaskOn(l).Phase; phase != "" {
@@ -378,7 +381,7 @@ func roles(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background
 		r := Role{Role: name, Agent: agent, Type: config.ModelRef(rc.Type, rc.Effort), Background: bg[agent]}
 		for _, a := range ps.Agents {
 			if a.Name == agent && a.Lane == "" {
-				r.Status, r.Age, r.Session = a.Status, a.Age, a.Session
+				r.Status, r.Note, r.Age, r.Session = a.Status, a.Note, a.Age, a.Session
 			}
 		}
 		if r.Status == "" && slices.Contains(ps.Stopped, agent) {
@@ -404,7 +407,8 @@ func lead(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background)
 	}
 	for _, a := range ps.Agents {
 		if a.Name == agent && a.Lane == "" {
-			return &Role{Role: "lead", Agent: agent, Status: a.Status, Age: a.Age, Session: a.Session, Background: bg[agent]}
+			return &Role{Role: "lead", Agent: agent, Status: a.Status, Note: a.Note, Age: a.Age, Session: a.Session,
+				Background: bg[agent]}
 		}
 	}
 	return nil

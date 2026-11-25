@@ -14,6 +14,7 @@
   import { WAITS_NEVER, laneSteps, pipelineOf, queuedForLane, waitChips } from "../lib/pipeline";
   import type { Lane, ProjectView, Role, WaitItem } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
+  import Note from "../ui/Note.svelte";
   import Dot from "../ui/Dot.svelte";
   import Stat from "../ui/Stat.svelte";
   import Section from "../ui/Section.svelte";
@@ -233,7 +234,7 @@
             {:else}<p class="muted small">no task</p>{/if}
             <Stepper stage={st} compact />
             <div class="lfoot small">
-              {#if l.agent}<span>agent <AgentLink {project} agent={l.agent} />{#if l.agent_status === "blocked"} · <Pill state="blocked" text={agentStatusText(l.agent_status, ageOf(l.agent, l.lane))} />{:else if l.agent_status}<span class="muted"> · {l.agent_status}</span>{/if}</span>{/if}
+              {#if l.agent}<span>agent <AgentLink {project} agent={l.agent} />{#if l.agent_status === "blocked"} · <Pill state="blocked" text={agentStatusText(l.agent_status, ageOf(l.agent, l.lane))} />{:else if l.agent_status}<span class="muted"> · {l.agent_status}</span>{/if}</span><Note text={l.agent_note} />{/if}
               {#if tk.job}<span>job <a class="mono" href={href.job(project, tk.job.id)}>{jobStep(tk.job.id)}</a>{#if !tk.job.delivered} <Pill state="not fetched" />{/if}</span>{/if}
               {#if l.branch}<span class="muted">branch <span class="mono">{l.branch}</span>{#if l.dirty}<span class="dirty"> · dirty</span>{/if}</span>{/if}
               {#if l.op}<span class="muted">{l.op}</span>{/if}
@@ -336,7 +337,7 @@
                   <tr>
                     <td>{roleName(r.role)}</td>
                     <td><AgentLink {project} agent={r.agent} /></td>
-                    <td>{#if r.status}<Pill state={r.status === "done" ? "idle" : r.status} text={agentStatusText(r.status, r.age)} />{:else}<Pill state="idle" text="no pane" />{/if}</td>
+                    <td class="st">{#if r.status}<Pill state={r.status === "done" ? "idle" : r.status} text={agentStatusText(r.status, r.age)} />{:else}<Pill state="idle" text="no pane" />{/if}<Note text={r.note} /></td>
                     <td class="small">
                       {#if r.brief}brief {r.brief.worked ? "being worked" : r.brief.delivered ? "delivered" : "not delivered"} · <Rel at={r.brief.since} />{/if}
                       <Background list={r.background} />
@@ -421,6 +422,8 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
   th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; padding: 10px 12px; }
   td { padding: 10px 12px; border-top: 1px solid var(--line-soft); vertical-align: top; }
+  td.st { max-width: 320px; }
+  td.st :global(.note) { display: block; margin-top: 4px; }
   th:first-child, td:first-child { padding-left: 16px; }
   .r { text-align: right; padding-right: 16px; }
 </style>

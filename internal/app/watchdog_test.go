@@ -458,20 +458,22 @@ func TestWatchdogTable(t *testing.T) {
 	}
 }
 
-// A blocked worker's needs-you line and the owner's toast carry the pane's question, and say where a person answers
-// it (docs/state-model.md row 11).
+// A blocked worker's needs-you line and the owner's toast carry the pane's note after the reason and the pane's
+// question, and say where a person answers it (docs/state-model.md row 11); the fact's reason stays the key blocked.
 func TestBlockedNeedsYouCarriesTheQuestion(t *testing.T) {
 	t.Parallel()
 	h := ruleHarness(t)
 	h.panes.screen = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
-	h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" })
+	seq := h.lastSeq()
+	h.status("w1:p1", func(p *port.Pane) { p.Status, p.Note = "blocked", "permission: approve Bash: ls" })
+	eq(t, h.facts(seq), []string{"T-1 needs-you{blocked}"}, "the blocked pane's fact, its reason the key")
 	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, withAppCfg(h.a, &Loop{}))
 	_, lines := ruleLines(t, h)
 	if len(lines) != 1 {
 		t.Fatalf("needs-you lines = %q, want one", lines)
 	}
-	for _, want := range []string{"needs-you T-1 (L-01): blocked:", "Do you want to proceed?", "1. Yes 2. No",
-		"answer in pane w1:p1"} {
+	for _, want := range []string{"needs-you T-1 (L-01): blocked (permission: approve Bash: ls):", "Do you want to proceed?",
+		"1. Yes 2. No", "answer in pane w1:p1"} {
 		if !strings.Contains(lines[0], want) {
 			t.Errorf("line %q does not carry %q", lines[0], want)
 		}
@@ -479,7 +481,7 @@ func TestBlockedNeedsYouCarriesTheQuestion(t *testing.T) {
 	if len(h.panes.notes) != 1 {
 		t.Fatalf("owner toasts = %q, want one", h.panes.notes)
 	}
-	for _, want := range []string{"Do you want to proceed?", "answer in pane w1:p1"} {
+	for _, want := range []string{"blocked (permission: approve Bash: ls):", "Do you want to proceed?", "answer in pane w1:p1"} {
 		if !strings.Contains(h.panes.notes[0], want) {
 			t.Errorf("toast %q does not carry %q", h.panes.notes[0], want)
 		}
