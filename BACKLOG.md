@@ -7,21 +7,17 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-25 (lead; previous Handoff: `git show f378ab8d:BACKLOG.md`). **Shipped v0.46.3** (T-1562) **and v0.47.0**
-  (Rex experimental; OSC 7501 home `internal/progstatus` T-1564, one blocked-prompt guard T-1565, Rex adapter
-  T-1566..T-1572, hc agent status on card/needs-you T-1563). Owner's Rex trial works. herdr TUI stays as is (no 7501
-  there; owner: don't depend on herdr upstream). Decisions 11-25 in `docs/decisions.md`.
-- **In flight:** nothing running. RV-267 (T-1573 lane.sync, a fix attempt merges the target into the lane) is in its
-  second verify of T-1579 (link restore after abort/crash): after it, accept what remains (`obor review close
-  --accept`, two rounds done). Then serve starts T-1577's on-merge review (queued); its scope should cover wave A+B
-  (T-1575, T-1576, T-1577, T-1578): if the reviewer's scope leaves T-1575/1576/1578 out, start one more review.
-- **Next:** internal/app wave C per `docs/plan/internal-app.md` (owner approved the 16-task path 11-25, run in waves;
-  file-split task 9 alone in the package): task 5 (record data types into `event`, `event` → `port` row) and task 6
-  (`internal/app/describe` leaf; first measure what `make check-affected` runs for an app-only change). Then D, E, F.
-  Reasons and file:line: `docs/research/internal-app-architecture-{fable,gemini}.md`.
-- New role `gemini_advisor` (agy gemini; `docs/agents/gemini_advisor.md`); stopped. Both advisors stopped.
-- Owner pending: nothing. Watch on 11-30: the guard's rejected-command count (Open). Disk was low (11 GiB free after
-  a Go cache trim); other sessions' scratch dirs are the owner's to clear.
+- 2026-11-25 evening (lead; previous Handoff: `git show 11b429f3:BACKLOG.md`). **The internal/app plan is done**
+  (`docs/plan/internal-app.md`, status line at its end): tasks 1-15 merged and reviewed (RV-268..RV-274 all closed;
+  RV-267 closed with #2 accepted). 33 merges since v0.47.0, all reviewed: lane.sync fix attempts from the target
+  (T-1573/1574/1579), the append/lane-row error rule (T-1582), the internal/app restructuring (T-1575..T-1588),
+  test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
+- **In flight:** nothing. No watches, no reviews open. The idle line may come: answer it per the next step chosen.
+- **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
+  after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
+  Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
+  (c) the smaller test topics only alongside other changes.
+- Owner pending: nothing. Both advisors and the gemini_advisor stopped.
 
 ## Owner decisions pending
 ## Later candidates
@@ -51,7 +47,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (lead 11-23) Nightly 11-23 02:00: agy live tier AG-L1 failed "model gemini-3.8-flash-low is not in agy models" although `agy models` lists it at 07:15 (and AG-L7 skipped). Likely an empty or partial live answer in the lab's env (F11, fixed by T-1521 for the cache case; the lab HOME may have no cache). Goes into W6's spec: find why, report the list the lab saw.
 - (owner 11-22, widened 11-25) **Every read-only role may use subagents, on every kind** (researcher, advisor, reviewer, deep dive; not workers, the integrator or the lead's lanes). Today: Claude's Agent tool and OpenCode's `subagent` have no guard rule (allowed for every role), agy's `invoke_subagent` is denied for every obor agent (T-1505: a subagent's SessionStart is recorded as the agent's session, RV-250 #1), Codex unchecked. Needs: per kind, a child session told apart from the agent's (agy P13: no field names the parent; or skip session recording for a role agent's later SessionStarts while one is live) and the child's tool calls under the same role guard; then one per-role switch (e.g. `agents.roles.<role>.subagents`) instead of per-kind rules. Probe first; also `schedule`'s conversations (RV-250 accepted rest).
 - (lead 11-22, RV-240) A task dispatched before a review started and linked to it later (`Fixes:` by `spec set`) stops counting once merged: `fixCandidates` (`internal/app/reviewverify.go:47`) skips ended tasks with `dispSeq <= start`, so no verify fires (the lead briefed RV-240's by hand). T-1472 fixes it.
-- (lead 11-22, T-1460) **No way to bring the target into a lane**: a task whose change breaks a test merged on the target after its lane started cannot edit that file (workers have no git writes; adding it is an add/add conflict); the lead merged staging into task/T-1460 by hand. Second time 11-23 (T-1517 needed T-1522's test; lead merged staging into the lane). Next time: a serve step (the fix job of a red gate merges the target into the lane when it is clean) instead of the lead's hand merge.
 - (RV-238 design, lead 11-22) `ContextOf` asks every transcript-capable kind in name order, can hand one session's transcript tail to an unrelated plugin, and costs up to 5 s per plugin kind in a lead hook or under the keep-lane mutex. Harmless today (OpenCode has no transcript). **Before kind-agy (the first transcript plugin): route by the recorded session's kind and bound the call** — goes into the kind-agy start/wiring spec.
 - (RV-214 design, lead 11-20) Two temp-index builders of lane work with different exclusions: `merge_preview` (`internal/checks/preview.go`, T-1349) and `obor run` (`internal/run/run.go:182`). Give them one owner if their rules converge; until then keep the differences named in both.
 - (lead 11-13) `obor restart ob-designer --fresh` (pane w5:p2F, first start of the new designer role) printed `terminal agent start ob-designer: no claude agent came up in w5:p2F within 30s` and `FAIL start failed` while Claude was up and working the brief (screen and processes in the same output show it). First `obor restart` start after Claude Code 2.1.322 → 2.1.323; serve's dispatch starts (T-1300, T-1301) worked after the update. If the next restart start fails the same way: a bug task on the start's readiness detection (herdr agent field vs the new version).

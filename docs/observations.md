@@ -28,6 +28,7 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
   as a package (T-1220). Run a release with the lanes idle and dispatch after it.
 
 ## Premises to check before proposing
+- **Measure before a test rework** (11-25, T-1589): the planned levers (one fake per port, one level per behaviour) saved little; the measurement found bigger ones outside the plan (real-time waits on production deadlines, a glob of the real home, a config reload per 2 ms tick). Cleanup tasks of a rework yield ~50 lines each: stop a batch when the per-task yield drops.
 - Check processes, logs and code first (`ps` shows what runs; agents run the installed kit's `obor mcp`).
 - Reviewers rate mixed-version findings "High" from the window alone: check the tags first (`git show v<last>:<file>`).
 - Don't over-promise a spec's guarantee: state the property that matters and test exactly that (RV-152).
