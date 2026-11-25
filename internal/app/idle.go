@@ -277,6 +277,7 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 		return "", errors.New("idle: a call id is required")
 	}
 	p, reply, stored := a.callProj(wire.MethodIdle, c.Envelope)
+	refused := leadOrOwner(wire.MethodIdle, "answers it", c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodIdle, c.Root)
@@ -284,8 +285,8 @@ func (a *App) idleCall(c wire.IdleReq) (string, error) {
 		return reply, nil
 	case !a.merges(p):
 		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("idle: the lead or the owner answers it, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return "", refused
 	}
 	why := oneLine(c.Why)
 	cfg, _ := p.cfgNow() // the call's one read of the config; one that does not load keeps the role agents last known

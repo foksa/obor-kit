@@ -60,8 +60,8 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 	if c.CallID == "" || summary == "" {
 		return "", errors.New(wire.MethodReviewClose + ": a call id and a summary are required")
 	}
-	if c.Role != "" && c.Role != "lead" {
-		return "", fmt.Errorf("review close: only the lead closes a review (%s)", c.Role)
+	if err := leadOrOwner(wire.MethodReviewClose, "closes a review", c.Envelope); err != nil {
+		return "", err
 	}
 	a.configMu.Lock() // one main-checkout writer at a time; a repeated call id waits for the close in flight before its
 	// stored-reply lookup

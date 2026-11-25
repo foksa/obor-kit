@@ -375,11 +375,12 @@ func (a *App) dropDecide(p *proj, c wire.DropReq) (mtask, int, error) {
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
+	refused := leadOrOwner(wire.MethodDrop, "drops a task", c.Envelope)
 	switch {
 	case !p.merging:
 		return mtask{}, 0, mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return mtask{}, 0, fmt.Errorf("drop: the lead or the owner drops a task, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return mtask{}, 0, refused
 	case strings.TrimSpace(c.Why) == "":
 		return mtask{}, 0, errors.New("drop: say why")
 	case mt.task == "": // a spec stored and never dispatched: dropped too, at its rev

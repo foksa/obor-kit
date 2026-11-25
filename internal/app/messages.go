@@ -911,8 +911,7 @@ func (a *App) sendCall(c wire.SendReq) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.cfgNow, wire.MethodSend, c.Envelope, fmt.Sprintf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent),
-		c.Role)); err != nil {
+	if err := leadOr(p.cfgNow, wire.MethodSend, "sends", c.Envelope); err != nil {
 		return "", err
 	}
 	switch {
@@ -971,8 +970,7 @@ func (a *App) briefCall(c wire.BriefReq) (string, error) {
 		return "", mergeOff(p)
 	}
 	fx, ferr := a.loopOf(p) // the call's one read of the config
-	if err := leadOr(loaded(cfgOf(fx), ferr), wire.MethodBrief, c.Envelope, fmt.Sprintf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent),
-		c.Role)); err != nil {
+	if err := leadOr(loaded(cfgOf(fx), ferr), wire.MethodBrief, "briefs", c.Envelope); err != nil {
 		return "", err
 	}
 	if ferr != nil {

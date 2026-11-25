@@ -37,8 +37,8 @@ var laneName = regexp.MustCompile(`^L-\d+$`)
 
 // pruneCall answers the socket's prune request: the owner's or the lead's (the nightly's call is the owner's).
 func (a *App) pruneCall(ctx context.Context, c wire.PruneReq) (string, error) {
-	if c.Role != "" && c.Role != "lead" {
-		return "", fmt.Errorf("prune: the owner or the lead prunes, not %s (role %s)", Dash(c.Agent), c.Role)
+	if err := leadOrOwner(wire.MethodPrune, "prunes", c.Envelope); err != nil {
+		return "", err
 	}
 	if c.Nightly && (c.Unmerged || c.DryRun) {
 		return "", errors.New("prune: the nightly's call takes neither --unmerged nor --dry-run")

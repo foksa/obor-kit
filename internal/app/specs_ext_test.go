@@ -221,7 +221,7 @@ func TestSpecSet(t *testing.T) {
 			reply, err := r.ask(
 				&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-l-01", Role: role, CallID: "w-" + role},
 					Task: "T-1", Spec: "# T-1 — widened by " + role + "\n"})
-			if err == nil || !strings.Contains(err.Error(), "only the lead or the owner sets a spec") {
+			if err == nil || !strings.Contains(err.Error(), "the lead or the owner sets a spec") {
 				t.Errorf("spec set by role %q: %q, %v; want refused", role, reply, err)
 			}
 		}

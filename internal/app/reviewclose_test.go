@@ -428,7 +428,7 @@ func TestReviewCloseLeadOnly(t *testing.T) {
 		for _, force := range []bool{false, true} {
 			_, err := r.a.reviewCloseCall(wire.ReviewCloseReq{Envelope: wire.Envelope{Root: r.p.root,
 				CallID: "x-" + role, Role: role, Agent: "pj-" + role}, Summary: "fixed", Force: force})
-			if want := "review close: only the lead closes a review (" + role + ")"; err == nil || err.Error() != want {
+			if want := "review_close: the lead or the owner closes a review, not pj-" + role + " (role " + role + ")"; err == nil || err.Error() != want {
 				t.Errorf("%s force=%v: %v, want %q", role, force, err, want)
 			}
 		}

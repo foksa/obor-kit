@@ -240,16 +240,16 @@ func TestConfigSetRefused(t *testing.T) {
 		{name: "no caps", key: "lane_types.opus.max", val: `2`, want: "is not an editable key"},
 		{name: "uncommitted", key: "lanes.count", val: `3`, want: ".obor/config.json has uncommitted changes",
 			refused: ".obor/config.json has uncommitted changes in /pj: commit or discard them first"},
-		{name: "worker", key: "lanes.count", val: `3`, role: "worker", want: "the owner or the lead changes the setup"},
+		{name: "worker", key: "lanes.count", val: `3`, role: "worker", want: "the lead or the owner changes the setup"},
 		{name: "commit", key: "lanes.count", val: `3`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
 		{name: "not editable", key: "commands.check", val: `"x"`, want: "is not an editable key"},
 		// obor nightly on|off's change
 		{name: "nightly 25:00", key: "nightly.at", val: `"25:00"`, want: "nightly.at takes a local time HH:MM"},
 		{name: "nightly no time", key: "nightly.at", val: `""`, want: "nightly.at takes a local time HH:MM"},
 		{name: "nightly by a worker", key: "nightly.at", val: `"03:00"`, role: "worker",
-			want: "the owner or the lead changes the setup"},
+			want: "the lead or the owner changes the setup"},
 		{name: "nightly by the integrator", key: "nightly.at", val: `null`, role: "integrator",
-			want: "the owner or the lead changes the setup"},
+			want: "the lead or the owner changes the setup"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

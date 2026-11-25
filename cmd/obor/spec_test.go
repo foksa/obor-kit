@@ -104,9 +104,9 @@ func TestSpecSetRequest(t *testing.T) {
 		t.Errorf("a refused set asked serve (%d requests, %d before)", after, n)
 	}
 
-	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "spec set: only the lead sets a spec, not pj-l1 (role worker)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "spec_set: the lead or the owner sets a spec, not pj-l1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "spec", "set", "T-07", draft); rc != 1 ||
-		stdout != "FAIL spec set: only the lead sets a spec, not pj-l1 (role worker)\n" {
+		stdout != "FAIL spec_set: the lead or the owner sets a spec, not pj-l1 (role worker)\n" {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)
 	}
 	refusing.stop()

@@ -110,13 +110,14 @@ func (a *App) pauseCall(c wire.PauseReq) (string, error) {
 			return "", fmt.Errorf("pause: %v", cfg.UnknownModel(c.Model))
 		}
 	}
+	refused := leadOrOwner(wire.MethodPause, "pauses", c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodPause, c.Root)
 	case stored:
 		return reply, nil
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("pause: the lead or the owner pauses, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return "", refused
 	case c.Clear && held == nil:
 		return "NOT PAUSED" + what, nil
 	case !c.Clear && c.Why == "":

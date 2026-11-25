@@ -137,13 +137,14 @@ func (a *App) driveDecide(ctx context.Context, c wire.DriveReq) (string, error) 
 		reply, stored = p.folded.calls[verdictStep(wire.MethodDrive, c.CallID)]
 	}
 	a.mu.Unlock()
+	refused := leadOrOwner(wire.MethodDrive, "drives", c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("drive: no served project at %s", c.Root)
 	case stored:
 		return reply, nil
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("drive: the owner or the lead drives, not %s (role %s)", Dash(c.Agent), c.Role)
+	case refused != nil:
+		return "", refused
 	}
 	fx, err := a.loopOf(p)
 	if err != nil {

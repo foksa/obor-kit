@@ -73,8 +73,7 @@ func (a *App) dispatchCall(ctx context.Context, c wire.DispatchReq) (string, err
 		return reply, nil
 	}
 	fx, err := a.loopOf(p) // the call's one read of the config
-	if lerr := leadOr(loaded(cfgOf(fx), err), wire.MethodDispatch, c.Envelope, fmt.Sprintf("dispatch: the lead or the owner dispatches, not %s (role %s)",
-		Dash(c.Agent), c.Role)); lerr != nil {
+	if lerr := leadOr(loaded(cfgOf(fx), err), wire.MethodDispatch, "dispatches", c.Envelope); lerr != nil {
 		return "", lerr
 	}
 	if err != nil {
