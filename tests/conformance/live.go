@@ -289,6 +289,26 @@ func (l *lab) makeProject() error {
 			return err
 		}
 	}
+	// agy's start refuses a worker in a project whose hooks file is stale (kinds/agy/kind: hooksStale): the lane gets
+	// the project entries `obor setup agents` writes.
+	if l.kind == "agy" {
+		k, ok := l.kinds().Lookup("agy")
+		if !ok {
+			return fmt.Errorf("no agy kind in the scratch project's config")
+		}
+		inst, err := agents.InstallOf(k, l.kit, l.lane, nil)
+		if err != nil {
+			return fmt.Errorf("agy's install: %v", err)
+		}
+		for _, m := range []agents.MCPRegistration{inst.MCP, inst.Hooks} {
+			if m.Where != agents.Project {
+				continue
+			}
+			if err := writeEntry(m); err != nil {
+				return fmt.Errorf("agy's %s: %v", m.Path, err)
+			}
+		}
+	}
 	return nil
 }
 

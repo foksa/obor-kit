@@ -3,7 +3,8 @@ package testkit
 // The terminal contract table: one table of rows, each a call on the terminal's port with its expected result or
 // refusal, plus what the core and setup rely on of an adapter, in terminal-neutral terms. internal/herdr runs it on
 // its fake (TestTerminalContract) and the conformance suite's live herdr tier on a throwaway session (tests/conformance,
-// H-C rows). A second adapter runs the same rows.
+// H-C rows); the live Rex tier runs it on a scratch server (REX-C) and its agent rows in each kind's workflow with the
+// kind's live agent (RX-C). A second adapter runs the same rows.
 
 import (
 	"context"
@@ -29,11 +30,13 @@ type Terminal struct {
 	Group   string
 	Cwd     string
 	Stale   func(pane string) error
+	// Agent is the agent the agent rows start in the pane (start, pane busy, named): its kind, program and argv. The
+	// zero value starts claude with no argv; a live tier that runs a kind's agent sets it to that kind's start.
+	Agent port.AgentStart
 }
 
 // Row is one row of the terminal contract: Run checks it against a pane that is a shell, in t's group, with a known
-// cwd; an error says what broke. Agent: the row starts an agent CLI in the pane (the live herdr session starts none:
-// each kind's session proves a start).
+// cwd; an error says what broke. Agent: the row starts t's agent (claude where the terminal names none) in the pane.
 type Row struct {
 	Name  string
 	Agent bool
@@ -52,8 +55,8 @@ var Contract = []Row{
 			return fmt.Errorf("wait for the started agent to be idle: %w", err)
 		}
 		a, err := t.Control.Pane(ctx, pane)
-		if err != nil || a.ID != pane || a.Agent != "claude" {
-			return fmt.Errorf("the pane after the start = %+v, %v; want pane %s running a claude agent", a, err, pane)
+		if err != nil || a.ID != pane || a.Agent != t.agentKind() {
+			return fmt.Errorf("the pane after the start = %+v, %v; want pane %s running a %s agent", a, err, pane, t.agentKind())
 		}
 		return nil
 	}},
@@ -192,8 +195,8 @@ var Contract = []Row{
 			return fmt.Errorf("start: %w", err)
 		}
 		a, err := t.Control.Named(ctx, name)
-		if err != nil || a.ID != pane || a.Agent != "claude" {
-			return fmt.Errorf("the holder of the started name = %+v, %v; want pane %s running a claude agent", a, err, pane)
+		if err != nil || a.ID != pane || a.Agent != t.agentKind() {
+			return fmt.Errorf("the holder of the started name = %+v, %v; want pane %s running a %s agent", a, err, pane, t.agentKind())
 		}
 		return nil
 	}},
@@ -253,15 +256,31 @@ var Contract = []Row{
 // missing is a pane id no terminal has.
 const missing = "obor-contract-missing:p0"
 
-// start starts a claude agent named name in pane through the terminal's AgentStarter (launch asks its PaneControl
-// for one).
+// start starts the row's agent named name in pane through the terminal's AgentStarter (launch asks its PaneControl
+// for one): t.Agent, or claude with no argv where the terminal names none.
 func start(ctx context.Context, t Terminal, name, pane string) error {
 	st, ok := t.Control.(port.AgentStarter)
 	if !ok {
 		return fmt.Errorf("the terminal's PaneControl is no AgentStarter")
 	}
-	_, err := st.Start(ctx, port.AgentStart{Pane: pane, Label: name, Kind: "claude", Program: "claude"})
+	s := t.Agent
+	s.Pane, s.Label = pane, name
+	if s.Kind == "" {
+		s.Kind = "claude"
+	}
+	if s.Program == "" {
+		s.Program = s.Kind
+	}
+	_, err := st.Start(ctx, s)
 	return err
+}
+
+// agentKind is the kind of the agent an agent row starts in the pane: t.Agent's, claude where it names none.
+func (t Terminal) agentKind() string {
+	if t.Agent.Kind == "" {
+		return "claude"
+	}
+	return t.Agent.Kind
 }
 
 // typed types a command line at the pane's shell that prints obor-contract-<word>, and reads the pane's recent output

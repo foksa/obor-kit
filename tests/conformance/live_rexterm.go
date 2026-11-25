@@ -4,14 +4,16 @@
 // worker start through obor's own Rex adapter (internal/rex: Place for the lane's block, Write for the env line,
 // Start, the guarded Prompt, WaitStatus), in a block of a throwaway Rex server (rexLab: scratch socket, state, config
 // and XDG_RUNTIME_DIR, --autostart=false, stopped at the end; never the person's server), with the scratch kit's stub
-// as obor (lab's makeKit) and the start args obor's launch builds for the kind's smallest starter model (hcLaunch). The server is
+// as obor (lab's makeKit) and the start args obor's launch builds for the model hcModels names (hcLaunch). The server is
 // started with an obor pane's, herdr's, hc's and a Claude session's identity in its environment, which every block
 // inherits from it: the block Place makes must hold none of it (RX-T0), and the agent's obor server must see the env
-// line's identity (RX-T2). Rex is experimental: these rows do not gate a merge (D7), and a kind that cannot run SKIPs.
+// line's identity (RX-T2). The terminal contract's agent rows run on the same live agent (RX-C). Rex is experimental:
+// these rows do not gate a merge (D7), and a kind that cannot run SKIPs.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,6 +27,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/rex"
+	"obor/internal/testkit"
 )
 
 // rexLeak is the identity the scratch server's environment holds (rexLab.leak): what an obor pane, herdr, hc and a
@@ -125,6 +128,9 @@ func rexTermKind(bin, root, kind string, turn bool) {
 		return
 	}
 	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane}
+	if kind == "agy" { // its project MCP file and hooks name `obor`: the scratch kit's stub is the obor on the pane's PATH
+		paneEnv["PATH"] = filepath.Join(l.kit, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")
+	}
 	for k, v := range start.Env {
 		paneEnv[k] = v
 	}
@@ -169,6 +175,67 @@ func rexTermKind(bin, root, kind string, turn bool) {
 		report("SKIP", "RX-T3", kind+": needs TURN=1 (a model call)", at("internal/rex/control.go", "func (cl *Client) Prompt"))
 	}
 	rexQuit(cl, k, pane)
+	rexTermContract(control, cl, kind, l.lane, pane, start, k)
+}
+
+// rexTermContract is the terminal contract's agent rows (RX-C: start, the second start's PaneBusy refusal and the Named
+// lookup) on the kind's live agent: each on the block at its shell, started with the kind's start args, then quit with
+// its recipe. The server-only run (KIND=rex) has no agent CLI to start, so its loop SKIPs them.
+func rexTermContract(control port.PaneControl, cl *rex.Client, kind, lane, pane string, start agents.Launch, k agents.Kind) {
+	where := "internal/testkit/terminal.go, on internal/rex (control.go, place.go)"
+	t := testkit.Terminal{Control: dialog{control}, Group: "conf", Cwd: lane, Agent: port.AgentStart{Kind: kind,
+		Program: agents.Programs(k)[0], Argv: start.Args, Bound: 45 * time.Second}}
+	atShell := func() bool { p, err := cl.Pane(context.Background(), pane); return err == nil && p.Status == "" }
+	for _, row := range testkit.Contract {
+		if !row.Agent {
+			continue
+		}
+		id := "RX-C " + row.Name
+		if !poll(30*time.Second, atShell) {
+			report("FAIL", id, kind+": the block is not at its shell for the row", where)
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		err := row.Run(ctx, t, pane)
+		cancel()
+		rexQuit(cl, k, pane)
+		if err != nil {
+			report("FAIL", id, err.Error(), where)
+			continue
+		}
+		report("PASS", id, fmt.Sprintf("%s: the Rex adapter keeps the row with its live %s agent", kind, kind), where)
+	}
+}
+
+// dialog is a terminal's control as a start sees it: a start that comes back NotReady (a CLI's startup dialog in the
+// scratch lane, agy's brief "Sign in required") is answered as the kind workflows answer one, then waited for. The
+// contract rows start agents on a terminal whose CLI is new to the scratch dir; obor's launcher answers that dialog, so
+// the rows see the start obor sees.
+type dialog struct{ port.PaneControl }
+
+func (d dialog) Start(ctx context.Context, s port.AgentStart) (port.Pane, error) {
+	st, ok := d.PaneControl.(port.AgentStarter)
+	if !ok {
+		return port.Pane{}, errors.New("the terminal's PaneControl is no AgentStarter")
+	}
+	p, err := st.Start(ctx, s)
+	if !port.NotReady(err) {
+		return p, err
+	}
+	screen, _ := d.PaneControl.Screen(ctx, s.Pane, 0)
+	keys := []string{port.KeyEnter}
+	if s.Kind == agents.Default && agents.TrustDialog(screen) { // Claude's default option is "No, exit"
+		keys = []string{"down", port.KeyEnter}
+	}
+	_ = d.PaneControl.SendKeys(ctx, s.Pane, keys...)
+	if poll(45*time.Second, func() bool {
+		q, e := d.PaneControl.Pane(ctx, s.Pane)
+		p = q
+		return e == nil && q.Agent == s.Kind && q.Ready()
+	}) {
+		return p, nil
+	}
+	return p, err
 }
 
 // rexScrubbed is RX-T0: the block Place made holds none of the server's leaked identity (the server's own environment
