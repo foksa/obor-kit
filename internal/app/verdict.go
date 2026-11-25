@@ -332,7 +332,7 @@ func (a *App) drop(c wire.DropReq) (string, error) {
 	}
 	worker := laneWorker(fx.Cfg, lane, mt)
 	force := c.Force
-	if h := mt.halt; h.pending() { // a refused stop (busy refuses a running one): its recorded agent, never the lane row's
+	if h := mt.halt; mt.halting() { // a refused stop (busy refuses a running one): its recorded agent, never the lane row's
 		worker, force = h.agent, force || h.force
 	}
 	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Why, Force: force, Discard: c.Discard,

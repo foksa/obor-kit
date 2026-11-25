@@ -49,7 +49,7 @@ const (
 )
 
 // workVerbs are the verbs of a task its worker works on (dispatched, working); move and submit also need a dispatch's
-// lane prepared (mt.base).
+// lane prepared (dispStage.laneReady).
 const workVerbs = vResume | vDrop | vMove | vSubmit
 
 // may: mt's state takes v. A block decides first (one rule for every verb): a due one takes only a drop (its
@@ -261,7 +261,7 @@ func (p *proj) busy(task string) string {
 	if m := p.folded.loop[task]; m != nil {
 		mt = *m
 	}
-	if h := mt.halt; h.pending() && h.refused == "" {
+	if h := mt.halt; h.running() {
 		return fmt.Sprintf("%s has %s of %s pending", task, nth(event.StepWorkerStop, h.n+1), h.agent)
 	}
 	if mt.onHold() { // it runs no step: an open intent is the failed step's, which obor resume retries

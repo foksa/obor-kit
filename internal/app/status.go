@@ -89,7 +89,7 @@ func (a *App) Status() wire.Status {
 				if at := p.folded.starts[mt.task]; !at.IsZero() {
 					ts.Started = at.Unix()
 				}
-				if mt.halt.pending() {
+				if mt.halting() {
 					ts.Stopping = mt.halt.agent
 				}
 				if waiting {

@@ -370,7 +370,7 @@ func (mt *mtask) resumed(d event.FactData) {
 		mt.input = "" // the lane may have moved on: submit it again
 	}
 	if d.Cause == causeStop { // a refused worker.stop runs again under its next key
-		mt.halt.refused = ""
+		mt.halt.retry()
 	}
 	if mt.state == stDropping { // a refused lane.free too
 		mt.refused = ""

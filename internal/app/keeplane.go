@@ -191,7 +191,7 @@ func (p *proj) keepBetween(lane string) (int64, bool) {
 				key = max(key, mt.mergedSeq, mt.droppedSeq)
 			}
 		case states[mt.state].ended, mt.state == stWaiting:
-		case mt.state == stDispatched && mt.work == "" && !mt.started && !mt.paused():
+		case mt.is(stDispatched) && mt.foldStage().beforeStart():
 		default:
 			return 0, false
 		}
