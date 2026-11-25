@@ -12,7 +12,10 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   RV-267 closed with #2 accepted). 33 merges since v0.47.0, all reviewed: lane.sync fix attempts from the target
   (T-1573/1574/1579), the append/lane-row error rule (T-1582), the internal/app restructuring (T-1575..T-1588),
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
-- **In flight:** nothing. No watches, no reviews open. The idle line may come: answer it per the next step chosen.
+- **In flight (11-25 night, owner picked "fix, then release"):** T-1606 merged 5ae535c (its review on merge runs).
+  v0.47.1 deep dive A (opus:high) briefed → DD-v0.47.1-a.md. When it finishes: move its file out of the project, set
+  `agents.roles.deep_dive` to `gemini`, brief the same text fresh (→ DD-v0.47.1-b.md), set the role back, then the
+  advisor verifies both; fix what it says blocks, then `make release`.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
