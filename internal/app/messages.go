@@ -13,7 +13,7 @@ import (
 
 // Lines to a project's agents (docs/state-model.md row 47): the two kinds the lead still gets, a brief's, and
 // an answer's (obor resume <T-xx> "<text>": fact answered{to: the task's worker, line "[obor answer] <text>"};
-// answer.go).
+// resume.go).
 //   - obor send <project> "<text>" (a lead or the owner of another project; the project by a known name or a path):
 //     fact message{to: the lead, line "[obor <sender project>] <text> (reply: obor send <sender> "…")"} in the
 //     target project's log, recorded by the serve holding it.

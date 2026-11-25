@@ -365,7 +365,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 		mt = *m
 	}
 	busy := p.busy(c.Task)
-	if !p.ended[c.Task] { // a step holding a working task is the one that sent this job: its task_done is early, not busy
+	if !p.ended[c.Task] && !mt.syncDue() { // the step holding a working task is the one that sent this job (the fix); a lane.sync still to run sends none
 		busy = ""
 	}
 	dispatching := p.dispatching

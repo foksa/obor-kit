@@ -541,7 +541,7 @@ func TestStepTableGivesTheReadersTodaysAnswers(t *testing.T) {
 		{step: event.StepStartWork},
 		{step: event.StepWork},
 		{step: event.StepFix},
-		{step: event.StepSync},
+		{step: event.StepSync, key: "lane.sync"},
 		{step: event.StepWorkerStop},
 		{step: event.StepFree},
 		{step: event.StepSubmit},

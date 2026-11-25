@@ -192,7 +192,7 @@ var kernelSteps = []stepRow{
 	{step: event.StepStartWork},
 	{step: event.StepWork},
 	{step: event.StepFix},
-	{step: event.StepSync},
+	{step: event.StepSync, busy: func(mtask) int { return 0 }},
 	{step: event.StepWorkerStop},
 	{step: event.StepFree},
 	// The merge loop's steps; a gate, a lane test and a publish are its command steps that run an effect of their own
