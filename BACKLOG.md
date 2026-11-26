@@ -17,7 +17,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   tracked path is never linked; RV-277 closed). 11-26: nightly RED 58e34f2 fixed (T-1614, resumed). T-1615 (recordIn
   true once appended), T-1616 (agy update_steps), T-1617 + T-1618 (reviewer/deep dive probe dir named in every brief,
   emptied at stop; a sandbox that cannot write the shared Go cache puts it there). RV-278 closed. **v0.47.2 released 11-26** (main
-  360c02b8). Shipped 11-26 (owner). Nothing in flight.
+  360c02b8). Shipped 11-26 (owner). Then T-1619 (Claude sessions named `<project> <agent>`, owner from the phone),
+  RV-279 closed; **v0.47.3 released 11-26** (main 00767555); owner ships. Nothing in flight.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
