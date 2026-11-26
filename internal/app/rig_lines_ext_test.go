@@ -660,7 +660,9 @@ func (r *loopRig) startWithAgents(agents port.Launcher) {
 				return nil, err
 			}
 			fx := &app.Loop{Cfg: cfg, Workflow: app.WorkflowOf(r.scratch), Agents: agents, Prompter: r.tt}
-			r.disp.loop(fx)
+			if r.disp != nil {
+				r.disp.loop(fx)
+			}
 			return fx, nil
 		}},
 		at.Panes, r.lanes)

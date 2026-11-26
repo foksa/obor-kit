@@ -97,6 +97,9 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	if line := roleText(cfg, w.Role.Role, kind, project.KitRoot(env), repo.Top); line != "" {
 		fmt.Fprintln(out, line)
 	}
+	if line := probeDirLine(cfg, w.Role.Role, agent); line != "" {
+		fmt.Fprintln(out, line)
+	}
 
 	// An opencode lane's plugin runs this hook (its context transform), so the marker proves the plugin
 	// loaded: obor status warns when it is missing (dispatch does not wait for one). It lives in the main checkout's
@@ -175,6 +178,22 @@ func roleText(cfg *config.Config, role, kind, kit, top string) string {
 		return "obor: role text: " + project + tail
 	}
 	return ""
+}
+
+// probeDirLine is the session line naming the dir role agent probes in (project.ProbeDir): the reviewer's and the
+// deep dive's role texts send every probe there, and a static text cannot name a path that is per project and agent.
+// "" for every other role.
+func probeDirLine(cfg *config.Config, role, agent string) string {
+	switch role {
+	case "reviewer", "deep_dive":
+	default:
+		return ""
+	}
+	dir := project.ProbeDir(cfg, agent)
+	if dir == "" {
+		return ""
+	}
+	return "obor: probe dir: " + dir + " (probe only there; never set GOCACHE or CARGO_TARGET_DIR to a fresh dir)"
 }
 
 // projectPart is the role-text line's mention of the project's doc ("": none).
