@@ -20,6 +20,7 @@ import (
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/project"
 	"obor/internal/store"
 )
 
@@ -68,8 +69,13 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 			if got := r.git.detachedAt(); got != c.moved {
 				t.Errorf("detached %q, want %q", got, c.moved)
 			}
-			if readBriefLine(t, h, c.to) != "[obor lead] look at x" && readBriefLine(t, h, c.to) != "[obor owner] look at x" {
-				t.Errorf("the brief was not recorded: %q", readBriefLine(t, h, c.to))
+			suffix := ""
+			if c.to == "pj-deep-dive" { // its brief names the probe dir its role text cannot
+				suffix = probePart(project.ProbeDir(loadCfg(t, h.root), c.to))
+			}
+			if line := readBriefLine(t, h, c.to); line != "[obor lead] look at x"+suffix &&
+				line != "[obor owner] look at x"+suffix {
+				t.Errorf("the brief was not recorded: %q", line)
 			}
 		})
 	}
@@ -87,6 +93,45 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 			t.Errorf("a refused brief was recorded: %q", got)
 		}
 	})
+}
+
+// A brief's line to the deep dive names the dir its probes go in (project.ProbeDir); a brief to another role agent
+// (the advisor) names none.
+func TestBriefLineNamesTheProbeDirOnlyForADeepDive(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		agent string
+		want  bool
+	}{
+		{"pj-deep-dive", true},
+		{"pj-advisor", false},
+	} {
+		t.Run(c.agent, func(t *testing.T) {
+			t.Parallel()
+			a, p := freshApp(t, &now, c.agent, "claude", "idle")
+			dir := project.ProbeDir(loadCfg(t, p.root), c.agent)
+			if dir == "" {
+				t.Fatal("precondition: no probe dir")
+			}
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead",
+				Agent: "pj-lead"}, To: c.agent, Text: "look at x"}); err != nil {
+				t.Fatal(err)
+			}
+			l := &FakeAgents{}
+			a.deliver(context.Background(), p, withAppCfg(a, &Loop{Prompter: l, Inbox: l}))
+			if len(l.Lines()) != 1 {
+				t.Fatalf("lines %q, want the brief's one line", l.Lines())
+			}
+			line := l.Lines()[0]
+			if !strings.HasPrefix(line, c.agent+": [obor pj-lead] look at x") {
+				t.Errorf("line %q, want the lead's text", line)
+			}
+			if got := strings.Contains(line, probeLine(dir)); got != c.want {
+				t.Errorf("line names the probe dir %q: %v, want %v: %q", dir, got, c.want, line)
+			}
+		})
+	}
 }
 
 // obor brief --fresh is serve's: the brief is validated, admitted and recorded first, and only then does the
@@ -188,8 +233,12 @@ func TestFreshBriefPerRole(t *testing.T) {
 				if !slices.Equal(s.Events(), want) {
 					t.Errorf("events %q, want %q", s.Events(), want)
 				}
+				prompt := "[obor pj-lead] look at x"
+				if c.role == "deep_dive" { // its brief names the probe dir its role text cannot
+					prompt += probePart(project.ProbeDir(loadCfg(t, p.root), c.agent))
+				}
 				if len(s.Launches()) != 1 || s.Launches()[0] != (port.Launch{Agent: c.agent, Pane: "w:role", Fresh: true,
-					Prompt: "[obor pj-lead] look at x"}) {
+					Prompt: prompt}) {
 					t.Errorf("launches %+v, want %s fresh in w:role on the brief's line", s.Launches(), c.agent)
 				}
 				same(t, len(s.Texts()), 0, "lines typed")

@@ -22,7 +22,7 @@ fix wave.
 - Read-only on source; probes without git writes (your guard allows git reads only, a scratch dir included): a
   test run with `go test -overlay`, the package's fakes, or a copy of a store folded by the code. Fewer, verified
   findings beat many guesses. No subagents.
-  Probe only under the probe dir the session start names: it is per project and agent, outside the checkout, and
+  Probe only under the probe dir your brief names: it is per project and agent, outside the checkout, and
   `obor restart <agent> --stop` empties it. Never point `GOCACHE` or `CARGO_TARGET_DIR` at a fresh directory (the
   shared cache serves every deep dive); `go test -overlay` files go there.
   The guard denies git that writes (`git init`, `commit`) even there: probe a changed source with `go test -overlay`

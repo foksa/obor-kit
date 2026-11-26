@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"obor/internal/config"
+	"obor/internal/project"
 )
 
 // A review request (docs/state-model.md row 52): `obor review start [--after T-a,T-b] [--note "<text>"]` (the lead or
@@ -130,10 +131,10 @@ func (p *proj) reviewWaits(after []string) []string {
 }
 
 // ReviewSetup is what a review of a project needs from its config: the reviewer agent, its role worktree (absolute,
-// serve moves it to the reviewed head), the main checkout (Root), the reviews dir in it and the
-// integration branch.
+// serve moves it to the reviewed head), the main checkout (Root), the reviews dir in it, the integration branch and
+// the dir the reviewer's probes go in (project.ProbeDir).
 type ReviewSetup struct {
-	Agent, Worktree, Root, Reviews, Branch string
+	Agent, Worktree, Root, Reviews, Branch, ProbeDir string
 }
 
 // ReviewConfig is cfg's review setup (serve's review start and verify; obor review close); an error names what
@@ -141,7 +142,7 @@ type ReviewSetup struct {
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")
 	s := ReviewSetup{Agent: rc.Agent, Worktree: cfg.RoleWorktree(rc.Role.Name), Root: cfg.Root,
-		Reviews: cfg.ReviewsDir(), Branch: cfg.MainBranch()}
+		Reviews: cfg.ReviewsDir(), Branch: cfg.MainBranch(), ProbeDir: project.ProbeDir(cfg, rc.Agent)}
 	switch {
 	case !rc.Configured || rc.Agent == "":
 		return s, errors.New("no reviewer role (obor setup role reviewer)")
@@ -592,6 +593,23 @@ const redundantLine = "What did this make redundant? Name it or confirm it is go
 const gateLine = "Each merge in scope passed serve's merge gate (the checks the project configures for it): don't run" +
 	" the check or the suite; run probes and the tests a finding names."
 
+// probeLine is where dir's probes go, in every review and verify brief and on a deep dive's brief line
+// (project.ProbeDir): per project and agent, so a static role text cannot name it. "" when there is no dir.
+func probeLine(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return "Probe only under " + dir + " (never set GOCACHE or CARGO_TARGET_DIR to a fresh dir)."
+}
+
+// probePart is probeLine(dir) after another sentence ("" when there is no dir): one line, never a second.
+func probePart(dir string) string {
+	if line := probeLine(dir); line != "" {
+		return " " + line
+	}
+	return ""
+}
+
 // acceptedFile: root's main checkout has the accepted findings file. A project that accepted no finding has none, and
 // the review brief names its lines only when it exists.
 func acceptedFile(root string) bool {
@@ -600,10 +618,11 @@ func acceptedFile(root string) bool {
 }
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in, the
-// no-check rule (gateLine), the redundancy question (redundantLine) and the lead's note appended (its out of scope and
-// contracts). prev is the previous review's id ("": none) and last its close commit's subject: its file is deleted at
-// close, so the brief names what is kept, the close commit and BACKLOG, and the accepted findings file only when the
-// main checkout has it. from is where the brief's range starts ("": the first commit).
+// no-check rule (gateLine), the redundancy question (redundantLine), the probe dir (probeLine) and the lead's note
+// appended (its out of scope and contracts). prev is the previous review's id ("": none) and last its close commit's
+// subject: its file is deleted at close, so the brief names what is kept, the close commit and BACKLOG, and the
+// accepted findings file only when the main checkout has it. from is where the brief's range starts ("": the first
+// commit).
 func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope, files []string, note string) string {
 	inScope := strings.Join(scope, ", ")
 	if inScope == "" {
@@ -639,8 +658,8 @@ func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope
 		" config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in added code, and an"+
 		" Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked."+
 		" A finding only a constructed case hits goes in a short \"Not reported (constructed)\" list instead: one line"+
-		" each, no fix proposal. "+redundantLine+" Your worktree is at %s (check out any commit there); write only %s/%s.md in the main"+
-		" checkout %s. "+resultLine+" Do not commit.", short, s.Reviews, id, s.Root)
+		" each, no fix proposal. "+redundantLine+"%s Your worktree is at %s (check out any commit there); write only %s/%s.md in the main"+
+		" checkout %s. "+resultLine+" Do not commit.", probePart(s.ProbeDir), short, s.Reviews, id, s.Root)
 	if note = strings.TrimSpace(note); note != "" {
 		b.WriteString("\nLead's note: " + note)
 	}

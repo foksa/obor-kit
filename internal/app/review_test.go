@@ -14,6 +14,7 @@ import (
 	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/store"
 )
 
@@ -719,6 +720,26 @@ func TestBriefsSayTheMergeGatePassed(t *testing.T) {
 	}
 }
 
+// TestBriefsNameTheProbeDir: every review and verify brief names the dir the reviewer probes in (project.ProbeDir):
+// per project and agent, so the role text cannot name it.
+func TestBriefsNameTheProbeDir(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "obor-probe", "proj", "pj-rev")
+	s := ReviewSetup{Reviews: "reviews", Root: t.TempDir(), Branch: "main", ProbeDir: dir}
+	want := probeLine(dir)
+	if want == "" || !strings.Contains(want, dir) {
+		t.Fatalf("precondition: probeLine(%q) = %q", dir, want)
+	}
+	for _, tc := range []struct{ name, text string }{
+		{"review", reviewBrief("RV-5", s, "abcdef0", "", "", "", nil, nil, "")},
+		{"verify", verifyBriefText("RV-5", s, "abcdef0", []string{"T-a (aaaaaaa)"}, nil)},
+	} {
+		if !strings.Contains(tc.text, want) {
+			t.Errorf("the %s brief does not name the probe dir %q:\n%s", tc.name, dir, tc.text)
+		}
+	}
+}
+
 // ReviewConfig takes the reviews dir as every other reader does: reviews.dir when the file sets it, else
 // docs/reviews (no "no reviews dir" refusal).
 func TestReviewConfigReviewsDirDefault(t *testing.T) {
@@ -751,6 +772,12 @@ func TestReviewConfigReviewsDirDefault(t *testing.T) {
 			}
 			if s.Reviews != tc.want {
 				t.Errorf("Reviews = %q, want %q", s.Reviews, tc.want)
+			}
+			if s.Agent == "" || s.ProbeDir == "" {
+				t.Fatalf("precondition: Agent = %q, ProbeDir = %q", s.Agent, s.ProbeDir)
+			}
+			if want := project.ProbeDir(cfg, s.Agent); s.ProbeDir != want {
+				t.Errorf("ProbeDir = %q, want %q", s.ProbeDir, want)
 			}
 		})
 	}
