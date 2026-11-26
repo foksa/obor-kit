@@ -45,7 +45,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (nightly 11-26) agy 1.5.17 live tier (non-gating): AG-L3 `agent.prompt: agent_not_ready: agent w1:p1 is not an
   active named agent`, AG-L10 agentapi send-message went out but no AGY-PUSH-OK reply in 120 s (the model answered
   "Done."). `.obor/state/logs/nightly-conformance_live.log`. Rerun the live tier once before a task; if it repeats, a
-  probe task (agy changed its agent API or readiness).
+  probe task (agy changed its agent API or readiness). 11-26: agy is now 1.5.18; tonight's nightly live tier runs on
+  it and settles whether 1.5.17's two failures carry over.
 - (owner 11-25) **Rex trial works** on v0.47.0 (owner's first project on `project.terminal: "rex"`). Rex stays experimental (live tier non-gating); bring field issues as fix tasks. Watch on each Rex update: API revision (REX-R1 warn), the bundle path, and the stream-seq concern (Concerns).
 - (11-23, T-1541 merged 11-23) Unparsed shell commands (advice Concerns: `echo ${(U)foo}; git commit -m x` passes for an advisor under zsh): owner 11-23 "agents often write complex bash commands, this might block their work" → keep allowing; next wave the guard logs each command its parser rejects (role, first 200 chars) and after a week of lanes the lead brings the count to the owner (near zero: deny for roles with git denies; else leave). Count due ~11-30.
 - (lead 11-24) codex-image-tool (public repo) asked to keep obor files out of it: owner 11-24 "branch route for now" (private merge.target_branch + hand-filtered public push); no private-files mode. What breaks with ignored obor files: config_set's commit, review close --accept (docs/accepted.md), role-doc pointer and web Docs (tracked files only); review start fails once the previous review's head sha is gone after a history rewrite.
