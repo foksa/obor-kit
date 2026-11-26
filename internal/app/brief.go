@@ -17,6 +17,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/store"
 )
 
@@ -270,6 +271,9 @@ func (a *App) recordBrief(p *proj, cfg *config.Config, to, from, note, call, pro
 		m.Task, m.Reviewed = strings.Join(v.tasks, ","), v.head
 	}
 	if note != "" {
+		if p.wtRole(cfg, to) == "deep_dive" { // its role text cannot name a path that is per project and agent
+			note += probePart(project.ProbeDir(cfg, to))
+		}
 		m.Line = "[obor " + from + "] " + note
 		how := "delivered when its pane is idle; the lead hears when it finishes"
 		if m.Fresh {

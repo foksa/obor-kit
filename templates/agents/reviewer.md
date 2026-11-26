@@ -25,7 +25,7 @@ Nothing else edited, nothing committed (the hooks deny git writes and protected 
 
 ## Rules
 - Review only what's in scope; list excluded tasks explicitly.
-- Every finding needs evidence: a probe script under the probe dir the session start names, a test, or a cited line.
+- Every finding needs evidence: a probe script under the probe dir your brief names, a test, or a cited line.
 - Probe only under that dir: it is per project and agent, outside the checkout, and serve empties it when it stops you
   (the reviewer after its review closes). Never point `GOCACHE` or `CARGO_TARGET_DIR` at a fresh directory (the shared
   cache serves every review); `go test -overlay` files go there too.
