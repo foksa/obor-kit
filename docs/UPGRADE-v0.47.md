@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.46 to v0.47
 
+## v0.47.2 (probe dir per reviewer and deep dive; a tracked path is never linked)
+
+From v0.47.1. Nothing to change.
+
+```sh
+# after updating the kit, in the project
+# nothing to do
+```
+
+Reviewers and deep dives are told one probe directory in their brief; serve empties it when it stops them. Leftover
+probe directories from earlier versions in the temp dir (`rv*-probe`, `obor-rv*-go-cache`) can be deleted by hand.
+
 ## v0.47.1 (fix attempts start from the target; a never-run role agent starts on restart)
 
 From v0.47.0. Nothing to change.
