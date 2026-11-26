@@ -833,6 +833,7 @@ Every tool that was called fired PreToolUse (and PostToolUse once it ran) under 
 | `invoke_subagent` | `{"Model": "inherit", "Prompt": "Run the shell command echo P13SUB > sub.txt …", "Role": "Subagent Executor", "TypeName": "self", "Workspace": "inherit"}` | no |
 | `run_workflow` | `{"Description": "…", "Script": "<the Python script>"}` | no |
 | `manage_task` | `{"Action": "list"}` | no |
+| `update_steps` | `{"Steps": [{"Title": "…", "Status": "in_progress"}]}` (agy 1.5.17, from the tool's description and schema) | no |
 | `manage_subagents` | `{"Action": "list"}` | no |
 | `define_subagent` | `{"Name": "P13Echo", "Description": "…", "SystemPrompt": "…", "EnableWriteTools": false, "EnableMCPTools": false, "EnableSubagentTools": false}` | no |
 | `schedule` | `{"DurationSeconds": 30, "Prompt": "Check on subagent progress if not woken up"}` (the model set the timer itself after `invoke_subagent`) | no |
@@ -844,6 +845,9 @@ Every tool that was called fired PreToolUse (and PostToolUse once it ran) under 
 
 - `edit_file` was not called here (P3 had it). `swarm` was not called: its description says to call it only after
   `/swarm`. `read_resource` was not called either.
+- `update_steps` (agy 1.5.17) shows the user a live checklist of the steps the agent is carrying out: its description
+  says it records the agent's own plan, and its schema is a list of steps with a `Title` and a `Status` (`pending`,
+  `in_progress`, `done`, `skipped`, `failed`), so it writes no file and runs nothing.
 - The wrapper got PreToolUse for `run_command` and `write_file` only, plus SessionStart, PreInvocation and Stop. No
   other tool call reached any obor process.
 
@@ -959,8 +963,8 @@ Decides (W10):
   takes each subagent for another session (a worker's stop check would run at each subagent's Stop). Telling them
   apart is W10's question; `send_message`'s `Recipient` is the only link seen.
 - **The other tools** (`read_file`, `search_web`, `ask_question`, `schedule`, `manage_task`, `manage_subagents`,
-  `define_subagent`, `send_message`, `list_resources`, `read_resource`, `finish`, `swarm`) are W10's allow list to
-  write. A name not on it, such as a tool a newer agy adds, is then a named deny.
+  `define_subagent`, `send_message`, `list_resources`, `read_resource`, `finish`, `swarm`, `update_steps`) are W10's
+  allow list to write. A name not on it, such as a tool a newer agy adds, is then a named deny.
 - **Other servers' MCP tools:** the hook sees `call_mcp_tool` and its `ServerName`, so the guard can refuse any server
   but obor's for a lane role. `permissions.deny` can do it only one server at a time (`mcp(*)` also refuses obor's), and
   rules naming a tool do nothing.
