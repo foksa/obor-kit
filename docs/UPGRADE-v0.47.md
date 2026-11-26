@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.46 to v0.47
 
+## v0.47.3 (Claude sessions named after the project and agent)
+
+From v0.47.2. Nothing to change.
+
+```sh
+# after updating the kit, in the project
+obor lead --resume   # in a shell in the project: the running lead picks up its name
+```
+
+Every Claude agent obor starts or resumes is named `<project> <agent>`. Running agents keep their old title until their
+next start; workers and role agents get theirs at their next job or brief. `/rename` names a session by hand meanwhile.
+
 ## v0.47.2 (probe dir per reviewer and deep dive; a tracked path is never linked)
 
 From v0.47.1. Nothing to change.
