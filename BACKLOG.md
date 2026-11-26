@@ -14,10 +14,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
 - **v0.47.1 released 11-25 night** (tag v0.47.1, main 73204b72): T-1606..T-1611 + the two deep dives and advice
   (`docs/research/v0.47.1-deep-dives-advice.md`), RV-275/RV-276 closed (4 accepts). Shipped 11-25 (owner). After it: T-1612/T-1613 (a
-  tracked path is never linked; RV-277 closed). 11-26: nightly RED 58e34f2 (a flaky wire deadline subtest; its
-  helper's t.Error after the test hid the cause) → T-1614 (watch: resume nightly once merged). Post-tag fixes T-1615
-  (recordIn true once appended), T-1616 (agy update_steps). T-1617 (owner 11-26: reviewer/deep dive probe dir serve
-  empties at stop; reported by usage-window-starter's lead). Review due after these.
+  tracked path is never linked; RV-277 closed). 11-26: nightly RED 58e34f2 fixed (T-1614, resumed). T-1615 (recordIn
+  true once appended), T-1616 (agy update_steps), T-1617 + T-1618 (reviewer/deep dive probe dir named in every brief,
+  emptied at stop; a sandbox that cannot write the shared Go cache puts it there). RV-278 closed.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
