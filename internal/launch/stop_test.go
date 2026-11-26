@@ -3,10 +3,41 @@ package launch_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"obor/internal/app/port"
+	"obor/internal/project"
+	"obor/internal/testkit"
 )
+
+// A restart --stop empties the agent's probe dir (project.ProbeDir: the reviewer's and the deep dive's probes), the
+// dir the next start probes in again. The test points TMPDIR, os.TempDir's seam, at a temp dir of its own.
+func TestStopClearsTheProbeDir(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("TMPDIR", base)
+	x := setup(t, testkit.Set("agents.roles.deep_dive", "opus"))
+	x.agent("w1:p3", "pj-deep-dive", "claude", "idle")
+	dir := project.ProbeDir(x.p.Cfg(), "pj-deep-dive")
+	if dir == "" || !strings.HasPrefix(dir, base+string(filepath.Separator)) {
+		t.Fatalf("precondition: ProbeDir = %q, want a dir under %s", dir, base)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "overlay"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "overlay", "probe.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, ok := x.stop("pj-deep-dive", "", false)
+	if !ok || !strings.HasPrefix(last(out), "STOPPED pj-deep-dive") {
+		t.Fatalf("the stop of the deep dive: %q", out)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the probe dir %s is still there after the stop (%v)", dir, err)
+	}
+}
 
 // A stop of an agent with no labelled pane is a plain FAIL, not port.NotFound: a
 // label is not the identity, so a missing one never says the agent is gone (serve's identity decides that, stopAgent);

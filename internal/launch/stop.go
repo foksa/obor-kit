@@ -24,6 +24,7 @@ const StopBound = port.StopBound
 // running"); still working after Escape, or an agent whose quit opens its kind's dialog (background tasks) → FAIL
 // unless force; force → exits anyway after the wait (the kind's Stop.Dialog option when the dialog asks); an agent that
 // ignores the exit is terminated (terminate). The whole stop keeps to StopBound, whatever OBOR_RESTART_WAIT says
+// A stopped agent's probe dir is emptied (project.ClearProbeDir; a failure is said, never the stop's).
 // No session check, no start. Returns the STOPPED line.
 func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
 	if !config.AgentNameRE.MatchString(agent) {
@@ -55,10 +56,26 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 	if err := l.stop(ctx, t, force, true, ""); err != nil {
 		return "", err
 	}
+	l.clearProbes(t.agent)
 	if !running {
 		return fmt.Sprintf("STOPPED %s (pane %s, already at a shell)", t.agent, t.pane), nil
 	}
 	return fmt.Sprintf("STOPPED %s (pane %s)", t.agent, t.pane), nil
+}
+
+// clearProbes empties the stopped agent's probe dir (project.ClearProbeDir): the reviewer's and the deep dive's
+// probes are the disks' cost, and a fresh start probes again. The failure is said on Diag (serve's log; the CLI's
+// progress output), never the stop's: a stale probe costs disk, not the agent's stop.
+func (l *Launcher) clearProbes(agent string) {
+	err := project.ClearProbeDir(l.Cfg, agent)
+	if err == nil {
+		return
+	}
+	w := l.Diag
+	if w == nil {
+		w = l.Out
+	}
+	fmt.Fprintf(w, "warning: cannot empty the probe dir of %s: %v\n", agent, err)
 }
 
 // stop quits the agent running in t's pane, if any. A working (or blocked) one: escape (Stop) interrupts it with
