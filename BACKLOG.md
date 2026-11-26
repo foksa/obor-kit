@@ -14,7 +14,10 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   test time 17.5 s → 7.5 s (T-1589..T-1605). Lead decision: no in-memory test store for now (`docs/decisions.md`).
 - **v0.47.1 released 11-25 night** (tag v0.47.1, main 73204b72): T-1606..T-1611 + the two deep dives and advice
   (`docs/research/v0.47.1-deep-dives-advice.md`), RV-275/RV-276 closed (4 accepts). Shipped 11-25 (owner). After it: T-1612/T-1613 (a
-  tracked path is never linked; RV-277 closed). Nothing in flight.
+  tracked path is never linked; RV-277 closed). 11-26: nightly RED 58e34f2 (a flaky wire deadline subtest; its
+  helper's t.Error after the test hid the cause) → T-1614 (watch: resume nightly once merged). Post-tag fixes T-1615
+  (recordIn true once appended), T-1616 (agy update_steps). T-1617 (owner 11-26: reviewer/deep dive probe dir serve
+  empties at stop; reported by usage-window-starter's lead). Review due after these.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
@@ -39,10 +42,10 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
-- (v0.47.1 advice, after the tag) DD A F2: `recordIn` returns true once appended (`internal/app/loop.go:380`; a failed
-  lane-row write now replies "the event log refused it" for a record in the log) + a row in `TestAppendedReactions`.
-- (v0.47.1 advice) The guard has no rule for agy's `update_steps` tool: the agy deep dive was denied its own checklist.
-  Take with the next agy guard task.
+- (nightly 11-26) agy 1.5.17 live tier (non-gating): AG-L3 `agent.prompt: agent_not_ready: agent w1:p1 is not an
+  active named agent`, AG-L10 agentapi send-message went out but no AGY-PUSH-OK reply in 120 s (the model answered
+  "Done."). `.obor/state/logs/nightly-conformance_live.log`. Rerun the live tier once before a task; if it repeats, a
+  probe task (agy changed its agent API or readiness).
 - (owner 11-25) **Rex trial works** on v0.47.0 (owner's first project on `project.terminal: "rex"`). Rex stays experimental (live tier non-gating); bring field issues as fix tasks. Watch on each Rex update: API revision (REX-R1 warn), the bundle path, and the stream-seq concern (Concerns).
 - (11-23, T-1541 merged 11-23) Unparsed shell commands (advice Concerns: `echo ${(U)foo}; git commit -m x` passes for an advisor under zsh): owner 11-23 "agents often write complex bash commands, this might block their work" → keep allowing; next wave the guard logs each command its parser rejects (role, first 200 chars) and after a week of lanes the lead brings the count to the owner (near zero: deny for roles with git denies; else leave). Count due ~11-30.
 - (lead 11-24) codex-image-tool (public repo) asked to keep obor files out of it: owner 11-24 "branch route for now" (private merge.target_branch + hand-filtered public push); no private-files mode. What breaks with ignored obor files: config_set's commit, review close --accept (docs/accepted.md), role-doc pointer and web Docs (tracked files only); review start fails once the previous review's head sha is gone after a history rewrite.
