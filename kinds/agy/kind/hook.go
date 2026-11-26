@@ -79,20 +79,21 @@ const (
 	denyTool                    // obor cannot guard what it runs: obor hook pre-tool-use decides it as unguarded
 )
 
-// tools is the transport's table of agy's tools (agy 1.5.14 offers the 17 of docs/research/agy-probes.md P13, and a
-// workflow agent finish): the ones obor's guard checks (a command, a write, an MCP call) go to the guard; the ones that
-// only read, talk, define or list subagents, or set a timer's prompt are no opinion; a workflow script (run_workflow,
-// swarm), whose Python runs with no hook at all, and a subagent (invoke_subagent), whose conversation fires these hooks
-// with the agent's workspace and environment and nothing naming its parent (P13), so obor would record it as the agent's
-// session (docs/agents/kind-protocol.md "Hook transport": a child is never recorded), go to the guard as unguarded with
-// their reason. A tool not here goes as unguarded naming it, so an agy update that adds one shows as a named deny for
-// obor's agents, never a silent bypass.
+// tools is the transport's table of agy's tools (19 rows: agy 1.5.17 offers the 17 of docs/research/agy-probes.md P13
+// and update_steps, its own step checklist, and a workflow agent adds finish): the ones obor's guard checks (a command,
+// a write, an MCP call) go to the guard; the ones that only read, talk, define or list subagents, record the agent's own
+// plan, or set a timer's prompt are no opinion; a workflow script (run_workflow, swarm), whose Python runs with no hook
+// at all, and a subagent (invoke_subagent), whose conversation fires these hooks with the agent's workspace and
+// environment and nothing naming its parent (P13), so obor would record it as the agent's session
+// (docs/agents/kind-protocol.md "Hook transport": a child is never recorded), go to the guard as unguarded with their
+// reason. A tool not here goes as unguarded naming it, so an agy update that adds one shows as a named deny for obor's
+// agents, never a silent bypass.
 var tools = map[string]toolRule{
 	"run_command": guardTool, "write_file": guardTool, "edit_file": guardTool,
 	"call_mcp_tool": guardTool, "list_resources": guardTool, "read_resource": guardTool,
 	"read_file": passTool, "search_web": passTool,
 	"ask_question": passTool, "manage_task": passTool, "manage_subagents": passTool, "define_subagent": passTool,
-	"schedule": passTool, "send_message": passTool, "finish": passTool,
+	"update_steps": passTool, "schedule": passTool, "send_message": passTool, "finish": passTool,
 	"run_workflow": denyTool, "swarm": denyTool, "invoke_subagent": denyTool,
 }
 

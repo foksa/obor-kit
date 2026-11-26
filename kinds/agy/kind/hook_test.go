@@ -278,10 +278,10 @@ func TestCommittedHooksFile(t *testing.T) {
 
 // Every PreToolUse in a project goes by the transport's table, with obor hook answering deny (exit 2) to whatever it
 // is asked: run_command, write_file, edit_file and the three MCP tools run it as the guard's tools (its deny comes
-// back); the tools that only read, talk, define or list subagents are no opinion (ask), obor not run; run_workflow and
-// swarm (a workflow script), invoke_subagent (a subagent: its session cannot be told from the agent's) and a tool the
-// table does not know (or no name, or no toolCall at all) run it as unguarded, the tool's name and the transport's
-// reason in tool_input, and the guard's answer comes back.
+// back); the tools that only read, talk, define or list subagents, or record the agent's own plan, are no opinion
+// (ask), obor not run; run_workflow and swarm (a workflow script), invoke_subagent (a subagent: its session cannot be
+// told from the agent's) and a tool the table does not know (or no name, or no toolCall at all) run it as unguarded,
+// the tool's name and the transport's reason in tool_input, and the guard's answer comes back.
 func TestHookToolTable(t *testing.T) {
 	const workflow = "obor cannot guard a workflow script; run commands with run_command"
 	const subagent = "obor agents run no agy subagents: their sessions cannot be told from the agent's"
@@ -297,7 +297,8 @@ func TestHookToolTable(t *testing.T) {
 		{"call_mcp_tool", "", 1, guarded}, {"list_resources", "", 1, guarded}, {"read_resource", "", 1, guarded},
 		{"read_file", "", 0, ask}, {"search_web", "", 0, ask},
 		{"ask_question", "", 0, ask}, {"manage_task", "", 0, ask}, {"manage_subagents", "", 0, ask},
-		{"define_subagent", "", 0, ask}, {"schedule", "", 0, ask}, {"send_message", "", 0, ask}, {"finish", "", 0, ask},
+		{"define_subagent", "", 0, ask}, {"update_steps", "", 0, ask},
+		{"schedule", "", 0, ask}, {"send_message", "", 0, ask}, {"finish", "", 0, ask},
 		{"invoke_subagent", subagent, 1, guarded},
 		{"run_workflow", workflow, 1, guarded},
 		{"swarm", workflow, 1, guarded},
