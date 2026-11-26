@@ -432,7 +432,8 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 // site that appends: the test hook on every record but an intent; the task's step logs when the fold ended it (a
 // rejected task and a merged one with after-merge steps to run are not ended); a fact's waits (cutEndFact: every wait
 // of its task) and a result's own step's wait; the pending intents of the task a merged or dropped fact ends; and the
-// lane rows' write, whose failure is the call's error whatever the record.
+// lane rows' write, whose failure is logged and never un-records the record (recordIn keeps it; a caller whose reply
+// promises a row sees the error through laneRowsErr).
 func TestAppendedReactions(t *testing.T) {
 	t.Parallel()
 	open := func(t *testing.T, h *harness) { // T-1 submitted, its submit intent pending
@@ -463,6 +464,7 @@ func TestAppendedReactions(t *testing.T) {
 		r         event.Record
 		data      any
 		failLanes bool   // the lane rows' write fails
+		kept      bool   // r is written through recordIn: it keeps the appended record on a failed row write
 		state     string // T-1's after the fold
 		hooked    bool   // hookAppended fired for r
 		logsGo    bool   // T-1's step logs are removed
@@ -495,6 +497,10 @@ func TestAppendedReactions(t *testing.T) {
 			r:    event.Record{Step: event.StepNeedsYou, Kind: event.KindFact},
 			data: event.FactData{Lane: "L-01", Reason: reasonAsks + "which file"}, failLanes: true, state: stSubmitted,
 			hooked: true, cuts: "task"},
+		{name: "a fact recorded through recordIn, the lane rows' write failing", seed: open,
+			r:    event.Record{Step: event.StepNeedsYou, Kind: event.KindFact},
+			data: event.FactData{Lane: "L-01", Reason: reasonAsks + "which file"}, failLanes: true, kept: true,
+			state: stSubmitted, hooked: true, cuts: "task"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -537,15 +543,35 @@ func TestAppendedReactions(t *testing.T) {
 				return n
 			}
 			before := settledSoFar()
-			_, err := Append(h.a, h.root, c.r, h.now)
+			if c.kept {
+				seq, ok := h.a.recordSeq(p, c.r, c.data)
+				if !ok || seq == 0 {
+					t.Fatalf("recordIn of an appended record = seq %d, kept %v; want its seq, kept", seq, ok)
+				}
+				n := 0
+				for _, x := range h.records() {
+					if x.Key() == c.r.Key() && x.Kind == c.r.Kind {
+						n++
+					}
+				}
+				if n != 1 {
+					t.Errorf("the record in the log %d times, want once", n)
+				}
+				// A caller whose reply promises a row still gets the row error. The question is in force, so ask
+				// records nothing new.
+				what := strings.TrimPrefix(c.data.(event.FactData).Reason, reasonAsks)
+				if reply, err := h.a.ask(p, "T-1", h.lanes.lanes[0], what); err == nil ||
+					!strings.Contains(err.Error(), "injected lane-row failure") || reply != "" {
+					t.Errorf("ask after the kept record = %q, %v; want the lane-row error, no reply", reply, err)
+				}
+			} else if _, err := Append(h.a, h.root, c.r, h.now); (err != nil) != c.failLanes {
+				t.Errorf("appended: %v; want an error %v (the lane rows' write fails)", err, c.failLanes)
+			}
 			none := func(string) {}
 			h.a.hooked.Store(&none)
 
 			if got := p.folded.loop["T-1"].state; got != c.state {
 				t.Errorf("T-1 is %s, want %s", got, c.state)
-			}
-			if (err != nil) != c.failLanes {
-				t.Errorf("appended: %v; want an error %v (the lane rows' write fails)", err, c.failLanes)
 			}
 			settled := settledSoFar() - before
 			if settled != c.settled {

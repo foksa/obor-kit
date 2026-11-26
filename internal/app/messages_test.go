@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/store"
 )
 
 // recSeq is the seq of the first record of task with step and kind (0: none).
@@ -81,6 +83,42 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 					posts.calls, len(q.out.Queued()))
 			}
 		})
+	}
+}
+
+// A send whose record is appended while the lane rows' write fails is sent: the reply is its own, and a retry with
+// the same call id gets the stored reply with no second message. The record is kept; the next change writes the rows
+// (the rule at App.appended).
+func TestSendAfterRowError(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	a.opt.Inboxed = func(string) (string, bool) { return "", false }
+	p.folded.lr.rows["L-09"] = store.LaneRow{Lane: "L-09", Task: "T-9"} // a row to write: the write fails
+	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	req := wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s1", Role: "lead"}, From: "other",
+		Text: "hello"}
+	reply, err := a.sendCall(req)
+	if err != nil || !strings.HasPrefix(reply, "SENT to ") {
+		t.Fatalf("send while the row write fails = %q, %v; want the SENT reply", reply, err)
+	}
+	if rows, err := store.ReadLanes(p.log.DB()); err != nil || len(rows) != 0 {
+		t.Fatalf("precondition: lanes %+v, %v; want the failing write to leave the table empty", rows, err)
+	}
+	again, err := a.sendCall(req)
+	if err != nil || again != reply {
+		t.Errorf("the retry = %q, %v; want the stored reply %q", again, err, reply)
+	}
+	n := 0
+	for _, r := range readLog(t, p.root) {
+		if r.Step == event.StepMessage && r.Kind == event.KindFact {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("messages in the log %d, want one", n)
 	}
 }
 

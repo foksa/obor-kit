@@ -369,7 +369,9 @@ func (a *App) recordLocked(p *proj, r event.Record, data any) bool {
 	return ok
 }
 
-// recordIn appends r with data and folds it (under mu).
+// recordIn appends r with data and folds it (under mu): its seq and true once the append succeeded. A lane-row
+// write that fails is logged, not returned: a caller whose reply promises a row checks laneRowsErr (the rule at
+// App.appended).
 func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 	r.Data, _ = json.Marshal(data) // plain structs: cannot fail
 	r, err := p.log.Append(r, a.opt.Now())
@@ -377,9 +379,7 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return 0, false
 	}
-	if a.appended(p, r) != nil {
-		return 0, false
-	}
+	_ = a.appended(p, r)
 	return r.Seq, true
 }
 
