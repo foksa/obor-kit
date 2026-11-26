@@ -315,7 +315,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	want := []string{"pane.list", "agent.get target=pj-int", "pane.list", "pane.process_info pane_id=w1:p3",
 		"pane.process_info pane_id=w1:p3", "pane.process_info pane_id=w1:p3", "<env line>",
 		"<env wait>", "pane.rename label=pj-int pane_id=w1:p3",
-		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3",
+		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW --name proj pj-int] kind=claude name=pj-int pane_id=w1:p3",
 		"pane.process_info pane_id=w1:p3"} // the start record (the restore's proof that obor started it there)
 	got := x.reqs()
 	for i, r := range got {

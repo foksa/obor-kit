@@ -555,7 +555,7 @@ func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 	}
 	x.reset()
 	x.ok(t, "pane", "L-01", "--pane", "w1:n1", "--start")
-	has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01", "the default kind, no model")
+	has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=["+laneArgs+" --session-id NEW --name proj pj-l-01] kind=claude name=pj-l-01", "the default kind, no model")
 }
 
 // the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
@@ -573,7 +573,7 @@ func TestDriveStartIsStrict(t *testing.T) {
 	}
 	reqs := strings.Join(x.reqs(), "\n")
 	has(t, reqs, "OBOR_ROLE=driver", "the drive agent's role")
-	has(t, named(reqs), "agent.start args=["+laneArgs+" --session-id NEW -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
+	has(t, named(reqs), "agent.start args=["+laneArgs+" --session-id NEW --name proj pj-l-01-drive -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
 }
 
 // A drive start whose lane already holds another agent (serve and the terminal prove the drive in no pane) is
@@ -768,7 +768,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
 		"pane.read lines=60 pane_id=w1:n1 source=recent_unwrapped strip_ansi=true",
 		"pane.rename label=pj-l-01 pane_id=w1:n1",
-		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1",
+		"agent.start args=[" + laneArgs + " --session-id NEW --name proj pj-l-01] kind=claude name=pj-l-01 pane_id=w1:n1",
 		"pane.process_info pane_id=w1:n1"}
 	marks := regexp.MustCompile(`obor-env-"?[0-9a-z]+"?`)
 	if got := marks.ReplaceAllString(named(strings.Join(x.reqs(), "\n")), "obor-env-M"); got != strings.Join(want, "\n") {
@@ -866,7 +866,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	if x.h.Pane("w1:p1").Label != "pj-l-01" {
 		t.Error("label set in herdr")
 	}
-	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
+	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW --name proj pj-l-01] kind=claude name=pj-l-01 pane_id=w1:p1",
 		"rename, then the start")
 
 	x.noAgents()
@@ -888,7 +888,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	}
 	calls = strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "the home pane → no split")
-	has(t, named(calls), "agent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
+	has(t, named(calls), "agent.start args=["+laneArgs+" --session-id NEW --name proj pj-l-01] kind=claude name=pj-l-01 pane_id=w1:p1",
 		"the home pane → the start there")
 
 	x.noAgents()
@@ -1084,7 +1084,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 		if !strings.Contains(pane.Screen, okWord) || strings.Contains(pane.Screen, badWord) {
 			t.Errorf("the screen shows the success mark only, want %q:\n%s", okWord, pane.Screen)
 		}
-		has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=[--permission-mode auto --model opus "+settings+" --session-id NEW] kind=claude name=pj-int pane_id=w1:p3",
+		has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=[--permission-mode auto --model opus "+settings+" --session-id NEW --name proj pj-int] kind=claude name=pj-int pane_id=w1:p3",
 			"the agent starts after the env line succeeded")
 	})
 }
@@ -1163,7 +1163,7 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_OPENCODE_RESUME=,OBOR_PANE=,OBOR_ROLE=lead,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} focus=false label=lead", "env")
-	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
+	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW --name proj pj-lead /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
 }
 
 // A role start while its agent runs in a pane a person relabelled (a live agent holds its name there) is that agent
@@ -1206,7 +1206,7 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 		t.Fatalf("setup role lead: %q", out)
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
+	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW --name proj pj-lead /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
 	hasNot(t, calls, "remoteControlAtStartup", "lead")
 }
 
