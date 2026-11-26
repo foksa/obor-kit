@@ -104,6 +104,11 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - **Hotfixes without review** (v0.4.2, v0.4.4): fine for tiny fixes, watch the habit.
 
 ## Ideas (parked — don't start without the owner)
+- (owner 11-26, parked) **cmux as a terminal** (`docs/research/cmux.md`): cmux consumes OSC 7501 but gives clients only
+  `program_status.changed` events with state/kind (no `app`/`msg`, no snapshot query); its socket's default `cmuxOnly`
+  refuses serve (a LaunchAgent); its own agent layer (hook wrappers, hibernation, auto-resume) would act on obor's
+  agents. Revisit when cmux adds a per-surface status query with app/msg (the doc's upstream asks 1, 2, 5); then probes
+  C1/C2 on an isolated instance, adapter ~ Rex-sized.
 - (owner 11-25: maybe later) `obor interrupt <agent|T-xx> ["<line>"]`: Esc through serve's identity of the pane (today only `herdr pane send-keys <pane> esc` by hand), an optional redirect line, and no stall nudge until that line is delivered.
 - More machines (user 2026-10-12): Steam Deck, a 2019 MBP; herdr has saved SSH machines. First use: heavy merge checks
   remotely rather than remote lanes.
