@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -474,13 +475,18 @@ type storingApp struct {
 	conns   int
 	applied map[string]int
 	ids     []string
+	start   time.Time     // when serveStoring was called: the restart's delay counts from here
+	bound   chan struct{} // closed once the listener bound or failed to; boundAt and bindErr are set before
+	boundAt time.Duration // since start
+	bindErr error
 }
 
 // serveStoring listens at sock after delay (no listener before: a restart's socket not bound yet) and serves until
-// the test ends.
+// the test ends. Its goroutines never call t (they may run after the test ended): whether and when the listener bound
+// is on the returned app, read by waitBound and bindState.
 func serveStoring(t *testing.T, sock string, delay time.Duration, drop bool) *storingApp {
 	t.Helper()
-	s := &storingApp{applied: map[string]int{}}
+	s := &storingApp{applied: map[string]int{}, start: time.Now(), bound: make(chan struct{})}
 	done := make(chan struct{})
 	t.Cleanup(func() { close(done) })
 	go func() {
@@ -490,8 +496,9 @@ func serveStoring(t *testing.T, sock string, delay time.Duration, drop bool) *st
 		case <-time.After(delay):
 		}
 		ln, err := net.Listen("unix", sock)
+		s.boundAt, s.bindErr = time.Since(s.start), err
+		close(s.bound)
 		if err != nil {
-			t.Error(err)
 			return
 		}
 		go func() {
@@ -541,6 +548,32 @@ func (s *storingApp) counts() (int, map[string]int, []string) {
 	return s.conns, applied, append([]string(nil), s.ids...)
 }
 
+// waitBound fails the test unless s's listener bound within d: the precondition of a call to the fake serve.
+func (s *storingApp) waitBound(t *testing.T, d time.Duration) {
+	t.Helper()
+	select {
+	case <-s.bound:
+		if s.bindErr != nil {
+			t.Fatalf("precondition: the fake serve did not bind its socket: %v", s.bindErr)
+		}
+	case <-time.After(d):
+		t.Fatalf("precondition: the fake serve did not bind its socket within %v", d)
+	}
+}
+
+// bindState says whether s's listener has bound now, for a failure's message.
+func (s *storingApp) bindState() string {
+	select {
+	case <-s.bound:
+		if s.bindErr != nil {
+			return fmt.Sprintf("failed to bind after %v: %v", s.boundAt, s.bindErr)
+		}
+		return fmt.Sprintf("bound after %v", s.boundAt)
+	default:
+		return fmt.Sprintf("not bound yet after %v", time.Since(s.start))
+	}
+}
+
 // A verdict made while serve restarts (no socket until the new serve has loaded) is retried inside its deadline and
 // lands once: one connection, one record.
 func testVerdictLandsAfterRestartOnce(t *testing.T) {
@@ -561,13 +594,23 @@ func testVerdictLandsAfterRestartOnce(t *testing.T) {
 	}
 }
 
-// The StopFailure hook's call survives a serve that comes back near the end of its retry window: a retry after the
-// restart lands, and the stop is recorded once.
+// The StopFailure hook's call survives a serve that comes back late in its retry window: a retry after the restart
+// lands, and the stop is recorded once.
+//
+// Verdict starts no attempt later than the deadline less its margin (the retries' window), so the serve must have
+// bound by then. The restart is placed from the waits, not as a ratio: the window less one retry's wait and a bind and
+// dial on a loaded gate, whose goroutines start late (the nightly of 11-26 missed a 45 ms room). It stays past half
+// the window, so a retry loop that gave up halfway would fail here.
 func testStopFailureLandsNearItsDeadline(t *testing.T) {
 	t.Parallel()
+	const loaded = 300 * time.Millisecond // a bind and a dial late on a loaded gate
 	w := shortWaits
-	w.StopFailure = 300 * time.Millisecond // room for a restart near the end of the window on a loaded gate
-	const restart = 240 * time.Millisecond // 80% of the deadline, inside the retries' window (deadline less its margin)
+	w.StopFailure = time.Second
+	window := w.StopFailure - w.Margin
+	restart := window - w.RetryWait - loaded // 680 ms of a 985 ms window
+	if restart <= window/2 {
+		t.Fatalf("precondition: the restart at %v is not late in the %v retry window", restart, window)
+	}
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, restart, false)
 	c := &wire.StoppedReq{Envelope: wire.Envelope{Root: "/r", Agent: "pj-l-01", Role: "worker", CallID: "s1"},
@@ -576,7 +619,8 @@ func testStopFailureLandsNearItsDeadline(t *testing.T) {
 	ctx := context.WithValue(context.Background(), wire.WaitsKey{}, w)
 	start := time.Now()
 	if _, err := wire.Verdict(ctx, sock, c); err != nil {
-		t.Fatalf("stop-failure through a %v restart: %v; want it recorded", restart, err)
+		t.Fatalf("stop-failure through a %v restart failed after %v: %v (the fake serve %s); want it recorded",
+			restart, time.Since(start), err, s.bindState())
 	}
 	if d := time.Since(start); d < restart || d > w.StopFailure {
 		t.Errorf("answered after %v; want after the %v restart, inside the %v deadline", d, restart, w.StopFailure)
@@ -608,14 +652,7 @@ func testTurnFailsAtItsDeadline(t *testing.T) {
 		}
 	})
 	s := serveStoring(t, sock, 0, false) // the serve is back after the caller gave up
-	for bound := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		}
-		if time.Now().After(bound) {
-			t.Fatal("precondition: the fake serve never bound its socket")
-		}
-	}
+	s.waitBound(t, time.Second)
 	time.Sleep(10 * time.Millisecond) // real: the caller's retries would come every 5 ms, so a late one would land here
 	if conns, applied, _ := s.counts(); conns != 0 || len(applied) != 0 {
 		t.Errorf("after the deadline the serve saw %d connections, applied %v; want nothing", conns, applied)
@@ -628,14 +665,7 @@ func testLostReplyAnsweredFromStore(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 0, true)
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("precondition: the fake serve never bound its socket")
-		}
-	}
+	s.waitBound(t, 5*time.Second)
 	reply, err := wire.Verdict(shortCtx(), sock, askCall("c1"))
 	if err != nil || reply != "done c1" {
 		t.Fatalf("Verdict after a lost reply = %q, %v; want the stored reply", reply, err)
