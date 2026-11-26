@@ -83,8 +83,9 @@ const serversKey = "mcpServers"
 // settings: --settings <in.Settings> as inline JSON, or for a start with Prepare's settings file `--setting-sources
 // project,local --settings <in.SettingsFile>` (Claude loads the project's settings and that file, never the
 // user's own, so what the file leaves out of the user's settings is off; --setting-sources as the args name it,
-// when they do), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
-// --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value): the start dir's
+// when they do), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, then --name
+// <in.Name> when it is set and the args name neither --name nor -n (a resume's title too); obor's --mcp-config pair
+// is spliced in before the strict flag (the flag stops --mcp-config's variadic value): the start dir's
 // .mcp.json servers the project's settings approve, then obor's own, so a lane loads the project's declared servers
 // and none of the user's (mcpConfig); then one `--` when a config flag could take the prompt, then the prompt. The
 // prompt is positional, never a config value; a resume carries none. The only `--` is obor's own (config validate
@@ -116,6 +117,9 @@ func (kind) Start(in agents.Start) []string {
 		prompt = ""
 	} else if in.Session != "" {
 		args = append(args, "--session-id", in.Session)
+	}
+	if in.Name != "" && !hasFlag(args, "--name") && !hasFlag(args, "-n") {
+		args = append(args, "--name", in.Name)
 	}
 	p := parse(args)
 	out := make([]string, 0, len(args)+4)

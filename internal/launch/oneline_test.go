@@ -25,11 +25,11 @@ func TestStartPromptIsOneLine(t *testing.T) {
 		head            string // the start args before the prompt
 		prompt, want    string // the first prompt given, and what reaches the start
 	}{
-		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", prompt, one},
+		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> --name proj pj-rev ", prompt, one},
 		// a Codex reviewer writes the main checkout's reviews dir (<reviews>) from its role worktree.
 		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir <reviews> " + codexUpdate + " " + codexMCP + " ", prompt, one},
 		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt ", prompt, one},
-		{"no line break: unchanged", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", plain, plain},
+		{"no line break: unchanged", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> --name proj pj-rev ", plain, plain},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

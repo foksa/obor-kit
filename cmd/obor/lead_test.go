@@ -175,9 +175,9 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 		start  []string // the agent.start args
 	}{
 		{nil, false, "RESTARTED pj-lead (pane w1:p1, session new)", // the lead skill is the first prompt
-			[]string{"--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead"}},
+			[]string{"--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "--name", "proj pj-lead", "/obor:lead"}},
 		{[]string{"--resume"}, true, "RESTARTED pj-lead (pane w1:p1, session old-sid)",
-			[]string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid"}},
+			[]string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid", "--name", "proj pj-lead"}},
 	} {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid" // herdr still knows the ended session
@@ -246,7 +246,7 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
 		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_OPENCODE_RESUME":"","OBOR_PANE":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":"","OPENCODE_DISABLE_CLAUDE_CODE_SKILLS":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
 		!strings.Contains(c, "export OBOR_ROLE=lead OBOR_PANE=wn1:n2 ") || // the new pane's id, before the start
-		!strings.Contains(noSessionID(c), startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead")) || strings.Contains(c, "--resume") {
+		!strings.Contains(noSessionID(c), startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "--name", "proj pj-lead", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead (no flag: a new tab lead), fresh:\n%s", c)
 	}
 }

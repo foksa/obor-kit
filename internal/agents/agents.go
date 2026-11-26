@@ -90,9 +90,13 @@ type Start struct {
 	// MCPFile is the file of the MCP servers the start loads in place of the user's own (a Preparer wrote it:
 	// claude's --mcp-config file of a start whose override names MCP servers); "": none.
 	MCPFile string
-	Resume  string   // the session id to resume ("": fresh)
-	Prompt  string   // the first prompt of a fresh start, one line ("": none)
-	Read    ReadFile // reads a file an arg names (a config file); nil: none is read
+	Resume  string // the session id to resume ("": fresh)
+	Prompt  string // the first prompt of a fresh start, one line ("": none)
+	// Name is the session's display name, for a kind that takes one on its command line (claude: --name; a name
+	// the args set wins): a launch's start names it "<project> <agent>". A kind whose start takes none (codex,
+	// agy) ignores it. "" none.
+	Name string
+	Read ReadFile // reads a file an arg names (a config file); nil: none is read
 	// Effort is the effort to start with (a type reference's `:<effort>`): the kind sets it, replacing the one
 	// Args set; "": Args as given.
 	Effort string
@@ -787,7 +791,7 @@ func StartOf(k Kind, in Start) (Launch, error) {
 		Effort: in.Effort, StrictMCP: in.StrictMCP, TrimUser: in.TrimUser, Overrides: in.Overrides, Env: in.Env,
 		Dirs: in.Dirs, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
 	args = s.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
-		Dir: in.Dir, Read: in.Read})
+		Name: in.Name, Dir: in.Dir, Read: in.Read})
 	return Launch{Args: args, Env: env}, nil
 }
 

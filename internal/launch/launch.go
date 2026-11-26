@@ -1259,7 +1259,8 @@ func (l *Launcher) buildStart(b startSpec) (startBuilt, error) {
 	if b.Resume == "" && k.Caps().NamedSession {
 		session = l.newSession(b.Agent)
 	}
-	in := agents.Start{Kit: kit, Agent: b.Agent, Effort: b.Effort, Resume: b.Resume, Prompt: oneLine(b.Prompt), Session: session,
+	in := agents.Start{Kit: kit, Agent: b.Agent, Name: l.Cfg.ProjectName() + " " + b.Agent, Effort: b.Effort,
+		Resume: b.Resume, Prompt: oneLine(b.Prompt), Session: session,
 		WriteDirs: b.WriteDirs, Dir: b.Dir, Root: l.Cfg.Root, Read: os.ReadFile, Env: l.envOrOS().Get,
 		Dirs: project.SubDirs, WriteState: project.StateWriter(l.Cfg.Root)}
 	var r agents.Launch
