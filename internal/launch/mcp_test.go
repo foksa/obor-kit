@@ -115,7 +115,7 @@ func TestRV47StartVariadicConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("start failed:\n%s", out)
 	}
-	want := "--permission-mode auto --model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " --session-id <new> -- " + wake
+	want := "--permission-mode auto --model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " --session-id <new> --name proj pj-rev -- " + wake
 	eq(t, x.named(x.startCall()), "Start argv=["+want+"] kind=claude label=pj-rev pane=w1:p7", "agent start")
 	if strings.Contains(x.startCall(), claude.MCPConfig("/kit")) {
 		t.Errorf("obor added a second obor entry: %q", x.startCall())

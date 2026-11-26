@@ -660,7 +660,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p3 submit=true text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "Start argv=[" + laneMCP + settings + " --resume sid-1] kind=claude label=pj-l-01 pane=w1:p3",
+		start: "Start argv=[" + laneMCP + settings + " --resume sid-1 --name proj pj-l-01] kind=claude label=pj-l-01 pane=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// A trimmed Claude start loads no user hooks, herdr's among them, so herdr reports no session for its pane:
@@ -676,7 +676,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p3 submit=true text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "Start argv=[" + laneMCP + settings + " --resume sid-1] kind=claude label=pj-l-01 pane=w1:p3",
+		start: "Start argv=[" + laneMCP + settings + " --resume sid-1 --name proj pj-l-01] kind=claude label=pj-l-01 pane=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// another project's agent may be named like a lane; no lane env, no lane settings
@@ -690,7 +690,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p3 submit=true text=unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_PANE=w1:p3"
 		},
-		start: "Start argv=[--resume sid-1] kind=claude label=l-01 pane=w1:p3",
+		start: "Start argv=[--resume sid-1 --name proj l-01] kind=claude label=l-01 pane=w1:p3",
 		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// bash restart.test.sh case_lane_agent_matched_by_pane_cwd
@@ -700,7 +700,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p3 submit=true text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "Start argv=[" + laneMCP + settings + " --resume sid-1] kind=claude label=odd-name pane=w1:p3",
+		start: "Start argv=[" + laneMCP + settings + " --resume sid-1 --name proj odd-name] kind=claude label=odd-name pane=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",
 		out:   "lane L-01 (pane w1:p3 cwd)",
 	}, {
@@ -715,7 +715,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p5 submit=true text=cd " + q(x.p.LaneDir("integrator")) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=integrator OBOR_PANE=w1:p5"
 		},
-		start: "Start argv=[--permission-mode auto --model opus " + settings + " --resume sid-i] kind=claude label=pj-int pane=w1:p5",
+		start: "Start argv=[--permission-mode auto --model opus " + settings + " --resume sid-i --name proj pj-int] kind=claude label=pj-int pane=w1:p5",
 		line:  "RESTARTED pj-int (pane w1:p5, session sid-i)",
 	}, {
 		// bash restart.test.sh case_lead_agent_is_a_role_agent, case_lead_unsets_obor_lane
@@ -725,7 +725,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "Start argv=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude label=pj-lead pane=w1:p6",
+		start: "Start argv=[--permission-mode auto --model opus --session-id <new> --name proj pj-lead /obor:lead] kind=claude label=pj-lead pane=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
@@ -739,7 +739,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p8 submit=true text=unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_PANE=w1:p8"
 		},
-		start: "Start argv=[--resume sid-t] kind=claude label=triage pane=w1:p8",
+		start: "Start argv=[--resume sid-t --name proj triage] kind=claude label=triage pane=w1:p8",
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
 	}, {
 		// OBOR_ROLE=triage like every other role
@@ -750,7 +750,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=triage OBOR_PANE=w1:p6"
 		},
-		start: "Start argv=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude label=pj-triage pane=w1:p6",
+		start: "Start argv=[--permission-mode auto --model opus " + settings + " --session-id <new> --name proj pj-triage] kind=claude label=pj-triage pane=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
 		// its role worktree
@@ -765,7 +765,7 @@ func TestRestartWho(t *testing.T) {
 				" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=deep_dive OBOR_PANE=w1:p6"
 
 		},
-		start: "Start argv=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude label=pj-deep-dive pane=w1:p6",
+		start: "Start argv=[--permission-mode auto --model opus " + settings + " --session-id <new> --name proj pj-deep-dive] kind=claude label=pj-deep-dive pane=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
@@ -776,9 +776,9 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "Write pane=w1:p6 submit=true text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "Start argv=[--session-id <new> /obor:lead] kind=claude label=pj-lead pane=w1:p6",
+		start: "Start argv=[--session-id <new> --name proj pj-lead /obor:lead] kind=claude label=pj-lead pane=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
-		out:   "args (claude): --session-id <new> /obor:lead",
+		out:   "args (claude): --session-id <new> --name proj pj-lead /obor:lead",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
