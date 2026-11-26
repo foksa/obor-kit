@@ -27,8 +27,9 @@ Nothing else edited, nothing committed (the hooks deny git writes and protected 
 - Review only what's in scope; list excluded tasks explicitly.
 - Every finding needs evidence: a probe script under the probe dir your brief names, a test, or a cited line.
 - Probe only under that dir: it is per project and agent, outside the checkout, and serve empties it when it stops you
-  (the reviewer after its review closes). Never point `GOCACHE` or `CARGO_TARGET_DIR` at a fresh directory (the shared
-  cache serves every review); `go test -overlay` files go there too.
+  (the reviewer after its review closes). Use the shared `GOCACHE` and `CARGO_TARGET_DIR`; only when your sandbox
+  cannot write them (Codex), point them under the probe dir (emptied with it), never elsewhere. `go test -overlay`
+  files go there too.
 - Probes and the tests its findings name; on a verify round, the fix's tests. No suite run, no `-count`/`-race` loop
   (the merge's gate ran the suite).
 - A new review starts in a fresh session (`obor brief <reviewer> --fresh "…"`): one long session over several reviews

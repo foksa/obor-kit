@@ -23,8 +23,9 @@ fix wave.
   test run with `go test -overlay`, the package's fakes, or a copy of a store folded by the code. Fewer, verified
   findings beat many guesses. No subagents.
   Probe only under the probe dir your brief names: it is per project and agent, outside the checkout, and
-  `obor restart <agent> --stop` empties it. Never point `GOCACHE` or `CARGO_TARGET_DIR` at a fresh directory (the
-  shared cache serves every deep dive); `go test -overlay` files go there.
+  `obor restart <agent> --stop` empties it. Use the shared `GOCACHE` and `CARGO_TARGET_DIR`; only when your
+  sandbox cannot write them, point them under the probe dir (emptied with it), never elsewhere. `go test -overlay`
+  files go there.
   The guard denies git that writes (`git init`, `commit`) even there: probe a changed source with `go test -overlay`
   (an overlay JSON mapping the file to a scratch copy), never a scratch repo.
 - Runs in its own role pane in its own worktree `<lanes.dir>/deep_dive` (`obor setup role deep_dive`,
