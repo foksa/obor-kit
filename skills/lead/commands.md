@@ -119,8 +119,9 @@ then `serve ready`). State is in the store, so running tasks carry on; serve als
 `obor spec show <T-xx> --report` prints the task's latest `task_done` report with its attempt and time, merged or not
 (a task that has not ended and has none yet says so). The nightly prune keeps a task's records 30 days past its end: a
 report older than that is gone from the log, and `--report` says `pruned`, naming the merge commit when there is one
-(a dropped task has none). The merge commit's body also carries the task's Summary, after the task's spec (its rev and
-text): `git log -1 --format=%B <merge sha>`.
+(a dropped task has none). A task that ended inside those 30 days without a report says `none`, with its merge or drop
+date. A merge commit may carry the task's Summary, after the task's spec (its rev and text), as an optional fallback:
+`git log -1 --format=%B <merge sha>`.
 
 ## obor nightly on|off
 `nightly.at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
