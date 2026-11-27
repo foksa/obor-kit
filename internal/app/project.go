@@ -38,7 +38,7 @@ func (a *App) load(root string) (*proj, error) {
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		tests: map[string]event.Key{}, testCmd: map[string]string{},
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, cuts: map[event.Key]*cutWait{},
-		reg: identity.New(), folded: newFolded(),
+		laneAdds: map[string]*laneAdd{}, reg: identity.New(), folded: newFolded(),
 		wtAgents: wtAgents(cfg), briefAgents: briefAgents(cfg)} // the last good sets (wtAgentsNow, briefAgentsNow)
 	p.kinds = a.opt.Kinds
 	if p.kinds == nil { // no serve to follow: the kinds of the config at load
@@ -314,7 +314,7 @@ func (p *proj) keptTask(l port.Lane) port.Lane {
 func projectKey(task string) bool {
 	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
 		task == event.ServeTask || task == event.RuleTask || task == event.ConfigTask || task == event.TrustTask ||
-		task == event.PruneTask
+		task == event.PruneTask || strings.HasPrefix(task, event.LaneTaskPrefix)
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

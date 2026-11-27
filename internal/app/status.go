@@ -257,6 +257,8 @@ func answerPath(p *proj, r event.Record, mt mtask) string {
 		return "obor review start [--after T-a,T-b]"
 	case r.Task == event.NightlyTask && strings.HasPrefix(d.Reason, redPrefix): // the lead's or the owner's why ends it
 		return `obor resume nightly "<why>"`
+	case strings.HasPrefix(r.Task, event.LaneTaskPrefix): // a lane serve could not add
+		return "obor setup lane " + strings.TrimPrefix(r.Task, event.LaneTaskPrefix)
 	case projectKey(r.Task): // a line typed, a line's; the nightly's other needs-you
 		return ""
 	case strings.HasPrefix(d.Reason, reasonAsks):

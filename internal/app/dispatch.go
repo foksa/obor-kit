@@ -387,6 +387,15 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}
+	// A lane serve is adding is unknown here, its worktree still missing for the pass: no dispatch takes it
+	// before its setup finished (laneAddPass).
+	a.mu.Lock()
+	for i := range ls {
+		if add := p.laneAdds[ls[i].Name]; add != nil && add.running {
+			ls[i].State, ls[i].Reason = port.LaneUnknown, "serve is adding the lane's worktree"
+		}
+	}
+	a.mu.Unlock()
 	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // a dispatch naming a busy keep lane queues
 	if len(c.After) > 0 {
 		if reply, err := a.waitTask(p, c, ls, keep); err != nil || reply != "" {

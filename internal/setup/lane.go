@@ -14,6 +14,16 @@ import (
 	"obor/internal/store"
 )
 
+// EnsureLane gives a configured lane's missing worktree what `obor setup lane <LANE>` gives it (the worktree at the
+// main checkout's branch, lanes.links, lanes.setup under its timeout with the lane's .setup marker): serve calls it for
+// a configured lane its lane table shows missing. The one code path of the CLI and serve; the lane must be configured.
+func (s *Setup) EnsureLane(ctx context.Context, lane string) error {
+	if lane == "" {
+		return project.Failf("no lane named")
+	}
+	return s.lane(ctx, []string{lane})
+}
+
 func (s *Setup) lane(ctx context.Context, args []string) error {
 	if len(args) != 1 || args[0] == "" {
 		return errUsage

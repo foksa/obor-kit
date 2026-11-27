@@ -170,8 +170,10 @@ kind's base args (claude `--permission-mode auto`; codex `-s workspace-write -a 
 `--auto --standalone`; agy `--settings <the start's settings file>`), the model, then `agents.kinds.<kind>.args`; the
 effort is the kind's own flag, refused when the kind does not take it.
 `lanes.count` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks); `lanes.list` names
-the lanes instead (each `{name, keep_agent}`). There are no caps. A key obor does not know (`lane_types`, `lanes` as
-an object of typed lanes) is dropped with a WARN by every command and serve (its setting does not apply);
+the lanes instead (each `{name, keep_agent}`). There are no caps. Serve adds a configured lane's missing worktree and
+runs its setup, as `obor setup lane <LANE>` does, so a raised count needs no other command; no dispatch takes the lane
+before that add finishes. A key obor does not know (`lane_types`, `lanes` as an object of typed lanes) is dropped with
+a WARN by every command and serve (its setting does not apply);
 `obor config validate` alone fails, naming the key: delete it from the file it names.
 
 Per-kind defaults live in the plugin. A lead keeps the user's own settings untrimmed; every other agent's start

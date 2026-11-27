@@ -17,7 +17,8 @@ continues from the Handoff's next steps without waiting (SKILL.md, Handoff).
   `<pm> run typecheck`, if it type-checks what `merge.check` covers.
 - obor's lane and merge commits pass `--no-verify`: the adopter's pre-commit and commit-msg hooks do not run on them;
   formatting and secret scans belong in `merge.check`.
-- Any of it changes in `.obor/config.json` (then `obor init` again, or `obor setup lane / pane / role`).
+- Any of it changes in `.obor/config.json` (then `obor init` again, or `obor setup lane / pane / role`); a raised
+  `lanes.count` needs neither: serve adds the new lane's worktree and setup.
 
 ## obor status
 Read the line under serve's to see what runs without an agent: `running: gate T-xx (make -s check, 2m14s) · after_merge

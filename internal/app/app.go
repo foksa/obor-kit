@@ -243,6 +243,8 @@ type proj struct {
 	roleFail map[string]time.Time
 	// cuts: the steps that wait after an attempt that was not counted, by their intent's key (cutwait.go). Under mu.
 	cuts map[event.Key]*cutWait
+	// laneAdds: serve's add of each configured lane's missing worktree, by lane (laneadd.go). Under mu.
+	laneAdds map[string]*laneAdd
 	// reg, out, night: the identity table (package identity), the lines to the project's agents (package outbox;
 	// delivered by deliver.go) and the nightly full check (nightly.go): each folds its records itself
 	// and keeps live state beside them.

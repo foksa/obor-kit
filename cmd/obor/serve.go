@@ -211,6 +211,11 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 			s := &setup.Setup{Kit: project.KitRoot(env), Dir: repo.Root, Env: env, T: term.Setup, Out: flushWriter{}}
 			return s.PlaceLane(ctx, lane)
 		}
+		// A configured lane's missing worktree: serve adds it, as obor setup lane <LANE> does.
+		l.EnsureLane = func(ctx context.Context, lane string) error {
+			s := &setup.Setup{Kit: project.KitRoot(env), Dir: repo.Root, Env: env, Out: flushWriter{}}
+			return s.EnsureLane(ctx, lane)
+		}
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
 		l.Prune = checks.GitPruner{Cfg: cfg}
