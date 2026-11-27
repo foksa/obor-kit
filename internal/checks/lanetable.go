@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -63,7 +64,9 @@ func (p *LaneTable) States() []port.Lane {
 	return p.states
 }
 
-// LaneState is one lane's row: missing when the lane dir is no worktree of its own, else the one free rule
+// LaneState is one lane's row: missing when serve's add of the lane has not finished (its project.LaneAddMarker is
+// there: no git read, whatever the worktree holds; Reason says so) or the lane dir is no worktree of its own, else the
+// one free rule
 // (port.FreeState: free, dirty-free, working, unknown) over the store's row of the lane (its task, whether that task
 // landed: serve's projection; the head its submission pinned), the lane's HEAD and its own uncommitted
 // changes (Paths: project.LaneDirt's, which leaves obor's own links out). Its git reads run in the lane dir (rev-parse,
@@ -75,6 +78,13 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing, Agent: p.Cfg.AgentName("worker", l.Name)}
 	if l.Mode == config.LaneKeep {
 		s.Mode = l.Mode
+	}
+	switch _, err := os.Lstat(project.LaneAddMarker(p.Root, l.Name)); {
+	case err == nil:
+		s.Reason = "serve's add of the lane has not finished (obor setup lane " + l.Name + ")"
+		return s
+	case !os.IsNotExist(err): // cannot tell whether an add is pending: never free
+		return unknown(s, "lane add marker: "+err.Error())
 	}
 	if !project.IsDir(l.Dir) {
 		return s

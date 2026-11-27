@@ -39,15 +39,17 @@ const driveTitle = "Owner drive: "
 
 // The points a test hooks (App.hook) to interleave a resume, a task_done and a record deterministically.
 const (
-	hookTaskDoneWaits = "task_done.waits" // task_done, before it takes a.submitMu
-	hookTaskDoneCheck = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
-	hookResumeWaits   = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
-	hookResumeLocked  = "resume.locked"   // obor resume holds a.verdicts and a.submitMu, before its decision
-	hookLandCheck     = "land.check"      // obor land holds a.submitMu, its checks passed, before its record
-	hookDoBegin       = "do.begin"        // a do's first section ended (its append and fold), before its effect or its stored result returns
-	hookAppended      = "record.appended" // a record other than an intent is in the log, before its fold (under mu; App.appended)
-	hookDropDecided   = "drop.decided"    // obor drop holds a.verdicts, the task marked ended, before its record
-	hookPruneSelected = "prune.selected"  // the nightly prune chose its tasks (mu released), before its check and deletes
+	hookTaskDoneWaits  = "task_done.waits" // task_done, before it takes a.submitMu
+	hookTaskDoneCheck  = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
+	hookResumeWaits    = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
+	hookResumeLocked   = "resume.locked"   // obor resume holds a.verdicts and a.submitMu, before its decision
+	hookLandCheck      = "land.check"      // obor land holds a.submitMu, its checks passed, before its record
+	hookDoBegin        = "do.begin"        // a do's first section ended (its append and fold), before its effect or its stored result returns
+	hookAppended       = "record.appended" // a record other than an intent is in the log, before its fold (under mu; App.appended)
+	hookDropDecided    = "drop.decided"    // obor drop holds a.verdicts, the task marked ended, before its record
+	hookPruneSelected  = "prune.selected"  // the nightly prune chose its tasks (mu released), before its check and deletes
+	hookDispatchPicked = "dispatch.picked" // a dispatch holds a.verdicts, its lane picked and its refusals passed, before its record
+	hookLaneAddRead    = "laneadd.read"    // serve's lane add holds a.verdicts, its fresh lane read done, before it starts an add
 )
 
 // hook runs the test's hook at point (none outside the tests).
@@ -204,6 +206,9 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) 
 	if err != nil {
 		return "", fmt.Errorf("drive: lanes of %s: %v", p.name, err)
 	}
+	a.mu.Lock()
+	p.maskAdding(ls) // as dispatchTask's: a lane serve is adding is no drive's
+	a.mu.Unlock()
 	_, held := a.held(p, "")
 	var l port.Lane
 	for _, x := range ls {

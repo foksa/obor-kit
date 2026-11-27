@@ -17,9 +17,24 @@ import (
 // EnsureLane gives a configured lane's missing worktree what `obor setup lane <LANE>` gives it (the worktree at the
 // main checkout's branch, lanes.links, lanes.setup under its timeout with the lane's .setup marker): serve calls it for
 // a configured lane its lane table shows missing. The one code path of the CLI and serve; the lane must be configured.
+// Before anything else it writes the lane's add marker (project.LaneAddMarker), which only the add's success removes:
+// until then the lane table calls the lane missing, also after a failed setup left its worktree or serve stopped.
 func (s *Setup) EnsureLane(ctx context.Context, lane string) error {
 	if lane == "" {
 		return project.Failf("no lane named")
+	}
+	if err := s.load(); err != nil {
+		return err
+	}
+	if !s.cfg.HasLane(lane) {
+		return project.Failf("lane %s is not configured", lane)
+	}
+	marker := project.LaneAddMarker(s.root, lane)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return project.Failf("lane %s: add marker: %v", lane, err)
+	}
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		return project.Failf("lane %s: add marker: %v", lane, err)
 	}
 	return s.lane(ctx, []string{lane})
 }
@@ -68,6 +83,10 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 			_ = os.WriteFile(marker, []byte(c.Cmd+"\n"), 0o644)
 		}
 		s.say("lane_setup ok: %s", c.Cmd)
+	}
+	// The add finished (serve's, or this manual repair of one): the lane table may call the lane free.
+	if err := os.Remove(project.LaneAddMarker(s.root, lane)); err != nil && !os.IsNotExist(err) {
+		return project.Failf("lane %s: add marker: %v", lane, err)
 	}
 	s.say("OK lane %s at %s (no pane: serve places it at the lane's first dispatch)", lane, dir)
 	return nil

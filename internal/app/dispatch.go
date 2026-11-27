@@ -387,14 +387,11 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}
-	// A lane serve is adding is unknown here, its worktree still missing for the pass: no dispatch takes it
-	// before its setup finished (laneAddPass).
+	// A lane serve is adding is missing in the table until its add succeeded (its marker), unknown here while the add
+	// runs: no dispatch takes it before its setup finished. The read, this mask and the record below are under
+	// a.verdicts, the lock serve's add starts under (laneAddStart): an add and a dispatch never share a lane.
 	a.mu.Lock()
-	for i := range ls {
-		if add := p.laneAdds[ls[i].Name]; add != nil && add.running {
-			ls[i].State, ls[i].Reason = port.LaneUnknown, "serve is adding the lane's worktree"
-		}
-	}
+	p.maskAdding(ls)
 	a.mu.Unlock()
 	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // a dispatch naming a busy keep lane queues
 	if len(c.After) > 0 {
@@ -454,6 +451,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
+	a.hook(hookDispatchPicked)
 	agent := cfg.AgentName("worker", l.Name) // derived (a lane pane's old label is no name of the worker)
 	caller := callerOf(c.Envelope)
 	d := event.Dispatch{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,

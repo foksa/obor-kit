@@ -221,6 +221,15 @@ func Group(cmd *exec.Cmd) (cleanup func()) {
 // StateDir is <root>/.obor/state (not created: readers never write).
 func StateDir(root string) string { return filepath.Join(root, ".obor", "state") }
 
+// LaneAddMarker is <root>/.obor/state/lanes/<lane>.adding, beside the lane's .setup marker: serve's add of the lane
+// (worktree, lanes.links, lanes.setup: setup.EnsureLane) writes it before it starts and removes it only once the add
+// succeeded, as does `obor setup lane <LANE>` succeeding (the manual repair). While it is there the lane table calls the
+// lane missing whatever its worktree holds (checks.LaneTable.LaneState): an add that failed or a serve that stopped
+// mid-add leaves a lane no dispatch takes, and the next serve adds it again.
+func LaneAddMarker(root, lane string) string {
+	return filepath.Join(StateDir(root), "lanes", lane+".adding")
+}
+
 // Env looks up an environment variable (os.LookupEnv's shape): the process environment in the binary, a map in
 // tests. Commands read the environment only through it, so tests can run in parallel.
 type Env func(key string) (string, bool)

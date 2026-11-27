@@ -155,8 +155,11 @@ func unknownNote(ls []port.Lane) string {
 
 // laneWhy is a lane's state for a refusal: its state, and for an unknown one why.
 func laneWhy(l port.Lane) string {
-	if l.State == port.LaneUnknown {
+	switch {
+	case l.State == port.LaneUnknown:
 		return "unknown: " + l.Reason
+	case l.State == port.LaneMissing && l.Reason != "": // an add serve has not finished
+		return "missing: " + l.Reason
 	}
 	return Dash(l.State)
 }
