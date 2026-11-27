@@ -17,6 +17,7 @@ import (
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/testkit"
 )
 
 // obor init in a plain directory (no repository) makes one on branch main, commits its own files (the config and
@@ -68,6 +69,69 @@ func TestOborInitInAnEmptyDirectory(t *testing.T) {
 	has(t, out, ".gitignore", "the commit's .gitignore")
 	has(t, out, "docs/agents/", "the commit's agents dir")
 	hasNot(t, out, "nothing committed", "no uncommitted note after init committed")
+}
+
+// A lane made while setup was deferred sits at init's commit, without the files the owner commits after it. The
+// repair rerun moves such a lane (detached, clean, no task, behind) to the branch head before lane setup, so the
+// setup sees the owner's package.json; every other lane is left as it is.
+func TestOborInitRerunMovesADeferredLaneToTheOwnersCommit(t *testing.T) {
+	// Not parallel: the lane's shell reads this process's PATH, where the fake npm is first.
+	x := newGitInitFx(t, true)
+	dir := x.unborn(t, "fresh")
+	x.Write(filepath.Join(dir, "package.json"), `{"scripts":{"test":"vitest run"}}`)
+	x.Write(filepath.Join(dir, "package-lock.json"), "{}\n")
+	marker := filepath.Join(x.Base, "npm-ran")
+	testkit.Script(t, x.bin, "npm", "#!/bin/sh\n[ -f package.json ] || exit 9\nmkdir -p node_modules\necho \"$PWD\" >> '"+marker+"'\n")
+	t.Setenv("PATH", x.bin+":/usr/bin:/bin")
+	if out, rc := x.runIn(t, dir, "obor-init"); rc != 0 {
+		t.Fatalf("first init: exit %d\n%s", rc, out)
+	}
+	if x.Exists(marker) {
+		t.Fatalf("precondition: the first init ran lane_setup: %q", x.Read(marker))
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes := []string{filepath.Join(cfg.LanesDir(), "L-01"), filepath.Join(cfg.LanesDir(), "L-02")}
+	for _, lane := range lanes {
+		if x.Exists(filepath.Join(lane, "package.json")) {
+			t.Fatalf("precondition: the deferred lane %s already holds package.json", lane)
+		}
+	}
+	worktrees := worktreeDirs(x, dir)
+	// the files question's Commit all: the owner's files join init's commit on main
+	x.Git(dir, "add", "-A")
+	x.Git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "Initial commit", "--no-verify")
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("rerun: exit %d\n%s", rc, out)
+	}
+	owner := x.Git(dir, "rev-parse", "HEAD")
+	for _, lane := range lanes {
+		has(t, out, "worktree "+lane+" moved to main (a new lane's start)", "the move line")
+		if !x.Exists(filepath.Join(lane, "package.json")) {
+			t.Errorf("%s is not at the owner's commit: package.json is missing", lane)
+		}
+		if got := x.Git(lane, "rev-parse", "HEAD"); got != owner {
+			t.Errorf("%s HEAD %s, want the owner's commit %s", lane, got, owner)
+		}
+		has(t, x.Read(marker), lane, "lane_setup ran in "+lane+" after the move")
+	}
+	if got := worktreeDirs(x, dir); !slices.Equal(got, worktrees) {
+		t.Errorf("the rerun changed the worktrees: %v, were %v", got, worktrees)
+	}
+}
+
+// worktreeDirs is the dirs `git worktree list` names under dir, without the shas.
+func worktreeDirs(x *initFx, dir string) []string {
+	var dirs []string
+	for _, line := range strings.Split(x.Git(dir, "worktree", "list"), "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
+			dirs = append(dirs, f[0])
+		}
+	}
+	return dirs
 }
 
 // a rerun after an interrupted init (init's own files, no commit) commits them; a file at init's path the user

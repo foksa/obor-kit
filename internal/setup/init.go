@@ -275,6 +275,26 @@ func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 	return committed, nil
 }
 
+// headHoldsOnlyInitPaths is whether HEAD's tree lists no file but init's own (initPaths): the repository has nothing
+// of the owner's committed yet, so a lane branched from HEAD lacks their files. A HEAD git cannot read (no commit) is
+// no such tree: false, and lane setup runs as it did before.
+func (s *Setup) headHoldsOnlyInitPaths() bool {
+	out, err := s.git().Git(s.root, "ls-tree", "-r", "--name-only", "HEAD")
+	if err != nil {
+		return false
+	}
+	own := map[string]bool{}
+	for _, rel := range s.initPaths(s.root) {
+		own[rel] = true
+	}
+	for _, name := range strings.Split(out, "\n") {
+		if name != "" && !own[name] {
+			return false
+		}
+	}
+	return true
+}
+
 // uncommittedCount is how many paths under root git reports as uncommitted (0 when git cannot say): every entry of
 // status --porcelain -z --untracked-files=all after init's commit, untracked and staged alike (all are the owner's),
 // one per path. -z keeps a path as git wrote it; a rename or copy entry carries its original path in the next NUL

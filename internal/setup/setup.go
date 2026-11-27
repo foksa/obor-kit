@@ -104,8 +104,9 @@ type Setup struct {
 	// terminal is the kind obor init writes into a new config and names in its refusals ("": herdr); cmd/obor
 	// passes it as --terminal, decided before any write.
 	terminal string
-	// deferLaneSetup is obor init's no-commit path with the owner's files left uncommitted: the lanes get their
-	// worktrees but no lanes.setup, which waits for the files (serve's lane prepare runs it at the first dispatch).
+	// deferLaneSetup: HEAD's tree holds only init's own paths and something is still uncommitted, so a lane branched
+	// from HEAD lacks the owner's files: the lanes get their worktrees but no lanes.setup, which waits for them (obor
+	// init again, once the owner commits, runs it in the existing lanes).
 	deferLaneSetup bool
 }
 

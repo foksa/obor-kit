@@ -40,7 +40,9 @@ package setup
 //	           none, so the role it writes resolves. A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
 //	           lane_setup marker) is skipped; one whose lane_setup failed the last time (or whose lane_ready does) is
-//	           set up again, and lane_ready must pass after that, else the lane's step FAILs.
+//	           set up again, and lane_ready must pass after that, else the lane's step FAILs. Before that setup a
+//	           lane that is detached, clean, holds no task and whose HEAD is an ancestor of the main checkout's branch
+//	           head moves to that head: the lanes made while setup was deferred are at init's commit.
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           commit and the panes: an agent started without the plugin runs without obor's hooks and MCP tools.
@@ -235,16 +237,16 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin", state, "%s", what)
 
-	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it). The count is
-	// taken now: every path left uncommitted (untracked and staged alike) is the owner's, and while any is left the
-	// lanes get no lanes.setup: it needs files that are not in them yet (serve runs it at the first dispatch, once
-	// the owner has committed them).
+	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it). The deferral
+	// is derived each run, not from this run's commit: while HEAD's tree is only init's own paths and anything is still
+	// uncommitted, the owner's files are not in a lane, so the lanes get no lanes.setup. Once the owner commits them,
+	// obor init again is the repair: laneDone sends each lane to lane_setup again.
 	committed, err := s.initCommit(auto)
 	if err != nil {
 		return err
 	}
 	left := 0
-	if len(committed) > 0 {
+	if s.headHoldsOnlyInitPaths() {
 		left = s.uncommittedCount()
 	}
 	s.deferLaneSetup = left > 0
@@ -260,13 +262,21 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	var made, had []string
 	for _, l := range initLaneNames(s.cfg) {
 		if s.cfg.HasLane(l) {
-			done, err := s.laneDone(ctx, l, filepath.Join(s.cfg.LanesDir(), l), s.deferLaneSetup)
+			dir := filepath.Join(s.cfg.LanesDir(), l)
+			done, err := s.laneDone(ctx, l, dir, s.deferLaneSetup)
 			if err != nil {
 				return err
 			}
 			if done {
 				had = append(had, l)
 				continue
+			}
+			// a lane setup is about to run: a lane that was made while setup was deferred is at init's commit, and
+			// the owner's files are in the branch now (moveLaneToStart says why it may leave it)
+			if !s.deferLaneSetup {
+				if err := s.moveLaneToStart(l, dir); err != nil {
+					return err
+				}
 			}
 		}
 		if err := s.lane(ctx, []string{l}); err != nil {
@@ -290,7 +300,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	lanes := strings.Join(append(made, had...), ", ") + "; " + types
 	if s.deferLaneSetup {
-		lanes += "; lanes.setup waits for the files to be committed: serve runs it at the first dispatch"
+		lanes += "; lanes.setup waits for the files to be committed: commit the files, then obor init again runs lane setup"
 	}
 	add("lanes", doneOr(len(made) > 0 || strings.Contains(types, "→")), "%s", lanes)
 
