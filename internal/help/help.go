@@ -47,6 +47,8 @@ var Commands = []Command{
 	{"restart", "obor restart <agent> [--pane <id>] [--fresh|--handoff] [--force] | obor restart <agent> --stop [--pane <id>] [--force]",
 		"restart an agent in its pane (--fresh: a new session; --handoff: the lead's handoff restart, implies --fresh), or stop it",
 		"agents"},
+	{"read", "obor read <agent> [--lines <n>]",
+		"an agent's pane as the project's terminal shows it: its last lines (60 unless --lines says another)", "agents"},
 	{"brief", `obor brief <role-agent> [--fresh] "<text>"`,
 		"give a role agent (integrator, reviewer, …) a brief once it is idle", "agents"},
 	{"send", `obor send <project> "<text>"`, "post a line to another project's lead", "agents"},

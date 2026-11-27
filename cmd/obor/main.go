@@ -93,6 +93,8 @@ func main() {
 		exit(has(args))
 	case "restart":
 		exit(restart(args))
+	case "read":
+		exit(readCmd(args))
 	case "lead":
 		exit(lead(args))
 	case "send":
@@ -227,6 +229,7 @@ var commands = map[string][]string{
 	"has":       nil,
 	"kind":      nil,
 	"restart":   nil,
+	"read":      nil,
 	"lead":      nil,
 	"send":      nil,
 	"projects":  nil,
