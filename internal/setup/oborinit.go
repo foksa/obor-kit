@@ -9,10 +9,10 @@ package setup
 //	           passes the one it detected, else herdr) and a new config's project.terminal.
 //	herdr      herdr unreachable → FAIL, before any write (nothing later works without it); no claude on PATH →
 //	           FAIL (the lead runs it).
-//	git        no commit yet: a directory holding files only at init's own paths (.obor/config.json, .gitignore, the
-//	           docs, .claude/settings.json; whatever their bytes) gets git init (when in no repository) and, after
-//	           the config edits and the plugin install, the one "obor init" commit holding them, before the
-//	           worktrees: the tree is clean after init. Any other file there → FAIL before any write. A repository
+//	git        no commit yet: the directory gets git init (when in no repository) and, after the config edits and the
+//	           plugin install, the one "obor init" commit holding init's own paths (.obor/config.json, .gitignore, the
+//	           docs, .claude/settings.json; whatever their bytes), before the worktrees: the lanes branch from it. Any
+//	           other file there stays untracked and untouched, and the summary says how many there are. A repository
 //	           with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
@@ -114,9 +114,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return project.Failf("%s is not on PATH (the lead runs it): install it, then obor init again", agents.Default)
 	}
 	// git: a directory in no repository gets one; a repository without a commit gets its first below, from
-	// init's own files (the lanes branch from it).
-	// Decided before any write: init commits only in a directory whose files are all at init's own paths; a
-	// repository with no commit and any other file in it is a FAIL.
+	// init's own files (the lanes branch from it); any other file stays untracked and untouched.
 	root, repo := s.Dir, true
 	switch r, err := s.git().Find(s.Dir); {
 	case errors.Is(err, project.ErrNotGit):
@@ -133,10 +131,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 			return project.Fail(strings.TrimPrefix(err.Error(), "obor: "))
 		}
 	}
-	auto, err := s.autoCommit(root, repo)
-	if err != nil {
-		return err
-	}
+	auto := s.autoCommit(root, repo)
 	if !repo {
 		if err := s.gitInit(); err != nil {
 			return err
@@ -240,11 +235,15 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin", state, "%s", what)
 
-	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
-	// from it); the tree is clean after init.
+	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it). The count is
+	// taken now: every file left untracked is the owner's.
 	committed, err := s.initCommit(auto)
 	if err != nil {
 		return err
+	}
+	left := 0
+	if len(committed) > 0 {
+		left = s.untrackedCount()
 	}
 
 	// githooks
@@ -328,6 +327,14 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	if len(committed) > 0 {
 		s.say("committed obor init: %s", s.commitLine(committed))
+		if left > 0 {
+			files := "files"
+			if left == 1 {
+				files = "file"
+			}
+			s.say("%d %s left uncommitted: workers see only committed files; the lead asks whether to commit them at its "+
+				"first session", left, files)
+		}
 	} else {
 		s.say("nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, %s/",
 			s.cfg.AgentsDir())

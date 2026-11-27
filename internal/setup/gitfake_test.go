@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -162,6 +163,8 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 			return fail("fatal: bad revision 'HEAD'")
 		}
 		return strings.Join(r.commits[len(r.commits)-1].added, "\n") + "\n", nil
+	case line == "status --porcelain --untracked-files=all": // the files the last commit does not hold
+		return r.untracked()
 	case line == "worktree list":
 		out := r.root + " " + r.sha() + " [" + r.branch + "]\n"
 		for _, w := range r.worktrees {
@@ -200,6 +203,46 @@ func (f *fakeGit) config(r *fakeRepo, args []string) (string, error) {
 }
 
 func (r *fakeRepo) sha() string { return fmt.Sprintf("%040x", len(r.commits)) }
+
+// untracked is git status --porcelain --untracked-files=all: "?? path" for each file on disk the last commit does not
+// hold (the fake knows no ignore rules).
+func (r *fakeRepo) untracked() (string, error) {
+	held := map[string]bool{}
+	if n := len(r.commits); n > 0 {
+		for p := range r.commits[n-1].files {
+			held[p] = true
+		}
+	}
+	var lines []string
+	err := filepath.WalkDir(r.root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(r.root, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		if rel == ".git" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() && !held[rel] {
+			lines = append(lines, "?? "+rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(lines)
+	if len(lines) == 0 {
+		return "", nil
+	}
+	return strings.Join(lines, "\n") + "\n", nil
+}
 
 // removeWorktree is git worktree remove --force: the directory and its registration go.
 func (r *fakeRepo) removeWorktree(dir string) error {

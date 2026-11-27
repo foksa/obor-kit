@@ -239,60 +239,6 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	}
 }
 
-// init commits only in a directory that held nothing but .git; with anything else and no commit it FAILs before
-// any write: no repository made, no config, the user's files as they were.
-func TestOborInitRefusesToCommitAUsersFile(t *testing.T) {
-	t.Parallel()
-	x := newFakeGitInitFx(t, true)
-	dir := filepath.Join(x.Base, "mine")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("mine\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, rc := x.runIn(t, dir, "obor-init")
-	wantFail(t, x, out, rc, dir)
-	if x.Exists(filepath.Join(dir, ".git")) {
-		t.Error("init made a repository before the FAIL")
-	}
-	if x.Read(filepath.Join(dir, "README.md")) != "mine\n" {
-		t.Error("the user's file was touched")
-	}
-	onlyEntries(t, dir, "README.md")
-}
-
-// wantFail: exit 1 and a FAIL for an unborn main in dir last.
-func wantFail(t *testing.T, x *initFx, out string, rc int, dir string) {
-	t.Helper()
-	want := "FAIL main has no commit yet and " + dir + " has files: commit what belongs in the project, then obor init " +
-		"again"
-	if rc != 1 || last(out) != want {
-		t.Fatalf("exit %d, last line %q, want %q\n%s", rc, last(out), want, out)
-	}
-	if x.hasCommit(dir) {
-		t.Error("init made a commit")
-	}
-}
-
-// onlyEntries: dir's top level is exactly names (.git aside).
-func onlyEntries(t *testing.T, dir string, names ...string) {
-	t.Helper()
-	es, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, e := range es {
-		if e.Name() != ".git" {
-			got = append(got, e.Name())
-		}
-	}
-	if strings.Join(got, " ") != strings.Join(names, " ") {
-		t.Errorf("%s holds %v, want %v (init wrote before its FAIL)", dir, got, names)
-	}
-}
-
 // unborn is a new repository on main with no commit, dir under the fixture's base.
 func (x *initFx) unborn(t *testing.T, name string) string {
 	t.Helper()
@@ -343,45 +289,104 @@ func committedFiles(x *initFx, dir string) []string {
 	return strings.Fields(x.Git(dir, "show", "--name-only", "--format=", "HEAD"))
 }
 
-// A hand-written .obor/config.json in an unborn repository goes into the commit with init's edits, and any other file
-// there FAILs before any write: nothing created, the file unchanged.
-func TestOborInitUnbornRepositoryConfigGoesInAndOtherFilesRefuse(t *testing.T) {
+// A repository with no commit and files of the owner's: init commits its own paths, leaves the others untracked and
+// untouched, and the summary says how many it left.
+func TestOborInitCommitsItsOwnFilesAndLeavesTheUsersAlone(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		files []string
+		want  string // the summary's count line
+	}{
+		{"a README", []string{"README.md"}, "1 file left uncommitted"},
+		{"a Finder file", []string{".DS_Store"}, "1 file left uncommitted"},
+		{"two files", []string{"README.md", ".DS_Store"}, "2 files left uncommitted"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFakeGitInitFx(t, true)
+			dir := x.unborn(t, "unborn")
+			for _, f := range c.files {
+				x.Write(filepath.Join(dir, f), "the owner's text\n")
+			}
+			out, rc := x.runIn(t, dir, "obor-init")
+			if rc != 0 {
+				t.Fatalf("exit %d\n%s", rc, out)
+			}
+			if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
+				t.Errorf("commits %q, want the one obor init", got)
+			}
+			commit := committedFiles(x, dir)
+			for _, f := range []string{".obor/config.json", ".gitignore", "BACKLOG.md", "docs/decisions.md"} {
+				if !slices.Contains(commit, f) {
+					t.Errorf("the commit lacks init's %s: %v", f, commit)
+				}
+			}
+			untracked := x.Git(dir, "status", "--porcelain", "--untracked-files=all")
+			for _, f := range c.files {
+				if slices.Contains(commit, f) {
+					t.Errorf("the commit holds the owner's %s: %v", f, commit)
+				}
+				has(t, untracked, "?? "+f, "the owner's file untracked")
+				if got := x.Read(filepath.Join(dir, f)); got != "the owner's text\n" {
+					t.Errorf("%s is now %q, want the owner's text", f, got)
+				}
+			}
+			has(t, out, c.want, "the uncommitted count")
+		})
+	}
+}
+
+// A plain directory with files: init makes it a repository and the same commit of its own paths; the owner's files stay
+// untracked and untouched.
+func TestOborInitInAPlainDirWithFiles(t *testing.T) {
+	t.Parallel()
+	x := newFakeGitInitFx(t, true)
+	dir := filepath.Join(x.Base, "plain")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	x.Write(filepath.Join(dir, "README.md"), "the owner's text\n")
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	has(t, out, "git init -b main in "+dir, "the git init line")
+	if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
+		t.Errorf("commits %q, want the one obor init", got)
+	}
+	if commit := committedFiles(x, dir); slices.Contains(commit, "README.md") || !slices.Contains(commit, ".obor/config.json") {
+		t.Errorf("the commit: %v, want init's files and not the owner's README.md", commit)
+	}
+	if got := x.Read(filepath.Join(dir, "README.md")); got != "the owner's text\n" {
+		t.Errorf("README.md is now %q, want the owner's text", got)
+	}
+	has(t, x.Git(dir, "status", "--porcelain", "--untracked-files=all"), "?? README.md", "the owner's file untracked")
+	has(t, out, "1 file left uncommitted", "the uncommitted count")
+}
+
+// A hand-written .obor/config.json in an unborn repository goes into the commit with init's edits.
+func TestOborInitUnbornRepositoryConfigGoesIn(t *testing.T) {
 	t.Parallel()
 	const mine = `{"project": {"name": "mine", "agent_prefix": "mine"}}` + "\n"
-	t.Run("config", func(t *testing.T) {
-		x := newFakeGitInitFx(t, true)
-		dir := x.unborn(t, "unborn")
-		x.Write(filepath.Join(dir, ".obor", "config.json"), mine)
-		out, rc := x.runIn(t, dir, "obor-init")
-		if rc != 0 {
-			t.Fatalf("exit %d\n%s", rc, out)
-		}
-		if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
-			t.Errorf("commits %q, want the one obor init", got)
-		}
-		if files := committedFiles(x, dir); !slices.Contains(files, ".obor/config.json") {
-			t.Errorf("the commit lacks the config: %v", files)
-		}
-		cfg, err := config.Load(dir)
-		if err != nil || cfg.Name() != "mine" {
-			t.Errorf("the config is not the hand-written one: %v", err)
-		}
-	})
-	t.Run("another file", func(t *testing.T) {
-		x := newFakeGitInitFx(t, true)
-		dir := x.unborn(t, "unborn")
-		x.Write(filepath.Join(dir, ".obor", "config.json"), mine)
-		x.Write(filepath.Join(dir, "README.md"), "mine\n")
-		out, rc := x.runIn(t, dir, "obor-init")
-		wantFail(t, x, out, rc, dir)
-		if x.Read(filepath.Join(dir, ".obor", "config.json")) != mine || x.Read(filepath.Join(dir, "README.md")) != "mine\n" {
-			t.Error("init touched a file before its FAIL")
-		}
-		onlyEntries(t, dir, ".obor", "README.md")
-		if x.Exists(filepath.Join(dir, "BACKLOG.md")) || x.claudeCalls() != "" {
-			t.Error("init wrote or called claude before its FAIL")
-		}
-	})
+	x := newFakeGitInitFx(t, true)
+	dir := x.unborn(t, "unborn")
+	x.Write(filepath.Join(dir, ".obor", "config.json"), mine)
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
+		t.Errorf("commits %q, want the one obor init", got)
+	}
+	if files := committedFiles(x, dir); !slices.Contains(files, ".obor/config.json") {
+		t.Errorf("the commit lacks the config: %v", files)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil || cfg.Name() != "mine" {
+		t.Errorf("the config is not the hand-written one: %v", err)
+	}
+	has(t, out, "committed obor init: ", "the commit line")
 }
 
 // interrupted is the project step alone in dir (an init that stopped before its commit): init's untouched files.
