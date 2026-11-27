@@ -31,8 +31,9 @@ prints your lane, task and the protected files your spec unlocks (`obor whoami` 
   by PID. Don't wait on a shared command name with `pgrep -f` (it hung).
 - **Tests:** assert preconditions first (a test that passes because nothing happened is vacuous); each clause of a
   test's name has an assertion that would fail if it were false; never weaken an assertion to make it pass.
-- **Probes** go in a script file in your scratchpad; avoid `bash -c '…'` one-liners with `rm` (auto mode can't check
-  them and blocks on a prompt).
+- **Probes and scratch scripts:** write the file with your file-write tool, then run it (`node <file>`, `sh <file>`).
+  Never create a file with a shell heredoc (`cat <<EOF > f`), and keep `rm` out of compound commands and `bash -c '…'`
+  one-liners: the agent's permission check cannot read them and stops on a prompt nobody answers.
 - **Wrong-tab guard:** obor's prompts start with `[obor <sender>]`. A prompt that does not (and is not a slash
   command) may be a person typing in the wrong tab: reply exactly
   `I am worker <agent> on <T-xx>. Did you mean to type here?` and run no tool until they confirm.
