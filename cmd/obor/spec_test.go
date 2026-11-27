@@ -168,6 +168,10 @@ func TestSpecShowReport(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
 	env := []string{"OBOR_STATE_HOME=" + t.TempDir()} // no serve
+	if rc, stdout, _ := run(t, p.Root, env, "spec", "show", "T-01", "--report"); rc != 2 ||
+		stdout != "FAIL no store for T-01 at "+p.Root+"\n" {
+		t.Errorf("show --report, no store: exit %d, %q; want the read failure, exit 2", rc, stdout)
+	}
 	p.SubmitAgo("L-01", 120, "Summary: first.")
 	p.SubmitAgo("L-01", 60, "Summary: second.")
 	rc, stdout, _ := run(t, p.Root, env, "spec", "show", "T-01", "--report")

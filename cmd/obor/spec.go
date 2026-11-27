@@ -89,8 +89,12 @@ func specShow(task string, report bool) int {
 		return 2
 	}
 	if report {
-		r, ok := view.Detail{Root: cfg.Root}.LatestReport(task)
-		if !ok {
+		r, ok, err := view.Detail{Root: cfg.Root}.LatestReport(task)
+		switch {
+		case err != nil:
+			fmt.Fprintln(out, "FAIL "+err.Error())
+			return 2
+		case !ok:
 			fmt.Fprintf(out, "%s report: none yet\n", task)
 			return 0
 		}

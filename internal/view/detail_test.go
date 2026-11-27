@@ -65,16 +65,16 @@ func TestLatestReport(t *testing.T) {
 		{Task: "T-2", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
 	}
 	d := Detail{Root: writeLog(t, recs, at)}
-	r, ok := d.LatestReport("T-1")
-	if !ok || r.Task != "T-1" || r.Text != "Summary: second." || r.Attempt != 2 ||
+	r, ok, err := d.LatestReport("T-1")
+	if err != nil || !ok || r.Task != "T-1" || r.Text != "Summary: second." || r.Attempt != 2 ||
 		r.At != at.Add(2*time.Second).Format(time.RFC3339) {
-		t.Errorf("T-1's latest report: %+v, %v; want the second submission's text, attempt 2 and time", r, ok)
+		t.Errorf("T-1's latest report: %+v, %v, %v; want the second submission's text, attempt 2 and time", r, ok, err)
 	}
-	if r, ok := d.LatestReport("T-2"); ok || r.Text != "" {
-		t.Errorf("T-2 has no report, got %+v, %v", r, ok)
+	if r, ok, err := d.LatestReport("T-2"); err != nil || ok || r.Text != "" {
+		t.Errorf("T-2 has no report, got %+v, %v, %v", r, ok, err)
 	}
-	if r, ok := d.LatestReport("T-9"); ok || r.Text != "" {
-		t.Errorf("T-9 is unknown, got %+v, %v", r, ok)
+	if r, ok, err := d.LatestReport("T-9"); err != nil || ok || r.Text != "" {
+		t.Errorf("T-9 is unknown, got %+v, %v, %v", r, ok, err)
 	}
 }
 

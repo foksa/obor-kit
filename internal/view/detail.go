@@ -2,6 +2,7 @@ package view
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 
@@ -254,21 +255,26 @@ func (d Detail) Job(job string) (Prompt, bool) {
 }
 
 // LatestReport is task's latest submission that carries a report (a done file's carries none), read-only from the
-// same records the task page reads: ok false when it has none yet.
-func (d Detail) LatestReport(task string) (Report, bool) {
+// same records the task page reads: ok false when it has none yet; an error is a store or its records that could not
+// be read (never "no report", which is ok false with no error).
+func (d Detail) LatestReport(task string) (Report, bool, error) {
 	if task == "" {
-		return Report{}, false
+		return Report{}, false, nil
 	}
-	db, close := storeAt(d.Root)
-	defer close()
-	if db == nil {
-		return Report{}, false
+	db, err := store.OpenAt(d.Root)
+	switch {
+	case err != nil:
+		return Report{}, false, err
+	case db == nil:
+		return Report{}, false, fmt.Errorf("no store for %s at %s", task, d.Root)
 	}
+	defer db.Close()
 	recs, err := event.RecordsOf(db, task, detailRecords)
 	if err != nil {
-		return Report{}, false
+		return Report{}, false, err
 	}
-	return latestReport(recs)
+	r, ok := latestReport(recs)
+	return r, ok, nil
 }
 
 // latestReport is the newest submission in recs (newest first) whose report is not empty: its report with that
