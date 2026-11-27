@@ -65,8 +65,9 @@ func configCmd(args []string) int {
 	return 0
 }
 
-// whoami is `obor whoami [--json]`: role, agent name (when it derives one), lane (only when the role has one) and source; the lane row's task, branch and
-// base, the task's stored spec rev and the protected files it unlocks, or "lane row: none".
+// whoami is `obor whoami [--json]`: role, agent name (when it derives one), lane (only when the role has one) and source;
+// the project's terminal and its manual; the lane row's task, branch and base, the task's stored spec rev and the
+// protected files it unlocks, or "lane row: none".
 func whoami(args []string) int {
 	asJSON, canPush := false, false
 	switch {
@@ -98,6 +99,11 @@ func whoami(args []string) int {
 		fmt.Fprint(out, config.Pretty(w.JSON()))
 		return 0
 	}
+	k, ok := kindOf(cfg)
+	if !ok {
+		errf("%v", unknownTerminal(cfg))
+		return 1
+	}
 	if project.Stopped(cfg.Root) { // obor stop: the hooks stand down
 		fmt.Fprintln(out, project.StoppedLine)
 	}
@@ -109,7 +115,9 @@ func whoami(args []string) int {
 		fmt.Fprintf(out, "lane: %s\n", w.Role.Lane)
 	}
 	fmt.Fprintf(out, "source: %s\n", w.Role.Source)
-	lines := func() int { // after the other lines; a lead's: how its lines reach it (skills/lead/SKILL.md "Lines to you")
+	lines := func() int { // after the other lines: the project's terminal and its manual, then a lead's how its lines
+		// reach it (skills/lead/SKILL.md "Lines to you")
+		fmt.Fprintf(out, "terminal: %s (its manual: %s)\n", k.Name, k.Manual)
 		if w.Lines != "" {
 			fmt.Fprintf(out, "lines: %s\n", w.Lines)
 		}

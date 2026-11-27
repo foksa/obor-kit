@@ -99,7 +99,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 		t.Errorf("lead: %q", text)
 	}
 	// The line comes last (a Claude lead with no inbox recorded: its hooks take its lines).
-	if !strings.HasSuffix(text, "source: env\nlane row: none\nlines: hooks\n") {
+	if !strings.HasSuffix(text, "source: env\nlane row: none\nterminal: herdr (its manual: herdr --skill)\nlines: hooks\n") {
 		t.Errorf("a lead's lines line: %q", text)
 	}
 	if strings.Contains(text, "\nlane: ") { // no empty `lane:` line for a role without a lane
@@ -124,6 +124,23 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	}
 	if text, _ := whoamiIn(t, dd); !strings.Contains(text, "role: worker\n") || !strings.Contains(text, "lane: deep-dive\n") {
 		t.Errorf("deep-dive worktree is a lane: %q", text)
+	}
+}
+
+// whoami's terminal: line names the project's terminal and the manual its CLI ships (the terminals table): herdr's,
+// hc's (with its window's), Rex's.
+func TestWhoamiTerminalManual(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ terminal, line string }{
+		{"herdr", "terminal: herdr (its manual: herdr --skill)\n"},
+		{"hc", "terminal: hc (its manual: hc --skill; window: herdr-app --skill)\n"},
+		{"rex", "terminal: rex (its manual: rex skill show)\n"},
+	} {
+		p := testkit.NewPlain(t)
+		p.Config(testkit.Set("project.terminal", c.terminal))
+		if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=lead"); !strings.Contains(text, c.line) {
+			t.Errorf("%s project: whoami does not say %q: %q", c.terminal, c.line, text)
+		}
 	}
 }
 

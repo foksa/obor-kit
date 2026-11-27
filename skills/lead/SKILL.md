@@ -56,6 +56,11 @@ The start checks, both ways:
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`.
 
+Your terminal ships its own manual for what obor does not wrap (any pane's screen, layout, a scratch shell): `obor
+whoami`'s `terminal:` line names the command, and you read it only when a task needs it. obor owns its agents and their
+panes: never start, stop, message, relabel or close an obor agent or its pane through the terminal (`obor restart`,
+`brief`, `drop`, `send`, `read` do), and never start an agent outside obor (it would run unseen by serve).
+
 ## Spec and dispatch
 - Draft `.obor/drafts/T-xx.md` (gitignored) from the project's task-spec template: one goal, decisions, out of scope;
   which files the task owns may be said as prose, for your planning (nothing enforces it: placement is checked at

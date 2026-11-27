@@ -23,32 +23,34 @@ import (
 )
 
 // terminalKind is one terminal kind's row, the one table of what differs by kind (terminals): PaneVar the variable its
-// terminal sets in every pane (config.TerminalPaneVars), Env the variables a caller's serve needs to reach it, Group
-// what it calls a pane's group, Build its adapter for env and a function of the project's agent kinds
-// (config.Config.Kinds), which the adapter calls at each use; the adapter's Control is the kind's pane operations behind
-// port.GuardPrompts, so every prompt on every kind passes obor's blocked-pane rule.
+// terminal sets in every pane (config.TerminalPaneVars), Manual the manual its CLI ships for what obor does not wrap
+// (obor whoami's terminal: line), Env the variables a caller's serve needs to reach it, Group what it calls a pane's
+// group, Build its adapter for env and a function of the project's agent kinds (config.Config.Kinds), which the adapter
+// calls at each use; the adapter's Control is the kind's pane operations behind port.GuardPrompts, so every prompt on
+// every kind passes obor's blocked-pane rule.
 type terminalKind struct {
 	Name    string
 	PaneVar string
+	Manual  string
 	Env     []string
 	Group   string
 	Build   func(env project.Env, kinds func() agents.Kinds) port.Terminal
 }
 
 var terminals = []terminalKind{
-	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Env: herdr.EnvNames,
-		Group: "workspace", Build: func(env project.Env, _ func() agents.Kinds) port.Terminal {
+	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Manual: "herdr --skill",
+		Env: herdr.EnvNames, Group: "workspace", Build: func(env project.Env, _ func() agents.Kinds) port.Terminal {
 			s := &herdr.Socket{Path: herdr.SocketPath(env)}
 			return port.Terminal{Panes: herdr.Panes{S: s}, Control: port.GuardPrompts(s), Setup: &herdr.Setup{Socket: s, Env: env}}
 		}},
-	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Env: hc.EnvNames, Group: "space",
-		Build: func(env project.Env, kinds func() agents.Kinds) port.Terminal {
+	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Manual: "hc --skill; window: herdr-app --skill",
+		Env: hc.EnvNames, Group: "space", Build: func(env project.Env, kinds func() agents.Kinds) port.Terminal {
 			cl := hc.New(env)
 			cl.Kinds = kinds
 			return port.Terminal{Panes: hc.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
 		}},
-	{Name: config.TerminalRex, PaneVar: config.TerminalPaneVars[config.TerminalRex], Env: rex.EnvNames, Group: "session",
-		Build: func(_ project.Env, kinds func() agents.Kinds) port.Terminal {
+	{Name: config.TerminalRex, PaneVar: config.TerminalPaneVars[config.TerminalRex], Manual: "rex skill show",
+		Env: rex.EnvNames, Group: "session", Build: func(_ project.Env, kinds func() agents.Kinds) port.Terminal {
 			cl := &rex.Client{Kinds: kinds}
 			return port.Terminal{Panes: rex.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
 		}},
@@ -64,6 +66,11 @@ func kindOf(cfg *config.Config) (terminalKind, bool) {
 	return terminalKind{}, false
 }
 
+// unknownTerminal is the error a kind obor has no adapter for gets: the kinds it knows.
+func unknownTerminal(cfg *config.Config) error {
+	return fmt.Errorf("terminal.kind %q: obor knows %s", cfg.TerminalKind(), strings.Join(config.TerminalKinds, ", "))
+}
+
 // terminal is the project's terminal: one value for its panes and events, launch's pane operations with the wakes
 // serve types, and setup's placements. cfg names the kind (project.terminal; nil: config.DefaultTerminal), env finds its
 // socket. A kind obor does not know is an error naming the ones it does.
@@ -76,7 +83,7 @@ func terminal(cfg *config.Config, env project.Env) (port.Terminal, error) {
 func terminalOn(cfg *config.Config, env project.Env, kinds func() agents.Kinds) (port.Terminal, error) {
 	k, ok := kindOf(cfg)
 	if !ok {
-		return port.Terminal{}, fmt.Errorf("terminal.kind %q: obor knows %s", cfg.TerminalKind(), strings.Join(config.TerminalKinds, ", "))
+		return port.Terminal{}, unknownTerminal(cfg)
 	}
 	return k.Build(env, kinds), nil
 }

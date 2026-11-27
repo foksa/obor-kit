@@ -70,7 +70,8 @@ func TestWhoami(t *testing.T) {
 
 	// bash config.test.sh case_whoami_unarmed
 	text, j := whoamiIn(t, lane)
-	if text != "role: worker\nagent: pj-l-01\nlane: L-01\nsource: cwd\nlane row: none\n" {
+	if text != "role: worker\nagent: pj-l-01\nlane: L-01\nsource: cwd\nlane row: none\n"+
+		"terminal: herdr (its manual: herdr --skill)\n" {
 		t.Errorf("unarmed lane: %q", text)
 	}
 	if want := map[string]any{"role": "worker", "agent": "pj-l-01", "lane": "L-01", "source": "cwd"}; !reflect.DeepEqual(j, want) {
@@ -95,7 +96,7 @@ func TestWhoami(t *testing.T) {
 		"dispatched_at":1,"allowed":["stale/copy.sh"],"blocks":0}`)
 	text, _ = whoamiIn(t, lane, "OBOR_ROLE=worker", "OBOR_LANE=L-01")
 	if want := "role: worker\nagent: pj-l-01\nlane: L-01\nsource: env+cwd\ntask: T-02\nbranch: task/T-02\nbase: main\nspec: rev 1\n" +
-		"protected file unlocked: docs/design.md\n"; text != want {
+		"protected file unlocked: docs/design.md\nterminal: herdr (its manual: herdr --skill)\n"; text != want {
 		t.Errorf("armed: %q, want %q", text, want)
 	}
 	_, j = whoamiIn(t, lane)
@@ -126,7 +127,8 @@ func TestWhoamiCustomRole(t *testing.T) {
 	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
 		testkit.Set("agents.roles.researcher", "sonnet"))
 	text, j := whoamiIn(t, p.Root, "OBOR_ROLE=ux_buddy")
-	if text != "role: ux_buddy\nagent: pj-ux-buddy\nsource: env\nlane row: none\n" || j["agent"] != "pj-ux-buddy" || j["role"] != "ux_buddy" {
+	if text != "role: ux_buddy\nagent: pj-ux-buddy\nsource: env\nlane row: none\n"+
+		"terminal: herdr (its manual: herdr --skill)\n" || j["agent"] != "pj-ux-buddy" || j["role"] != "ux_buddy" {
 		t.Errorf("custom role: %q %v", text, j)
 	}
 	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=researcher"); !strings.Contains(text, "role: researcher\nagent: pj-researcher\n") {
