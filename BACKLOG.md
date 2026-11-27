@@ -20,7 +20,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   360c02b8). Shipped 11-26 (owner). Then T-1619 (Claude sessions named `<project> <agent>`, owner from the phone),
   RV-279 closed; **v0.47.3 released 11-26** (main 00767555). Shipped 11-26 (owner). 11-27: T-1620 (nightly flake), T-1621..T-1623 (init in a
   folder with files and no commit; the lead's first-session files question), RV-280 closed after two rounds (2
-  accepted); **v0.47.4 released 11-27** (main c45e444a). Shipped 11-27 (owner). Nothing in flight.
+  accepted); **v0.47.4 released 11-27** (main c45e444a). Shipped 11-27 (owner). Then T-1624..T-1627 (serve adds a raised lane count's
+  worktrees; pending-add marker; probe line agrees on the Go cache), RV-281 + RV-282 closed; **v0.47.5 released
+  11-27** (main 944a0039); owner ships. Nothing in flight.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
