@@ -24,8 +24,8 @@ var Groups = []string{"tasks", "reviews", "agents", "project", "setup", "interna
 // Commands is every subcommand cmd/obor dispatches (cmd/obor's TestHelpTableMatchesDispatch keeps the two alike), by
 // group, in the order shown.
 var Commands = []Command{
-	{"spec", `obor spec set <T-xx> <path> [--note "<what changed>"] | obor spec show <T-xx> | obor spec list`,
-		"store a task spec (it needs a Difficulty: line), print its current rev, or list the specs", "tasks"},
+	{"spec", `obor spec set <T-xx> <path> [--note "<what changed>"] | obor spec show <T-xx> [--report] | obor spec list`,
+		"store a task spec (it needs a Difficulty: line), print its current rev or, with --report, its latest task_done report, or list the specs", "tasks"},
 	{"dispatch", "obor dispatch <T-xx> [--model <model[:effort]>,…] [--after <T-yy,T-zz>] [--force]",
 		"run a task on the first free lane of its tier, now or once the --after tasks merge", "tasks"},
 	{"watch", `obor watch [<T-xx>[,<T-yy>…] …] [--note "<text>"] | obor watch --rm <T-xx>[,<T-yy>…]`,

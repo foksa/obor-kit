@@ -12,10 +12,10 @@ import (
 	"obor/internal/store"
 )
 
-// Detail is one project's drill-down pages, for the API of `obor web` and nothing else: the project's root (its
-// store, read-only, is opened per page; the sessions' transcripts) and its view (serve's live bits: a task's state, a
-// needs-you's answer commands; serve down: none). The store alone answers the rest: a task's spec, report, gate,
-// records and jobs; an agent's sessions, briefs, lines and jobs; a job's text, which is a prompts row.
+// Detail is one project's drill-down reads, for the API of `obor web` and for `obor spec show --report`: the project's
+// root (its store, read-only, is opened per read; the sessions' transcripts) and its view (serve's live bits: a task's
+// state, a needs-you's answer commands; serve down: none). The store alone answers the rest: a task's spec, report,
+// gate, records and jobs; an agent's sessions, briefs, lines and jobs; a job's text, which is a prompts row.
 type Detail struct {
 	Root    string
 	Project Project
@@ -35,6 +35,15 @@ type TaskDetail struct {
 	NeedsYou     []NeedsYou   `json:"needs_you"`
 	Records      []TaskRecord `json:"records"` // newest first
 	Jobs         []Prompt     `json:"jobs"`    // the task's job prompts, newest first
+}
+
+// Report is a task's latest submission that carries a report: its text and the attempt and time it was given. A done
+// file's submission carries none, so such a record never hides the task_done report before it.
+type Report struct {
+	Task    string
+	Attempt int
+	At      string // the submission's time (RFC 3339)
+	Text    string
 }
 
 // TaskRecord is one record of a task's timeline: its seq, time, step and kind, the worded line when the view words
@@ -136,6 +145,9 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	if err != nil {
 		return t, found
 	}
+	if r, ok := latestReport(recs); ok {
+		t.Report = r.Text
+	}
 	reached := -1
 	for _, r := range recs { // newest first: the last submission and gate win
 		d := describe.Describe(r)
@@ -144,8 +156,6 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 		reached = max(reached, recordStep(r, d))
 		base, _ := event.StepN(r.Step)
 		switch {
-		case r.Kind == event.KindFact && r.Step == event.StepSubmitted && t.Report == "":
-			t.Report = d.Report
 		case r.Kind == event.KindResult && base == event.StepGate && t.GateLine == "":
 			t.GateLine, t.GatedRev, t.GatePass = d.Text, d.SpecRev, d.Outcome == port.OutcomeGreen
 		case r.Kind == event.KindFact && r.Step == event.StepDispatched && t.Lane == "" && t.Agent == "":
@@ -241,6 +251,38 @@ func (d Detail) Job(job string) (Prompt, bool) {
 		return Prompt{}, false
 	}
 	return promptOf(rows[0]), true
+}
+
+// LatestReport is task's latest submission that carries a report (a done file's carries none), read-only from the
+// same records the task page reads: ok false when it has none yet.
+func (d Detail) LatestReport(task string) (Report, bool) {
+	if task == "" {
+		return Report{}, false
+	}
+	db, close := storeAt(d.Root)
+	defer close()
+	if db == nil {
+		return Report{}, false
+	}
+	recs, err := event.RecordsOf(db, task, detailRecords)
+	if err != nil {
+		return Report{}, false
+	}
+	return latestReport(recs)
+}
+
+// latestReport is the newest submission in recs (newest first) whose report is not empty: its report with that
+// record's attempt and time.
+func latestReport(recs []event.Record) (Report, bool) {
+	for _, r := range recs {
+		if r.Kind != event.KindFact || r.Step != event.StepSubmitted {
+			continue
+		}
+		if text := describe.Describe(r).Report; text != "" {
+			return Report{Task: r.Task, Attempt: r.Attempt, At: r.TS, Text: text}, true
+		}
+	}
+	return Report{}, false
 }
 
 // recordStep is the step record r (described as d) shows its task reached (wire.TaskStep*; -1: none): the dispatch,

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app/wire"
 )
@@ -30,9 +31,26 @@ func TestSpecArguments(t *testing.T) {
 			t.Errorf("spec set %q: exit %d, %q; want the usage", args, rc, stdout)
 		}
 	}
-	for _, args := range [][]string{nil, {"edit", "T-07"}, {"show"}, {"list", "x"}} {
+	for _, args := range [][]string{nil, {"edit", "T-07"}, {"show"}, {"show", "T-07", "--x"}, {"show", "T-07", "--report", "x"},
+		{"list", "x"}} {
 		if rc, stdout := callCmd(t, specCmd, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor spec") {
 			t.Errorf("spec %q: exit %d, %q; want the usage", args, rc, stdout)
+		}
+	}
+	for _, c := range []struct {
+		args           []string
+		task           string
+		report, isForm bool
+	}{
+		{[]string{"T-07"}, "T-07", false, true},
+		{[]string{"T-07", "--report"}, "T-07", true, true},
+		{[]string{}, "", false, false},
+		{[]string{"T-07", "--x"}, "", false, false},
+		{[]string{"T-07", "--report", "x"}, "", false, false},
+	} {
+		task, report, ok := specShowArgs(c.args)
+		if task != c.task || report != c.report || ok != c.isForm {
+			t.Errorf("specShowArgs(%q) = %q, %v, %v; want %q, %v, %v", c.args, task, report, ok, c.task, c.report, c.isForm)
 		}
 	}
 }
@@ -141,5 +159,30 @@ func TestSpecShowListServeDown(t *testing.T) {
 	if rc != 0 || len(lines) != 2 || !strings.HasPrefix(lines[0], "T-03 rev 1 ") ||
 		!strings.HasPrefix(lines[1], "T-07 rev 2 ") || !strings.HasSuffix(lines[1], " lead Widened") {
 		t.Errorf("list: exit %d, %q", rc, stdout)
+	}
+}
+
+// obor spec show --report prints the newest of a task's task_done reports with its attempt and time, from the records
+// the web task page reads; a task that never submitted one says so.
+func TestSpecShowReport(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	env := []string{"OBOR_STATE_HOME=" + t.TempDir()} // no serve
+	p.SubmitAgo("L-01", 120, "Summary: first.")
+	p.SubmitAgo("L-01", 60, "Summary: second.")
+	rc, stdout, _ := run(t, p.Root, env, "spec", "show", "T-01", "--report")
+	head, body, ok := strings.Cut(stdout, "\n\n")
+	fields := strings.Fields(head)
+	if rc != 0 || !ok || body != "Summary: second.\n" {
+		t.Fatalf("show --report: exit %d, %q; want the second report", rc, stdout)
+	}
+	if len(fields) != 5 || fields[0] != "T-01" || fields[1] != "attempt" || fields[2] != "1" || fields[3] != "submitted" {
+		t.Errorf("report head %q; want T-01 attempt 1 submitted <time>", head)
+	} else if _, err := time.Parse(time.RFC3339, fields[4]); err != nil {
+		t.Errorf("report time %q: %v", fields[4], err)
+	}
+	if rc, stdout, _ := run(t, p.Root, env, "spec", "show", "T-02", "--report"); rc != 0 ||
+		stdout != "T-02 report: none yet\n" {
+		t.Errorf("show --report, none: exit %d, %q; want the none-yet line", rc, stdout)
 	}
 }

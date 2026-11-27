@@ -11,6 +11,7 @@ import (
 	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/store"
+	"obor/internal/view"
 )
 
 // specCmd is `obor spec set|show|list`: the tasks' specs live in obor serve's store. set is a request to
@@ -25,8 +26,10 @@ func specCmd(args []string) int {
 		if task, path, note, ok := specSetArgs(args[1:]); ok {
 			return specSet(task, path, note)
 		}
-	case args[0] == "show" && len(args) == 2:
-		return specShow(args[1])
+	case args[0] == "show":
+		if task, report, ok := specShowArgs(args[1:]); ok {
+			return specShow(task, report)
+		}
 	case args[0] == "list" && len(args) == 1:
 		return specList()
 	}
@@ -65,13 +68,34 @@ func specSet(task, path, note string) int {
 	})
 }
 
-// specShow is `obor spec show <T-xx>`: the task's stored spec, as set (exit 0); FAIL no spec … exit 1; exit 2 when
-// the store cannot be read.
-func specShow(task string) int {
+// specShowArgs is spec show's arguments, <T-xx> [--report]. False: not that form.
+func specShowArgs(args []string) (task string, report, ok bool) {
+	switch {
+	case len(args) == 1:
+		return args[0], false, true
+	case len(args) == 2 && args[1] == "--report":
+		return args[0], true, true
+	}
+	return "", false, false
+}
+
+// specShow is `obor spec show <T-xx> [--report]`: the task's stored spec, as set (exit 0) or, with --report, its
+// latest task_done report with its attempt and time (none yet: a line saying so). Without --report: FAIL no spec …
+// exit 1, exit 2 when the store cannot be read.
+func specShow(task string, report bool) int {
 	_, cfg, rc := load()
 	if rc != 0 {
 		fmt.Fprintln(out, noConfig)
 		return 2
+	}
+	if report {
+		r, ok := view.Detail{Root: cfg.Root}.LatestReport(task)
+		if !ok {
+			fmt.Fprintf(out, "%s report: none yet\n", task)
+			return 0
+		}
+		fmt.Fprintf(out, "%s attempt %d submitted %s\n\n%s\n", r.Task, r.Attempt, r.At, r.Text)
+		return 0
 	}
 	row, ok, err := store.ReadSpecAt(cfg.Root, task)
 	switch {

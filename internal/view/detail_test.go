@@ -50,6 +50,34 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	}
 }
 
+// a task's latest report is the newest submission that carries one (a done file's carries none), with that record's
+// attempt and time; a task that never submitted a report has none.
+func TestLatestReport(t *testing.T) {
+	at := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	recs := []event.Record{
+		{Task: "T-1", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
+		{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact,
+			Data: json.RawMessage(`{"lane":"L-01","report":"Summary: first."}`)},
+		{Task: "T-1", Attempt: 2, Step: event.StepSubmitted, Kind: event.KindFact,
+			Data: json.RawMessage(`{"lane":"L-01","report":"Summary: second."}`)},
+		{Task: "T-1", Attempt: 3, Step: event.StepSubmitted, Kind: event.KindFact,
+			Data: json.RawMessage(`{"lane":"L-01"}`)},
+		{Task: "T-2", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
+	}
+	d := Detail{Root: writeLog(t, recs, at)}
+	r, ok := d.LatestReport("T-1")
+	if !ok || r.Task != "T-1" || r.Text != "Summary: second." || r.Attempt != 2 ||
+		r.At != at.Add(2*time.Second).Format(time.RFC3339) {
+		t.Errorf("T-1's latest report: %+v, %v; want the second submission's text, attempt 2 and time", r, ok)
+	}
+	if r, ok := d.LatestReport("T-2"); ok || r.Text != "" {
+		t.Errorf("T-2 has no report, got %+v, %v", r, ok)
+	}
+	if r, ok := d.LatestReport("T-9"); ok || r.Text != "" {
+		t.Errorf("T-9 is unknown, got %+v, %v", r, ok)
+	}
+}
+
 // the task page's last gate carries its pass from serve's outcome, never from its line's wording: a green gate
 // passes, a red one does not, even when its line counts passes, and each gate record ships the same pass.
 func TestTaskPageGatePass(t *testing.T) {

@@ -116,8 +116,9 @@ pause set or cleared there is the same as `obor pause`.
 then `serve ready`). State is in the store, so running tasks carry on; serve also follows a new obor binary by itself.
 
 ## A merged task's report
-The merge commit's body carries the task's spec (its rev and text) and, after it, the worker's `task_done` report (its
-Summary section): `git log -1 --format=%B <merge sha>`.
+`obor spec show <T-xx> --report` prints the task's latest `task_done` report with its attempt and time, merged or not
+(a task with none yet says so). The merge commit's body also carries it, after the task's spec (its rev and text):
+`git log -1 --format=%B <merge sha>`.
 
 ## obor nightly on|off
 `nightly.at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
