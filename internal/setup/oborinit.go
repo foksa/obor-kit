@@ -235,16 +235,16 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin", state, "%s", what)
 
-	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it). The count is
-	// taken now: every path left uncommitted (untracked and staged alike) is the owner's, and while any is left the
-	// lanes get no lanes.setup: it needs files that are not in them yet (serve runs it at the first dispatch, once
-	// the owner has committed them).
+	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it). The deferral
+	// is derived each run, not from this run's commit: while HEAD's tree is only init's own paths and anything is still
+	// uncommitted, the owner's files are not in a lane, so the lanes get no lanes.setup. Once the owner commits them,
+	// obor init again is the repair: laneDone sends each lane to lane_setup again.
 	committed, err := s.initCommit(auto)
 	if err != nil {
 		return err
 	}
 	left := 0
-	if len(committed) > 0 {
+	if s.headHoldsOnlyInitPaths() {
 		left = s.uncommittedCount()
 	}
 	s.deferLaneSetup = left > 0
@@ -290,7 +290,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	lanes := strings.Join(append(made, had...), ", ") + "; " + types
 	if s.deferLaneSetup {
-		lanes += "; lanes.setup waits for the files to be committed: serve runs it at the first dispatch"
+		lanes += "; lanes.setup waits for the files to be committed: commit the files, then obor init again runs lane setup"
 	}
 	add("lanes", doneOr(len(made) > 0 || strings.Contains(types, "→")), "%s", lanes)
 

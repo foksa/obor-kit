@@ -153,6 +153,20 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 			out.WriteString(name + "\x00")
 		}
 		return out.String(), nil
+	case len(args) == 4 && args[0] == "ls-tree" && args[1] == "-r" && args[2] == "--name-only" && args[3] == "HEAD":
+		// every file of the last commit, newline-separated as git prints them without -z
+		if len(r.commits) == 0 {
+			return fail("fatal: Not a valid object name HEAD")
+		}
+		var names []string
+		for name := range r.commits[len(r.commits)-1].files {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		if len(names) == 0 {
+			return "", nil
+		}
+		return strings.Join(names, "\n") + "\n", nil
 	case line == "log --format=%s": // newest first
 		var subjects []string
 		for i := len(r.commits) - 1; i >= 0; i-- {

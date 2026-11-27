@@ -41,14 +41,16 @@ The start checks, both ways:
      path (a basename matching `.env*`, `*.pem`, `*.key`, `id_rsa*` anywhere in the list), options `Commit all
      (Recommended)` / `Leave them`. Commit all: `git add -A`, then `git reset -- <path>` for each flagged path the
      owner did not include, check `git diff --cached --name-only` holds no flagged path left out, then `git commit -m
-     "Initial commit"` (no `-a`). Leave them: nothing. A session that stops before the models answer asks again at
-     its next start while files remain.
+     "Initial commit"` (no `-a`), then `obor init` once (lane setup). Leave them: nothing. A session that stops before
+     the models answer asks again at its next start while files remain.
    - Models, effort and lanes: show that table to the owner and ask one question, "Keep these models and N lanes?"
-     (N is the table's lane count), options `Keep (Recommended)` / `Change`. Keep: set `agents.confirmed: true` and
-     commit. Change: edit what the owner says (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs
-     `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked), then the same. A key this obor does not know
-     (`lanes.types`, say) is dropped with a WARN by every command and serve, and `obor config validate` fails naming
-     it: delete or fix it. Never change a model setting without the owner's answer; `obor init` wrote what it found,
+     (N is the table's lane count), options `Keep (Recommended)` / `Change`. Keep: set `agents.confirmed: true`.
+     Change: edit what the owner says (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs
+     `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked). Either way, commit the config alone:
+     `git commit -m "<msg>" -- .obor/config.json`, so staged files the owner left in `Leave them` stay out. A key
+     this obor does not know (`lanes.types`, say) is dropped with a WARN by every command and serve, and
+     `obor config validate` fails naming it: delete or fix it. Never change a model setting without the owner's
+     answer; `obor init` wrote what it found,
      not what they chose. If the table says `merge.check: not set`, say so after it: the first task sets the stack up
      (see `commands.md`, "What init no longer says").
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan

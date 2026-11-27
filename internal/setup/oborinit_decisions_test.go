@@ -381,8 +381,8 @@ func TestUncommittedCount(t *testing.T) {
 }
 
 // An unborn repository whose owner has an uncommitted package.json and lockfile: init commits its own paths, makes the
-// lanes and runs no lanes.setup in them (the files are not in a lane yet); the summary says setup waits for the files.
-// A committed project's lanes run it (TestOborInitSuggestsTypecheckForCompile's own setup).
+// lanes and runs no lanes.setup in them (HEAD holds only init's paths and the files are not in a lane yet); the summary
+// says setup waits for the files. A repository whose HEAD holds another file runs it (TestOborInitLaneSetupOnARerun).
 func TestOborInitDefersLaneSetupUntilTheOwnerCommits(t *testing.T) {
 	// Not parallel: the lane's shell reads this process's PATH, where the fake npm is first.
 	x := newFakeGitInitFx(t, true)
@@ -412,7 +412,90 @@ func TestOborInitDefersLaneSetupUntilTheOwnerCommits(t *testing.T) {
 		}
 	}
 	has(t, out, "2 files left uncommitted", "the owner's files counted")
-	has(t, out, "lanes.setup waits for the files to be committed: serve runs it at the first dispatch", "the deferred setup line")
+	has(t, out, "lanes.setup waits for the files to be committed: commit the files, then obor init again runs lane setup",
+		"the deferred setup line")
+}
+
+// The deferral is derived from HEAD on every run, not from this run's commit: a rerun while HEAD is still init's
+// commit and the owner's package.json is uncommitted runs no lanes.setup, and init succeeds.
+func TestOborInitRerunBeforeTheOwnerCommitsStillDefersLaneSetup(t *testing.T) {
+	// Not parallel: the lane's shell reads this process's PATH, where the fake npm is first.
+	x := newFakeGitInitFx(t, true)
+	dir := x.unborn(t, "unborn")
+	x.Write(filepath.Join(dir, "package.json"), `{"scripts":{"test":"vitest run"}}`)
+	x.Write(filepath.Join(dir, "package-lock.json"), "{}\n")
+	marker := filepath.Join(x.Base, "npm-ran")
+	testkit.Script(t, x.bin, "npm", "#!/bin/sh\necho \"$*\" >> '"+marker+"'\n")
+	t.Setenv("PATH", x.bin+":/usr/bin:/bin")
+	if out, rc := x.runIn(t, dir, "obor-init"); rc != 0 {
+		t.Fatalf("first init: exit %d\n%s", rc, out)
+	}
+	if commit := committedFiles(x, dir); !slices.Contains(commit, ".obor/config.json") ||
+		slices.Contains(commit, "package.json") {
+		t.Fatalf("precondition: HEAD is init's commit without package.json: %v", commit)
+	}
+	if x.Exists(marker) {
+		t.Fatalf("precondition: the first init ran lane_setup: %q", x.Read(marker))
+	}
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("rerun: exit %d\n%s", rc, out)
+	}
+	if x.Exists(marker) {
+		t.Fatalf("the rerun ran lane_setup before the owner committed: %q", x.Read(marker))
+	}
+	has(t, out, "lanes.setup waits for the files to be committed: commit the files, then obor init again runs lane setup",
+		"the deferred setup line")
+}
+
+// After the owner commits package.json, the next init runs lane setup in the lanes it made while deferred: laneDone
+// finds them worktrees of the repo with no setup marker (lane.go), so the lane runs the setup, in the same dirs.
+func TestOborInitRerunAfterTheOwnerCommitsRunsLaneSetup(t *testing.T) {
+	// Not parallel: the lane's shell reads this process's PATH, where the fake npm is first.
+	x := newFakeGitInitFx(t, true)
+	dir := x.unborn(t, "unborn")
+	x.Write(filepath.Join(dir, "package.json"), `{"scripts":{"test":"vitest run"}}`)
+	x.Write(filepath.Join(dir, "package-lock.json"), "{}\n")
+	marker := filepath.Join(x.Base, "npm-ran")
+	testkit.Script(t, x.bin, "npm", "#!/bin/sh\nmkdir -p node_modules\necho \"$PWD $*\" >> '"+marker+"'\n")
+	t.Setenv("PATH", x.bin+":/usr/bin:/bin")
+	if out, rc := x.runIn(t, dir, "obor-init"); rc != 0 {
+		t.Fatalf("first init: exit %d\n%s", rc, out)
+	}
+	if x.Exists(marker) {
+		t.Fatalf("precondition: the first init ran lane_setup: %q", x.Read(marker))
+	}
+	worktrees := worktreeDirs(x, dir)
+	// the files question's Commit all: the owner's files join init's commit on main.
+	if err := x.fake.Commit(dir, "Initial commit", []string{"package.json", "package-lock.json"}); err != nil {
+		t.Fatal(err)
+	}
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("rerun: exit %d\n%s", rc, out)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lane := range []string{"L-01", "L-02"} {
+		has(t, x.Read(marker), filepath.Join(cfg.LanesDir(), lane)+" ci", "lane_setup in "+lane)
+	}
+	hasNot(t, out, "lanes.setup waits", "no deferral after the owner's commit")
+	if got := worktreeDirs(x, dir); !slices.Equal(got, worktrees) {
+		t.Errorf("the rerun changed the worktrees: %v, were %v", got, worktrees)
+	}
+}
+
+// worktreeDirs is the dirs `git worktree list` names under dir, without the shas (the fake's move with its commits).
+func worktreeDirs(x *initFx, dir string) []string {
+	var dirs []string
+	for _, line := range strings.Split(x.Git(dir, "worktree", "list"), "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
+			dirs = append(dirs, f[0])
+		}
+	}
+	return dirs
 }
 
 // A plain directory with files: init makes it a repository and the same commit of its own paths; the owner's files stay
@@ -776,6 +859,12 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := newFakeGitInitFx(t, true)
+			// an ordinary repository holds a file of its own: HEAD is not only init's paths, so the derived deferral
+			// does not apply and its lane setup runs as it did before.
+			x.Write("README.md", "the project\n")
+			if err := x.fake.Commit(x.Root, "the project", []string{"README.md"}); err != nil {
+				t.Fatal(err)
+			}
 			x.init(t)
 			c.run(t, x)
 		})
