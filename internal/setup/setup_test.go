@@ -740,6 +740,40 @@ func TestLaneRefusesAFailingSetup(t *testing.T) {
 	has(t, out, "boom", "setup output shown")
 }
 
+// Serve's add (EnsureLane) writes the lane's add marker before it starts: a lane_setup failing after the worktree is
+// there leaves it (the lane table calls the lane missing: checks' TestLanePendingAddIsMissing), `obor setup lane`
+// succeeding (the manual repair) removes it, and so does a later add that succeeds.
+func TestEnsureLaneMarksTheAddUntilItSucceeds(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("lanes.count", 1), testkit.Set("lanes.setup", "echo boom; exit 3"))
+	x.PlainLane("L-01", "")
+	marker := project.LaneAddMarker(x.Root, "L-01")
+	if x.Exists(marker) || !x.Exists(x.LaneDir("L-01")) {
+		t.Fatal("precondition: the lane's worktree there, no add marker")
+	}
+	s, out := x.newSetup(t)
+	s.Dir = x.Root // serve's root (newSetup leaves the cwd's)
+	if err := s.EnsureLane(context.Background(), "L-01"); err == nil || !strings.Contains(err.Error(), "lane_setup exited 3") {
+		t.Fatalf("EnsureLane: %v, want lane_setup's failure\n%s", err, out)
+	}
+	if !x.Exists(marker) {
+		t.Error("the add whose setup failed left no add marker")
+	}
+	x.Config(testkit.Set("lanes.setup", "true"))
+	x.ok(t, "lane", "L-01")
+	if x.Exists(marker) {
+		t.Error("obor setup lane succeeding left the add marker")
+	}
+	s, _ = x.newSetup(t)
+	s.Dir = x.Root
+	if err := s.EnsureLane(context.Background(), "L-01"); err != nil {
+		t.Fatalf("EnsureLane with a passing setup: %v", err)
+	}
+	if x.Exists(marker) {
+		t.Error("the add that succeeded left its marker")
+	}
+}
+
 // --- pane -------------------------------------------------------------------------------------------------------------
 
 const settings = `--setting-sources project,local --settings <file>`

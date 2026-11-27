@@ -21,12 +21,18 @@ type laneAdd struct {
 	timer   *time.Timer
 }
 
-// laneAddPass starts the add of each configured lane whose worktree the lane table shows missing and no task holds,
-// one attempt a lane at a time. A failed add or setup is that lane's needs-you, naming the lane, the error and
-// `obor setup lane <LANE>`; the next try waits StepRetry, doubling per failure in a row up to StepRetryMax (as a cut
-// step's, no spin). A table that does not name every configured lane (a count raised since its read) is read again
-// first, so a raised count needs no other pass's scan. A missing lane a task holds is left as it is: its worktree is
-// a worker's.
+// laneAddPass starts the add of each configured lane the lane table shows missing and no task holds, one attempt a
+// lane at a time. A lane serve is adding is missing in the table until its add (worktree, links, setup) succeeded:
+// setup.EnsureLane's marker (project.LaneAddMarker), durable across a restart, is the one completion predicate. A
+// failed add or setup is that lane's needs-you, naming the lane, the error and `obor setup lane <LANE>`; the next try
+// waits StepRetry, doubling per failure in a row up to StepRetryMax (as a cut step's, no spin), and the needs-you stays
+// until the lane reads not missing. A table that does not name every configured lane (a count raised since its read) is
+// read again first, so a raised count needs no other pass's scan. A missing lane a task holds is left as it is: its
+// worktree is a worker's.
+//
+// The decision is laneAddStart's, from a fresh read of the table under a.verdicts: the cached row only picks the lanes
+// to look at (a stale missing row after a success starts no second add), and the start excludes a dispatch claiming the
+// lane (dispatchTask reads the table and records its claim under the same lock).
 func (a *App) laneAddPass(ctx context.Context, p *proj, fx *Loop) {
 	if fx.EnsureLane == nil || ctx.Err() != nil {
 		return
@@ -44,26 +50,63 @@ func (a *App) laneAddPass(ctx context.Context, p *proj, fx *Loop) {
 		byName[l.Name] = l
 	}
 	now := a.opt.Now()
+	var look []string // the lanes whose add a fresh read decides
 	for _, l := range fx.Cfg.Lanes() {
 		row, ok := byName[l.Name]
 		if !ok {
 			continue
 		}
-		if row.State != port.LaneMissing {
-			a.clearLaneAdd(p, l.Name) // added by this serve or by hand: its failure is over
+		missing := row.State == port.LaneMissing
+		a.mu.Lock()
+		add := p.laneAdds[l.Name]
+		held := p.laneHolds(l.Name) != ""
+		a.mu.Unlock()
+		switch {
+		case add != nil && add.running: // left to its own end
+		case add == nil && !missing:
+			a.settleNeeds(p, event.LaneTaskPrefix+l.Name, "") // no add of this serve's: one a restart cut, made since
+		case missing && held: // its worktree is a worker's
+		case missing && add != nil && now.Before(add.next): // the backoff: no read before it ends
+		default:
+			look = append(look, l.Name)
+		}
+	}
+	if len(look) > 0 {
+		a.laneAddStart(ctx, p, fx, look, now)
+	}
+}
+
+// laneAddStart decides each of lanes from one fresh read of the lane table, under a.verdicts (dispatch's lock): a lane
+// that reads not missing has no add pending (this serve's finished, or someone made it): its retry state and needs-you
+// end (clearLaneAdd); a missing one no task holds, no add of which runs or waits its backoff, starts its add, marked
+// running before a.verdicts is released, so no dispatch takes it after.
+func (a *App) laneAddStart(ctx context.Context, p *proj, fx *Loop, lanes []string, now time.Time) {
+	a.verdicts.Lock()
+	defer a.verdicts.Unlock()
+	fresh, err := a.lanes.Lanes(ctx, p.root)
+	if err != nil {
+		return // cannot tell: the next pass reads again
+	}
+	a.hook(hookLaneAddRead)
+	byName := make(map[string]port.Lane, len(fresh))
+	for _, l := range fresh {
+		byName[l.Name] = l
+	}
+	for _, lane := range lanes {
+		row, ok := byName[lane]
+		if !ok || row.State == port.LaneUnknown {
 			continue
 		}
-		lane := l.Name
+		if row.State != port.LaneMissing {
+			a.clearLaneAdd(p, lane)
+			continue
+		}
 		a.mu.Lock()
 		if p.laneAdds == nil {
 			p.laneAdds = map[string]*laneAdd{}
 		}
-		if p.laneHolds(lane) != "" {
-			a.mu.Unlock()
-			continue
-		}
 		add := p.laneAdds[lane]
-		if add != nil && (add.running || now.Before(add.next)) {
+		if p.laneHolds(lane) != "" || add != nil && (add.running || now.Before(add.next)) {
 			a.mu.Unlock()
 			continue
 		}
@@ -85,8 +128,8 @@ func (a *App) laneAddPass(ctx context.Context, p *proj, fx *Loop) {
 	}
 }
 
-// clearLaneAdd ends lane's retry state and its needs-you once its worktree is no longer missing (this serve's add
-// finished, or someone made it): a running add is left to its own end.
+// clearLaneAdd ends lane's retry state and its needs-you once a fresh read of the lane table shows it not missing (no
+// add pending: this serve's add finished, or someone made it): a running add is left to its own end.
 func (a *App) clearLaneAdd(p *proj, lane string) {
 	a.mu.Lock()
 	add := p.laneAdds[lane]
@@ -102,6 +145,16 @@ func (a *App) clearLaneAdd(p *proj, lane string) {
 	}
 	a.mu.Unlock()
 	a.settleNeeds(p, event.LaneTaskPrefix+lane, "")
+}
+
+// maskAdding marks unknown each lane of ls whose add runs now (under mu): its marker may not be written yet, so the
+// table read before cannot say; the dispatch and drive that pick a lane apply it under a.verdicts.
+func (p *proj) maskAdding(ls []port.Lane) {
+	for i := range ls {
+		if add := p.laneAdds[ls[i].Name]; add != nil && add.running {
+			ls[i].State, ls[i].Reason = port.LaneUnknown, "serve is adding the lane's worktree"
+		}
+	}
 }
 
 // lanesNow is p's lane table as last read.
@@ -133,8 +186,9 @@ func lanesCover(ls []port.Lane, cfg *config.Config) bool {
 	return true
 }
 
-// laneAdded ends lane's attempt (err nil: its worktree is there and its setup ran): the retry state goes and the next
-// read of the lane table is due, else the failure becomes the lane's needs-you and the next try waits its delay.
+// laneAdded ends lane's attempt (err nil: its worktree is there, its setup ran and its marker is gone): the retry state
+// goes, the needs-you settles and the next read of the lane table is due, else the failure becomes the lane's needs-you
+// (its marker stays: the lane reads missing) and the next try waits its delay.
 func (a *App) laneAdded(p *proj, lane string, err error) {
 	now := a.opt.Now()
 	reason := ""
