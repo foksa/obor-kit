@@ -60,13 +60,19 @@ func (a *App) laneAddPass(ctx context.Context, p *proj, fx *Loop) {
 		a.mu.Lock()
 		add := p.laneAdds[l.Name]
 		held := p.laneHolds(l.Name) != ""
+		// The add's goroutine writes running and next under mu: the pass decides from this snapshot, never the live add.
+		var running bool
+		var next time.Time
+		if add != nil {
+			running, next = add.running, add.next
+		}
 		a.mu.Unlock()
 		switch {
-		case add != nil && add.running: // left to its own end
+		case running: // left to its own end
 		case add == nil && !missing:
 			a.settleNeeds(p, event.LaneTaskPrefix+l.Name, "") // no add of this serve's: one a restart cut, made since
 		case missing && held: // its worktree is a worker's
-		case missing && add != nil && now.Before(add.next): // the backoff: no read before it ends
+		case missing && now.Before(next): // the backoff: no read before it ends
 		default:
 			look = append(look, l.Name)
 		}
