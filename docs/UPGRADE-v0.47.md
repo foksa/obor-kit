@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.46 to v0.47
 
+## v0.47.5 (serve adds a raised lane count's worktrees)
+
+From v0.47.4. Nothing to change.
+
+```sh
+# after updating the kit, in the project
+# nothing to do
+```
+
+A lane added by raising `lanes.count` no longer needs `obor init` again: serve adds its worktree and runs its setup.
+`obor setup lane L-NN` still works and repairs a lane whose setup failed.
+
 ## v0.47.4 (obor init in a folder with files and no commit)
 
 From v0.47.3. Nothing to change.
