@@ -2,6 +2,8 @@ package event
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"obor/internal/app/port"
@@ -133,6 +135,31 @@ func ReadMerges(root string) ([]Merge, error) {
 type SpecSet struct {
 	Call  string `json:"call"`
 	Reply string `json:"reply"`
+}
+
+// SpecSetRev is the rev a spec_set's reply names (SET <task> rev <n>, or UNCHANGED <task> rev <n>); 0 when it names
+// none. The fact carries no rev of its own: its reply is the one record of it in every log. The rev is on the reply's
+// first line.
+func SpecSetRev(reply string) int {
+	first, _, _ := strings.Cut(reply, "\n")
+	_, n, ok := strings.Cut(first, " rev ")
+	rev, err := strconv.Atoi(n)
+	if !ok || err != nil {
+		return 0
+	}
+	return rev
+}
+
+// SpecSetOf is r as a spec_set's fact (false: not one, or its data is not that shape).
+func SpecSetOf(r Record) (SpecSet, bool) {
+	if r.Kind != KindFact || r.Step != StepSpecSet {
+		return SpecSet{}, false
+	}
+	var d SpecSet
+	if json.Unmarshal(r.Data, &d) != nil {
+		return SpecSet{}, false
+	}
+	return d, true
 }
 
 // Pruned is fact pruned's data: what one obor prune run deleted, each with the tip it had, so `git branch <name> <sha>`

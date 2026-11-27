@@ -1,12 +1,10 @@
 package app
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"strconv"
 	"strings"
 
 	"obor/internal/config"
@@ -124,18 +122,17 @@ func specText(row store.SpecRow) string {
 
 // foldSpecSet folds a spec_set's fact: its call's stored reply.
 func (p *proj) foldSpecSet(r event.Record) {
-	if r.Kind != event.KindFact || r.Step != event.StepSpecSet {
+	d, ok := event.SpecSetOf(r)
+	if !ok {
 		return
 	}
-	var d event.SpecSet
-	_ = json.Unmarshal(r.Data, &d)
 	if d.Call != "" {
 		p.folded.calls[verdictStep(wire.MethodSpecSet, d.Call)] = d.Reply
 	}
 	// A spec dropped before any dispatch is revived by a later rev: the task is a spec stored and
 	// never dispatched again, with no loop record (queued, dispatchable, an --after on it waits).
 	if mt := p.folded.loop[r.Task]; mt != nil && mt.state == stDropped && mt.droppedRev > 0 &&
-		specSetRev(d.Reply) > mt.droppedRev {
+		event.SpecSetRev(d.Reply) > mt.droppedRev {
 		delete(p.folded.loop, r.Task)
 	}
 }
@@ -161,16 +158,4 @@ func specSetModels(cfg *config.Config, sp spec.Spec) string {
 		parts = append(parts, ref+cfg.ModelDetail(ref))
 	}
 	return "models: " + strings.Join(parts, ", ")
-}
-
-// specSetRev is the rev a spec_set's reply (specSetReply) names; 0 when it names none. The fact carries no rev of its
-// own: its reply is the one record of it in every log. The rev is on the reply's first line; the models' line follows.
-func specSetRev(reply string) int {
-	first, _, _ := strings.Cut(reply, "\n")
-	_, n, ok := strings.Cut(first, " rev ")
-	rev, err := strconv.Atoi(n)
-	if !ok || err != nil {
-		return 0
-	}
-	return rev
 }
