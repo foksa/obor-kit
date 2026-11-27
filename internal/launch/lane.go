@@ -8,7 +8,8 @@ import (
 	"obor/internal/project"
 )
 
-var errNoPane = errors.New("no pane")
+// ErrNoPane is PaneOf's answer when no pane of this project is labelled with the agent's name.
+var ErrNoPane = errors.New("no pane")
 
 // PaneOf is agent's pane (R-28 §2): a pane labelled agent that is this project's (labels are machine-wide,
 // another project may use the same names). With dir: its cwd in dir; else in the main checkout, a lanes.dir worktree
@@ -34,7 +35,7 @@ func (l *Launcher) paneIn(panes []port.Pane, agent, dir string) (string, error) 
 		}
 	}
 	if len(labelled) == 0 {
-		return "", errNoPane
+		return "", ErrNoPane
 	}
 	if l.Cfg == nil {
 		return labelled[0], nil
@@ -61,7 +62,7 @@ func (l *Launcher) paneIn(panes []port.Pane, agent, dir string) (string, error) 
 		}
 	}
 	if maybe == "" {
-		return "", errNoPane
+		return "", ErrNoPane
 	}
 	return maybe, nil
 }
