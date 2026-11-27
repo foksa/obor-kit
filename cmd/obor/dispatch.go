@@ -18,7 +18,7 @@ const noConfig = "FAIL no usable .obor/config.json (obor config validate)"
 // dispatchCmd is `obor dispatch <T-xx> [--model a,b] [--after …] [--force]`: a socket request to obor serve, the only
 // dispatcher. The models come from the level of the spec's Difficulty line (config difficulty), the spec's
 // Model: line first; --model overrides them; each may name an effort (`opus:high`: its agent started at effort high).
-// It answers DISPATCHED … (queued), or WAITING … (queued) while a task of --after is not merged, no lane is
+// It answers DISPATCHED … (starting), or WAITING … (queued) while a task of --after is not merged, no lane is
 // free or every model is paused, either followed by "; idle: <LANE>, …" while lanes stay free; or its refusal
 // (exit 1: FAIL). --model on a task its worker works on moves it to that model: MOVING T-xx
 // on <LANE>: <old> → <new> (stopping <worker>), at once: serve's merge loop stops the worker, then starts the new model.

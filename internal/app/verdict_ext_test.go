@@ -71,7 +71,7 @@ func TestDropOfASpecOnlyTaskThenDispatchUntilANewRev(t *testing.T) {
 		if st := r.taskStatus("T-1"); st.Task != "" {
 			t.Errorf("after rev 2 and a restart: T-1 listed %+v, want revived", st)
 		}
-		if got, err := r.dispatch("d2", "L-01"); err != nil || !strings.HasPrefix(got, "DISPATCHED T-1 → L-01 (queued)") {
+		if got, err := r.dispatch("d2", "L-01"); err != nil || !strings.HasPrefix(got, "DISPATCHED T-1 → L-01 (starting)") {
 			t.Errorf("dispatch after rev 2: %q, %v; want dispatched", got, err)
 		}
 	})

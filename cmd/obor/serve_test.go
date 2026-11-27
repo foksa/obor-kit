@@ -137,9 +137,9 @@ func TestServeDump(t *testing.T) {
 }
 
 // A herdr on a newer protocol than obor's is served, not refused: serve's log names the adapter's note once, and
-// obor status (text and JSON) carries the same note. The note follows the terminal serve is connected to: herdr
-// coming up after serve, and herdr restarted on another protocol, change it; a restart as the same one does not log
-// again.
+// obor status --json carries the same note (obor setup show prints it; status' text does not). The note follows the
+// terminal serve is connected to: herdr coming up after serve, and herdr restarted on another protocol, change it; a
+// restart as the same one does not log again.
 func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -158,11 +158,11 @@ func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 			rc, stdout, _ := run(t, p.Root, env, "status")
 			rcj, js, _ := run(t, p.Root, env, "status", "--json")
-			if rc == 0 && rcj == 0 && strings.Contains(stdout, want) && strings.Contains(js, `"terminal_note": "`+want+`"`) {
+			if rc == 0 && rcj == 0 && !strings.Contains(stdout, want) && strings.Contains(js, `"terminal_note": "`+want+`"`) {
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("obor status never carried %q in text and JSON: exit %d %q; json %q; serve output:\n%s",
+				t.Fatalf("obor status never carried %q in JSON alone: exit %d %q; json %q; serve output:\n%s",
 					want, rc, stdout, js, out.String())
 			}
 		}

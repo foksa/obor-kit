@@ -324,6 +324,18 @@ func TestKindRecords(t *testing.T) {
 	})
 }
 
+// The revision note names both revisions when the server's API revision differs from the one obor's calls are checked
+// against, and is empty when they match.
+func TestRevisionNote(t *testing.T) {
+	const want = "Rex 0.1.0-preview.14 speaks API revision 12; obor's calls are checked against revision 19"
+	if got := revisionNote(serverVersion{Version: "0.1.0-preview.14", APIRevision: 12}); got != want {
+		t.Errorf("revision note %q, want %q", got, want)
+	}
+	if got := revisionNote(serverVersion{Version: "0.1.0-preview.21", APIRevision: APIRevision}); got != "" {
+		t.Errorf("note on obor's own revision %d: %q, want none", APIRevision, got)
+	}
+}
+
 // A notification that does not show (osnotify's reason) is a NotShown naming rex and the reason.
 func TestNotify(t *testing.T) {
 	fail := func(context.Context, string, string) error { return errors.New("execution error: not allowed") }

@@ -25,10 +25,10 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 		effort, level         any
 		model                 string // --model ("" none)
 	}{
-		{"the level's first model", "# T-1 — Leveled\n\nDifficulty: medium\n", "DISPATCHED T-1 → L-01 (queued) as sonnet",
+		{"the level's first model", "# T-1 — Leveled\n\nDifficulty: medium\n", "DISPATCHED T-1 → L-01 (starting) as sonnet",
 			"sonnet", nil, "medium", ""},
 		{"--model overrides the level", "# T-1 — Leveled\n\nDifficulty: hard\n",
-			"DISPATCHED T-1 → L-01 (queued) as terra effort high", "terra:high", "high", nil, "terra:high"},
+			"DISPATCHED T-1 → L-01 (starting) as terra effort high", "terra:high", "high", nil, "terra:high"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -159,7 +159,7 @@ func TestDispatchByModels(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		r.start()
-		if reply, err := r.dispatch("d1", "", "opus", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as opus" {
+		if reply, err := r.dispatch("d1", "", "opus", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (starting) as opus" {
 			t.Fatalf("by models: %q, %v", reply, err)
 		}
 		r.waitStep("1 result work")
@@ -740,7 +740,7 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 		r.start()
 		r.specLevel("hard") // the fixture's hard level is opus:high
 		reply, err := r.dispatchLevel("d1")
-		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort high") {
+		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (starting) as opus effort high") {
 			t.Fatalf("hard dispatch: %q, %v; want L-01 at effort high", reply, err)
 		}
 		if d := r.factData("T-1", event.StepDispatched); d["effort"] != "high" || d["lane"] != "L-01" || d["type"] != "opus:high" {
@@ -766,9 +766,9 @@ func TestEffortFromTheSpecAndTheFlag(t *testing.T) {
 		name, spec, typ, want, effort string
 		flag, exact                   bool
 	}{
-		{"the spec's Model: line", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n", "", "DISPATCHED T-1 → L-01 (queued) as opus effort max", "max", false, false},
-		{"--model with an effort", "", "opus:low", "DISPATCHED T-1 → L-01 (queued) as opus effort low", "low", true, false},
-		{"a plain type", "", "opus", "DISPATCHED T-1 → L-01 (queued) as opus", "", true, true},
+		{"the spec's Model: line", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n", "", "DISPATCHED T-1 → L-01 (starting) as opus effort max", "max", false, false},
+		{"--model with an effort", "", "opus:low", "DISPATCHED T-1 → L-01 (starting) as opus effort low", "low", true, false},
+		{"a plain type", "", "opus", "DISPATCHED T-1 → L-01 (starting) as opus", "", true, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -848,7 +848,7 @@ func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
 			CallID: "p1"}, Model: "opus", Why: "quota"}); err != nil {
 			t.Fatal(err)
 		}
-		if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort high") {
+		if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (starting) as opus effort high") {
 			t.Fatalf("redo of T-1: %q, %v; want L-01 as opus effort high", reply, err)
 		}
 		if types := r.redoTypes(); len(types) != 2 || types[1] != "opus:high" {

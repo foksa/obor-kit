@@ -167,6 +167,9 @@ func TestSnapshot(t *testing.T) {
 	if err != nil || snap.Note != "hc 0.1.21 lacks terminal.read: obor's calls to them fail" {
 		t.Errorf("snapshot without terminal.read: note %q, %v", snap.Note, err)
 	}
+	if note, err := (hc.Panes{C: core.Client()}).Note(ctx); err != nil || note != snap.Note {
+		t.Errorf("Note without terminal.read: %q, %v; want the snapshot's note %q", note, err, snap.Note)
+	}
 }
 
 // A notification that does not show (osnotify's reason) is a NotShown naming hc and the reason, which the caller logs

@@ -120,7 +120,7 @@ func TestDispatchWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 			t.Fatalf("precondition: the lane had the plugin enabled: %v", err)
 		}
 		reply, err := r.dispatchLevel("d1", "opus")
-		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued)") ||
+		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (starting)") ||
 			!strings.Contains(reply, "WARN lane L-01 has no enabled obor plugin") {
 			t.Fatalf("dispatch without the plugin: %q, %v; want DISPATCHED … and the WARN", reply, err)
 		}

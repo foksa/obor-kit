@@ -133,7 +133,7 @@ func TestUnknownKeysStopNoCommand(t *testing.T) {
 	p := servedProject(t, testkit.Set("branches.promote", "release"), testkit.Set("merge.promote_weight", 2),
 		testkit.Set("merge.weights", map[string]any{"core": 3}), testkit.Set("merge.receipt_max_age", 60),
 		testkit.Set("dispatch.serve", false))
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (starting)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	warned := func(cmd, stderr string) {
 		t.Helper()
@@ -159,7 +159,7 @@ func TestUnknownKeysStopNoCommand(t *testing.T) {
 		t.Errorf("validate printed OK:\n%s", stdout)
 	}
 	rc, stdout, stderr = run(t, p.Root, env, "dispatch", "T-07")
-	if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (queued)\n" {
+	if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (starting)\n" {
 		t.Errorf("dispatch: exit %d, %q (%s); want serve's reply", rc, stdout, stderr)
 	}
 	warned("dispatch", stderr)

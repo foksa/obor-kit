@@ -237,9 +237,10 @@ func paneNote(note string) string {
 	return " (" + note + ")"
 }
 
-// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column, the task's
-// age and id, then serve's state of t (the task serve has on l, Project.TaskOn), the effort its dispatch named,
-// a dirty or warned worktree and the agent (its status and its pane's note); a keep lane says so, with its queue.
+// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch (a free lane's is "-"), the state
+// column, the task's age and id (a free lane's last task reads "last <id>"), then serve's state of t (the task serve
+// has on l, Project.TaskOn), the effort its dispatch named, a dirty or warned worktree and the agent (its status and
+// its pane's note); a keep lane says so, with its queue.
 func laneLine(l view.Lane, t view.Task) string {
 	ago := "-"
 	if l.DoneAge != nil {
@@ -249,8 +250,14 @@ func laneLine(l view.Lane, t view.Task) string {
 	if model == "" {
 		model = "-"
 	}
-	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Name, model, cmp.Or(l.Branch, "-"),
-		l.Column, ago, cmp.Or(l.Task, "-"))
+	branch, task := cmp.Or(l.Branch, "-"), cmp.Or(l.Task, "-")
+	if l.Free { // no task holds it: no branch, and the id in the parenthesis is its last task's
+		branch = "-"
+		if l.Task != "" {
+			task = "last " + l.Task
+		}
+	}
+	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Name, model, branch, l.Column, ago, task)
 	if t.TaskState != "" {
 		line += fmt.Sprintf("  serve: %s (attempt %d)%s", t.TaskState, t.Attempt, running(t.Running))
 	}
@@ -533,8 +540,6 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 		}
 		if !s.Terminal {
 			line += "; terminal: not connected"
-		} else if s.TerminalNote != "" {
-			line += "; " + s.TerminalNote
 		}
 		fmt.Fprintln(w, line)
 		if s.Skew != "" {

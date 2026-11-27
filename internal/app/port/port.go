@@ -108,6 +108,9 @@ type Terminal struct {
 	Control PaneControl
 	Setup   TerminalSetup
 	Check   func(ctx context.Context) (string, error)
+	// Note is the terminal's own line on a version it runs that obor knows less than ("": none, or a known one): obor
+	// setup show and obor init's summary print it. Nil for a terminal without one.
+	Note func(ctx context.Context) (string, error)
 }
 
 // Panes is the terminal's panes and events, as the core uses it.

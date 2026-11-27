@@ -251,7 +251,7 @@ the config's `difficulty` to model refs, in order. An optional `Model: <model>[,
 set` refuses a model the config lacks) puts those models first, then the level's; `--model` overrides both.
 
 - `obor dispatch <T-xx> [--after T-yy[,T-zz]] [--force]` — the first model not paused, on the first free lane.
-  Replies: `DISPATCHED T-xx → <LANE> (queued) as <model>`, or, with no free lane, `WAITING T-xx (queued): waiting for
+  Replies: `DISPATCHED T-xx → <LANE> (starting) as <model>`, or, with no free lane, `WAITING T-xx (queued): waiting for
   a free lane (<level>: <models>)`, or, every model paused, `WAITING T-xx (queued): <model> paused: <why> (until …), …`
   (also in `obor status`): serve dispatches it when a lane frees or a pause ends. `--after` adds `WAITING T-xx after
   T-yy (queued)`.
@@ -268,7 +268,7 @@ set` refuses a model the config lacks) puts those models first, then the level's
 - `obor pause --model <name> [--for 3h] "<why>"` — dispatch skips that model (a quota, an outage) and a level's next
   one runs; `obor pause --model <name> --clear` ends it. A redo keeps its own model even while it is paused.
 - Effort: any model named here (`Model:`, `--model`, config `agents.difficulty`, `agents.roles.<role>`) may be `<model>:<effort>`:
-  the agent starts at that effort, shown in the reply (`DISPATCHED T-xx → L-01 (queued)
+  the agent starts at that effort, shown in the reply (`DISPATCHED T-xx → L-01 (starting)
   as <model> effort <effort>`) and `obor status`; an effort the kind lacks is refused.
 - A spec with no level and no `--model`: `FAIL`, naming the fix.
 - A second `obor dispatch` of a waiting task replaces its request (new `--model`, `--after`); its watches stay.

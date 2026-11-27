@@ -97,11 +97,19 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	s.terminal = kind
 	// terminal check: on a terminal with one (hc, Rex) the first step, before any write: a leaked core, or no rex on
-	// PATH, is a FAIL.
+	// PATH, is a FAIL. The terminal's note on a version obor does not know follows it.
 	var termLine string
 	if s.Check != nil {
 		if termLine, err = s.Check(ctx); err != nil {
 			return project.Failf("terminal %s: %v", s.initTerminal(), err)
+		}
+	}
+	if s.Note != nil {
+		if note, err := s.Note(ctx); err == nil && note != "" {
+			if termLine != "" {
+				termLine += "; "
+			}
+			termLine += note
 		}
 	}
 	if r, err := s.git().Find(s.Dir); err == nil && project.Stopped(r.Root) {

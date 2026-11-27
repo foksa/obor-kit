@@ -91,7 +91,7 @@ func (ResumeReq) Method() string { return MethodResume }
 // DispatchReq is the lead's or the owner's dispatch (obor dispatch): Task onto Lane, else the first free lane of Types.
 // Force also takes a dirty-free lane and stops the agent's background tasks; After the tasks it waits for (obor
 // dispatch --after); Level is set with Types by a waiting task's re-dispatch: the spec's level they came from. Reply:
-// DISPATCHED <task> → <lane> (queued), or WAITING <task> … (queued).
+// DISPATCHED <task> → <lane> (starting), or WAITING <task> … (queued).
 type DispatchReq struct {
 	Envelope
 	Task  string   `json:"task"`
