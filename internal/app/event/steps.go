@@ -41,6 +41,9 @@ const (
 	// TrustTask is the task key of the needs-you of an agent start held by a "Trust this folder?" dialog: one per
 	// pane (its data's Pane), ended by a resumed fact naming the pane.
 	TrustTask = "trust"
+	// LaneTaskPrefix is the prefix of a configured lane's missing-worktree needs-you key: LaneTaskPrefix+lane. It is
+	// the project's, not a task's: serve could not add the lane's worktree or run its setup.
+	LaneTaskPrefix = "lane:"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).

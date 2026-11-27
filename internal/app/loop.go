@@ -46,6 +46,10 @@ type Loop struct {
 	// when a dispatch finds no pane in the lane, and starts the worker in it on the next pass. Nil: a Loop without one
 	// (tests): a lane with no pane is needs-you{no pane in lane}.
 	PlaceLane func(ctx context.Context, lane string) (string, error)
+	// EnsureLane adds a configured lane's missing worktree and runs its setup, as `obor setup lane <LANE>` does
+	// (cmd/obor wires setup's one code path). Serve calls it off its pass, one attempt a lane at a time. Nil: serve
+	// adds none (tests).
+	EnsureLane func(ctx context.Context, lane string) error
 	// Prompter types job wakes and lines to the agents in their panes (nil: none typed; posted ones need Inbox).
 	Prompter port.Prompter
 	// Specs is what a dispatch reads of a task's id and spec; Kit is the obor kit (the worker prompt's template).
@@ -293,7 +297,8 @@ func (a *App) mergeLoop(ctx context.Context) {
 // deliveries closed, then, on a pass that can post lines, the seen work logged, the role turns read, the finished
 // briefs' lines, the deliveries, the role wakes, the lines' needs-you), the worker wakes, the loop's status, then
 // each task driven as far as it goes now, in passOrder (the waiting ones last: a task they wait for may merge in the
-// same pass), then the ticks, then the verify's read (the rule pass and every reader see it). It needs a herdr
+// same pass), a configured lane's missing worktree started off the pass (laneAddPass), then the ticks, then the
+// verify's read (the rule pass and every reader see it). It needs a herdr
 // snapshot (the integrator's pane). It returns the pass's adapters (nil:
 // the pass did not run, or its adapters or checkout failed), the rule pass's (mergeLoop runs it right after: its lines,
 // the done reminder's among them, go out at the next pass's deliveries, which their record wakes).
@@ -340,6 +345,7 @@ func (a *App) advance(ctx context.Context) *Loop {
 		}
 		a.drive(ctx, p, fx, task)
 	}
+	a.laneAddPass(ctx, p, fx)
 	a.nightly(ctx, p, fx)
 	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact
 	a.reviewPass(ctx, p, fx)

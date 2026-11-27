@@ -148,6 +148,7 @@ on a file missing from this table or a listed file that is gone); the entry is t
 | `jobs.go` | the watch on an open job, its timer, and the job's id | `App.watchJob` |
 | `jobstart.go` | job start, texts | `App.job` |
 | `keeplane.go` | a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens | `App.keepLive` |
+| `laneadd.go` | serve's add of a configured lane's missing worktree, as `obor setup lane` does, off the pass | `App.laneAddPass` |
 | `lanepick.go` | the lane a dispatch takes and the replies that say why none was free | `App.held` |
 | `lanerows.go` | the `lanes` table projection | `proj.foldLanes` |
 | `lanesync.go` | the target merged into a sent-back attempt's lane before its fix job (`lane.sync`, row 24a), and the fix job's line on it | `App.laneSync` |
