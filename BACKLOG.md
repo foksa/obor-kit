@@ -47,6 +47,13 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (owner 11-27, city-defender feedback; `docs/research/lead-feedback-idle-visual.md` A) **Idle while waiting on the
+  owner**: each merge wave makes a new idle key that needs a re-ack. Recommended: `obor idle --owner "<why>"` records
+  an owner-wait; while in force a new key sends a line needing no ack (keeps the wake after merges), no 30-min ping,
+  one "waits on you" notification instead; ends at the owner's next typed prompt (lead's user-prompt-submit hook,
+  `personTyped`; Claude and OpenCode), the lead's next dispatch/brief/review, a plain ack, or a time bound (owner
+  picks). ~200-300 lines. Before: probe agy's PreInvocation for an agentapi line; confirm a phone prompt fires the
+  local hook.
 - (owner 11-25) **Rex trial works** on v0.47.0 (owner's first project on `project.terminal: "rex"`). Rex stays experimental (live tier non-gating); bring field issues as fix tasks. Watch on each Rex update: API revision (REX-R1 warn), the bundle path, and the stream-seq concern (Concerns).
 - (11-23, T-1541 merged 11-23) Unparsed shell commands (advice Concerns: `echo ${(U)foo}; git commit -m x` passes for an advisor under zsh): owner 11-23 "agents often write complex bash commands, this might block their work" → keep allowing; next wave the guard logs each command its parser rejects (role, first 200 chars) and after a week of lanes the lead brings the count to the owner (near zero: deny for roles with git denies; else leave). Count due ~11-30.
 - (lead 11-24) codex-image-tool (public repo) asked to keep obor files out of it: owner 11-24 "branch route for now" (private merge.target_branch + hand-filtered public push); no private-files mode. What breaks with ignored obor files: config_set's commit, review close --accept (docs/accepted.md), role-doc pointer and web Docs (tracked files only); review start fails once the previous review's head sha is gone after a history rewrite.
