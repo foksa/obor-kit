@@ -47,6 +47,18 @@ type Report struct {
 	Text    string
 }
 
+// ReportAnswer is a task's report answer: the latest submission that carries a report (Report, Has), or, when it has
+// none, the end the same records carry. Ended is the terminal step, merged or dropped ("" — not ended); Merged is the
+// merge commit's abbreviated sha ("" when not merged, or the merge happened outside obor serve) and EndedOn the
+// terminal record's date (YYYY-MM-DD).
+type ReportAnswer struct {
+	Report
+	Has     bool
+	Ended   string
+	Merged  string
+	EndedOn string
+}
+
 // TaskRecord is one record of a task's timeline: its seq, time, step and kind, the worded line when the view words
 // it (an intent or a result the event list does not show has none), a gate's outcome (green, red …; the
 // page reads it, never the line's wording), and a gate's pass (the outcome as the page's yes or no).
@@ -146,8 +158,8 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	if err != nil {
 		return t, found
 	}
-	if r, ok := latestReport(recs); ok {
-		t.Report = r.Text
+	if a := reportAnswer(recs); a.Has {
+		t.Report = a.Text
 	}
 	reached := -1
 	for _, r := range recs { // newest first: the last submission and gate win
@@ -254,27 +266,60 @@ func (d Detail) Job(job string) (Prompt, bool) {
 	return promptOf(rows[0]), true
 }
 
-// LatestReport is task's latest submission that carries a report (a done file's carries none), read-only from the
-// same records the task page reads: ok false when it has none yet; an error is a store or its records that could not
-// be read (never "no report", which is ok false with no error).
-func (d Detail) LatestReport(task string) (Report, bool, error) {
+// LatestReport is task's report answer, read-only from the same records the task page reads: its latest submission
+// that carries a report, or, when none is left, the task's end (merged or dropped). An error is a store or its records
+// that could not be read (never "no report", which is an answer with nothing in it).
+func (d Detail) LatestReport(task string) (ReportAnswer, error) {
 	if task == "" {
-		return Report{}, false, nil
+		return ReportAnswer{}, nil
 	}
 	db, err := store.OpenAt(d.Root)
 	switch {
 	case err != nil:
-		return Report{}, false, err
+		return ReportAnswer{}, err
 	case db == nil:
-		return Report{}, false, fmt.Errorf("no store for %s at %s", task, d.Root)
+		return ReportAnswer{}, fmt.Errorf("no store for %s at %s", task, d.Root)
 	}
 	defer db.Close()
 	recs, err := event.RecordsOf(db, task, detailRecords)
 	if err != nil {
-		return Report{}, false, err
+		return ReportAnswer{}, err
 	}
-	r, ok := latestReport(recs)
-	return r, ok, nil
+	return reportAnswer(recs), nil
+}
+
+// reportAnswer is recs' (newest first) report answer: the newest submission that carries a report; else the task's end,
+// the newest dispatch opening it again. A drop of a task the log never dispatched is revived by a spec.set of a later
+// rev (foldSpecSet), so it answers as open too.
+func reportAnswer(recs []event.Record) ReportAnswer {
+	if r, ok := latestReport(recs); ok {
+		return ReportAnswer{Report: r, Has: true}
+	}
+	var a ReportAnswer
+	specRev := 0
+	for _, r := range recs {
+		if r.Kind != event.KindFact {
+			continue
+		}
+		switch r.Step {
+		case event.StepSpecSet:
+			if s, ok := event.SpecSetOf(r); ok {
+				specRev = max(specRev, event.SpecSetRev(s.Reply))
+			}
+		case event.StepDispatched:
+			return a
+		case event.StepMerged, event.StepDropped:
+			if r.Step == event.StepDropped && r.Fact().Rev > 0 && specRev > r.Fact().Rev {
+				return a
+			}
+			a.Ended, a.EndedOn = r.Step, event.RecordTime(r).Format("2006-01-02")
+			if m, ok := event.MergeOf(r); ok {
+				a.Merged = m.SHA[:min(7, len(m.SHA))]
+			}
+			return a
+		}
+	}
+	return a
 }
 
 // latestReport is the newest submission in recs (newest first) whose report is not empty: its report with that

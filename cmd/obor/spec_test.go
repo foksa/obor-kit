@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/store"
 )
 
 // obor spec's argument check ends before the command reads its directory or sends a request: specSetArgs is the form of
@@ -188,5 +190,50 @@ func TestSpecShowReport(t *testing.T) {
 	if rc, stdout, _ := run(t, p.Root, env, "spec", "show", "T-02", "--report"); rc != 0 ||
 		stdout != "T-02 report: none yet\n" {
 		t.Errorf("show --report, none: exit %d, %q; want the none-yet line", rc, stdout)
+	}
+}
+
+// obor spec show --report says a task's report was pruned when its submissions are gone: merged names the commit and
+// the git command that carries the Summary, dropped its date, a merge outside obor serve names no commit; a task still
+// open with none says none yet.
+func TestSpecShowReportPruned(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	env := []string{"OBOR_STATE_HOME=" + t.TempDir()} // no serve
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	p.Dispatched("L-01")
+	p.MergedAt("T-01", "abcdef0123456789", false, at.Unix())
+	p.PlainLane("L-02", "task/T-02")
+	p.Dispatched("L-02")
+	db, err := store.OpenRW(store.File(p.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, _, err := event.OpenLog(db)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	for _, r := range []event.Record{
+		{Task: "T-03", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
+			Data: []byte(`{"rev":1,"reason":"not needed"}`)},
+		{Task: "T-04", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
+			Data: []byte(`{"outside":true}`)},
+	} {
+		if _, err := log.Append(r, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	log.Close()
+	for _, c := range []struct{ task, want string }{
+		{"T-01", "T-01 report: pruned (merged abcdef0 on 2026-11-01; the log keeps 30 days): " +
+			"git log -1 --format=%B abcdef0 carries its Summary\n"},
+		{"T-02", "T-02 report: none yet\n"},
+		{"T-03", "T-03 report: pruned (dropped on 2026-11-01; the log keeps 30 days)\n"},
+		{"T-04", "T-04 report: pruned (merged outside obor serve on 2026-11-01; the log keeps 30 days)\n"},
+	} {
+		if rc, stdout, _ := run(t, p.Root, env, "spec", "show", c.task, "--report"); rc != 0 || stdout != c.want {
+			t.Errorf("%s: exit %d, %q; want %q", c.task, rc, stdout, c.want)
+		}
 	}
 }

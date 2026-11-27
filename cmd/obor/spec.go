@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
@@ -80,8 +81,9 @@ func specShowArgs(args []string) (task string, report, ok bool) {
 }
 
 // specShow is `obor spec show <T-xx> [--report]`: the task's stored spec, as set (exit 0) or, with --report, its
-// latest task_done report with its attempt and time (none yet: a line saying so). Without --report: FAIL no spec …
-// exit 1, exit 2 when the store cannot be read.
+// latest task_done report with its attempt and time, else why there is none: none yet (the task has not ended) or
+// pruned (it ended, the log kept only its terminal fact; merged names the commit whose body carries the Summary).
+// Without --report: FAIL no spec … exit 1, exit 2 when the store cannot be read.
 func specShow(task string, report bool) int {
 	_, cfg, rc := load()
 	if rc != 0 {
@@ -89,16 +91,23 @@ func specShow(task string, report bool) int {
 		return 2
 	}
 	if report {
-		r, ok, err := view.Detail{Root: cfg.Root}.LatestReport(task)
+		a, err := view.Detail{Root: cfg.Root}.LatestReport(task)
 		switch {
 		case err != nil:
 			fmt.Fprintln(out, "FAIL "+err.Error())
 			return 2
-		case !ok:
+		case a.Has:
+			fmt.Fprintf(out, "%s attempt %d submitted %s\n\n%s\n", a.Task, a.Attempt, a.At, a.Text)
+		case a.Ended == event.StepMerged && a.Merged != "":
+			fmt.Fprintf(out, "%s report: pruned (merged %s on %s; the log keeps 30 days): git log -1 --format=%%B %s carries its Summary\n",
+				task, a.Merged, a.EndedOn, a.Merged)
+		case a.Ended == event.StepMerged:
+			fmt.Fprintf(out, "%s report: pruned (merged outside obor serve on %s; the log keeps 30 days)\n", task, a.EndedOn)
+		case a.Ended == event.StepDropped:
+			fmt.Fprintf(out, "%s report: pruned (dropped on %s; the log keeps 30 days)\n", task, a.EndedOn)
+		default:
 			fmt.Fprintf(out, "%s report: none yet\n", task)
-			return 0
 		}
-		fmt.Fprintf(out, "%s attempt %d submitted %s\n\n%s\n", r.Task, r.Attempt, r.At, r.Text)
 		return 0
 	}
 	row, ok, err := store.ReadSpecAt(cfg.Root, task)

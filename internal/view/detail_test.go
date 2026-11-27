@@ -65,16 +65,55 @@ func TestLatestReport(t *testing.T) {
 		{Task: "T-2", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
 	}
 	d := Detail{Root: writeLog(t, recs, at)}
-	r, ok, err := d.LatestReport("T-1")
-	if err != nil || !ok || r.Task != "T-1" || r.Text != "Summary: second." || r.Attempt != 2 ||
-		r.At != at.Add(2*time.Second).Format(time.RFC3339) {
-		t.Errorf("T-1's latest report: %+v, %v, %v; want the second submission's text, attempt 2 and time", r, ok, err)
+	a, err := d.LatestReport("T-1")
+	if err != nil || !a.Has || a.Task != "T-1" || a.Text != "Summary: second." || a.Attempt != 2 ||
+		a.At != at.Add(2*time.Second).Format(time.RFC3339) {
+		t.Errorf("T-1's latest report: %+v, %v; want the second submission's text, attempt 2 and time", a, err)
 	}
-	if r, ok, err := d.LatestReport("T-2"); err != nil || ok || r.Text != "" {
-		t.Errorf("T-2 has no report, got %+v, %v, %v", r, ok, err)
+	if a, err := d.LatestReport("T-2"); err != nil || a.Has || a.Text != "" || a.Ended != "" {
+		t.Errorf("T-2 has no report, got %+v, %v", a, err)
 	}
-	if r, ok, err := d.LatestReport("T-9"); err != nil || ok || r.Text != "" {
-		t.Errorf("T-9 is unknown, got %+v, %v, %v", r, ok, err)
+	if a, err := d.LatestReport("T-9"); err != nil || a.Has || a.Text != "" || a.Ended != "" {
+		t.Errorf("T-9 is unknown, got %+v, %v", a, err)
+	}
+}
+
+// A task with no submission left answers with its end, from its own records: merged names the commit (7 characters)
+// and the date, dropped its date; a dispatch after the end or a spec.set of a later rev (foldSpecSet) makes it open
+// again, and a merge outside obor serve has no sha.
+func TestLatestReportEnded(t *testing.T) {
+	at := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	recs := []event.Record{
+		{Task: "T-1", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
+		{Task: "T-1", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
+			Data: json.RawMessage(`{"head":"cafe1234abcd"}`)},
+		{Task: "T-2", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
+		{Task: "T-2", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
+			Data: json.RawMessage(`{"rev":1,"reason":"not needed"}`)},
+		{Task: "T-3", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
+			Data: json.RawMessage(`{"rev":1,"reason":"wrong"}`)},
+		{Task: "T-3", Step: event.StepSpecSet, Kind: event.KindFact,
+			Data: json.RawMessage(`{"call":"c1","reply":"SET T-3 rev 2"}`)},
+		{Task: "T-4", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
+			Data: json.RawMessage(`{"head":"cafe1234"}`)},
+		{Task: "T-4", Attempt: 2, Step: event.StepDispatched, Kind: event.KindFact},
+		{Task: "T-5", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
+			Data: json.RawMessage(`{"outside":true}`)},
+	}
+	d := Detail{Root: writeLog(t, recs, at)}
+	for _, c := range []struct {
+		task, ended, merged, on string
+	}{
+		{"T-1", event.StepMerged, "cafe123", "2026-11-20"},
+		{"T-2", event.StepDropped, "", "2026-11-20"},
+		{"T-3", "", "", ""},
+		{"T-4", "", "", ""},
+		{"T-5", event.StepMerged, "", "2026-11-20"},
+	} {
+		a, err := d.LatestReport(c.task)
+		if err != nil || a.Has || a.Ended != c.ended || a.Merged != c.merged || a.EndedOn != c.on {
+			t.Errorf("%s: %+v, %v; want ended %q, sha %q, on %q", c.task, a, err, c.ended, c.merged, c.on)
+		}
 	}
 }
 
