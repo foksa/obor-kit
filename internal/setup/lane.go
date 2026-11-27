@@ -11,6 +11,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/run"
+	"obor/internal/store"
 )
 
 func (s *Setup) lane(ctx context.Context, args []string) error {
@@ -59,6 +60,58 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		s.say("lane_setup ok: %s", c.Cmd)
 	}
 	s.say("OK lane %s at %s (no pane: serve places it at the lane's first dispatch)", lane, dir)
+	return nil
+}
+
+// moveLaneToStart moves an existing lane worktree to the commit a new lane would get (the main checkout's branch
+// head) before its lane setup: the lanes init made while setup was deferred are at init's commit, without the files
+// the owner committed after it. It moves only a lane that can take it without losing anything: detached, clean
+// (project.LaneDirt, so obor's links are not the lane's work), no task on it (serve's lane row: a task that has not
+// landed), and a HEAD that is an ancestor of that commit. Every other lane stays as it is, as does a lane whose git
+// or store answer is not there.
+func (s *Setup) moveLaneToStart(lane, dir string) error {
+	if _, err := os.Stat(dir); err != nil {
+		return nil
+	}
+	branch, err := s.git().Git(s.root, "branch", "--show-current")
+	if err != nil || strings.TrimSpace(branch) == "" {
+		return nil
+	}
+	start, err := s.git().Git(s.root, "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(start) == "" {
+		return nil
+	}
+	start = strings.TrimSpace(start)
+	head, err := s.git().Git(dir, "rev-parse", "HEAD")
+	if err != nil {
+		return nil
+	}
+	head = strings.TrimSpace(head)
+	if head == start {
+		return nil
+	}
+	// rev-parse --abbrev-ref HEAD names "HEAD" for a detached worktree, its branch otherwise
+	if out, err := s.git().Git(dir, "rev-parse", "--abbrev-ref", "HEAD"); err != nil || strings.TrimSpace(out) != "HEAD" {
+		return nil
+	}
+	if _, err := s.git().Git(dir, "merge-base", "--is-ancestor", head, start); err != nil {
+		return nil
+	}
+	if dirt, err := project.LaneDirt(s.cfg, dir, s.git().Git); err != nil || len(dirt) > 0 {
+		return nil
+	}
+	row, ok, err := store.ReadLaneAt(s.root, lane)
+	if err != nil || (ok && row.Task != "" && !row.Landed) {
+		return nil
+	}
+	err = project.CheckoutWorktree(s.cfg, dir, start, s.git().Git, func(line string) { s.say("%s", line) }, func() error {
+		_, err := s.git().Git(dir, "checkout", "--detach", start)
+		return err
+	})
+	if err != nil {
+		return project.Failf("lane %s: move to %s: %v", lane, start, err)
+	}
+	s.say("worktree %s moved to %s (a new lane's start)", dir, strings.TrimSpace(branch))
 	return nil
 }
 

@@ -365,9 +365,10 @@ marketplace> --scope project`); in a directory with no commit, one "obor init" c
 config, .gitignore, the docs, the plugin settings, whatever their bytes): every other path the owner has stays
 uncommitted and untouched, the summary counts them (untracked and staged alike), and while HEAD's tree holds only
 init's own paths and any is left the lanes get their worktrees but no `lanes.setup` (the summary says to commit the
-files, then run `obor init` again: that rerun runs it in the existing lanes; a HEAD that holds any other file gets
-lane setup as usual, and the condition is derived on every run); then panes and roles, `obor serve install`, a short
-summary (warnings, herdr's
+files, then run `obor init` again: that rerun moves a lane that is detached, clean, holds no task and whose HEAD is
+an ancestor of the branch head onto that head, so its setup sees the committed files, then runs it; a HEAD that holds
+any other file gets lane setup as usual, and the condition is derived on every run); then panes and roles,
+`obor serve install`, a short summary (warnings, herdr's
 `resume_agents_on_restore = false` hint while its config lacks it) and the lead's start: in the calling pane when it
 is the chosen terminal's, carries no `OBOR_ROLE` and is alone in its tab, else a new `lead` tab; a lead already
 running is left as it is. `obor lead` with no config runs `obor init`. The lead's first session asks two questions

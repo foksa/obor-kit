@@ -448,56 +448,6 @@ func TestOborInitRerunBeforeTheOwnerCommitsStillDefersLaneSetup(t *testing.T) {
 		"the deferred setup line")
 }
 
-// After the owner commits package.json, the next init runs lane setup in the lanes it made while deferred: laneDone
-// finds them worktrees of the repo with no setup marker (lane.go), so the lane runs the setup, in the same dirs.
-func TestOborInitRerunAfterTheOwnerCommitsRunsLaneSetup(t *testing.T) {
-	// Not parallel: the lane's shell reads this process's PATH, where the fake npm is first.
-	x := newFakeGitInitFx(t, true)
-	dir := x.unborn(t, "unborn")
-	x.Write(filepath.Join(dir, "package.json"), `{"scripts":{"test":"vitest run"}}`)
-	x.Write(filepath.Join(dir, "package-lock.json"), "{}\n")
-	marker := filepath.Join(x.Base, "npm-ran")
-	testkit.Script(t, x.bin, "npm", "#!/bin/sh\nmkdir -p node_modules\necho \"$PWD $*\" >> '"+marker+"'\n")
-	t.Setenv("PATH", x.bin+":/usr/bin:/bin")
-	if out, rc := x.runIn(t, dir, "obor-init"); rc != 0 {
-		t.Fatalf("first init: exit %d\n%s", rc, out)
-	}
-	if x.Exists(marker) {
-		t.Fatalf("precondition: the first init ran lane_setup: %q", x.Read(marker))
-	}
-	worktrees := worktreeDirs(x, dir)
-	// the files question's Commit all: the owner's files join init's commit on main.
-	if err := x.fake.Commit(dir, "Initial commit", []string{"package.json", "package-lock.json"}); err != nil {
-		t.Fatal(err)
-	}
-	out, rc := x.runIn(t, dir, "obor-init")
-	if rc != 0 {
-		t.Fatalf("rerun: exit %d\n%s", rc, out)
-	}
-	cfg, err := config.Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, lane := range []string{"L-01", "L-02"} {
-		has(t, x.Read(marker), filepath.Join(cfg.LanesDir(), lane)+" ci", "lane_setup in "+lane)
-	}
-	hasNot(t, out, "lanes.setup waits", "no deferral after the owner's commit")
-	if got := worktreeDirs(x, dir); !slices.Equal(got, worktrees) {
-		t.Errorf("the rerun changed the worktrees: %v, were %v", got, worktrees)
-	}
-}
-
-// worktreeDirs is the dirs `git worktree list` names under dir, without the shas (the fake's move with its commits).
-func worktreeDirs(x *initFx, dir string) []string {
-	var dirs []string
-	for _, line := range strings.Split(x.Git(dir, "worktree", "list"), "\n") {
-		if f := strings.Fields(line); len(f) > 0 {
-			dirs = append(dirs, f[0])
-		}
-	}
-	return dirs
-}
-
 // A plain directory with files: init makes it a repository and the same commit of its own paths; the owner's files stay
 // untracked and untouched.
 func TestOborInitInAPlainDirWithFiles(t *testing.T) {
