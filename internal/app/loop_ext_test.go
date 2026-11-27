@@ -1207,7 +1207,7 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 		r.stop()
 		// T-06's dispatch onto L-01 and its lane.prepare, in the log: its row takes the lane.
 		d, _ := json.Marshal(map[string]any{"lane": "L-01", "dir": r.lane, "agent": "pj-l-01", "branch": "task/T-06",
-			"target": "main", "reply": "DISPATCHED T-06 → L-01 (queued)"})
+			"target": "main", "reply": "DISPATCHED T-06 → L-01 (starting)"})
 		if err := app.WriteLog(r.p.Root, time.Now(),
 			event.Record{Task: "T-06", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d},
 			event.Record{Task: "T-06", Attempt: 1, Step: event.StepPrepare, Kind: event.KindIntent, Class: event.ClassGit},

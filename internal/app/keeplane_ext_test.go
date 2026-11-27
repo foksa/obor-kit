@@ -166,7 +166,7 @@ func keepSecond(t *testing.T, sessionless bool, setup func(r *loopRig), c wire.D
 		setup(r)
 	}
 	c.Root, c.Agent, c.Role, c.CallID, c.Task, c.Lane = r.p.Root, "pj-lead", "lead", "d2", "T-2", "L-01"
-	if reply, err := r.dispatchCall(c); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-2 → L-01 (queued)") {
+	if reply, err := r.dispatchCall(c); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-2 → L-01 (starting)") {
 		t.Fatalf("T-2: %q, %v", reply, err)
 	}
 	r.waitJob("pj-l-01", "T-2/1/work")

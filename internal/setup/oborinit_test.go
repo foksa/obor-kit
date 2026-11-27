@@ -341,3 +341,20 @@ func TestOborInitChecksTheTerminalFirstAndNamesItWhenUnreachable(t *testing.T) {
 		t.Errorf("hc down: exit %d, last line %q", rc, last(out2))
 	}
 }
+
+// obor init's summary prints the terminal's note on an API version obor does not know after its check line.
+func TestOborInitPrintsTheTerminalNote(t *testing.T) {
+	t.Parallel()
+	x := newFakeGitInitFx(t, true)
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	const note = "the terminal speaks a version obor knows less than"
+	s.Check = func(context.Context) (string, error) { return "rex CLI /opt/rex/rex", nil }
+	s.Note = func(context.Context) (string, error) { return note, nil }
+	if rc := s.Run(context.Background(), []string{"obor-init", "--terminal", "rex"}); rc != 0 {
+		t.Fatalf("obor init: exit %d\n%s", rc, out)
+	}
+	if got, want := summary(out.String(), "terminal"), "done rex: rex CLI /opt/rex/rex; "+note; got != want {
+		t.Errorf("the terminal step %q, want %q", got, want)
+	}
+}

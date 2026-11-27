@@ -38,9 +38,9 @@ func TestTerminalSelectsHC(t *testing.T) {
 	}
 	p, ok := term.Panes.(hc.Panes)
 	cl, cok := term.Setup.(*hc.Client) // the client its Control prompts through, behind port.GuardPrompts
-	if !ok || !cok || p.C != cl || cl.Path != "/tmp/hc.sock" || term.Check == nil {
-		t.Fatalf("hc's terminal: panes %T, setup %T, check set %v; want hc's over one client of /tmp/hc.sock",
-			term.Panes, term.Setup, term.Check != nil)
+	if !ok || !cok || p.C != cl || cl.Path != "/tmp/hc.sock" || term.Check == nil || term.Note == nil {
+		t.Fatalf("hc's terminal: panes %T, setup %T, check set %v, note set %v; want hc's over one client of /tmp/hc.sock",
+			term.Panes, term.Setup, term.Check != nil, term.Note != nil)
 	}
 	if p.Core != nil {
 		t.Errorf("the commands' terminal holds the core: only serve's starts one")
@@ -52,8 +52,9 @@ func TestTerminalSelectsHC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := h.Panes.(herdr.Panes); !ok || h.Check != nil {
-		t.Errorf("the default terminal: panes %T, check set %v; want herdr's, no check", h.Panes, h.Check != nil)
+	if _, ok := h.Panes.(herdr.Panes); !ok || h.Check != nil || h.Note == nil {
+		t.Errorf("the default terminal: panes %T, check set %v, note set %v; want herdr's, no check and its note", h.Panes,
+			h.Check != nil, h.Note != nil)
 	}
 	if _, ok := serveTerminal(nil, h).Panes.(herdr.Panes); !ok {
 		t.Errorf("serve's herdr terminal changed")
@@ -71,9 +72,10 @@ func TestTerminalSelectsRex(t *testing.T) {
 	}
 	p, ok := term.Panes.(rex.Panes)
 	cl, cok := term.Setup.(*rex.Client)
-	if !ok || !cok || p.C != cl || cl.Bin != "" || cl.Server != "" || term.Check == nil || term.Control == nil {
-		t.Fatalf("Rex's terminal: panes %T, setup %T, check set %v; want Rex's over one client of rex on PATH",
-			term.Panes, term.Setup, term.Check != nil)
+	if !ok || !cok || p.C != cl || cl.Bin != "" || cl.Server != "" || term.Check == nil || term.Note == nil ||
+		term.Control == nil {
+		t.Fatalf("Rex's terminal: panes %T, setup %T, check set %v, note set %v; want Rex's over one client of rex on PATH",
+			term.Panes, term.Setup, term.Check != nil, term.Note != nil)
 	}
 	if sp, ok := serveTerminal(rexCfg, term).Panes.(rex.Panes); !ok || sp.C != cl {
 		t.Errorf("serve's Rex terminal changed: %T", serveTerminal(rexCfg, term).Panes)

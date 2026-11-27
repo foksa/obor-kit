@@ -319,11 +319,17 @@ func TestPanesNoteOnANewerProtocol(t *testing.T) {
 	if snap, err := p.Snapshot(ctx); err != nil || snap.Note != "" {
 		t.Errorf("at obor's protocol: note %q, %v; want none", snap.Note, err)
 	}
+	if note, err := p.Note(ctx); err != nil || note != "" {
+		t.Errorf("at obor's protocol: Note %q, %v; want none", note, err)
+	}
 	srv.Protocol(herdr.Protocol + 1)
 	snap, err := p.Snapshot(ctx)
 	want := "herdr fake, protocol " + strconv.Itoa(herdr.Protocol+1) + " (newer than obor's " + strconv.Itoa(herdr.Protocol) + ")"
 	if err != nil || snap.Note != want {
 		t.Errorf("on a newer protocol: note %q, %v; want %q", snap.Note, err, want)
+	}
+	if note, err := p.Note(ctx); err != nil || note != want {
+		t.Errorf("on a newer protocol: Note %q, %v; want %q", note, err, want)
 	}
 }
 

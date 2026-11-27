@@ -45,7 +45,8 @@
 //	        workspace); refused while its serve LaunchAgent is installed: see rename.go.
 //
 //	show  the setup table, read-only: per difficulty level each model ref, in order, with its kind, model id
-//	        and effort; the lanes; the roles' models; whether the owner confirmed it.
+//	        and effort; the lanes; the roles' models; whether the owner confirmed it; the terminal's note on a version
+//	        obor does not know.
 //
 // obor init: see oborinit.go.
 package setup
@@ -95,6 +96,9 @@ type Setup struct {
 	// Check is the terminal's own check (port.Terminal.Check): its line, or the refusal `obor setup check` fails with;
 	// nil: the terminal has none.
 	Check func(ctx context.Context) (string, error)
+	// Note is the terminal's own line on a version obor knows less than (port.Terminal.Note): obor setup show and obor
+	// init's summary print it; nil: none, or nothing to say.
+	Note func(ctx context.Context) (string, error)
 
 	// host is the git seam (nil: realGit): a test of what setup decides gives it a fake.
 	host gitHost
@@ -149,7 +153,7 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 	case "rename":
 		err = s.renameCmd(ctx, args)
 	case "show":
-		err = s.show(args)
+		err = s.show(ctx, args)
 	case "check":
 		err = s.check(ctx, args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either

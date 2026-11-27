@@ -322,9 +322,9 @@ func (p *proj) answerPath(r event.Record) string {
 	return answerPath(p, r, mt)
 }
 
-// terminalNote is the status note for the terminal serve is connected to: the adapter's sentence when it knows less
-// than that terminal ("" otherwise). It follows each snapshot, so a terminal started or upgraded after serve shows at
-// once. The caller holds a.mu.
+// terminalNote is the note for the terminal serve is connected to: the adapter's sentence when it knows less than
+// that terminal ("" otherwise), carried as wire.Status.TerminalNote. It follows each snapshot, so a terminal started
+// or upgraded after serve records it at once. The caller holds a.mu.
 func (a *App) terminalNote() string {
 	if !a.connected {
 		return ""

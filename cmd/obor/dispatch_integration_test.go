@@ -21,13 +21,13 @@ func TestDispatchServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
 	laneBefore := laneEntries(t, p)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (starting)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
 	// one row with every field: the arguments' order and each field alone are TestDispatchArguments'
 	before, _ := serve.requests()
 	rc, stdout, stderr := run(t, p.Root, env, "dispatch", "--force", "--after", "T-05,T-06", "T-07", "--model", "sonnet,opus")
-	if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (queued)\n" {
+	if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (starting)\n" {
 		t.Errorf("exit %d, %q (stderr %q); want the reply", rc, stdout, stderr)
 	}
 	calls, _ := serve.requests()

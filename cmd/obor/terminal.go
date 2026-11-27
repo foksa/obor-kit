@@ -39,18 +39,22 @@ var terminals = []terminalKind{
 	{Name: config.DefaultTerminal, PaneVar: config.TerminalPaneVars[config.DefaultTerminal], Env: herdr.EnvNames,
 		Group: "workspace", Build: func(env project.Env, _ func() agents.Kinds) port.Terminal {
 			s := &herdr.Socket{Path: herdr.SocketPath(env)}
-			return port.Terminal{Panes: herdr.Panes{S: s}, Control: port.GuardPrompts(s), Setup: &herdr.Setup{Socket: s, Env: env}}
+			p := herdr.Panes{S: s}
+			return port.Terminal{Panes: p, Control: port.GuardPrompts(s), Setup: &herdr.Setup{Socket: s, Env: env},
+				Note: p.Note}
 		}},
 	{Name: config.TerminalHC, PaneVar: config.TerminalPaneVars[config.TerminalHC], Env: hc.EnvNames, Group: "space",
 		Build: func(env project.Env, kinds func() agents.Kinds) port.Terminal {
 			cl := hc.New(env)
 			cl.Kinds = kinds
-			return port.Terminal{Panes: hc.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
+			p := hc.Panes{C: cl}
+			return port.Terminal{Panes: p, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check, Note: p.Note}
 		}},
 	{Name: config.TerminalRex, PaneVar: config.TerminalPaneVars[config.TerminalRex], Env: rex.EnvNames, Group: "session",
 		Build: func(_ project.Env, kinds func() agents.Kinds) port.Terminal {
 			cl := &rex.Client{Kinds: kinds}
-			return port.Terminal{Panes: rex.Panes{C: cl}, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check}
+			p := rex.Panes{C: cl}
+			return port.Terminal{Panes: p, Control: port.GuardPrompts(cl), Setup: cl, Check: cl.Check, Note: p.Note}
 		}},
 }
 

@@ -76,7 +76,7 @@ panes per tab. No per-model caps (owner 2026-11-03): a model out of quota is pau
   The task that adds the Go field adds its TS line.
 
 - No enforced file list: no guard deny, no gate FAIL, a spec without a files section dispatches; a protected file a task must edit goes under "Protected files this task may edit" (exact paths).
-- `obor serve` is the only dispatcher: `obor dispatch` is a request to it (`DISPATCHED … (queued)`; `obor resume`
+- `obor serve` is the only dispatcher: `obor dispatch` is a request to it (`DISPATCHED … (starting)`; `obor resume`
   retries a needs-you) and `obor drop <T-xx>` is serve's (it ends the task and frees its lane).
 - A spec that adds code nothing calls yet (an adapter before its wiring) lists `Makefile` and allows deadcode
   exclusions marked "until T-xx wires it; remove then"; the wiring task removes them.

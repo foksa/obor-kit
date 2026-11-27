@@ -4,6 +4,7 @@ package setup
 // confirmed them. The lead prints it at its first session and asks the owner about it.
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -14,8 +15,9 @@ import (
 )
 
 // show is `obor setup show`: read-only, the setup table (per difficulty level each of its models with its kind,
-// model id and effort, the lanes, the roles' models) and whether the owner confirmed it.
-func (s *Setup) show(args []string) error {
+// model id and effort, the lanes, the roles' models), whether the owner confirmed it, then the terminal's note on a
+// version obor does not know.
+func (s *Setup) show(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage
 	}
@@ -23,6 +25,11 @@ func (s *Setup) show(args []string) error {
 		return err
 	}
 	s.printTable()
+	if s.Note != nil {
+		if note, err := s.Note(ctx); err == nil && note != "" { // a terminal that cannot say (not running) says nothing
+			s.say("terminal: %s", note)
+		}
+	}
 	return nil
 }
 

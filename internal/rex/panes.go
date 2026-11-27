@@ -173,17 +173,34 @@ type serverVersion struct {
 	APIRevision int    `json:"api_revision"`
 }
 
-// snapshot is the port's snapshot of terms with the server's version, its instance_id as the instance and a note when
-// its API revision is not the one obor's calls are checked against. Each pane's Run is its block's program's pid.
+// snapshot is the port's snapshot of terms with the server's version, its instance_id as the instance and the
+// revision note (revisionNote). Each pane's Run is its block's program's pid.
 func snapshot(kinds agents.Kinds, v serverVersion, st serverStatus, terms []term) port.Snapshot {
-	out := port.Snapshot{Version: v.Version, Instance: st.InstanceID, PaneRuns: true}
-	if v.APIRevision != APIRevision {
-		out.Note = fmt.Sprintf("Rex %s speaks API revision %d; obor's calls are checked against revision %d", v.Version, v.APIRevision, APIRevision)
-	}
+	out := port.Snapshot{Version: v.Version, Instance: st.InstanceID, PaneRuns: true, Note: revisionNote(v)}
 	for _, t := range terms {
 		out.Panes = append(out.Panes, t.pane(kinds))
 	}
 	return out
+}
+
+// revisionNote is the note on a server whose API revision is not the one obor's calls are checked against ("" when it
+// is): "Rex <version> speaks API revision <n>; obor's calls are checked against revision <APIRevision>".
+func revisionNote(v serverVersion) string {
+	if v.APIRevision == APIRevision {
+		return ""
+	}
+	return fmt.Sprintf("Rex %s speaks API revision %d; obor's calls are checked against revision %d", v.Version,
+		v.APIRevision, APIRevision)
+}
+
+// Note is the terminal's note on the API revision its server speaks when that is not the one obor's calls are checked
+// against ("" when it is): obor setup show and obor init's summary print it. It reads server.version.
+func (p Panes) Note(ctx context.Context) (string, error) {
+	var v serverVersion
+	if err := p.C.call(ctx, &v, "server.version", nil); err != nil {
+		return "", err
+	}
+	return revisionNote(v), nil
 }
 
 // Snapshot is the server now: server.version, server.status, then every session's terminal blocks (reads.all).

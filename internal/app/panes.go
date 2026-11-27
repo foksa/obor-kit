@@ -44,8 +44,8 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot, restoring bool) {
 	}
 	a.connected = true
 	a.streams++
-	// The terminal's version and its note: each goes to the log once when it changes. The note is what obor status
-	// shows a person (terminalNote); the version is what the version pass records (versions.go).
+	// The terminal's version and its note: each goes to the log once when it changes. The note is wire.Status'
+	// TerminalNote (obor setup show prints it); the version is what the version pass records (versions.go).
 	if snap.Version != "" && snap.Version != a.termVer {
 		a.logf("terminal: %s", snap.Version)
 	}

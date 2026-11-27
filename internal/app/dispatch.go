@@ -331,7 +331,7 @@ func callerOf(c wire.Envelope) string {
 }
 
 // dispatchTask passes c's refusals (under a.verdicts) and records fact dispatch for
-// it: the reply DISPATCHED <task> → <lane> (queued) and the lanes still idle (idleNote). With c.After not all merged
+// it: the reply DISPATCHED <task> → <lane> (starting) and the lanes still idle (idleNote). With c.After not all merged
 // it records fact waiting instead (waitTask). A refusal records nothing.
 func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 	a.mu.Lock()
@@ -457,7 +457,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	d := event.Dispatch{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Stop: a.keepStop(p, cfg, l, agent, ref),
 		Caller: caller, Call: c.CallID,
-		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
+		Reply: fmt.Sprintf("DISPATCHED %s → %s (starting)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
 			idleNote(ls, l.Name, held) + note}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)

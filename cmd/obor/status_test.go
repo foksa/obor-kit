@@ -347,6 +347,19 @@ func TestServeLineSkew(t *testing.T) {
 	}
 }
 
+// The terminal's note on an API version obor does not know (Rex's revision skew) stays off obor status' text: serve's
+// line names only the terminal's state (obor setup show prints the note).
+func TestStatusOmitsTerminalNote(t *testing.T) {
+	t.Parallel()
+	note := "a terminal newer than obor knows"
+	var b bytes.Buffer
+	writeStatus(&b, view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true,
+		TerminalNote: note}}, time.Now())
+	if strings.Contains(b.String(), note) {
+		t.Errorf("obor status prints the terminal note:\n%s", b.String())
+	}
+}
+
 // obor status' web line under serve's: launchd runs obor.web (its pid and the page's address), it is not running
 // (no agent, or launchd does not have it loaded), and there is no line at all on a host without launchd.
 func TestStatusWebLine(t *testing.T) {
@@ -1307,6 +1320,22 @@ func TestStatusShowsEffortAndType(t *testing.T) {
 	if !strings.Contains(string(js), `"type":"sonnet"`) || !strings.Contains(string(js), `"effort":"high"`) {
 		t.Errorf("--json lanes %s: want L-01's model sonnet and the task's effort high", js)
 	}
+}
+
+// a free lane's row shows no branch and names its last task in the parenthesis ("last T-xx"); a busy lane's row keeps
+// its branch and task id.
+func TestStatusLaneRowsFreeAndBusyBranch(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewDir(t)
+	g := newLaneGit(t)
+	g.lane(p, "L-01", "task/T-01")
+	g.lane(p, "L-02", "task/T-20")
+	p.Config()
+	p.Dispatched("L-01") // L-01 holds T-01; L-02 has no row: free, its last task its branch's
+	ss := wire.Status{Project: &wire.ProjectStatus{Name: "pj", Root: p.Root}}
+	_, text := statusWith(t, p, g, ss, nil, time.Now())
+	matchLine(t, text, `^L-01 +- +task/T-01 +working +- +\(T-01\)  agent: pj-l-01$`, "the busy lane: its branch and task")
+	matchLine(t, text, `^L-02 +- +- +free +- +\(last T-20\)  agent: pj-l-02$`, "the free lane: no branch, its last task named")
 }
 
 // a working Claude lane whose worktree has no enabled obor plugin is warned no-plugin, as an opencode lane

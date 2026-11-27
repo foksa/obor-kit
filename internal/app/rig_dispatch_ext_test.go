@@ -321,7 +321,7 @@ func (r *loopRig) mustDispatch(callID string) {
 // here too.
 func (r *loopRig) dispatched(reply string, err error) {
 	r.t.Helper()
-	if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
+	if err != nil || reply != "DISPATCHED T-1 → L-01 (starting) as sonnet" {
 		r.t.Fatalf("dispatch: %q, %v; want the dispatch of T-1 onto L-01 as sonnet", reply, err)
 	}
 }

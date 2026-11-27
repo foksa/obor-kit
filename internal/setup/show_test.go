@@ -1,7 +1,9 @@
 package setup
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -174,5 +176,35 @@ func pauseStep(t *testing.T, p *testkit.Project, step string, d event.Pause) {
 	if _, err := l.Append(event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact, Data: data},
 		time.Now()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// obor setup show prints the terminal's note on an API version obor does not know, after the table; a terminal with no
+// note (nil, "", or a read that failed) adds no line.
+func TestSetupShowPrintsTheTerminalNote(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("agents.confirmed", true))
+	const note = "the terminal speaks a version obor knows less than"
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	s.Note = func(context.Context) (string, error) { return note, nil }
+	if rc := s.Run(context.Background(), []string{"show"}); rc != 0 {
+		t.Fatalf("obor setup show: exit %d\n%s", rc, out)
+	}
+	if want := "terminal: " + note + "\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("obor setup show lacks %q:\n%s", want, out)
+	}
+	for name, fn := range map[string]func(context.Context) (string, error){
+		"nil":   nil,
+		"empty": func(context.Context) (string, error) { return "", nil },
+		"error": func(context.Context) (string, error) { return "", errors.New("no answer") },
+	} {
+		s, out := x.newSetup(t)
+		s.Dir = x.Root
+		s.Note = fn
+		rc := s.Run(context.Background(), []string{"show"})
+		if rc != 0 || strings.Contains(out.String(), "terminal:") {
+			t.Errorf("%s note: exit %d, output\n%s", name, rc, out)
+		}
 	}
 }

@@ -134,6 +134,16 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 	return out, err
 }
 
+// Note is the adapter's note on a core that lacks a call obor makes (Snapshot's Note), for obor setup show: one
+// snapshot.
+func (p Panes) Note(ctx context.Context) (string, error) {
+	snap, err := p.Snapshot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return snap.Note, nil
+}
+
 // Notify: hc has no notifications of its own (HD6), so the toast is the OS's notification with the same title and body
 // (osnotify), bounded by ctx; when none shows, it is a port.NotShown with the reason.
 func (p Panes) Notify(ctx context.Context, title, body string) error {

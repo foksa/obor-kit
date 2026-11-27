@@ -111,6 +111,16 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 	return p.appSnapshot(s), nil
 }
 
+// Note is the adapter's note on a herdr newer than obor knows (Snapshot's Note), for obor setup show: one
+// session.snapshot.
+func (p Panes) Note(ctx context.Context) (string, error) {
+	snap, err := p.Snapshot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return snap.Note, nil
+}
+
 // Notify is notification.show.
 func (p Panes) Notify(ctx context.Context, title, body string) error {
 	return p.S.Notify(ctx, title, body)

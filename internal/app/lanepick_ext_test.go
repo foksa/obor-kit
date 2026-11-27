@@ -28,7 +28,7 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 			t.Fatalf("pause sonnet: %q, %v", reply, err)
 		}
 		reply, err := r.dispatchLevel("d1")
-		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as deepseek") {
+		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (starting) as deepseek") {
 			t.Fatalf("medium with sonnet paused: %q, %v; want deepseek", reply, err)
 		}
 		r.specOf("T-3", "# T-3 — Leveled\n\nDifficulty: medium\n")
@@ -106,7 +106,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 			r.addLanes(append([]port.Lane{{Name: "L-02", State: "free"}}, busy...)...)
 			r.start()
 			reply, err := r.dispatch("d1", "", "sonnet", "opus")
-			if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet; idle: L-02" {
+			if err != nil || reply != "DISPATCHED T-1 → L-01 (starting) as sonnet; idle: L-02" {
 				t.Fatalf("dispatch: %q, %v", reply, err)
 			}
 			r.waitStep("1 result work")
