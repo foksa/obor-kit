@@ -46,9 +46,16 @@ func (p *typist) Recent(_ context.Context, _ string, lines int) (string, error) 
 	return read("obor-env-"+m[1], "obor-env-"+m[2])
 }
 
-func run(t *testing.T, p *typist) (project.EnvLineResult, error) {
+// wordBound is how long a read that ends on a word waits: seconds, which no load reaches, and the wait returns as soon
+// as the word shows.
+const wordBound = 10 * time.Second
+
+// noWordBound is how long the cases that wait for a word that never shows wait: the whole bound elapses.
+const noWordBound = 50 * time.Millisecond
+
+func run(t *testing.T, p *typist, bound time.Duration) (project.EnvLineResult, error) {
 	t.Helper()
-	return project.RunEnvLine(context.Background(), p, "pane1", "cd /x", time.Millisecond, 50*time.Millisecond)
+	return project.RunEnvLine(context.Background(), p, "pane1", "cd /x", time.Millisecond, bound)
 }
 
 // The handshake types the line with both words quoted (so the typed line never reads as an echoed word) and says what
@@ -58,20 +65,21 @@ func TestRunEnvLineSaysWhatTheShellPrinted(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		reads []func(ok, bad string) (string, error)
+		bound time.Duration
 		want  project.EnvLineResult
 	}{
 		{"the success word", []func(ok, bad string) (string, error){
-			func(ok, bad string) (string, error) { return "% cd /x && echo obor-env-\"1\"\n" + ok + "\n% ", nil }}, project.EnvLineDone},
+			func(ok, bad string) (string, error) { return "% cd /x && echo obor-env-\"1\"\n" + ok + "\n% ", nil }}, wordBound, project.EnvLineDone},
 		{"the failure word", []func(ok, bad string) (string, error){
-			func(ok, bad string) (string, error) { return bad + "\n% ", nil }}, project.EnvLineFailed},
+			func(ok, bad string) (string, error) { return bad + "\n% ", nil }}, wordBound, project.EnvLineFailed},
 		{"neither: only the typed line", []func(ok, bad string) (string, error){
 			func(ok, bad string) (string, error) {
 				return "% cd /x && echo " + strings.Replace(ok, "obor-env-", `obor-env-"`, 1) + `"`, nil
-			}}, project.EnvLineNoMark},
+			}}, noWordBound, project.EnvLineNoMark},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := &typist{reads: c.reads}
-			got, err := run(t, p)
+			got, err := run(t, p, c.bound)
 			if err != nil || got != c.want {
 				t.Fatalf("RunEnvLine = %v, %v; want %v", got, err, c.want)
 			}
@@ -91,7 +99,7 @@ func TestRunEnvLinePollsPastStaleAndFailedReads(t *testing.T) {
 		func(ok, bad string) (string, error) { return "", errors.New("terminal.read: boom") },
 		func(ok, bad string) (string, error) { return "% line\n" + ok + "\n% ", nil },
 	}}
-	got, err := run(t, p)
+	got, err := run(t, p, wordBound)
 	if err != nil || got != project.EnvLineDone {
 		t.Fatalf("RunEnvLine = %v, %v; want the success word that showed on the third read", got, err)
 	}
@@ -100,7 +108,7 @@ func TestRunEnvLinePollsPastStaleAndFailedReads(t *testing.T) {
 	}
 
 	always := &typist{reads: []func(ok, bad string) (string, error){func(ok, bad string) (string, error) { return "", errors.New("boom") }}}
-	if got, err := run(t, always); err != nil || got != project.EnvLineNoMark || always.n < 2 {
+	if got, err := run(t, always, noWordBound); err != nil || got != project.EnvLineNoMark || always.n < 2 {
 		t.Errorf("reads that always fail: RunEnvLine = %v, %v after %d reads; want no mark, none of them an error", got, err, always.n)
 	}
 }
@@ -109,7 +117,7 @@ func TestRunEnvLinePollsPastStaleAndFailedReads(t *testing.T) {
 func TestRunEnvLineWriteErrorIsTheError(t *testing.T) {
 	t.Parallel()
 	boom := errors.New("terminal.send: boom")
-	if _, err := run(t, &typist{writeErr: boom, reads: []func(ok, bad string) (string, error){nil}}); !errors.Is(err, boom) {
+	if _, err := run(t, &typist{writeErr: boom, reads: []func(ok, bad string) (string, error){nil}}, noWordBound); !errors.Is(err, boom) {
 		t.Errorf("RunEnvLine = %v, want the write's error", err)
 	}
 }
