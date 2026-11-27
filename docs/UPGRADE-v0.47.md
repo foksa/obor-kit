@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.46 to v0.47
 
+## v0.47.6 (obor read; spec show --report; the terminal's own manual)
+
+From v0.47.5. Nothing to change.
+
+```sh
+# after updating the kit, in the project
+# nothing to do
+```
+
+A running lead picks up the new skill text at its next start (`obor lead --resume`); until then it may still read
+panes with `herdr pane read`, which keeps working on herdr.
+
 ## v0.47.5 (serve adds a raised lane count's worktrees)
 
 From v0.47.4. Nothing to change.
