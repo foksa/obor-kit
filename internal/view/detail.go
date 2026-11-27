@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"obor/internal/app/describe"
 	"obor/internal/app/event"
@@ -49,14 +50,16 @@ type Report struct {
 
 // ReportAnswer is a task's report answer: the latest submission that carries a report (Report, Has), or, when it has
 // none, the end the same records carry. Ended is the terminal step, merged or dropped ("" — not ended); Merged is the
-// merge commit's abbreviated sha ("" when not merged, or the merge happened outside obor serve) and EndedOn the
-// terminal record's date (YYYY-MM-DD).
+// merge commit's abbreviated sha ("" when not merged, or the merge happened outside obor serve), EndedOn the
+// terminal record's date (YYYY-MM-DD) and Pruned whether that end is older than the log's event.Retention (the prune
+// could have deleted a report).
 type ReportAnswer struct {
 	Report
 	Has     bool
 	Ended   string
 	Merged  string
 	EndedOn string
+	Pruned  bool
 }
 
 // TaskRecord is one record of a task's timeline: its seq, time, step and kind, the worded line when the view words
@@ -158,7 +161,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	if err != nil {
 		return t, found
 	}
-	if a := reportAnswer(recs); a.Has {
+	if a := reportAnswer(recs, time.Now()); a.Has {
 		t.Report = a.Text
 	}
 	reached := -1
@@ -266,10 +269,11 @@ func (d Detail) Job(job string) (Prompt, bool) {
 	return promptOf(rows[0]), true
 }
 
-// LatestReport is task's report answer, read-only from the same records the task page reads: its latest submission
-// that carries a report, or, when none is left, the task's end (merged or dropped). An error is a store or its records
-// that could not be read (never "no report", which is an answer with nothing in it).
-func (d Detail) LatestReport(task string) (ReportAnswer, error) {
+// LatestReport is task's report answer read at now, read-only from the same records the task page reads: its latest
+// submission that carries a report, or, when none is left, the task's end (merged or dropped), marked pruned when the
+// end is older than event.Retention. An error is a store or its records that could not be read (never "no report",
+// which is an answer with nothing in it).
+func (d Detail) LatestReport(task string, now time.Time) (ReportAnswer, error) {
 	if task == "" {
 		return ReportAnswer{}, nil
 	}
@@ -285,13 +289,14 @@ func (d Detail) LatestReport(task string) (ReportAnswer, error) {
 	if err != nil {
 		return ReportAnswer{}, err
 	}
-	return reportAnswer(recs), nil
+	return reportAnswer(recs, now), nil
 }
 
-// reportAnswer is recs' (newest first) report answer: the newest submission that carries a report; else the task's end,
-// the newest dispatch opening it again. A drop of a task the log never dispatched is revived by a spec.set of a later
-// rev (foldSpecSet), so it answers as open too.
-func reportAnswer(recs []event.Record) ReportAnswer {
+// reportAnswer is recs' (newest first) report answer at now: the newest submission that carries a report; else the
+// task's end, the newest dispatch opening it again. A drop of a task the log never dispatched is revived by a spec.set
+// of a later rev (foldSpecSet), so it answers as open too. An end before now less event.Retention is pruned: the prune
+// could have deleted the report.
+func reportAnswer(recs []event.Record, now time.Time) ReportAnswer {
 	if r, ok := latestReport(recs); ok {
 		return ReportAnswer{Report: r, Has: true}
 	}
@@ -312,7 +317,9 @@ func reportAnswer(recs []event.Record) ReportAnswer {
 			if r.Step == event.StepDropped && r.Fact().Rev > 0 && specRev > r.Fact().Rev {
 				return a
 			}
-			a.Ended, a.EndedOn = r.Step, event.RecordTime(r).Format("2006-01-02")
+			end := event.RecordTime(r)
+			a.Ended, a.EndedOn = r.Step, end.Format("2006-01-02")
+			a.Pruned = end.Before(now.Add(-event.Retention))
 			if m, ok := event.MergeOf(r); ok {
 				a.Merged = m.SHA[:min(7, len(m.SHA))]
 			}

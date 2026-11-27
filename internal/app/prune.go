@@ -1,7 +1,7 @@
 // prune.go: the nightly prune of the event log (docs/research/event-log-pruning.md §3): serve's backup request
-// deletes the records of the tasks that ended eventKeep ago, all but each one's last terminal fact, and the session
-// facts as old that are no agent's current session. Serve's memory is not touched: the next start folds the smaller
-// table. Package event owns the task rows' SQL, store the session rows'; this file owns which tasks.
+// deletes the records of the tasks that ended event.Retention ago, all but each one's last terminal fact, and the
+// session facts as old that are no agent's current session. Serve's memory is not touched: the next start folds the
+// smaller table. Package event owns the task rows' SQL, store the session rows'; this file owns which tasks.
 package app
 
 import (
@@ -19,10 +19,6 @@ import (
 	"time"
 )
 
-// eventKeep is how long the log keeps an ended task's records after its end, and an old session's: longer
-// than promptKeep, so a prompt row never names a deleted fact.
-const eventKeep = 30 * 24 * time.Hour
-
 // pruneBatch is how many tasks one transaction of the prune deletes: a kill between batches leaves fewer tasks pruned,
 // and the next night goes on.
 const pruneBatch = 500
@@ -36,7 +32,7 @@ func (a *App) pruneLog(p *proj, cfg *config.Config, now time.Time) {
 // pruneLogIn is pruneLog with at most batch tasks per transaction. The tasks are chosen under mu, at the log's last
 // seq (the horizon: nothing at or above it is deleted); the per-task check and the deletes run outside it.
 func (a *App) pruneLogIn(p *proj, cfg *config.Config, now time.Time, batch int) {
-	cutoff := now.Add(-eventKeep)
+	cutoff := now.Add(-event.Retention)
 	a.mu.Lock()
 	horizon := p.log.LastSeq()
 	cands := p.pruneCandidates(cfg, cutoff)
@@ -82,7 +78,7 @@ func (a *App) pruneLogIn(p *proj, cfg *config.Config, now time.Time, batch int) 
 	}
 	if rows > 0 || sessions > 0 {
 		a.logf("%s pruned %d records of %d tasks ended over %s ago (%d kept whole: %v) and %d session records",
-			p.name, rows, pruned, eventKeep, len(whole), whole, sessions)
+			p.name, rows, pruned, event.Retention, len(whole), whole, sessions)
 	}
 }
 

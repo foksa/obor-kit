@@ -47,6 +47,10 @@ const (
 	StepResumed  = "resumed"   // the lane's agent works again: the task's watchdog facts but a question end
 )
 
+// Retention is how long the log keeps an ended task's records after its end, and an old session's: longer than a
+// prompt row's keep (app's promptKeep), so a prompt row never names a deleted fact.
+const Retention = 30 * 24 * time.Hour
+
 // FactData is a watchdog fact's data: where the agent is and why the fact fired.
 type FactData struct {
 	Lane    string `json:"lane,omitempty"`

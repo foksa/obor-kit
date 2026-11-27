@@ -193,16 +193,20 @@ func TestSpecShowReport(t *testing.T) {
 	}
 }
 
-// obor spec show --report says a task's report was pruned when its submissions are gone: merged names the commit and
-// the git command that carries the Summary, dropped its date, a merge outside obor serve names no commit; a task still
-// open with none says none yet.
+// obor spec show --report says a task's report was pruned only when its end is older than the log's keep: merged past
+// it names the commit and the git command that may carry the Summary, dropped past it its date, a merge outside obor
+// serve names no commit. An end inside the keep with no submission says none with that end; a task still open with
+// none says none yet.
 func TestSpecShowReportPruned(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
 	env := []string{"OBOR_STATE_HOME=" + t.TempDir()} // no serve
-	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	now := time.Now()
+	const day = 24 * time.Hour
+	on := func(d time.Duration) string { return now.UTC().Add(-d).Format("2006-01-02") }
 	p.Dispatched("L-01")
-	p.MergedAt("T-01", "abcdef0123456789", false, at.Unix())
+	p.MergedAt("T-01", "abcdef0123456789", false, now.Add(-40*day).Unix())
+	p.MergedAt("T-05", "1234567890abcdef", false, now.Add(-5*day).Unix())
 	p.PlainLane("L-02", "task/T-02")
 	p.Dispatched("L-02")
 	db, err := store.OpenRW(store.File(p.Root))
@@ -214,23 +218,30 @@ func TestSpecShowReportPruned(t *testing.T) {
 		db.Close()
 		t.Fatal(err)
 	}
-	for _, r := range []event.Record{
-		{Task: "T-03", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
-			Data: []byte(`{"rev":1,"reason":"not needed"}`)},
-		{Task: "T-04", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
-			Data: []byte(`{"outside":true}`)},
+	for _, c := range []struct {
+		rec event.Record
+		at  time.Time
+	}{
+		{event.Record{Task: "T-03", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
+			Data: []byte(`{"rev":1,"reason":"not needed"}`)}, now.Add(-7 * day)},
+		{event.Record{Task: "T-04", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
+			Data: []byte(`{"outside":true}`)}, now.Add(-40 * day)},
+		{event.Record{Task: "T-06", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
+			Data: []byte(`{"rev":1,"reason":"not needed"}`)}, now.Add(-40 * day)},
 	} {
-		if _, err := log.Append(r, at); err != nil {
+		if _, err := log.Append(c.rec, c.at); err != nil {
 			t.Fatal(err)
 		}
 	}
 	log.Close()
 	for _, c := range []struct{ task, want string }{
-		{"T-01", "T-01 report: pruned (merged abcdef0 on 2026-11-01; the log keeps 30 days): " +
-			"git log -1 --format=%B abcdef0 carries its Summary\n"},
+		{"T-01", "T-01 report: pruned (merged abcdef0 on " + on(40*day) + "; the log keeps 30 days): " +
+			"git log -1 --format=%B abcdef0 may carry its Summary\n"},
 		{"T-02", "T-02 report: none yet\n"},
-		{"T-03", "T-03 report: pruned (dropped on 2026-11-01; the log keeps 30 days)\n"},
-		{"T-04", "T-04 report: pruned (merged outside obor serve on 2026-11-01; the log keeps 30 days)\n"},
+		{"T-03", "T-03 report: none (dropped on " + on(7*day) + " before a report)\n"},
+		{"T-04", "T-04 report: pruned (merged outside obor serve on " + on(40*day) + "; the log keeps 30 days)\n"},
+		{"T-05", "T-05 report: none (merged 1234567 on " + on(5*day) + " with no report)\n"},
+		{"T-06", "T-06 report: pruned (dropped on " + on(40*day) + "; the log keeps 30 days)\n"},
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, "spec", "show", c.task, "--report"); rc != 0 || stdout != c.want {
 			t.Errorf("%s: exit %d, %q; want %q", c.task, rc, stdout, c.want)
