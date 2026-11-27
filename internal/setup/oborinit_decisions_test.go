@@ -337,6 +337,84 @@ func TestOborInitCommitsItsOwnFilesAndLeavesTheUsersAlone(t *testing.T) {
 	}
 }
 
+// The count init reports after its commit: every path git status lists, untracked and staged alike, one per path (a
+// path both staged and on disk counts once).
+func TestUncommittedCount(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		write []string
+		stage []string
+		want  int
+	}{
+		{"clean", nil, nil, 0},
+		{"untracked only", []string{"README.md"}, nil, 1},
+		{"staged only", []string{"README.md"}, []string{"README.md"}, 1},
+		{"mixed", []string{"README.md", "docs/plan.md"}, []string{"docs/plan.md"}, 2},
+		{"a staged change of a committed file", nil, []string{".gitignore"}, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFakeGitFx(t)
+			// the fixture's config is on disk but not in the fake's commit (a plain project leaves it uncommitted):
+			// init's own commit holds it, as it does after obor init.
+			if err := x.fake.Commit(x.Root, "obor init", []string{".obor/config.json"}); err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range c.write {
+				x.Write(f, "the owner's text\n")
+			}
+			if len(c.stage) > 0 {
+				if err := x.fake.stage(x.Root, c.stage...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := &Setup{Dir: x.Root, Env: x.Env(), host: x.host}
+			if err := s.findRoot(); err != nil {
+				t.Fatal(err)
+			}
+			if got := s.uncommittedCount(); got != c.want {
+				t.Errorf("count %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// An unborn repository whose owner has an uncommitted package.json and lockfile: init commits its own paths, makes the
+// lanes and runs no lanes.setup in them (the files are not in a lane yet); the summary says setup waits for the files.
+// A committed project's lanes run it (TestOborInitSuggestsTypecheckForCompile's own setup).
+func TestOborInitDefersLaneSetupUntilTheOwnerCommits(t *testing.T) {
+	// Not parallel: the lane's shell reads this process's PATH, where the fake npm is first.
+	x := newFakeGitInitFx(t, true)
+	dir := x.unborn(t, "unborn")
+	x.Write(filepath.Join(dir, "package.json"), `{"scripts":{"test":"vitest run"}}`)
+	x.Write(filepath.Join(dir, "package-lock.json"), "{}\n")
+	marker := filepath.Join(x.Base, "npm-ran")
+	testkit.Script(t, x.bin, "npm", "#!/bin/sh\necho \"$*\" >> '"+marker+"'\n")
+	t.Setenv("PATH", x.bin+":/usr/bin:/bin")
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if x.Exists(marker) {
+		t.Fatalf("lane_setup ran in a lane without the owner's files: %q", x.Read(marker))
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Data.Lanes.Setup.Cmd; got != "npm ci" {
+		t.Errorf("lanes.setup = %q, want the detected npm ci", got)
+	}
+	for _, lane := range []string{"L-01", "L-02"} {
+		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
+			t.Errorf("no worktree for %s: %v", lane, err)
+		}
+	}
+	has(t, out, "2 files left uncommitted", "the owner's files counted")
+	has(t, out, "lanes.setup waits for the files to be committed: serve runs it at the first dispatch", "the deferred setup line")
+}
+
 // A plain directory with files: init makes it a repository and the same commit of its own paths; the owner's files stay
 // untracked and untouched.
 func TestOborInitInAPlainDirWithFiles(t *testing.T) {

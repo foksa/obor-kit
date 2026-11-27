@@ -361,13 +361,18 @@ the lead. The terminal: an existing config's `project.terminal`; else the one th
 overrides; the choice is written into the new config. On hc the core's env check is the first step (a leaked core:
 FAIL before any write). Then the terminal reachable (else FAIL first), config with the detected commands, lanes for
 the CLIs on PATH, the git hooks layer, the plugin (`claude plugin marketplace add <kit>` + `install obor@<kit
-marketplace> --scope project`); in a directory with no commit, one "obor init" commit holding every file init
-wrote or found at its own paths (any other file there: FAIL, no write), so the tree is clean after; then panes and
-roles, `obor serve install`, a short summary (warnings, herdr's `resume_agents_on_restore = false` hint while its
-config lacks it) and the lead's start: in the calling pane when it is the chosen terminal's, carries no
-`OBOR_ROLE` and is alone in its tab, else a new `lead` tab; a lead already running is left as it is. `obor lead` with
-no config runs `obor init`. The lead's first session asks one question (keep or change the models and lanes,
-`agents.confirmed`). Every step is idempotent: a rerun is
+marketplace> --scope project`); in a directory with no commit, one "obor init" commit holding init's own paths (the
+config, .gitignore, the docs, the plugin settings, whatever their bytes): every other path the owner has stays
+uncommitted and untouched, the summary counts them (untracked and staged alike), and while any is left the lanes get
+their worktrees but no `lanes.setup` (serve's lane prepare runs it at the first dispatch, once the files are
+committed); then panes and roles, `obor serve install`, a short summary (warnings, herdr's
+`resume_agents_on_restore = false` hint while its config lacks it) and the lead's start: in the calling pane when it
+is the chosen terminal's, carries no `OBOR_ROLE` and is alone in its tab, else a new `lead` tab; a lead already
+running is left as it is. `obor lead` with no config runs `obor init`. The lead's first session asks two questions
+while `agents.confirmed` is unset, the files one first: commit what git lists as uncommitted (`git status -z`, so a
+nested path is listed as itself; likely secrets are flagged and stay out unless the owner includes them; a session
+interrupted before the models answer asks again while files remain), then keep or change the models and lanes. Every
+step is idempotent: a rerun is
 the repair path. Placement: a workspace or tab is the project's when every pane in it with a
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
 a workspace whose only pane is a shell `cd`'d into the project counts as the project's (accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the

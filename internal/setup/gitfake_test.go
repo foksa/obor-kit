@@ -36,7 +36,8 @@ type fakeRepo struct {
 	branch    string
 	commits   []fakeCommit // oldest first
 	config    map[string]string
-	worktrees []string // dirs, in the order they were added
+	worktrees []string        // dirs, in the order they were added
+	staged    map[string]bool // paths a test staged (git add), not yet in a commit
 }
 
 // fakeCommit is a commit: its subject and the files it holds (path → content) as of that commit.
@@ -163,8 +164,10 @@ func (f *fakeGit) Git(dir string, args ...string) (string, error) {
 			return fail("fatal: bad revision 'HEAD'")
 		}
 		return strings.Join(r.commits[len(r.commits)-1].added, "\n") + "\n", nil
-	case line == "status --porcelain --untracked-files=all": // the files the last commit does not hold
-		return r.untracked()
+	case line == "status --porcelain --untracked-files=all":
+		return r.status(false)
+	case line == "status --porcelain -z --untracked-files=all":
+		return r.status(true)
 	case line == "worktree list":
 		out := r.root + " " + r.sha() + " [" + r.branch + "]\n"
 		for _, w := range r.worktrees {
@@ -204,16 +207,24 @@ func (f *fakeGit) config(r *fakeRepo, args []string) (string, error) {
 
 func (r *fakeRepo) sha() string { return fmt.Sprintf("%040x", len(r.commits)) }
 
-// untracked is git status --porcelain --untracked-files=all: "?? path" for each file on disk the last commit does not
-// hold (the fake knows no ignore rules).
-func (r *fakeRepo) untracked() (string, error) {
+// status is git status --porcelain[ -z] --untracked-files=all: "?? path" for each file on disk the last commit does
+// not hold, "A  path" (or "M  " when the commit holds it) for each path staged there; one entry per path, sorted. z:
+// git's NUL-terminated form. The fake knows no ignore rules.
+func (r *fakeRepo) status(z bool) (string, error) {
 	held := map[string]bool{}
 	if n := len(r.commits); n > 0 {
 		for p := range r.commits[n-1].files {
 			held[p] = true
 		}
 	}
-	var lines []string
+	lines := map[string]string{}
+	for p := range r.staged {
+		code := "A  "
+		if held[p] {
+			code = "M  "
+		}
+		lines[p] = code + p
+	}
 	err := filepath.WalkDir(r.root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -229,19 +240,31 @@ func (r *fakeRepo) untracked() (string, error) {
 			}
 			return nil
 		}
-		if !d.IsDir() && !held[rel] {
-			lines = append(lines, "?? "+rel)
+		if !d.IsDir() {
+			if _, staged := lines[rel]; !staged && !held[rel] {
+				lines[rel] = "?? " + rel
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	sort.Strings(lines)
-	if len(lines) == 0 {
-		return "", nil
+	paths := make([]string, 0, len(lines))
+	for p := range lines {
+		paths = append(paths, p)
 	}
-	return strings.Join(lines, "\n") + "\n", nil
+	sort.Strings(paths)
+	var out strings.Builder
+	for _, p := range paths {
+		out.WriteString(lines[p])
+		if z {
+			out.WriteByte('\x00')
+		} else {
+			out.WriteByte('\n')
+		}
+	}
+	return out.String(), nil
 }
 
 // removeWorktree is git worktree remove --force: the directory and its registration go.
@@ -313,6 +336,24 @@ func (f *fakeGit) AddWorktree(ctx context.Context, root, dir, ref string) (bool,
 	return true, nil
 }
 
+// stage records paths (relative to dir's repository) as staged, as git add would: status lists them as "A  path"
+// ("M  " when the last commit holds the path) until a commit takes them.
+func (f *fakeGit) stage(dir string, paths ...string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.repoFor(dir)
+	if r == nil {
+		return fmt.Errorf("fakeGit: not a git repository: %s", dir)
+	}
+	if r.staged == nil {
+		r.staged = map[string]bool{}
+	}
+	for _, p := range paths {
+		r.staged[p] = true
+	}
+	return nil
+}
+
 // Commit is a commit of exactly files, as the disk has them now, on top of the last one.
 func (f *fakeGit) Commit(root, msg string, files []string) error {
 	f.mu.Lock()
@@ -334,6 +375,7 @@ func (f *fakeGit) Commit(root, msg string, files []string) error {
 			return project.Failf("git add %s", strings.Join(files, " "))
 		}
 		c.files[p] = string(b)
+		delete(r.staged, p)
 	}
 	r.commits = append(r.commits, c)
 	return nil
