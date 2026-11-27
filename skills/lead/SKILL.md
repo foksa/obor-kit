@@ -27,7 +27,8 @@ command and this file's path on any other agent.
   `obor watch`, `obor spec show`, `git log`, `git status`, reading files), then present the state and the options — the
   Handoff's next steps and anything `obor status` shows that needs action — and wait for the owner to pick one
   (`AskUserQuestion` where the client has it). Until then: no dispatch, no review, no `obor idle`, no resume, no drop,
-  no commit. The one exception is step 3: a first session's model confirmation still asks the owner.
+  no commit. The one exception is step 3: a first session's model confirmation and its files question still go ahead,
+  commit included.
 
 The start checks, both ways:
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
@@ -40,7 +41,11 @@ The start checks, both ways:
    (`lanes.types`, say) is dropped with a WARN by every command and serve, and `obor config validate` fails naming it:
    delete or fix it. Never change a model setting without the owner's answer; `obor init` wrote what it found, not what
    they chose. If the table says `merge.check: not set`, say so after it: the first task sets the stack up (see
-   `commands.md`, "What init no longer says").
+   `commands.md`, "What init no longer says"). Then, when `git status --porcelain` lists files, ask one question,
+   "Commit these N files? Workers see only committed files.": the top-level names, options `Commit all (Recommended)` /
+   `Leave them`, and any likely secret in the list (`.env*`, `*.pem`, `*.key`, `id_rsa*`) flagged in the question.
+   Commit all: `git add -A`, unstage a flagged file the owner did not include (`git reset -- <file>`), then
+   `git commit -m "Initial commit"` (no `-a`).
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`.
 

@@ -3,8 +3,6 @@ package setup
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -226,27 +224,15 @@ func (s *Setup) gitInit() error {
 	return nil
 }
 
-// autoCommit reports whether this init makes the "obor init" commit: root's branch has no commit and every file in
-// root is at one of init's own paths (initPaths; the bytes do not matter: they are init's input). No commit and any
-// other file in root: FAIL, before init writes anything (init never commits or touches the user's other files). A
-// repository with a commit: false. repo: root is a git repository (else a plain directory).
-func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
-	if repo {
-		if _, err := s.git().Git(root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
-			return false, nil
-		}
+// autoCommit reports whether this init makes the "obor init" commit: root has no commit yet. A repository with a
+// commit: false. initCommit commits init's own paths only; any other file in root stays untracked and untouched.
+// repo: root is a git repository (else a plain directory, which gitInit makes one).
+func (s *Setup) autoCommit(root string, repo bool) bool {
+	if !repo {
+		return true
 	}
-	if !onlyPaths(root, s.initPaths(root)) {
-		branch := s.initBranch()
-		if repo {
-			if b, err := s.git().Git(root, "symbolic-ref", "--short", "HEAD"); err == nil && strings.TrimSpace(b) != "" {
-				branch = strings.TrimSpace(b)
-			}
-		}
-		return false, project.Failf("%s has no commit yet and %s has files: commit what belongs in the project, then "+
-			"obor init again", branch, root)
-	}
-	return true, nil
+	_, err := s.git().Git(root, "rev-parse", "-q", "--verify", "HEAD")
+	return err != nil
 }
 
 // defaultBranch is the project repository's default branch (config.DefaultBranch), read through the git seam.
@@ -268,39 +254,6 @@ func (s *Setup) initPaths(root string) []string {
 	return paths
 }
 
-// onlyPaths reports whether root holds nothing but .git, the directories of paths and the regular files at paths.
-func onlyPaths(root string, paths []string) bool {
-	errStray := errors.New("stray")
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(root, p)
-		rel = filepath.ToSlash(rel)
-		switch {
-		case rel == ".":
-			return nil
-		case rel == ".git":
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		case d.IsDir():
-			for _, w := range paths {
-				if strings.HasPrefix(w, rel+"/") {
-					return nil
-				}
-			}
-			return errStray
-		}
-		if !d.Type().IsRegular() || !slices.Contains(paths, rel) {
-			return errStray
-		}
-		return nil
-	})
-	return err == nil
-}
-
 // initCommit makes the "obor init" commit when auto (autoCommit): init's own paths that exist, the commit the lanes
 // branch from. committed is what it committed, nil when it made no commit.
 func (s *Setup) initCommit(auto bool) (committed []string, err error) {
@@ -320,6 +273,21 @@ func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 		return nil, err
 	}
 	return committed, nil
+}
+
+// untrackedCount is how many files under root git reports untracked and not ignored (0 when git cannot say).
+func (s *Setup) untrackedCount() int {
+	out, err := s.git().Git(s.root, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "?? ") {
+			n++
+		}
+	}
+	return n
 }
 
 // lastLine is the last non-empty line of out, else err.
