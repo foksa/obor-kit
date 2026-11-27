@@ -11,9 +11,9 @@ package setup
 //	           FAIL (the lead runs it).
 //	git        no commit yet: the directory gets git init (when in no repository) and, after the config edits and the
 //	           plugin install, the one "obor init" commit holding init's own paths (.obor/config.json, .gitignore, the
-//	           docs, .claude/settings.json; whatever their bytes), before the worktrees: the lanes branch from it. Any
-//	           other file there stays untracked and untouched, and the summary says how many there are. A repository
-//	           with a commit: untouched.
+//	           docs, .claude/settings.json; whatever their bytes), before the worktrees: the lanes branch from it. Every
+//	           other path git lists as uncommitted (untracked and staged alike) stays so, untouched, and the summary
+//	           says how many there are. A repository with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
 //	space      the caller's pane, decided before any pane is placed: when it qualifies as the lead's (no OBOR_ROLE,
@@ -114,7 +114,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return project.Failf("%s is not on PATH (the lead runs it): install it, then obor init again", agents.Default)
 	}
 	// git: a directory in no repository gets one; a repository without a commit gets its first below, from
-	// init's own files (the lanes branch from it); any other file stays untracked and untouched.
+	// init's own files (the lanes branch from it); any other path stays uncommitted and untouched.
 	root, repo := s.Dir, true
 	switch r, err := s.git().Find(s.Dir); {
 	case errors.Is(err, project.ErrNotGit):
@@ -236,15 +236,18 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	add("plugin", state, "%s", what)
 
 	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it). The count is
-	// taken now: every file left untracked is the owner's.
+	// taken now: every path left uncommitted (untracked and staged alike) is the owner's, and while any is left the
+	// lanes get no lanes.setup: it needs files that are not in them yet (serve runs it at the first dispatch, once
+	// the owner has committed them).
 	committed, err := s.initCommit(auto)
 	if err != nil {
 		return err
 	}
 	left := 0
 	if len(committed) > 0 {
-		left = s.untrackedCount()
+		left = s.uncommittedCount()
 	}
+	s.deferLaneSetup = left > 0
 
 	// githooks
 	hooksChanged, err := s.githooksStep(nil)
@@ -257,7 +260,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	var made, had []string
 	for _, l := range initLaneNames(s.cfg) {
 		if s.cfg.HasLane(l) {
-			done, err := s.laneDone(ctx, l, filepath.Join(s.cfg.LanesDir(), l))
+			done, err := s.laneDone(ctx, l, filepath.Join(s.cfg.LanesDir(), l), s.deferLaneSetup)
 			if err != nil {
 				return err
 			}
@@ -272,6 +275,10 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		if err := s.load(); err != nil { // the next lane follows the count this one wrote
 			return err
 		}
+		if s.deferLaneSetup {
+			made = append(made, l)
+			continue
+		}
 		// The rerun's lane_setup must leave the lane ready: a lane the user is told "done" is one they can use.
 		if c, out, ok := s.laneReady(ctx, filepath.Join(s.cfg.LanesDir(), l)); !ok {
 			return project.Failf("lane %s: lane_ready still fails after lane_setup (%s): %s", l, c.Cmd, out)
@@ -282,6 +289,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	lanes := strings.Join(append(made, had...), ", ") + "; " + types
+	if s.deferLaneSetup {
+		lanes += "; lanes.setup waits for the files to be committed: serve runs it at the first dispatch"
+	}
 	add("lanes", doneOr(len(made) > 0 || strings.Contains(types, "→")), "%s", lanes)
 
 	// plugin links: an untracked settings file (a repository with a commit) reaches the lanes by link

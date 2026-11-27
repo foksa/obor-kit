@@ -225,7 +225,7 @@ func (s *Setup) gitInit() error {
 }
 
 // autoCommit reports whether this init makes the "obor init" commit: root has no commit yet. A repository with a
-// commit: false. initCommit commits init's own paths only; any other file in root stays untracked and untouched.
+// commit: false. initCommit commits init's own paths only; any other path in root stays uncommitted and untouched.
 // repo: root is a git repository (else a plain directory, which gitInit makes one).
 func (s *Setup) autoCommit(root string, repo bool) bool {
 	if !repo {
@@ -275,16 +275,24 @@ func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 	return committed, nil
 }
 
-// untrackedCount is how many files under root git reports untracked and not ignored (0 when git cannot say).
-func (s *Setup) untrackedCount() int {
-	out, err := s.git().Git(s.root, "status", "--porcelain", "--untracked-files=all")
+// uncommittedCount is how many paths under root git reports as uncommitted (0 when git cannot say): every entry of
+// status --porcelain -z --untracked-files=all after init's commit, untracked and staged alike (all are the owner's),
+// one per path. -z keeps a path as git wrote it; a rename or copy entry carries its original path in the next NUL
+// field, which is not counted again.
+func (s *Setup) uncommittedCount() int {
+	out, err := s.git().Git(s.root, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return 0
 	}
 	n := 0
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "?? ") {
-			n++
+	entries := strings.Split(out, "\x00")
+	for i := 0; i < len(entries); i++ {
+		if e := entries[i]; len(e) < 4 || e[2] != ' ' { // "XY path": an entry's original path has no status letters
+			continue
+		}
+		n++
+		if e := entries[i][0]; e == 'R' || e == 'C' { // the next field is the rename's or copy's original path
+			i++
 		}
 	}
 	return n

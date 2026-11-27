@@ -40,7 +40,7 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 	} else if err := s.addLane(s.cfg.LaneCount() + 1); err != nil {
 		return err
 	}
-	if c, ok := run.Command(s.cfg, "lane_setup"); ok {
+	if c, ok := run.Command(s.cfg, "lane_setup"); ok && !s.deferLaneSetup {
 		marker := laneSetupMarker(s.root, lane)
 		_ = os.Remove(marker) // a run that fails leaves nothing for a rerun to skip
 		var out bytes.Buffer
@@ -95,14 +95,18 @@ func (s *Setup) laneReady(ctx context.Context, dir string) (c config.Command, ou
 // laneDone: this lane of the config needs no `obor setup lane` (obor init's rerun): dir is a worktree of this
 // repo and lanes.ready passes there, or (with none configured) its lane_setup finished the last time with the
 // command configured now (an edited lane_setup runs again). A dir that exists and is not a worktree of this repo
-// is a FAIL, never a skip; no dir at all is false: setup.lane makes one.
-func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
+// is a FAIL, never a skip; no dir at all is false: setup.lane makes one. deferred: init left the owner's files
+// uncommitted, so lanes.setup waits for them: a worktree of this repo is done, whatever lanes.ready says.
+func (s *Setup) laneDone(ctx context.Context, lane, dir string, deferred bool) (bool, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return false, nil
 	}
 	repo, err := s.git().Find(dir)
 	if err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
 		return false, project.Failf("%s exists and is not a worktree of %s", dir, s.root)
+	}
+	if deferred {
+		return true, nil
 	}
 	if c, _, ok := s.laneReady(ctx, dir); !ok {
 		if _, has := run.Command(s.cfg, "lane_setup"); !has {
