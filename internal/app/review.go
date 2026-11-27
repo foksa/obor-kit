@@ -599,7 +599,8 @@ func probeLine(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	return "Probe only under " + dir + " (never set GOCACHE or CARGO_TARGET_DIR to a fresh dir)."
+	return "Probe only under " + dir + ": use the shared GOCACHE and CARGO_TARGET_DIR; only when your sandbox" +
+		" cannot write them, point them under " + dir + " (emptied with it), never elsewhere."
 }
 
 // probePart is probeLine(dir) after another sentence ("" when there is no dir): one line, never a second.

@@ -721,14 +721,16 @@ func TestBriefsSayTheMergeGatePassed(t *testing.T) {
 }
 
 // TestBriefsNameTheProbeDir: every review and verify brief names the dir the reviewer probes in (project.ProbeDir):
-// per project and agent, so the role text cannot name it.
+// per project and agent, so the role text cannot name it. It carries the role texts' cache rule: the shared caches,
+// the probe dir only when the sandbox cannot write them.
 func TestBriefsNameTheProbeDir(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "obor-probe", "proj", "pj-rev")
 	s := ReviewSetup{Reviews: "reviews", Root: t.TempDir(), Branch: "main", ProbeDir: dir}
-	want := probeLine(dir)
-	if want == "" || !strings.Contains(want, dir) {
-		t.Fatalf("precondition: probeLine(%q) = %q", dir, want)
+	want := "Probe only under " + dir + ": use the shared GOCACHE and CARGO_TARGET_DIR; only when your sandbox" +
+		" cannot write them, point them under " + dir + " (emptied with it), never elsewhere."
+	if got := probeLine(dir); got != want {
+		t.Fatalf("probeLine(%q) = %q, want %q", dir, got, want)
 	}
 	for _, tc := range []struct{ name, text string }{
 		{"review", reviewBrief("RV-5", s, "abcdef0", "", "", "", nil, nil, "")},
