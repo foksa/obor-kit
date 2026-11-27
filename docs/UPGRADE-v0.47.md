@@ -1,5 +1,18 @@
 # Upgrading an obor project from v0.46 to v0.47
 
+## v0.47.4 (obor init in a folder with files and no commit)
+
+From v0.47.3. Nothing to change.
+
+```sh
+# after updating the kit, in the project
+# nothing to do
+```
+
+Only new projects see it: `obor init` in a folder with files and no commit commits obor's own files, and the lead's
+first session asks whether to commit the rest. If you commit them yourself instead, run `obor init` again so the lanes
+move to that commit and get their setup.
+
 ## v0.47.3 (Claude sessions named after the project and agent)
 
 From v0.47.2. Nothing to change.
