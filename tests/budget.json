@@ -172,6 +172,10 @@
       "full_s": 0.4,
       "git_procs": 0
     },
+    "obor/kinds/pi/kind": {
+      "full_s": 0.3,
+      "git_procs": 0
+    },
     "obor/tests/budget": {
       "full_s": 3,
       "git_procs": 0
