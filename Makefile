@@ -151,6 +151,7 @@ check:
 #   githooks/**      internal/setup (the hook tests), cmd/obor (githooks_integration_test.go), internal/checks
 #                    (scratch_integration_test.go: the kit's chain hooks in a scratch repo)
 #   opencode/**      cmd/obor (plugin_test.go: the plugin's package dir and its package.json)
+#   pi/**            cmd/obor (plugin_test.go: the extension's file)
 # tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. docs/** is merge.neutral
 # (guard only): docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app (worktext_test.go), run no test.
 # In .obor/config.json the web class must stay before go (internal/web/dist/** lies under internal/**) and the release
@@ -164,7 +165,8 @@ AFFECTED_READS := \
 	-reads 'README.md=cmd/obor' \
 	-reads 'bin/obor=cmd/obor' \
 	-reads 'githooks/**=cmd/obor,internal/checks,internal/setup' \
-	-reads 'opencode/**=cmd/obor'
+	-reads 'opencode/**=cmd/obor' \
+	-reads 'pi/**=cmd/obor'
 
 check-affected:
 	@$(GO_CACHE); \

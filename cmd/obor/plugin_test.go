@@ -43,3 +43,15 @@ func TestOpencodePlugin(t *testing.T) {
 		t.Error("obor has setup agents: yes; the alias opencode-plugin: gone (T-774)")
 	}
 }
+
+// The pi extension: pi loads <kit>/pi/obor.js with -e, a plain JS file beside its node tests. Its event mapping and
+// hooks are the tool's behaviour: node --test pi/obor.test.js runs them, not here.
+func TestPiExtension(t *testing.T) {
+	root := checkoutRoot(t)
+	for _, f := range []string{"obor.js", "obor.test.js"} {
+		p := filepath.Join(root, "pi", f)
+		if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+}
