@@ -80,18 +80,23 @@ func LastTurn(tail []byte) (agents.Turn, bool) {
 }
 
 // Context is a session tail's context size: the last assistant message's usage, input + cacheRead + cacheWrite (the
-// whole prompt, as pi records it), at that line's time. ok false: no assistant message with usage, its time does not
-// parse, or its counts are negative.
+// whole prompt, as pi records it), at that line's time. A message a failed (error) or aborted turn wrote, or one whose
+// usage is zero, is no context: it is skipped. ok false: no assistant message with usage, its time does not parse, or
+// its counts are negative.
 func Context(tail []byte) (agents.Context, bool) {
 	c, ok := agents.Context{}, false
 	for _, line := range strings.Split(string(tail), "\n") {
 		var l entry
 		if json.Unmarshal([]byte(line), &l) != nil || l.Type != "message" || l.Message.Role != "assistant" ||
-			l.Message.Usage == nil {
+			l.Message.Usage == nil || l.Message.StopReason == "error" || l.Message.StopReason == "aborted" {
 			continue
 		}
 		u := l.Message.Usage
-		c = agents.Context{Tokens: u.Input + u.CacheRead + u.CacheWrite, At: entryTime(l.Timestamp)}
+		total := u.Input + u.CacheRead + u.CacheWrite
+		if total == 0 {
+			continue
+		}
+		c = agents.Context{Tokens: total, At: entryTime(l.Timestamp)}
 		ok = true
 	}
 	if !ok || c.Tokens < 0 || c.At.IsZero() {

@@ -29,9 +29,9 @@ func pi(t *testing.T, stateDir string) agents.Kind {
 
 // The manifest: obor's hooks through pi's extension, acting on their answers, a resume, the model as a required
 // provider/id, the session's inbox (the extension's socket, recorded from InboxVar), the terminal's status, /quit with
-// one Enter and Ctrl+U, -p/--print and --mode and the config-writing subcommands denied, the multi-letter short
-// options read whole, the default session dir's JSONL under HOME, and obor's MCP server registered per start by the
-// extension.
+// one Enter and Ctrl+U, every pi run from a tool headless but the forms that run no agent, -p/--print and --mode and
+// the config-writing subcommands denied, the multi-letter short options read whole, the default session dir's JSONL
+// under HOME, and obor's MCP server registered per start by the extension.
 func TestManifest(t *testing.T) {
 	k := pi(t, t.TempDir())
 	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Inbox: true, HookAnswers: true, Resume: true,
@@ -48,7 +48,8 @@ func TestManifest(t *testing.T) {
 	h := k.Headless()
 	if !h.PrintFlag || !slices.Equal(h.Subcommands, []string{"install", "remove", "uninstall", "update", "config", "auth", "mcp"}) ||
 		!slices.Contains(h.ValueOpts, "--mode") || !slices.Equal(h.Flags, []string{"--mode"}) || len(h.Anywhere) != 0 ||
-		!slices.Equal(h.ShortOpts, []string{"-nt", "-nbt", "-xt", "-ne", "-ns", "-np", "-nc", "-na"}) {
+		!slices.Equal(h.ShortOpts, []string{"-nt", "-nbt", "-xt", "-ne", "-ns", "-np", "-nc", "-na"}) ||
+		!h.Always || !slices.Equal(h.Except, []string{"--help", "-h", "--version", "-v", "--list-models", "--export", "list"}) {
 		t.Errorf("Headless = %+v", h)
 	}
 	env := func(m map[string]string) func(string) string { return func(v string) string { return m[v] } }
@@ -215,14 +216,27 @@ func TestLastTurn(t *testing.T) {
 	}
 }
 
-// The context size is the last assistant message's input + cacheRead + cacheWrite, at its line's time; no assistant
-// message with usage, or a line whose time does not parse, reads none.
+// The context size is the last assistant message's input + cacheRead + cacheWrite, at its line's time; a failed
+// (error) or aborted turn's message and one whose usage is zero are skipped, and no assistant message with usage, or a
+// line whose time does not parse, reads none.
 func TestContext(t *testing.T) {
 	k := pi(t, t.TempDir())
 	at := time.Date(2026, 11, 28, 11, 0, 3, 0, time.UTC)
 	c, ok := k.Context([]byte(sessionTail))
 	if !ok || c.Tokens != 240 || !c.At.Equal(at) || c.TTL != "" {
 		t.Errorf("Context = %+v, %v; want 240 at %v", c, ok, at)
+	}
+	after := func(line string) []byte { return []byte(sessionTail + line + "\n") }
+	for _, row := range []struct {
+		name, line string
+	}{
+		{"an errored turn", `{"type":"message","id":"a3","timestamp":"2026-11-28T11:00:05.000Z","message":{"role":"assistant","usage":{"input":5,"cacheRead":0,"cacheWrite":0},"stopReason":"error","errorMessage":"429"}}`},
+		{"an aborted turn", `{"type":"message","id":"a3","timestamp":"2026-11-28T11:00:05.000Z","message":{"role":"assistant","usage":{"input":5,"cacheRead":0,"cacheWrite":0},"stopReason":"aborted"}}`},
+		{"zero usage", `{"type":"message","id":"a3","timestamp":"2026-11-28T11:00:05.000Z","message":{"role":"assistant","usage":{"input":0,"cacheRead":0,"cacheWrite":0,"output":0,"totalTokens":0},"stopReason":"stop"}}`},
+	} {
+		if c, ok := k.Context(after(row.line)); !ok || c.Tokens != 240 || !c.At.Equal(at) {
+			t.Errorf("%s: Context = %+v, %v; want the last usable message's 240 at %v", row.name, c, ok, at)
+		}
 	}
 	for _, tail := range []string{"", `{"type":"message","message":{"role":"user","usage":{"input":7}}}` + "\n",
 		`{"type":"message","timestamp":"soon","message":{"role":"assistant","usage":{"input":7}}}` + "\n"} {
