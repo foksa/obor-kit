@@ -47,12 +47,16 @@ test("kitRoot: the directory above pi/", () => {
 // seconds, late: an answer then past the hook's bound, stderr: an answer and a diagnostic line, hang: no answer, past
 // the bound); project writes .obor/config.json (and mcp, the project's .agents/mcp_config.json); noBin leaves bin/obor
 // out. The fake pi records its handlers, MCP registrations and sendUserMessage calls; ctx(…) is a handler context of
-// session s1 (or id) whose branch is entries; idle is what ctx.isIdle answers. A send fires the input event as pi does
-// (source extension, on state.session's context, state.inputDelay ms later when set), and none while state.reject is
-// set (pi rejects the prompt: compaction in progress, another prompt starting); arrived() is the texts whose input
-// was not handled. HOME is the rig's, so an inbox socket binds under it, never the runner's own ~/.obor; inbox() is
+// session s1 (or id) whose branch is entries; idle is what ctx.isIdle answers, held.length > 0 ctx.hasPendingMessages.
+// A send fires the input event as pi does (source extension, on state.session's context, state.inputDelay ms later
+// when set), and none while state.reject is set (pi rejects the prompt: compaction in progress, another prompt
+// starting). A send whose input was not handled then is a user message pi appends (message_start, its text input's
+// transform), except while state.noAuth is set (pi rejects it after input: no API key); an idle one starts a run
+// (idle turns false) and its message comes state.startMs later; a busy one (a steer) waits in held while state.hold
+// is set, until deliver() appends the held ones. arrived() is the sent texts pi appended, appended the appended
+// messages' texts. HOME is the rig's, so an inbox socket binds under it, never the runner's own ~/.obor; inbox() is
 // each hook call's OBOR_PI_INBOX ("" unset). The outbox runs on timing's short bounds.
-const timing = { seenMs: 100, slowMs: 1000, tries: 3 };
+const timing = { seenMs: 100, takeMs: 200, slowMs: 1000, tries: 3 };
 function rig(t, { mode = "allow", project = true, mcp, noBin = false, env = {}, refuse = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-pi-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -93,8 +97,17 @@ esac
   const servers = [];
   const notes = [];
   const sends = [];
-  const state = { idle: true, session: "s1", reject: false, inputDelay: 0 };
+  const state = { idle: true, session: "s1", reject: false, inputDelay: 0, noAuth: false, startMs: 0, hold: false };
   const inputs = []; // [text, handled]
+  const held = []; // [sent text, its message text]: steers pi queued and has not delivered
+  const appended = []; // [sent text, its message text]
+  const append = (sent, text, id) => {
+    appended.push([sent, text]);
+    return handlers.message_start({ type: "message_start", message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } }, ctx({ id }));
+  };
+  const deliver = async () => {
+    for (const [sent, text] of held.splice(0)) await append(sent, text, state.session);
+  };
   const pi = {
     on: (name, fn) => (handlers[name] = fn),
     registerMcpServer: (name, config) => {
@@ -104,8 +117,23 @@ esac
     sendUserMessage: (text, options) => {
       sends.push([text, options]);
       if (state.reject) return;
-      const e = { text, source: "extension", streamingBehavior: state.idle ? undefined : options?.deliverAs };
-      const fire = () => Promise.resolve(handlers.input(e, ctx({ id: state.session }))).then((r) => inputs.push([text, r?.action === "handled"]));
+      const id = state.session;
+      const fire = async () => {
+        const e = { text, source: "extension", streamingBehavior: state.idle ? undefined : options?.deliverAs };
+        const r = await handlers.input(e, ctx({ id }));
+        inputs.push([text, r?.action === "handled"]);
+        if (r?.action === "handled") return;
+        const msg = r?.action === "transform" ? r.text : text;
+        if (!state.idle) {
+          if (state.hold) held.push([text, msg]);
+          else await append(text, msg, id);
+          return;
+        }
+        if (state.noAuth) return;
+        state.idle = false;
+        if (state.startMs) await sleep(state.startMs);
+        await append(text, msg, id);
+      };
       if (state.inputDelay) setTimeout(fire, state.inputDelay);
       else fire();
     },
@@ -115,14 +143,15 @@ esac
     cwd: dir,
     ui: { notify: (line, level) => notes.push([level, line]) },
     isIdle: () => state.idle,
+    hasPendingMessages: () => held.length > 0,
     sessionManager: { getSessionId: () => id, getSessionFile: () => `/sessions/x_${id}.jsonl`, getBranch: () => entries },
   });
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
   const events = (hook) => calls().filter((l) => l.startsWith(hook + " ")).map((l) => JSON.parse(l.replace(/^\S+ \S+ /, "")));
   const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
   const sock = (sid) => inboxPath(sid, { HOME: base });
-  const arrived = () => inputs.filter(([, handled]) => !handled).map(([text]) => text);
-  return { handlers, servers, notes, sends, state, inputs, arrived, ctx, calls, events, inbox, sock, dir, kit, base };
+  const arrived = () => appended.map(([sent]) => sent);
+  return { handlers, servers, notes, sends, state, inputs, held, appended, deliver, arrived, ctx, calls, events, inbox, sock, dir, kit, base };
 }
 
 const assistant = (stopReason, more = {}) => ({ type: "message", message: { role: "assistant", stopReason, ...more } });
@@ -135,6 +164,7 @@ test("load: obor's MCP server (the kit's bin/obor mcp, direct) and every hook ar
     "agent_settled",
     "before_agent_start",
     "input",
+    "message_start",
     "session_before_compact",
     "session_compact",
     "session_compact_failed",
@@ -282,8 +312,8 @@ const until = async (cond, ms = 3000) => {
 };
 const texts = (sends) => sends.map(([text]) => text);
 
-// The outbox: pi's sendUserMessage returns nothing and rejects a prompt later, so a line stays queued until pi's input
-// event shows it arriving.
+// The outbox: pi's sendUserMessage returns nothing and rejects a prompt later, so a line stays queued until pi appends
+// it as a user message (message_start).
 test("outbox: a line pi rejects during compaction goes again after the compaction and arrives once", async (t) => {
   const { handlers, ctx, sock, sends, state, arrived } = rig(t);
   await handlers.session_start({}, ctx());
@@ -303,8 +333,8 @@ test("outbox: a line pi rejects during compaction goes again after the compactio
   assert.equal(sends.length, 2, "sent again once, after the compaction");
 });
 
-// The session is busy: each line's input handler waits on its user-prompt-submit hook, and pi queues a line only once
-// its handlers return, so the second goes only then.
+// The session is busy: each line's input handler waits on its user-prompt-submit hook, and pi appends a line only
+// once its handlers return, so the second goes only then.
 test("outbox: two lines keep their order; the second waits behind a first pi rejects", async (t) => {
   const { handlers, ctx, sock, sends, state, arrived, events } = rig(t);
   await handlers.session_start({}, ctx());
@@ -367,6 +397,95 @@ test("outbox: a late copy of a line that arrived is dropped (handled): the line 
   await sleep(timing.seenMs * 3);
   assert.deepEqual(arrived(), ["late"]);
   assert.equal(sends.length, 2);
+});
+
+// pi emits input before it checks the model and the credentials (agent-session.js _preparePrompt): a line it rejects
+// then reached input but was never taken, so it stays queued and goes again under the same bound as a line rejected
+// before input.
+test("outbox: input followed by a rejection (no API key) keeps the line, retries it, warns after its tries and it arrives once pi takes it", async (t) => {
+  const { handlers, ctx, sock, sends, state, inputs, arrived, notes } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.noAuth = true;
+  await post(sock("s1"), [line("[obor] needs-you T-2")]);
+  assert.ok(await until(() => inputs.length === 1), "precondition: the line reached pi's input handlers");
+  assert.deepEqual(inputs, [["[obor] needs-you T-2", false]], "precondition: input did not drop it");
+  assert.ok(await until(() => sends.length === 2), "rejected after input, it goes again");
+  assert.ok(await until(() => notes.length > 0));
+  assert.deepEqual(notes, [["warning", 'obor: a line has not reached pi after 3 tries; it stays queued and goes again: "[obor] needs-you T-2"']]);
+  assert.equal(sends.length, 3, "three tries before the warning");
+  assert.equal(inputs.length, 3, "each try reached input");
+  assert.ok(inputs.every(([, handled]) => !handled), "no try was dropped as a copy");
+  assert.deepEqual(arrived(), [], "pi took none");
+  await sleep(timing.takeMs * 2);
+  assert.equal(sends.length, 3, "after the warning it waits the slow bound");
+  state.noAuth = false;
+  await handlers.agent_settled({ aborted: false }, ctx());
+  assert.ok(await until(() => arrived().length === 1));
+  await sleep(timing.takeMs * 3);
+  assert.deepEqual(arrived(), ["[obor] needs-you T-2"], "it arrives once pi takes it");
+  assert.equal(sends.length, 4, "taken: not sent again");
+  assert.equal(notes.length, 1, "one warning");
+});
+
+// An idle line's run starts after pi's checks: the line is taken at its user message, though that comes past the take
+// bound (pi is busy meanwhile), and the next line goes only then, once.
+test("outbox: input followed by the turn's start settles the line once; the next one goes only after it", async (t) => {
+  const { handlers, ctx, sock, sends, state, inputs, arrived } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.startMs = timing.takeMs * 3;
+  await post(sock("s1"), [line("one"), line("two")]);
+  assert.ok(await until(() => inputs.length === 1), "precondition: the first reached input");
+  await sleep(timing.takeMs * 2);
+  assert.deepEqual(arrived(), [], "precondition: its run has not started yet");
+  assert.deepEqual(texts(sends), ["one"], "not sent again while pi starts its run; the second waits");
+  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
+  assert.deepEqual(arrived(), ["one", "two"]);
+  await sleep(timing.takeMs * 3);
+  assert.deepEqual(texts(sends), ["one", "two"], "each sent once");
+  assert.deepEqual(arrived(), ["one", "two"], "each taken once");
+});
+
+// A line into a busy session is a steer: pi queues it after input and appends it only when the running turn's tool
+// calls end, its text with the prompt's context input appended. It settles then, not before, and is not sent again
+// while pi holds it.
+test("outbox: a steer settles at its appended message, its context on its text; pi holding it sends nothing again", async (t) => {
+  const { handlers, ctx, sock, sends, state, held, appended, deliver, arrived } = rig(t, { mode: "answer" });
+  await handlers.session_start({}, ctx());
+  state.idle = false;
+  state.hold = true;
+  await post(sock("s1"), [line("one"), line("two")]);
+  assert.ok(await until(() => held.length === 1), "precondition: pi queued the first steer");
+  await sleep(timing.takeMs * 3);
+  assert.deepEqual(texts(sends), ["one"], "not sent again while pi holds it; the second waits");
+  assert.deepEqual(arrived(), []);
+  state.hold = false;
+  await deliver();
+  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
+  assert.deepEqual(appended, [
+    ["one", "one\n\nobor: the lead has lines"],
+    ["two", "two\n\nobor: the lead has lines"],
+  ]);
+  await sleep(timing.takeMs * 3);
+  assert.deepEqual(texts(sends), ["one", "two"], "each sent once");
+});
+
+// A steer pi drops before delivering it (an abort clears its queue) is not taken: once pi is idle with nothing queued,
+// it goes again.
+test("outbox: a steer pi drops before its message goes again once pi is idle", async (t) => {
+  const { handlers, ctx, sock, sends, state, held, arrived } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.idle = false;
+  state.hold = true;
+  await post(sock("s1"), [line("dropped")]);
+  assert.ok(await until(() => held.length === 1), "precondition: pi queued the steer");
+  await sleep(timing.takeMs * 2);
+  assert.equal(sends.length, 1, "precondition: not sent again while pi holds it");
+  held.length = 0;
+  state.hold = false;
+  state.idle = true;
+  assert.ok(await until(() => arrived().length === 1), "sent again and taken");
+  assert.deepEqual(texts(sends), ["dropped", "dropped"]);
+  assert.deepEqual(arrived(), ["dropped"]);
 });
 
 test("outbox: at the session's shutdown its queue is dropped; nothing goes after it", async (t) => {

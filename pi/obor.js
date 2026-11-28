@@ -12,7 +12,9 @@
 //	session_shutdown            → closes that inbox
 //	input + before_agent_start  → user-prompt-submit (its context added to the run as a hidden message); a line typed
 //	                              into a busy session (input's streamingBehavior) gets its context appended to its text;
-//	                              input also tells the outbox an inbox line arrived
+//	                              input also tells the outbox an inbox line reached pi's input handlers
+//	message_start               → a user message pi appends (a run's prompt, a steer it delivers) tells the outbox pi
+//	                              took an inbox line
 //	session_before_compact,     → the outbox holds its lines while pi compacts and sends them once it is done
 //	session_compact(_failed)
 //	agent_before_settle         → stop: a block appends the reason as a custom_message and asks for one more run
@@ -26,9 +28,10 @@
 // (INBOX_VAR), so the hook records it as the session's inbox (the kind's inbox_record), and obor serve posts the
 // session's lines there (the kind's deliver: one JSON line {"type":"user","text"} per line). The extension owns a line
 // from the moment it reads it (the session's outbox): it goes to pi.sendUserMessage as a steer (a turn when the
-// session is idle, a steer into the running one when it is busy) and stays queued until pi's input event shows it
-// arriving, since pi returns nothing and rejects a prompt later (compaction in progress, another prompt starting);
-// a line not seen goes again, in order (outbox, below). A bind that fails warns once and the hook runs without the
+// session is idle, a steer into the running one when it is busy) and stays queued until pi appends it as a user
+// message (message_start), since pi returns nothing and rejects a prompt later, before its input event (compaction in
+// progress) or after it (no model, no API key, a failed auth); a line pi did not take goes again, in order (outbox,
+// below). A bind that fails warns once and the hook runs without the
 // variable, so no inbox is recorded and the lines stay typed. The socket is removed when it closes, at the session's
 // shutdown and when the process exits, so a record naming it is no live inbox.
 //
@@ -265,6 +268,12 @@ export function bindInbox(file, id, send, warn = (line) => console.error(line)) 
 // SEEN_MS bounds the wait for a sent line's input event: pi's input handlers run within the send, so a line not seen
 // by then was rejected (compaction in progress, another prompt starting) and goes again.
 const SEEN_MS = 2000;
+// TAKE_MS bounds the wait from a line's input event to pi taking it (its user message): pi checks the model and the
+// credentials after the input handlers and rejects a line then without an event (no API key, a failed auth), so a
+// line not taken by then while pi is idle with nothing queued goes again. While pi runs (a steer waits in its queue
+// until the running turn's tool calls end, a run starting holds the line) or compacts, the bound starts over. It
+// covers pi's auth check (a token refresh): a line pi takes past it arrives twice.
+const TAKE_MS = 10000;
 // TRIES is the misses after which a line warns once; it stays queued and goes again every SLOW_MS (or at the next
 // point pi can take it: a compaction's end, agent_settled).
 const TRIES = 3;
@@ -281,20 +290,29 @@ export function firstWords(text) {
   return short === row ? short : short + " …";
 }
 
-// outbox keeps a session's inbox lines from the moment the socket read them until pi's input event shows each one
-// arriving. One line is in flight at a time, so the lines arrive in order: send(text) hands the head to pi, and a head
-// not seen within seenMs is a miss and goes again: at once for the first tries, then every slowMs after one warning
-// naming its first words; while compacting() is true nothing goes (resume, called at its end, sends the head).
-//
-// seen(text), called by the input handler before it waits on anything, answers "line" when text is the head arriving
-// (it leaves the queue), "copy" for a late copy of a line that arrived already (a send the bound counted as a miss: the
-// handler drops it, so each line arrives once) and "" for any other text. After a "line" the next one waits for
-// taken(), which the handler calls once it returns, and goes on the next tick: pi queues or starts a line only after
-// every input handler is done, so a line sent earlier would overtake it. close drops the queue.
-export function outbox(send, { compacting = () => false, warn = () => {}, seenMs = SEEN_MS, slowMs = SLOW_MS, tries = TRIES } = {}) {
-  const queue = []; // {text, sends, misses}; the head is queue[0]
-  let late = []; // {text, extra, at}: arrived lines with extra sends that were not seen
-  let wait = ""; // "seen": the head's send waits for its input event; "taken": an arrived line's input handler runs
+// outbox keeps a session's inbox lines from the moment the socket read them until pi takes each one: appends it as a
+// user message. Its rules:
+//   - One line is in flight at a time, so the lines arrive in order: send(text) hands the head to pi, and the next one
+//     goes only once pi took the head (on the next tick: a line sent then is a steer behind it).
+//   - seen(text), called by the input handler before it waits on anything, answers "line" when text is the head
+//     reaching pi's input handlers (it stays queued), "copy" for another send of a line already past them (the head
+//     while an earlier send of it is on its way, or a late copy of a line pi took: a send the bounds counted as a miss;
+//     the handler drops it, so each line arrives once) and "" for any other text.
+//   - taken(text), called at a user message pi appends (its text: the head's, or the head's with what an input handler
+//     appended), takes the head out of the queue when its input event came; true then.
+//   - A miss sends the head again: a send not seen within seenMs (pi rejected it before its input event), or a seen one
+//     not taken within takeMs while neither busy() (pi runs or holds queued messages) nor compacting() is true (pi
+//     rejected it after: no API key, a failed auth); while either is, the take bound starts over.
+//   - A miss goes again at once for the first tries, then every slowMs after one warning naming its first words.
+//   - While compacting() is true nothing goes (resume, called at its end and at agent_settled, sends the head).
+//   - close drops the queue.
+export function outbox(
+  send,
+  { compacting = () => false, busy = () => false, warn = () => {}, seenMs = SEEN_MS, takeMs = TAKE_MS, slowMs = SLOW_MS, tries = TRIES } = {},
+) {
+  const queue = []; // {text, sends, inputs, misses}; the head is queue[0]
+  let late = []; // {text, extra, at}: taken lines with extra sends whose input event did not come
+  let wait = ""; // "seen": the head's send waits for its input event; "taken": its input event came, it waits for pi to take it
   let timer = null;
   let closed = false;
   const arm = (ms, fn) => {
@@ -327,17 +345,28 @@ export function outbox(send, { compacting = () => false, warn = () => {}, seenMs
   };
   const push = (text) => {
     if (closed) return;
-    queue.push({ text, sends: 0, misses: 0 });
+    queue.push({ text, sends: 0, inputs: 0, misses: 0 });
     resume();
+  };
+  // held ends a take bound: pi still busy (a run, whose queue may hold the line) or compacting starts it over, else
+  // the line was rejected after its input event: a miss.
+  const held = () => {
+    if (closed || wait !== "taken") return;
+    let still = false;
+    try {
+      still = compacting() || busy();
+    } catch {}
+    if (still) arm(takeMs, held);
+    else miss();
   };
   const seen = (text) => {
     if (closed) return "";
     const head = queue[0];
-    if (wait !== "taken" && head && head.sends > 0 && head.text === text) {
-      queue.shift();
-      if (head.sends > 1) late.push({ text, extra: head.sends - 1, at: Date.now() });
+    if (head && head.sends > 0 && head.text === text) {
+      head.inputs++;
+      if (wait === "taken") return "copy";
       wait = "taken";
-      clearTimeout(timer);
+      arm(takeMs, held);
       return "line";
     }
     late = late.filter((l) => Date.now() - l.at < LATE_MS);
@@ -346,10 +375,15 @@ export function outbox(send, { compacting = () => false, warn = () => {}, seenMs
     if (--copy.extra === 0) late = late.filter((l) => l !== copy);
     return "copy";
   };
-  const taken = () => {
-    if (wait !== "taken") return;
+  const taken = (text) => {
+    if (closed) return false;
+    const head = queue[0];
+    if (!head || head.inputs === 0 || typeof text !== "string" || !text.startsWith(head.text)) return false;
+    queue.shift();
+    if (head.sends > head.inputs) late.push({ text: head.text, extra: head.sends - head.inputs, at: Date.now() });
     wait = "";
     arm(0, resume);
+    return true;
   };
   const close = () => {
     closed = true;
@@ -357,6 +391,18 @@ export function outbox(send, { compacting = () => false, warn = () => {}, seenMs
     queue.length = 0;
   };
   return { push, seen, taken, resume, close };
+}
+
+// messageText is a message's text as pi reads it (contentText): its content when a string, else its text parts joined
+// by newlines.
+export function messageText(m) {
+  const c = m?.content;
+  if (typeof c === "string") return c;
+  if (!Array.isArray(c)) return "";
+  return c
+    .filter((p) => p?.type === "text")
+    .map((p) => String(p.text ?? ""))
+    .join("\n");
 }
 
 // promptContext is a user-prompt-submit hook's answer: its additionalContext ("" when it has none or does not parse).
@@ -444,8 +490,10 @@ export function create(pi, { cwd, kit, env, timing = {} }) {
   if (!root) return;
   const resumed = env[RESUME_VAR] ?? "";
 
-  // warn shows a line in pi's UI (the last handler's ctx); before the first one, lines wait for session_start.
+  // warn shows a line in pi's UI (the last handler's ctx); before the first one, lines wait for session_start. live is
+  // the last handler's ctx too: the outboxes ask it whether pi is busy.
   let ui = null;
+  let live = null;
   const waiting = [];
   const warn = (line) => {
     if (typeof ui?.notify === "function") {
@@ -459,6 +507,7 @@ export function create(pi, { cwd, kit, env, timing = {} }) {
   const safe = (event, fn, failed = () => undefined) => async (e, ctx) => {
     try {
       if (ctx?.ui) ui = ctx.ui;
+      if (ctx) live = ctx;
       return await fn(e ?? {}, ctx ?? {});
     } catch (err) {
       warn(`obor: the ${event} handler failed: ${err?.message ?? err}`);
@@ -513,13 +562,16 @@ export function create(pi, { cwd, kit, env, timing = {} }) {
   // compacting is true from session_before_compact to its session_compact or session_compact_failed: pi rejects a
   // prompt meanwhile, so the outboxes hold their lines.
   let compacting = false;
+  // busy is true while pi runs or holds queued messages (a steer it has not delivered yet): a line it took past its
+  // input event may still arrive. A ctx pi has replaced throws: not busy.
+  const busy = () => live?.isIdle?.() === false || live?.hasPendingMessages?.() === true;
 
   // inboxes are the sessions' bound inbox sockets and their outboxes, closed at their shutdown; a bind that fails
   // warns once, and the session-start hook runs without the variable, so no inbox is recorded and the lead's lines
   // stay typed.
   const inboxes = new Map(); // session id → {server, file, out}
   const inboxEnv = async (id) => {
-    const out = outbox(send, { compacting: () => compacting, warn, ...timing });
+    const out = outbox(send, { compacting: () => compacting, busy, warn, ...timing });
     let b = null;
     try {
       b = await bindInbox(inboxPath(id, env), id, out.push, warn);
@@ -601,26 +653,33 @@ export function create(pi, { cwd, kit, env, timing = {} }) {
     }),
   );
 
-  // input: an extension's line tells the session's outbox it arrived, before any wait (a late copy of a line that
-  // arrived already is dropped: handled), and the outbox's next line waits until this handler returns. An idle
-  // session's prompt is kept for its run's start (before_agent_start, which reports it); a line into a busy session
-  // starts no run, so its hook runs here and its context goes on the line's text.
+  // input: an extension's line tells the session's outbox it reached pi's input handlers, before any wait (another
+  // send of a line already past them is dropped: handled); the line leaves the outbox only once pi takes it
+  // (message_start). An idle session's prompt is kept for its run's start (before_agent_start, which reports it); a
+  // line into a busy session starts no run, so its hook runs here and its context goes on the line's text.
   pi.on(
     "input",
     safe("input", async (e, ctx) => {
       const text = typeof e.text === "string" ? e.text : "";
       const { id } = sessionOf(ctx);
       const out = e.source === "extension" ? inboxes.get(id)?.out : undefined;
-      const arrival = out?.seen(text) ?? "";
-      if (arrival === "copy") return { action: "handled" };
-      try {
-        if (!e.streamingBehavior) return void typed.set(id, text);
-        await started(ctx);
-        const more = await promptAsk(text, ctx);
-        return more ? { action: "transform", text: text + "\n\n" + more, images: e.images } : undefined;
-      } finally {
-        if (arrival === "line") out.taken();
-      }
+      if (out?.seen(text) === "copy") return { action: "handled" };
+      if (!e.streamingBehavior) return void typed.set(id, text);
+      await started(ctx);
+      const more = await promptAsk(text, ctx);
+      return more ? { action: "transform", text: text + "\n\n" + more, images: e.images } : undefined;
+    }),
+  );
+
+  // message_start: a user message pi appends, past its model and auth checks and every input handler (an idle line's
+  // run starting with it, or a steer pi delivers into the running one), takes the session's outbox head when its text
+  // starts with the head's (input appended the prompt's context to a busy line).
+  pi.on(
+    "message_start",
+    safe("message_start", async (e, ctx) => {
+      const m = e.message;
+      if (m?.role !== "user") return;
+      inboxes.get(sessionOf(ctx).id)?.out.taken(messageText(m));
     }),
   );
 
