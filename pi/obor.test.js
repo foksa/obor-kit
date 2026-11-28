@@ -1,4 +1,5 @@
-// node --test pi/obor.test.js: the pi extension's tool map and its hooks against a stub kit.
+// node --test pi/obor.test.js: the pi extension's tool map and its hooks against a stub kit. The tests that wait on
+// the extension's hook bound start when this file loads and run beside the others.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -41,9 +42,11 @@ test("kitRoot: the directory above pi/", () => {
 });
 
 // rig is the extension against a stub kit: <base>/kit/bin/obor logs each call ("<hook> <event json>") and answers per
-// its mode (allow, deny, exit1, block, answer); project writes .obor/config.json (and mcp, the project's
-// .agents/mcp_config.json); noBin leaves bin/obor out. The fake pi records its handlers and MCP registrations; ctx(…)
-// is a handler context of session s1 (or id) whose branch is entries.
+// its mode (allow, deny, exit1, panic: an allow with a diagnostic line, block, answer, slow: an answer then six
+// seconds, late: an answer then past the hook's bound, stderr: an answer and a diagnostic line, hang: no answer, past
+// the bound); project writes .obor/config.json (and mcp, the project's .agents/mcp_config.json); noBin leaves bin/obor
+// out. The fake pi records its handlers and MCP registrations; ctx(…) is a handler context of session s1 (or id) whose
+// branch is entries.
 function rig(t, { mode = "allow", project = true, mcp, noBin = false, env = {}, refuse = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-pi-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -59,8 +62,14 @@ echo "$2 OBOR_NO_SELF_HOST=$OBOR_NO_SELF_HOST $event" >> ${log}
 case "${mode}:$2" in
   deny:pre-tool-use) echo "obor: denied by the stub" >&2; exit 2 ;;
   exit1:pre-tool-use) echo "obor: the stub crashed" >&2; exit 1 ;;
+  panic:pre-tool-use) echo "obor: recovered panic: boom" >&2 ;;
   block:stop) case "$event" in *'"stop_hook_active":true'*) ;; *) echo '{"decision":"block","reason":"obor (worker L-01): not done yet"}' ;; esac ;;
   answer:user-prompt-submit) echo '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"obor: the lead has lines"}}' ;;
+  slow:session-start) echo "obor: role worker, lane L-01"; sleep 6 ;;
+  slow:stop) case "$event" in *'"stop_hook_active":true'*) sleep 6 ;; *) echo '{"decision":"block","reason":"obor (worker L-01): not done yet"}'; sleep 6 ;; esac ;;
+  late:session-start) echo "obor: role worker, lane L-01"; sleep 30 ;;
+  stderr:session-start) echo "obor: role worker, lane L-01"; echo "obor: session s1 not recorded (stub)" >&2 ;;
+  hang:*) sleep 30 ;;
   *:session-start) echo "obor: role worker, lane L-01" ;;
 esac
 `,
@@ -148,6 +157,13 @@ test("guard: exit 2 blocks with obor's line as the reason", async (t) => {
   const { handlers, ctx, events } = rig(t, { mode: "deny" });
   assert.deepEqual(await handlers.tool_call({ toolName: "bash", input: { command: "git push" } }, ctx()), { block: true, reason: "obor: denied by the stub" });
   assert.equal(events("pre-tool-use")[0].tool_input.command, "git push");
+});
+
+// An allow's stderr is a diagnostic (a recovered panic's line), shown in pi's UI; the call still goes through.
+test("guard: an allow's stderr warns and blocks nothing", async (t) => {
+  const { handlers, ctx, notes } = rig(t, { mode: "panic" });
+  assert.equal(await handlers.tool_call({ toolName: "bash", input: { command: "ls" } }, ctx()), undefined);
+  assert.deepEqual(notes, [["warning", "obor: recovered panic: boom"]]);
 });
 
 test("guard: a transport failure blocks (no bin/obor, or any exit but 0 and 2)", async (t) => {
@@ -250,6 +266,39 @@ test("stop-failure: a run that ended well runs none", async (t) => {
   assert.deepEqual(calls(), []);
 });
 
+// A hook's answer is printed before the Go side waits on serve (session-start's context, stop's block): the
+// extension's bound is past those waits, so six seconds after the answer still delivers it (RV-284 finding 1).
+test("a hook that prints its answer then waits six seconds still delivers it: session-start's context and stop's block", async (t) => {
+  const { handlers, ctx } = rig(t, { mode: "slow" });
+  const [start, stop] = await Promise.all([
+    handlers.before_agent_start({ messageType: "user", prompt: "go" }, ctx()),
+    handlers.agent_before_settle({ entries: [] }, ctx({ entries: [assistant("stop")] })),
+  ]);
+  assert.deepEqual(start, { message: { customType: "obor", content: "obor: role worker, lane L-01", display: false } });
+  assert.deepEqual(stop, {
+    entries: [{ type: "custom_message", customType: "obor-stop", content: "obor (worker L-01): not done yet", display: true }],
+    continue: true,
+  });
+});
+
+// A hook's diagnostics reach pi's UI, on exit 0 too, and stdout stays the answer (RV-284 finding 2).
+test("session_start: a hook's stderr on exit 0 warns in pi's UI; its stdout stays the answer", async (t) => {
+  const { handlers, ctx, notes } = rig(t, { mode: "stderr" });
+  const r = await handlers.before_agent_start({ messageType: "user", prompt: "go" }, ctx());
+  assert.deepEqual(r, { message: { customType: "obor", content: "obor: role worker, lane L-01", display: false } });
+  assert.deepEqual(notes, [["warning", "obor: session s1 not recorded (stub)"]]);
+});
+
+// A non-guard hook that did not run at all is one actionable warning; the guard's own failure stays its block answer.
+test("a non-guard hook's transport failure gives one actionable warning; the guard still blocks", async (t) => {
+  const { handlers, ctx, notes, kit } = rig(t, { noBin: true });
+  assert.equal(await handlers.session_start({}, ctx()), undefined);
+  assert.deepEqual(notes, [["warning", `obor: the session-start hook failed (no ${path.join(kit, "bin", "obor")}); obor may not have recorded it — run: make -C ${kit} build`]]);
+  const r = await handlers.tool_call({ toolName: "bash", input: { command: "ls" } }, ctx());
+  assert.equal(r.block, true);
+  assert.equal(notes.length, 1, "the guard's failure is its block's reason, not a second warning");
+});
+
 test("a throwing handler does not escape: it warns, the guard blocks, the others answer nothing", async (t) => {
   const { handlers, notes } = rig(t, { mode: "block" });
   const notes0 = notes.length;
@@ -278,3 +327,39 @@ test("outside an obor project the extension registers nothing: every hook is a n
   assert.deepEqual(handlers, {});
   assert.deepEqual(servers, []);
 });
+
+// The two probes below run past the extension's hook bound, so they start when this file loads and run beside the
+// other tests; their tests only collect the results. Each probe's rig is removed by its test.
+function probe(mode, run) {
+  const cleanups = [];
+  const r = rig({ after: (fn) => cleanups.push(fn) }, { mode });
+  return run(r).then((got) => ({ ...got, cleanup: () => cleanups.forEach((fn) => fn()) }));
+}
+
+const hanging = probe("hang", async ({ handlers, ctx }) => {
+  const t0 = Date.now();
+  const r = await handlers.tool_call({ toolName: "bash", input: { command: "ls" } }, ctx());
+  return { r, ms: Date.now() - t0 };
+});
+
+const late = probe("late", async ({ handlers, ctx, notes }) => ({
+  r: await handlers.before_agent_start({ messageType: "user", prompt: "go" }, ctx()),
+  notes,
+}));
+
+test("guard: past its deadline a hook's call blocks (fails closed) with the timeout and the repair hint", async (t) => {
+  const { r, ms, cleanup } = await hanging;
+  t.after(cleanup);
+  assert.equal(r.block, true);
+  assert.match(r.reason, /^obor: guard unavailable \(obor hook pre-tool-use timed out after 15 s\); denied — run: make -C /);
+  assert.ok(ms >= 14900 && ms < 25000, `${ms} ms`);
+});
+
+test("a cut past the deadline keeps the answer already printed and warns that it failed", async (t) => {
+  const { r, notes, cleanup } = await late;
+  t.after(cleanup);
+  assert.deepEqual(r, { message: { customType: "obor", content: "obor: role worker, lane L-01", display: false } });
+  assert.deepEqual(notes.map((n) => n[0]), ["warning"]);
+  assert.match(notes[0][1], /^obor: the session-start hook failed \(obor hook session-start timed out after 15 s\); obor may not have recorded it — run: make -C .* build$/);
+});
+

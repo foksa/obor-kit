@@ -108,7 +108,7 @@ const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
 	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
-	leadLinesDeadline   = 3 * time.Second  // the lead's prompt and stop hooks' lead_lines call (OpenCode's plugin waits 5 s)
+	leadLinesDeadline   = 3 * time.Second  // the lead's prompt and stop hooks' lead_lines call
 	pruneDeadline       = 90 * time.Second // obor prune: one git call per branch, over a thousand the first time
 	driveDeadline       = 75 * time.Second // obor drive: serve answers once the new drive's lane is prepared (its wait: a minute)
 )

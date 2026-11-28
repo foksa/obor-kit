@@ -21,8 +21,10 @@
 //
 // An uncaught throw in a handler ends pi's TUI, so every handler catches (safe): a failure warns and gives no answer,
 // except tool_call's, which blocks. Outside an obor project (no .obor/config.json at or above the cwd) the extension
-// registers nothing: every hook is a no-op. bin/obor missing, failing or slower than 5 s: the hook gives no answer (no
-// context, no block), except the guard, which allows a call only on exit 0.
+// registers nothing: every hook is a no-op. A hook's answer is the stdout it printed before HOOK_TIMEOUT_MS, a cut
+// after it keeping what came before; a hook's stderr warns in pi's UI (the guard's denials are its block's reasons; on
+// an allow or a cut its stderr is a diagnostic), and so does a non-guard hook's transport failure; the guard allows a
+// call only on exit 0.
 //
 // A resumed start has OBOR_PI_RESUME=<session id> in its env (the kind's start sets it), a fresh start has none:
 // session_start's reason says "startup" either way.
@@ -32,7 +34,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TIMEOUT_MS = 5000;
+// HOOK_TIMEOUT_MS bounds one `obor hook` run. A hook's Go side may wait out a serve that is down or restarting: the
+// session and turn requests get 8 s (internal/app/wire/client.go's table), and user-prompt-submit and stop ask
+// lead_lines, 3 s, before their turn request, so 15 s is the two waits in one hook plus its local work and process
+// start — the bound Claude Code's own Stop hooks give the same commands. Each hook prints its answer before it waits
+// on serve, so a cut keeps the stdout already received.
+const HOOK_TIMEOUT_MS = 15000;
 // AGENT_KIND is this kind's name in every event's agent_kind.
 const AGENT_KIND = "pi";
 // RESUME_VAR names the session a start resumes; unset on a fresh start.
@@ -186,8 +193,8 @@ export function runHook(kit, name, event, cwd, env, more = {}) {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {}
-      finish({ failed: `obor hook ${name} timed out after ${TIMEOUT_MS / 1000} s` });
-    }, TIMEOUT_MS);
+      finish({ failed: `obor hook ${name} timed out after ${HOOK_TIMEOUT_MS / 1000} s`, stdout, stderr });
+    }, HOOK_TIMEOUT_MS);
     child.stdout.on("data", (b) => (stdout += b));
     child.stderr.on("data", (b) => (stderr += b));
     child.on("error", (e) => finish({ failed: String(e) }));
@@ -197,9 +204,10 @@ export function runHook(kit, name, event, cwd, env, more = {}) {
   });
 }
 
-// answer is a hook's stdout when it exited 0, else "" (a failing hook gives no answer).
+// answer is a hook's answer: the stdout it printed, kept when a cut ended it after its answer went out; "" when it
+// exited nonzero (a failing hook gives no answer) or printed nothing.
 function answer(r) {
-  return r.failed || r.code !== 0 ? "" : r.stdout;
+  return r.code !== 0 && !r.failed ? "" : (r.stdout ?? "");
 }
 
 // guardBlock is pi's tool_call answer for a pre-tool-use run: none on exit 0, obor's line on exit 2, and a block naming
@@ -267,6 +275,20 @@ export function create(pi, { cwd, kit, env }) {
   };
   const hook = (name, event, ctx, more) => runHook(kit, name, event, dirOf(ctx), env, more);
 
+  // diagnostics shows a hook's non-empty stderr lines in pi's UI, one warning each.
+  const diagnostics = (r) => {
+    for (const line of String(r.stderr ?? "").split("\n")) if (line.trim()) warn(line.trim());
+  };
+
+  // ask runs a non-guard hook and shows its diagnostics: its stderr (a refusal or a warning, on exit 0 too), and one
+  // actionable line when it did not run at all. It resolves to its answer (answer, above).
+  const ask = async (name, event, ctx, more) => {
+    const r = await hook(name, event, ctx, more);
+    diagnostics(r);
+    if (r.failed) warn(`obor: the ${name} hook failed (${r.failed}); obor may not have recorded it — run: make -C ${kit} build`);
+    return answer(r);
+  };
+
   // inboxEnv is the session-start hook's own variables: the inbox (OBOR_PI_INBOX, the session's socket) binds here
   // when the extension gets one; until then none, and the lead's lines come typed into the pane.
   const inboxEnv = () => ({});
@@ -278,13 +300,13 @@ export function create(pi, { cwd, kit, env }) {
     const { id } = sessionOf(ctx);
     if (!starts.has(id)) {
       const event = { ...base("SessionStart", ctx), source: resumed && resumed === id ? "resume" : "startup" };
-      starts.set(id, hook("session-start", event, ctx, inboxEnv(id)).then((r) => answer(r).trim(), () => ""));
+      starts.set(id, ask("session-start", event, ctx, inboxEnv(id)).then((s) => s.trim()));
     }
     return starts.get(id);
   };
 
   // promptAsk runs user-prompt-submit for text: its context ("" for none).
-  const promptAsk = async (text, ctx) => promptContext(answer(await hook("user-prompt-submit", { ...base("UserPromptSubmit", ctx), prompt: text }, ctx)));
+  const promptAsk = async (text, ctx) => promptContext(await ask("user-prompt-submit", { ...base("UserPromptSubmit", ctx), prompt: text }, ctx));
 
   const typed = new Map(); // session id → the raw text of its pending prompt (input), for its run's start
   const continuing = new Set(); // sessions whose stop blocked: the next stop ends that continuation
@@ -295,7 +317,11 @@ export function create(pi, { cwd, kit, env }) {
       "tool_call",
       async (e, ctx) => {
         const ev = toolEvent(e.toolName, e.input, dirOf(ctx), sessionOf(ctx).id, registered);
-        return ev ? guardBlock(await hook("pre-tool-use", ev, ctx), kit) : undefined;
+        if (!ev) return undefined;
+        const r = await hook("pre-tool-use", ev, ctx);
+        // A guard's stderr is a diagnostic on its allow and on a cut; on a denial it is the block's reason.
+        if (r.code === 0 || r.failed) diagnostics(r);
+        return guardBlock(r, kit);
       },
       (err) => ({ block: true, reason: `obor: guard failed (${err?.message ?? err}); denied` }),
     ),
@@ -353,7 +379,7 @@ export function create(pi, { cwd, kit, env }) {
       const { id } = sessionOf(ctx);
       const active = continuing.delete(id);
       if (lastAssistant(ctx)?.stopReason === "error") return;
-      const reason = stopBlock(answer(await hook("stop", { ...base("Stop", ctx), stop_hook_active: active }, ctx)));
+      const reason = stopBlock(await ask("stop", { ...base("Stop", ctx), stop_hook_active: active }, ctx));
       if (!reason) return;
       continuing.add(id);
       const entries = Array.isArray(e.entries) ? e.entries : [];
@@ -369,7 +395,7 @@ export function create(pi, { cwd, kit, env }) {
       continuing.delete(sessionOf(ctx).id);
       const m = lastAssistant(ctx);
       if (m?.stopReason !== "error") return;
-      await hook("stop-failure", { ...base("StopFailure", ctx), error: "unknown", error_details: String(m.errorMessage ?? "") }, ctx);
+      await ask("stop-failure", { ...base("StopFailure", ctx), error: "unknown", error_details: String(m.errorMessage ?? "") }, ctx);
     }),
   );
 }
