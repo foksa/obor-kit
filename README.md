@@ -6,7 +6,8 @@ family. Every agent runs in a visible [herdr](https://github.com/herdrdev/herdr)
 dispatches tasks, runs the merge checks, merges and tells the lead what needs a human.
 
 It ships as a Claude Code plugin (`obor`: the lead skill, role texts, guard hooks, an MCP server) plus one Go binary.
-Workers can be Claude Code, Codex, OpenCode or agy (Antigravity CLI).
+Workers can be Claude Code, Codex, OpenCode, agy (Antigravity CLI) or pi (experimental: lines are typed into its pane
+until its inbox lands; no live conformance yet).
 
 > **Status:** early: built and used daily by one person on two projects. Expect rough edges and breaking changes
 > between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md` (the current minor's in
@@ -54,7 +55,7 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
 
 - [herdr](https://github.com/herdrdev/herdr) (0.9.5 or later), the terminal workspace the agents run in
 - [Claude Code](https://claude.com/claude-code) for the lead and the integrator; optionally Codex and OpenCode for workers
-  and the reviewer
+  and the reviewer (pi too, experimental: lines typed into its pane until its inbox lands; no live conformance yet)
 - git, jq, curl; macOS `/bin/bash` 3.2 is enough (no Go needed: the binary is downloaded)
 
 ## Install
@@ -112,6 +113,7 @@ the flag for it:
 | Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled`, `skills.config` | that key's `-c` option (non-lead roles): `-c <key>=false` for the user's plugins with their skills, the app connectors and the bundled skills, and `-c skills.config=[{name="<skill>",enabled=false},…]` for each skill (a dir holding a `SKILL.md`) in `~/.codex/skills`; the rest of the user's config applies, and user skills in `~/.agents/skills` stay |
 | Codex | same | a key `.obor/codex/config_override.toml` sets | that key's `-c` option (non-lead roles, below): the project's value applies |
 | OpenCode | `opencode.json[c]`, `.opencode/opencode.json[c]` | any key | nothing, but the project's value applies: OpenCode ranks the project's config above the config obor generates for the start (`OPENCODE_CONFIG`: obor's MCP server and plugin, and for non-lead roles your config with `.obor/opencode/opencode_override.json` laid over it, below), and that one above your user config. `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env (no opt-out) and hides the Claude skill dirs, `~/.claude/skills` and the project's `.claude/skills`; the user's `opencode.json`, plugins, `~/.config/opencode/skills` and `~/.agents/skills` stay unless the override file switches them off |
+| pi | `.pi/settings.json` | any key | nothing: the project's `.pi/settings.json` applies (pi ranks it above the user's) |
 
 obor's MCP server, the session id, the prompt, the model ref each role and difficulty level names (`<model>[:<effort>]`,
 e.g. `opus:high`), Claude's `--permission-mode auto` and Codex's `-a never` stay (change those in `.obor/config.json`:
