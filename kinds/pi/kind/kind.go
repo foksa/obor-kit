@@ -51,6 +51,10 @@ var headlessValueOpts = []string{"--provider", "--model", "--api-key", "--system
 	"--tools", "-t", "--exclude-tools", "-xt", "--thinking", "--extension", "-e", "--skill", "--prompt-template",
 	"--theme", "--use-theme", "--export", "--tui-mode"}
 
+// headlessShortOpts are pi's short options of more than one letter (pi --help): whole options, so the guard reads -np
+// as --no-prompt-templates, not as the cluster -n -p.
+var headlessShortOpts = []string{"-nt", "-nbt", "-xt", "-ne", "-ns", "-np", "-nc", "-na"}
+
 // request is one call's request: the fields of every call (docs/agents/kind-protocol.md "The calls").
 type request struct {
 	Version int               `json:"version"`
@@ -125,8 +129,9 @@ func Handle(call string, req []byte) ([]byte, error) {
 // required provider/id, and the session's inbox (the extension's per-session socket, recorded from InboxVar:
 // inbox_record). Status from the terminal's agent detection (herdr detects a pi pane with no integration). Stop:
 // /quit, typed with Enter (its command popup takes that Enter and runs it; docs/research/pi-probes.md P8), Ctrl+U
-// clears the input; never Ctrl+C, whose second press exits. Headless: -p/--print, --mode's json and rpc, and the
-// subcommands that write the user's config. Transcript: the session JSONL under pi's default session dir
+// clears the input; never Ctrl+C, whose second press exits. Headless: -p/--print, --mode's json and rpc, the
+// subcommands that write the user's config, and the multi-letter short options (-np, -ne, …) read whole. Transcript: the
+// session JSONL under pi's default session dir
 // ({HOME}/.pi/agent/sessions, one dir per cwd), named <timestamp>_<session id>.jsonl. MCP: the extension registers
 // obor's server at each start (install's lane is per start); no file is written.
 func describe() map[string]any {
@@ -138,7 +143,8 @@ func describe() map[string]any {
 		"vars":    []string{ResumeVar},
 		"env":     []string{"HOME"},
 		"stop":    map[string]any{"quit": "/quit", "clear_input": []string{"ctrl+u"}},
-		"headless": map[string]any{"print_flag": true, "value_opts": headlessValueOpts, "flags": []string{"--mode"},
+		"headless": map[string]any{"print_flag": true, "value_opts": headlessValueOpts, "short_opts": headlessShortOpts,
+			"flags":       []string{"--mode"},
 			"subcommands": []string{"install", "remove", "uninstall", "update", "config", "auth", "mcp"}},
 		"transcript":   TranscriptGlob,
 		"inbox_record": []string{InboxVar},

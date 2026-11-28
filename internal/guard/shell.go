@@ -478,7 +478,8 @@ func unescape(v string, quoted bool) string {
 // (agents.Kind.Headless; name is the program typed, one of h.Programs): a subcommand (codex exec, opencode run), one
 // also as any later positional word (Anywhere); a long flag of h.Flags (agy --prompt), or a print flag -p, --print or a
 // short cluster holding p (-cp, -pc), either spelling with =, before `--` (claude; it has no -p-sized option values).
-// Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28): the
+// A word that is a whole short option of the kind (pi's -np, -ne: h.ShortOpts) is read as that option, not as a
+// cluster. Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28): the
 // alias after a prompt word (`codex "hello" e hi`); `env -S` separators the shell parser reads differently (`\_`).
 func headless(h agents.Headless, name string, args []string) {
 	if sub := subcommand(args, h.ValueOpts); oneOf(sub, h.Subcommands...) {
@@ -498,7 +499,11 @@ func headless(h agents.Headless, name string, args []string) {
 		case oneOf(a, h.Flags...):
 			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
 		case !h.PrintFlag:
-		case a == "--print" || len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.Contains(a, "p") &&
+		case a == "--print" || a == "-p":
+			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
+		case oneOf(a, h.ShortOpts...):
+			// a whole short option (pi's -np, -ne): not a cluster holding p
+		case len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.Contains(a, "p") &&
 			strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == "":
 			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
 		}

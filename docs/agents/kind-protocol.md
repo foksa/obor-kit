@@ -150,8 +150,8 @@ role's start names it not at all, so the pane's own value stands. What the CLI h
   "env": ["HOME", "MYKIND_HOME"],
   "stop": {"quit": "/exit", "second_enter": false, "clear_input": ["ctrl+u"], "after_escape": [], "program": "",
            "dialog": {"option": "Quit anyway", "key": "(\\d)\\. Quit anyway"}},
-  "headless": {"programs": [], "subcommands": ["run"], "anywhere": [], "value_opts": ["--model"], "print_flag": false,
-               "flags": ["--prompt"]},
+  "headless": {"programs": [], "subcommands": ["run"], "anywhere": [], "value_opts": ["--model"], "short_opts": ["-np"],
+               "print_flag": false, "flags": ["--prompt"]},
   "transcript": "${HOME}/.mykind/sessions/{sid}.jsonl",
   "inbox_record": ["MYKIND_INBOX"],
   "not_ready": {"pattern": "Updating", "why": "is updating itself"},
@@ -171,7 +171,7 @@ role's start names it not at all, so the pane's own value stands. What the CLI h
 | `efforts` | the values a model ref's `:<effort>` may take (`Efforts`; none: no effort) |
 | `vars` | every variable `start`'s `env` may set (`Vars`) |
 | `env` | the variables obor snapshots into each request, and the only ones `transcript` may name |
-| `stop`, `headless` | `Stop` (the quit recipe; `dialog.key` a regular expression) and `Headless` (the argv forms the guard denies; `programs` empty: the name; `flags` are long flags that run it headless, as `print_flag` is `-p`/`--print`) |
+| `stop`, `headless` | `Stop` (the quit recipe; `dialog.key` a regular expression) and `Headless` (the argv forms the guard denies; `programs` empty: the name; `flags` are long flags that run it headless, as `print_flag` is `-p`/`--print`; `short_opts` are a kind's short options of more than one letter, `pi`'s `-np`/`-ne`, which the guard reads whole rather than as a cluster holding `p`) |
 | `transcript` | the glob of a session's transcript: `{sid}` the session id, `${VAR}` a variable of `env` (one empty: none) |
 | `inbox_record` | the variables whose values, as a JSON object, are a session's inbox record (written by the SessionStart hook from its env, and by any `obor` command run with them in its env but `obor hook`, `obor kind` and `obor mcp`; given back to `deliver` as `record`); one empty: no record. The writer asks `deliver` (empty `text`) for the record's socket, or `sent` (the kind sends with it), and keeps that beside the record: `obor serve` posts only while that socket is there, or while no send with a `sent` record was refused (a refusal marks it; the next `obor` command that records it clears the mark); else the lead's hooks take its lines |
 | `not_ready` | `{pattern, why}`: a regular expression on the start's screen, `why` the reason; `{call: true}`: run `not-ready` per poll; absent: ready once started |

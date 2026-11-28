@@ -218,8 +218,9 @@ func TestPkillKillallDeniedKillPIDAllowed(t *testing.T) {
 	})
 }
 
-// codex exec, claude -p / --print and opencode run / acp / serve / api are denied for every role (lead included),
-// wrapped or nested too; the interactive forms and look-alikes are allowed.
+// codex exec, claude -p / --print, pi -p / --print and opencode run / acp / serve / api are denied for every role (lead
+// included), wrapped or nested too; the interactive forms and look-alikes are allowed, pi's multi-letter short options
+// (-np, -ne, -nc) read whole, and the other kinds' print clusters (-cp, -pc) denied.
 func TestHeadlessAgentRunsDenied(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -237,6 +238,9 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 			bash(who, cwd, `claude -p "summarise"`, "claude -p "+why),
 			bash(who, cwd, `claude --model opus --print "x"`, "claude --print "+why),
 			bash(who, cwd, `claude --print=json`, "claude --print"),
+			bash(who, cwd, `pi -p "summarise"`, "pi -p "+why),
+			bash(who, cwd, `pi --print "x"`, "pi --print "+why),
+			bash(who, cwd, `pi --mode rpc`, "pi --mode "+why),
 			bash(who, cwd, `opencode run "x"`, "opencode run "+why),
 			bash(who, cwd, `opencode acp`, "opencode acp "+why),
 			bash(who, cwd, `opencode api session.prompt --session ses_1`, "opencode api "+why),
@@ -271,6 +275,9 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 		bash("lead", P, `codex review e`, ""),
 		bash("lead", P, `env -S 'claude --resume x'`, ""),
 		bash("lead", P, `claude -c --model opus`, ""),
+		bash("lead", P, `pi -np "summarise"`, ""),
+		bash("lead", P, `pi -ne -e x`, ""),
+		bash("lead", P, `pi -nc "x"`, ""),
 	)
 	check(t, f.Project, cases)
 }

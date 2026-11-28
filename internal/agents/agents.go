@@ -397,6 +397,7 @@ type Headless struct {
 	Subcommands []string // denied as the first positional word
 	Anywhere    []string // also denied as any later positional word before `--`
 	ValueOpts   []string // global options that take the next word as their value (so it is no subcommand)
+	ShortOpts   []string // short options of more than one letter (pi's -np, -ne), read whole before a word is tried as a cluster
 	PrintFlag   bool     // -p / --print, also inside a short-flag cluster, before `--`
 	Flags       []string // long flags that run it headless (`--prompt`, a print alias), either spelling, before `--`
 }
