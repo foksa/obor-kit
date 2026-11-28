@@ -178,7 +178,7 @@ func newLab(kind, herdrBin string) (*lab, error) {
 	}
 	l.env = cleanEnv()
 	if kind == "pi" && home != "" { // pi's provider credential and agent dir: no identity, and the clean environment leaves every caller variable out
-		if a, err := piAuthOf(piAgentDir(home, os.Getenv), piLiveModel, os.Getenv); err == nil {
+		if a, err := piAuthOf(piAgentDir(home, os.Getenv), piLiveModel, l.env, os.Getenv, piAuthCheckRun); err == nil {
 			for _, k := range names(a.Vars) {
 				l.env = append(l.env, k+"="+a.Vars[k])
 			}

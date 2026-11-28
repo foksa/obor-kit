@@ -59,6 +59,10 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   first error ends the stream once (`Err`, `Close`). The terminal adapters' event streams (`hc`, `rex`) run on it.
 - `osnotify`: a desktop notification for a terminal that has none of its own (`Notifier.Show`: osascript on macOS,
   a reason elsewhere); `hc` and `rex` answer `port.Panes.Notify` with it.
+- `inbox`: the one post into an agent's session inbox, `app.Poster`: `Poster{Root, Kinds}.Post` reads the project's
+  record for the agent's slot, takes the pane's kind's lines from it (or the kind sends with it) and writes them to
+  its socket, marking the record refused on a refused send or a dead socket. serve's lines and job wakes and the
+  live conformance tier's inbox row post through it.
 - `version`: build version line.
 - `agents/plugin`: a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind
   protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` builds the

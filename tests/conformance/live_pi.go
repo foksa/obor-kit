@@ -6,13 +6,14 @@
 // worker guard denies, and ends. The rows: the extension's session_start reached obor serve (PI-L1), the session lists
 // mcp__obor__job_next and its reply (PI-L2), the guard's line is the tool's result (PI-L3), the Stop hook's block is
 // the turn's continuation (PI-L4), /quit exits 0 (PI-L5), and the user's ~/.pi is unchanged beyond the session dir the
-// start names (PI-L6). With TURN=1, a line posted to the session's inbox through obor's poster starts a turn (PI-L7).
-// The tier runs when pi can authenticate the model: an auth.json entry for the provider under its agent directory
-// (PI_CODING_AGENT_DIR or the default), or the provider's environment key; the needed variables are carried into the
-// throwaway session.
+// start names (PI-L6). With TURN=1, a line posted to the session's inbox by obor's poster starts a turn (PI-L7).
+// The tier runs when pi's own auth check says it can authenticate the model from the environment the pane will get:
+// the agent directory's auth.json, the provider's environment key, or its OAuth or auth token; the variables the pane
+// needs are carried into the throwaway session.
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -23,6 +24,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/wire"
+	"obor/internal/inbox"
 	"obor/internal/project"
 	"obor/internal/store"
 )
@@ -56,7 +58,7 @@ func piLive(l *lab, turn bool) {
 		return
 	}
 	piHome := filepath.Join(home, ".pi")
-	auth, err := piAuthOf(piAgentDir(home, os.Getenv), piLiveModel, os.Getenv)
+	auth, err := piAuthOf(piAgentDir(home, os.Getenv), piLiveModel, cleanEnv(), os.Getenv, piAuthCheckRun)
 	if err != nil {
 		skipAll("pi", err.Error())
 		return
@@ -179,11 +181,12 @@ func piLive(l *lab, turn bool) {
 }
 
 // piInbox is PI-L7: the tier's other rows prove hooks and MCP; this one probes the session's inbox, the transport
-// obor's lines reach pi by: while the session is idle, a line posted to its inbox through obor's poster — the
-// project's inbox record for the session's slot, the kind's deliver of it, its socket — is the session's user message,
-// and its turn's reply is in the session record. TURN=1: the row's turn is a model call past the start's prompt.
+// obor's lines reach pi by: while the session is idle, a line posted to its inbox by obor's own poster (inbox.Poster:
+// the project's inbox record for the session's slot, the kind's deliver of it, its socket) is the session's user
+// message, and its turn's reply is in the session record. TURN=1: the row's turn is a model call past the start's
+// prompt.
 func piInbox(l *lab, pane, sessions, sid string, turn bool) {
-	where := at("pi/obor.js", "const line = (ctx)") + ", " + at("cmd/obor/send.go", "func (p poster) Post") + ", pi-probes P6"
+	where := at("pi/obor.js", "const line = (ctx)") + ", " + at("internal/inbox/inbox.go", "func (p Poster) Post") + ", pi-probes P6"
 	if !turn {
 		report("SKIP", "PI-L7", "needs TURN=1 (the inbox's turn is a model call past the start's prompt)", where)
 		return
@@ -220,28 +223,8 @@ func piInbox(l *lab, pane, sessions, sid string, turn bool) {
 		report("FAIL", "PI-L7", "no inbox record file for slot "+slot+": "+err.Error(), where)
 		return
 	}
-	b, err := os.ReadFile(f)
-	if err != nil {
-		report("FAIL", "PI-L7", "the inbox record "+f+": "+err.Error(), where)
-		return
-	}
-	in, err := project.ReadInbox(cfg, slot)
-	if err != nil {
-		report("FAIL", "PI-L7", "the inbox record "+f+": "+err.Error(), where)
-		return
-	}
-	rec := b
-	if in.Record != "" { // a plugin kind's own record, as the poster gives it to the kind's deliver
-		rec = []byte(in.Record)
-	}
-	k := l.kindOf("pi")
-	d, ok := k.Deliver(piLiveInbox, rec)
-	if !ok || d.Socket == "" {
-		report("FAIL", "PI-L7", "the kind's deliver names no socket for "+s.Agent+"'s record", where)
-		return
-	}
-	if err := post(d.Socket, d.Lines); err != nil {
-		report("FAIL", "PI-L7", "posting to "+s.Agent+"'s inbox "+d.Socket+": "+err.Error(), where)
+	if began, err := (inbox.Poster{Root: cfg.Root, Kinds: cfg.Kinds()}).Post(context.Background(), "pi", s.Agent, piLiveInbox); !began || err != nil {
+		report("FAIL", "PI-L7", fmt.Sprintf("obor's poster posted nothing to %s's inbox (%s): %v", s.Agent, f, err), where)
 		return
 	}
 	reply := `"text":"` + piLiveInboxReply + `"` // the assistant message's text, which the posted line's text does not carry
@@ -252,8 +235,8 @@ func piInbox(l *lab, pane, sessions, sid string, turn bool) {
 	case !hasLine(text, `"role":"assistant"`, reply):
 		report("FAIL", "PI-L7", "the line started no turn: no assistant message "+fmt.Sprintf("%q", piLiveInboxReply)+"; transcript end: "+tail(text, 3), where)
 	default:
-		report("PASS", "PI-L7", "a line posted to "+s.Agent+"'s inbox (the project's record for slot "+slot+", the kind's deliver, its socket)"+
-			" while the session was idle is its user message, and its turn's reply is "+fmt.Sprintf("%q", piLiveInboxReply), where)
+		report("PASS", "PI-L7", "a line posted to "+s.Agent+"'s inbox by obor's poster (the project's record for slot "+slot+" at "+f+
+			", the kind's deliver, its socket) while the session was idle is its user message, and its turn's reply is "+fmt.Sprintf("%q", piLiveInboxReply), where)
 	}
 }
 

@@ -41,7 +41,7 @@ var layerOf = map[string]string{
 	"internal/project": base, "internal/config": base, "internal/roles": base, "internal/spec": base,
 	"internal/run": base, "internal/version": base, "internal/store": base, "internal/selfexec": base,
 	"internal/help": base, "internal/background": base, "internal/progstatus": base, "internal/linestream": base,
-	"internal/osnotify": base,
+	"internal/osnotify": base, "internal/inbox": base,
 	// a plugin kind runs its command as a process group (project.Group) and caches its manifest: no bridge
 	// (data and pure functions); the config builds it through agents.Plugins, setup caches it
 	"internal/agents/plugin": base,
