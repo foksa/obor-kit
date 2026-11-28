@@ -3,9 +3,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { create, kitRoot, mcpServer, projectServers, toolEvent } from "./obor.js";
+import { bindInbox, create, inboxLines, inboxPath, kitRoot, mcpServer, projectServers, toolEvent } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "pi", tool_name, tool_input });
@@ -45,8 +46,9 @@ test("kitRoot: the directory above pi/", () => {
 // its mode (allow, deny, exit1, panic: an allow with a diagnostic line, block, answer, slow: an answer then six
 // seconds, late: an answer then past the hook's bound, stderr: an answer and a diagnostic line, hang: no answer, past
 // the bound); project writes .obor/config.json (and mcp, the project's .agents/mcp_config.json); noBin leaves bin/obor
-// out. The fake pi records its handlers and MCP registrations; ctx(…) is a handler context of session s1 (or id) whose
-// branch is entries.
+// out. The fake pi records its handlers, MCP registrations and sendUserMessage calls; ctx(…) is a handler context of
+// session s1 (or id) whose branch is entries; idle is what ctx.isIdle answers. HOME is the rig's, so an inbox socket
+// binds under it, never the runner's own ~/.obor; inbox() is each hook call's OBOR_PI_INBOX ("" unset).
 function rig(t, { mode = "allow", project = true, mcp, noBin = false, env = {}, refuse = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-pi-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -59,6 +61,7 @@ function rig(t, { mode = "allow", project = true, mcp, noBin = false, env = {}, 
       `#!/bin/bash
 event=$(cat)
 echo "$2 OBOR_NO_SELF_HOST=$OBOR_NO_SELF_HOST $event" >> ${log}
+echo "\${OBOR_PI_INBOX-}" >> ${base}/inbox
 case "${mode}:$2" in
   deny:pre-tool-use) echo "obor: denied by the stub" >&2; exit 2 ;;
   exit1:pre-tool-use) echo "obor: the stub crashed" >&2; exit 1 ;;
@@ -85,22 +88,28 @@ esac
   const handlers = {};
   const servers = [];
   const notes = [];
+  const sends = [];
+  const state = { idle: true };
   const pi = {
     on: (name, fn) => (handlers[name] = fn),
     registerMcpServer: (name, config) => {
       if (refuse.includes(name)) throw new Error("invalid config");
       servers.push([name, config]);
     },
+    sendUserMessage: (text, options) => void sends.push([text, options]),
   };
-  create(pi, { cwd: dir, kit, env: { ...process.env, ...env } });
+  create(pi, { cwd: dir, kit, env: { ...process.env, HOME: base, ...env } });
   const ctx = ({ id = "s1", entries = [] } = {}) => ({
     cwd: dir,
     ui: { notify: (line, level) => notes.push([level, line]) },
+    isIdle: () => state.idle,
     sessionManager: { getSessionId: () => id, getSessionFile: () => `/sessions/x_${id}.jsonl`, getBranch: () => entries },
   });
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
   const events = (hook) => calls().filter((l) => l.startsWith(hook + " ")).map((l) => JSON.parse(l.replace(/^\S+ \S+ /, "")));
-  return { handlers, servers, notes, ctx, calls, events, dir, kit };
+  const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
+  const sock = (sid) => inboxPath(sid, { HOME: base });
+  return { handlers, servers, notes, sends, state, ctx, calls, events, inbox, sock, dir, kit, base };
 }
 
 const assistant = (stopReason, more = {}) => ({ type: "message", message: { role: "assistant", stopReason, ...more } });
@@ -108,7 +117,7 @@ const assistant = (stopReason, more = {}) => ({ type: "message", message: { role
 test("load: obor's MCP server (the kit's bin/obor mcp, direct) and every hook are registered", (t) => {
   const { handlers, servers, kit } = rig(t);
   assert.deepEqual(servers, [["obor", { command: path.join(kit, "bin", "obor"), args: ["mcp"], env: { OBOR_NO_SELF_HOST: "1" }, exposure: "direct" }]]);
-  assert.deepEqual(Object.keys(handlers).sort(), ["agent_before_settle", "agent_settled", "before_agent_start", "input", "session_start", "tool_call"]);
+  assert.deepEqual(Object.keys(handlers).sort(), ["agent_before_settle", "agent_settled", "before_agent_start", "input", "session_shutdown", "session_start", "tool_call"]);
 });
 
 test("load: the project's .agents/mcp_config.json servers are registered too, its obor entry and a disabled one left out", (t) => {
@@ -195,6 +204,72 @@ test("session_start: OBOR_PI_RESUME naming the session tells a resume, though pi
       ["s2", "startup"],
     ],
   );
+});
+
+// post writes lines to an inbox socket and waits for the server to close the connection.
+const post = (file, lines) =>
+  new Promise((resolve, reject) => {
+    const c = net.connect(file, () => c.end(lines.join("\n") + "\n"));
+    c.on("error", reject);
+    c.on("data", () => {});
+    c.on("close", resolve);
+  });
+const line = (text) => JSON.stringify({ type: "user", text });
+
+test("inboxPath: a session's socket under ~/.obor/pi; none without HOME or over a unix socket's 103 bytes", () => {
+  assert.equal(inboxPath("s1", { HOME: "/h" }), "/h/.obor/pi/s1.sock");
+  assert.equal(inboxPath("s1", {}), "", "no HOME");
+  const home = "/" + "h".repeat(103 - "/.obor/pi/s1.sock".length - 1);
+  assert.equal(Buffer.byteLength(inboxPath("s1", { HOME: home })), 103, "precondition: 103 bytes bind");
+  assert.equal(inboxPath("s1", { HOME: home + "x" }), "", "104 bytes: none");
+});
+
+test("inboxLines: one text per user line; a line that does not parse or names no text is none", () => {
+  assert.deepEqual(inboxLines(line("[obor other] one") + "\n" + line("two\nrows") + "\n"), ["[obor other] one", "two\nrows"]);
+  assert.deepEqual(inboxLines('not json\n{"type":"auth","token":"x"}\n{"type":"user"}\n{"type":"user","text":""}\n'), []);
+});
+
+// The session-start hook of each session runs with its own socket in OBOR_PI_INBOX (bound before the hook, so the
+// record names a live socket); a line posted there is a sendUserMessage: no deliverAs when the session is idle, steer
+// when it is busy.
+test("inbox: a socket bound per session and named in its session-start's env; a line is a user message when idle, a steer when busy", async (t) => {
+  const { handlers, ctx, inbox, sock, sends, state } = rig(t);
+  await handlers.session_start({}, ctx());
+  await handlers.session_start({}, ctx({ id: "s2" }));
+  assert.deepEqual(inbox(), [sock("s1"), sock("s2")], "one session-start per session, each with its own socket");
+  for (const id of ["s1", "s2"]) assert.ok(fs.statSync(sock(id)).isSocket(), `${id}'s socket is bound`);
+  assert.deepEqual(sends, [], "precondition: nothing sent before a post");
+  await post(sock("s1"), [line("[obor other] hi")]);
+  assert.deepEqual(sends, [["[obor other] hi", undefined]]);
+  state.idle = false;
+  await post(sock("s2"), [line("[obor] needs-you T-1"), "garbage"]);
+  assert.deepEqual(sends[1], ["[obor] needs-you T-1", { deliverAs: "steer" }], "the busy session's line is a steer; a line that does not parse is none");
+});
+
+test("inbox: a stale file at the socket's path is replaced; the socket is removed at the session's shutdown", async (t) => {
+  const { handlers, ctx, sock } = rig(t);
+  fs.mkdirSync(path.dirname(sock("s1")), { recursive: true });
+  fs.writeFileSync(sock("s1"), "stale");
+  await handlers.session_start({}, ctx());
+  assert.ok(fs.statSync(sock("s1")).isSocket(), "precondition: bound over the stale file");
+  await handlers.session_shutdown({ reason: "quit" }, ctx());
+  assert.equal(fs.existsSync(sock("s1")), false, "the shutdown removed the socket");
+});
+
+// No socket: a bind that fails warns once and the session-start hook runs without the variable, so no inbox is
+// recorded and the lead's lines stay typed.
+test("bind failure: one warning and the session-start hook runs without the variable; the lines stay typed", async (t) => {
+  const { handlers, ctx, inbox, sock, notes } = rig(t);
+  const dir = path.dirname(sock("s1"));
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  fs.writeFileSync(dir, "not a directory");
+  await handlers.session_start({}, ctx());
+  assert.equal(fs.existsSync(sock("s1")), false);
+  assert.deepEqual(inbox(), [""], "the hook ran with no inbox in its env");
+  assert.equal(notes.length, 1);
+  assert.match(notes[0][1], /^obor: session s1's inbox .* not bound \(.*\); its lines stay typed$/);
+  await handlers.before_agent_start({ messageType: "user", prompt: "go" }, ctx());
+  assert.equal(notes.length, 1, "the failed bind warns once, not per hook");
 });
 
 test("user-prompt-submit: input's raw text at the run's start; the session's and the prompt's context in one hidden message", async (t) => {
@@ -305,10 +380,10 @@ test("a throwing handler does not escape: it warns, the guard blocks, the others
   const bad = { cwd: "/nowhere", ui: { notify: (line, level) => notes.push([level, line]) }, sessionManager: { getSessionId: () => { throw new Error("boom"); } } };
   const r = await handlers.tool_call({ toolName: "bash", input: { command: "ls" } }, bad);
   assert.deepEqual(r, { block: true, reason: "obor: guard failed (boom); denied" });
-  for (const name of ["session_start", "input", "before_agent_start", "agent_before_settle", "agent_settled"]) {
+  for (const name of ["session_start", "session_shutdown", "input", "before_agent_start", "agent_before_settle", "agent_settled"]) {
     assert.equal(await handlers[name]({ messageType: "user", text: "x" }, bad), undefined, name);
   }
-  assert.equal(notes.length - notes0, 6);
+  assert.equal(notes.length - notes0, 7);
   assert.match(notes.at(-1)[1], /^obor: the agent_settled handler failed: boom$/);
 });
 

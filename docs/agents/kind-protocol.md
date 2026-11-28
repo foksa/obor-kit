@@ -18,9 +18,11 @@ inbox is the agentapi variables of the commands the agent runs (`inbox_record`, 
 commands), which its `deliver` sends with (`sent`).
 The kit's third plugin kind is pi, `kinds/pi` (`obor-kind-pi`): the extension `<kit>/pi/obor.js`, loaded with `-e` at
 every start, registers obor's MCP server itself (`install`'s `mcp: {where: start}`) and carries the hooks; a resume
-sets `OBOR_PI_RESUME`, the session JSONL under `~/.pi/agent/sessions` is its transcript, and its lines are typed until
-the inbox task. pi ignores `trim_user`: its agents keep the user's extensions, packages and skills (decisions
-2026-11-28; pi's extensions are its features); a project turns one off in its `.pi/settings.json`.
+sets `OBOR_PI_RESUME`, the session JSONL under `~/.pi/agent/sessions` is its transcript, and its inbox is the
+extension's per-session socket (`${HOME}/.obor/pi/<session>.sock`, named in the session-start hook's env as
+`OBOR_PI_INBOX`, the kind's `inbox_record`): `deliver` posts one line there and the extension sends it to pi, a turn
+when idle or a steer when busy. pi ignores `trim_user`: its agents keep the user's extensions, packages and skills
+(decisions 2026-11-28; pi's extensions are its features); a project turns one off in its `.pi/settings.json`.
 
 ## Register one
 

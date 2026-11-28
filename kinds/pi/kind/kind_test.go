@@ -28,13 +28,13 @@ func pi(t *testing.T, stateDir string) agents.Kind {
 }
 
 // The manifest: obor's hooks through pi's extension, acting on their answers, a resume, the model as a required
-// provider/id, the terminal's status, /quit with one Enter and Ctrl+U, -p/--print and --mode and the config-writing
-// subcommands denied, the default session dir's JSONL under HOME, no inbox (lines typed until the inbox task), and
-// obor's MCP server registered per start by the extension.
+// provider/id, the session's inbox (the extension's socket, recorded from InboxVar), the terminal's status, /quit with
+// one Enter and Ctrl+U, -p/--print and --mode and the config-writing subcommands denied, the default session dir's
+// JSONL under HOME, and obor's MCP server registered per start by the extension.
 func TestManifest(t *testing.T) {
 	k := pi(t, t.TempDir())
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, HookAnswers: true, Resume: true, Transcript: true,
-		ModelArg: true, Status: agents.StatusTerminal}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Inbox: true, HookAnswers: true, Resume: true,
+		Transcript: true, ModelArg: true, Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
 	if got := k.Efforts(); !slices.Equal(got, []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}) {
@@ -67,8 +67,8 @@ func TestManifest(t *testing.T) {
 		!strings.Contains(how, "/kit/pi/obor.js") || !strings.Contains(how, "/kit/bin/obor mcp") {
 		t.Errorf("Lane = %q, %v, %v: want registered per start by the extension", how, reg, static)
 	}
-	if r := k.InboxRecord(env(map[string]string{"OBOR_PI_INBOX": "/s"})); r != nil {
-		t.Errorf("InboxRecord = %s, want none until the inbox task", r)
+	if r := k.InboxRecord(env(map[string]string{"OBOR_PI_INBOX": "/h/.obor/pi/s1.sock"})); string(r) != `{"OBOR_PI_INBOX":"/h/.obor/pi/s1.sock"}` {
+		t.Errorf("InboxRecord = %s, want the extension's socket", r)
 	}
 }
 
@@ -252,15 +252,28 @@ func TestReset(t *testing.T) {
 	}
 }
 
-// Every line is typed until the inbox task: the manifest says typed (pi has no inbox), and a record naming the
-// reserved inbox variable delivers nothing.
-func TestDeliverIsTyped(t *testing.T) {
+// The session's inbox: the record is the extension's socket (InboxVar, set in its session-start hook's env; Claude's
+// variables are none of it), and deliver posts one line there, {"type":"user","text"}, the text whole (a batched post's
+// rows in one line); a record naming no socket delivers nothing.
+func TestDeliver(t *testing.T) {
 	k := pi(t, t.TempDir())
-	if k.Caps().Inbox {
-		t.Fatal("precondition: pi has no inbox yet")
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {
+		t.Errorf("InboxRecord of Claude's variables = %s, want none", r)
 	}
-	if d, ok := k.Deliver("hi", []byte(`{"OBOR_PI_INBOX":"/s"}`)); !ok || !d.Typed || d.Socket != "" || len(d.Lines) != 0 {
-		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
+	rec := k.InboxRecord(env(map[string]string{kind.InboxVar: "/h/.obor/pi/s1.sock"}))
+	if string(rec) != `{"OBOR_PI_INBOX":"/h/.obor/pi/s1.sock"}` {
+		t.Fatalf("InboxRecord = %s, want the extension's socket", rec)
+	}
+	d, ok := k.Deliver("[obor other] hi\n[obor] needs-you T-1", rec)
+	if !ok || d.Typed || d.Socket != "/h/.obor/pi/s1.sock" ||
+		!slices.Equal(d.Lines, []string{`{"text":"[obor other] hi\n[obor] needs-you T-1","type":"user"}`}) {
+		t.Errorf("Deliver = %+v, %v; want one user line to the record's socket", d, ok)
+	}
+	for _, bad := range []string{"", "{}", `{"socket":"/s"}`, "not json"} {
+		if d, ok := k.Deliver("hi", []byte(bad)); ok {
+			t.Errorf("Deliver with record %q = %+v, true; want none", bad, d)
+		}
 	}
 }
 

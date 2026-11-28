@@ -1,9 +1,10 @@
 // Package kind is pi as obor's kind protocol answers it (docs/agents/kind-protocol.md), built as the binary
 // obor-kind-pi (kinds/pi). A start is `pi --approve -e {kit}/pi/obor.js --model <provider/id> [--thinking <level>]`
 // (a resume adds --session <id>), then `--` and the prompt; the extension registers obor's MCP server at each start
-// and carries the hooks (pi/obor.js). /quit with one Enter; -p/--print, --mode and the subcommands that write the
-// user's pi config denied; lines typed until the inbox task; the turn, its context and a limit's reset read from the
-// session JSONL (turn.go). Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
+// and carries the hooks and the session's inbox (pi/obor.js). /quit with one Enter; -p/--print, --mode and the
+// subcommands that write the user's pi config denied; lines posted to the session's inbox; the turn, its context and a
+// limit's reset read from the session JSONL (turn.go). Handle is one request; the binary runs it on its stdin, a test
+// binary in process (testkit).
 package kind
 
 import (
@@ -27,9 +28,12 @@ const Name = "pi"
 // (docs/research/pi-probes.md P9), and the session-start hook reports the id either way.
 const ResumeVar = "OBOR_PI_RESUME"
 
-// Extension is the extension a start loads with -e: {kit}/pi/obor.js, the hooks' and later the inbox's transport. The
-// inbox task reserves OBOR_PI_INBOX for the session's inbox record; until then this kind delivers no line there:
-// the manifest says typed.
+// InboxVar is the variable obor's extension (pi/obor.js) puts in the env of the session-start hook it runs: the
+// session's inbox socket, which it binds per session. The manifest's inbox_record names it, so the hook records it as
+// the session's inbox, and deliver posts there.
+const InboxVar = "OBOR_PI_INBOX"
+
+// Extension is the extension a start loads with -e: {kit}/pi/obor.js, the hooks' and the inbox's transport.
 func Extension(kit string) string { return filepath.Join(kit, "pi", "obor.js") }
 
 // efforts are pi's --thinking levels (pi --help: off, minimal, low, medium, high, xhigh, max). Which of them a model
@@ -108,7 +112,7 @@ func Handle(call string, req []byte) ([]byte, error) {
 	case "turn":
 		reply = turn(in)
 	case "deliver":
-		reply = map[string]any{"ok": true, "delivery": map[string]any{"typed": true}}
+		reply = deliver(in)
 	default:
 		return nil, fmt.Errorf("no call %q", call)
 	}
@@ -118,29 +122,41 @@ func Handle(call string, req []byte) ([]byte, error) {
 
 // describe is the manifest. Caps: hooks through pi's extension, which acts on the hooks' answers (hook_answers: the
 // prompt's context and a stop's block), a resume by the session id the session-start hook reports, the model as a
-// required provider/id. Inbox false and typed true until the inbox task: every line is typed into the pane. Status from
-// the terminal's agent detection (herdr detects a pi pane with no integration). Stop: /quit, typed with Enter (its
-// command popup takes that Enter and runs it; docs/research/pi-probes.md P8), Ctrl+U clears the input; never Ctrl+C,
-// whose second press exits. Headless: -p/--print, --mode's json and rpc, and the subcommands that write the user's
-// config. Transcript: the session JSONL under pi's default session dir ({HOME}/.pi/agent/sessions, one dir per cwd),
-// named <timestamp>_<session id>.jsonl. MCP: the extension registers obor's server at each start (install's lane is
-// per start); no file is written.
+// required provider/id, and the session's inbox (the extension's per-session socket, recorded from InboxVar:
+// inbox_record). Status from the terminal's agent detection (herdr detects a pi pane with no integration). Stop:
+// /quit, typed with Enter (its command popup takes that Enter and runs it; docs/research/pi-probes.md P8), Ctrl+U
+// clears the input; never Ctrl+C, whose second press exits. Headless: -p/--print, --mode's json and rpc, and the
+// subcommands that write the user's config. Transcript: the session JSONL under pi's default session dir
+// ({HOME}/.pi/agent/sessions, one dir per cwd), named <timestamp>_<session id>.jsonl. MCP: the extension registers
+// obor's server at each start (install's lane is per start); no file is written.
 func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
 		"status":  "terminal",
-		"caps":    map[string]any{"hooks": "plugin", "hook_answers": true, "resume": true, "model_arg": true},
+		"caps":    map[string]any{"hooks": "plugin", "inbox": true, "hook_answers": true, "resume": true, "model_arg": true},
 		"efforts": efforts,
 		"vars":    []string{ResumeVar},
 		"env":     []string{"HOME"},
 		"stop":    map[string]any{"quit": "/quit", "clear_input": []string{"ctrl+u"}},
 		"headless": map[string]any{"print_flag": true, "value_opts": headlessValueOpts, "flags": []string{"--mode"},
 			"subcommands": []string{"install", "remove", "uninstall", "update", "config", "auth", "mcp"}},
-		"transcript": TranscriptGlob,
-		"typed":      true,
+		"transcript":   TranscriptGlob,
+		"inbox_record": []string{InboxVar},
 		"mcp_lane": map[string]any{"registered": true, "how": "-e " + Extension("{kit}") +
 			" (the extension registers " + filepath.Join("{kit}", "bin", "obor") + " mcp)"},
 	}
+}
+
+// deliver posts text to the session's inbox as the record names it (InboxVar, the socket the extension binds): one
+// line, {"type":"user","text":<text>}, which the extension sends to pi (a turn when idle; a steer into a run when
+// busy). ok false: the record names no socket.
+func deliver(in request) map[string]any {
+	var rec map[string]string
+	if json.Unmarshal([]byte(in.Record), &rec) != nil || rec[InboxVar] == "" {
+		return map[string]any{"ok": false}
+	}
+	line, _ := json.Marshal(map[string]string{"type": "user", "text": in.Text})
+	return map[string]any{"ok": true, "delivery": map[string]any{"socket": rec[InboxVar], "lines": []string{string(line)}}}
 }
 
 // TranscriptGlob is the manifest's transcript glob: pi's default session dir, one directory per cwd, and a session's

@@ -7,13 +7,23 @@
 //	                              .agents/mcp_config.json servers, which pi does not read itself
 //	tool_call                   → pre-tool-use (toolEvent's map); exit 0 allows, exit 2 is {block: true, reason} with
 //	                              obor's line, and every other outcome blocks
-//	session_start               → session-start (its output is the session's context, added at its first run)
+//	session_start               → session-start (its output is the session's context, added at its first run); the
+//	                              session's inbox binds first and that hook's env names it
+//	session_shutdown            → closes that inbox
 //	input + before_agent_start  → user-prompt-submit (its context added to the run as a hidden message); a line typed
 //	                              into a busy session (input's streamingBehavior) gets its context appended to its text
 //	agent_before_settle         → stop: a block appends the reason as a custom_message and asks for one more run
 //	                              (continue: true); the stop that ends that run carries stop_hook_active: true
 //	agent_settled               → stop-failure when the session's last assistant message ended on an error
 //	                              (stopReason "error"), with its errorMessage; a run that ended so runs no stop
+//
+// The session's inbox (agents.Caps.Inbox): before a session's session-start the extension binds a unix socket for it
+// (${HOME}/.obor/pi/<session>.sock, none over a socket path's 103 bytes) and puts its path in that hook's env
+// (INBOX_VAR), so the hook records it as the session's inbox (the kind's inbox_record), and obor serve posts the
+// session's lines there (the kind's deliver: one JSON line {"type":"user","text"} per line). Each line becomes
+// pi.sendUserMessage: a turn when the session is idle, a steer into the running one when it is busy. A bind that fails
+// warns once and the hook runs without the variable, so no inbox is recorded and the lines stay typed. The socket is
+// removed when it closes, at the session's shutdown and when the process exits, so a record naming it is no live inbox.
 //
 // pi loads this file with `-e <kit>/pi/obor.js` (jiti, in pi's own Node): plain JS, node built-ins only. Its process is
 // the pane's agent, so its env is the start's: obor hook gets it whole, the identity vars (OBOR_ROLE, OBOR_LANE,
@@ -31,6 +41,7 @@
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,6 +55,12 @@ const HOOK_TIMEOUT_MS = 15000;
 const AGENT_KIND = "pi";
 // RESUME_VAR names the session a start resumes; unset on a fresh start.
 const RESUME_VAR = "OBOR_PI_RESUME";
+// INBOX_VAR names the session's inbox socket in the session-start hook's env (kinds/pi/kind.InboxVar, the manifest's
+// inbox_record).
+const INBOX_VAR = "OBOR_PI_INBOX";
+// SOCKET_MAX is the longest unix socket path every platform binds (macOS's sun_path is 104 bytes, its NUL included).
+const SOCKET_MAX = 103;
+
 // PROJECT_MCP is the project's committed MCP config (agents.ProjectMCPFile): the servers a lane may call.
 const PROJECT_MCP = path.join(".agents", "mcp_config.json");
 // OBOR_SERVER is the name obor's MCP server is registered under in every kind.
@@ -141,6 +158,101 @@ export function projectServers(root, warn = () => {}) {
     out.push({ name, config });
   }
   return out;
+}
+
+// inboxPath is a session's inbox socket: ${HOME}/.obor/pi/<session>.sock. "" without HOME or when the path is longer
+// than SOCKET_MAX bytes: no socket to bind.
+export function inboxPath(sid, env = process.env) {
+  if (!env.HOME) return "";
+  const p = path.join(env.HOME, ".obor", "pi", sid + ".sock");
+  return Buffer.byteLength(p) <= SOCKET_MAX ? p : "";
+}
+
+// inboxLines is the texts of an inbox connection's bytes: one JSON line {"type":"user","text"} each; a line that does
+// not parse, or names no text, is none.
+export function inboxLines(data) {
+  const out = [];
+  for (const line of String(data ?? "").split("\n")) {
+    try {
+      const o = JSON.parse(line);
+      if (o?.type === "user" && typeof o.text === "string" && o.text !== "") out.push(o.text);
+    } catch {}
+  }
+  return out;
+}
+
+// bound are the inbox sockets this process listens on, removed at its exit: one set and one exit handler for the
+// process, whichever copy of this module bound them.
+const BOUND = Symbol.for("obor.pi.inboxes");
+const bound =
+  globalThis[BOUND] ??
+  (globalThis[BOUND] = (() => {
+    const set = new Set();
+    process.on("exit", () => {
+      for (const p of set) {
+        try {
+          fs.unlinkSync(p);
+        } catch {}
+      }
+    });
+    return set;
+  })());
+
+// bindInbox listens on file for session id's lines, sending each text with send (a send that fails warns and the next
+// line still goes), then closes the connection (the poster waits for that). A stale file at the path is removed first
+// (a session's socket is its own: a resumed session binds its path again). Resolves to {server, file} once listening,
+// or null (one line to warn) when it cannot bind; a socket that closes or fails later is removed. The server keeps no
+// process alive.
+export function bindInbox(file, id, send, warn = (line) => console.error(line)) {
+  if (!file || !id || typeof send !== "function") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const gone = () => {
+      bound.delete(file);
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+    };
+    const server = net.createServer((conn) => {
+      conn.setEncoding("utf8");
+      let data = "";
+      conn.on("data", (b) => (data += b));
+      conn.on("error", () => {});
+      conn.on("end", async () => {
+        for (const text of inboxLines(data)) {
+          try {
+            await send(text);
+          } catch (e) {
+            warn(`obor: a line for session ${id} was not sent: ${e?.message ?? e}`);
+          }
+        }
+        conn.end();
+      });
+    });
+    let listening = false;
+    const fail = (e) => {
+      warn(`obor: session ${id}'s inbox ${file} not bound (${e?.message ?? e}); its lines stay typed`);
+      try {
+        server.close();
+      } catch {}
+      resolve(null);
+    };
+    server.on("error", (e) => (listening ? gone() : fail(e)));
+    server.on("close", gone);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.rmSync(file, { force: true });
+    } catch {}
+    try {
+      server.listen(file, () => {
+        listening = true;
+        bound.add(file);
+        server.unref();
+        resolve({ server, file });
+      });
+    } catch (e) {
+      fail(e);
+    }
+  });
 }
 
 // promptContext is a user-prompt-submit hook's answer: its additionalContext ("" when it has none or does not parse).
@@ -289,9 +401,28 @@ export function create(pi, { cwd, kit, env }) {
     return answer(r);
   };
 
-  // inboxEnv is the session-start hook's own variables: the inbox (OBOR_PI_INBOX, the session's socket) binds here
-  // when the extension gets one; until then none, and the lead's lines come typed into the pane.
-  const inboxEnv = () => ({});
+  // line is an inbox line's delivery: a user message that starts a turn when the session is idle, and a steer into
+  // the running one when it is busy (pi rejects a send without deliverAs while it streams).
+  const line = (ctx) => async (text) => {
+    const idle = typeof ctx?.isIdle === "function" ? ctx.isIdle() : true;
+    if (idle) await pi.sendUserMessage(text);
+    else await pi.sendUserMessage(text, { deliverAs: "steer" });
+  };
+
+  // inboxes are the sessions' bound inbox sockets, closed at their shutdown; a bind that fails warns once, and the
+  // session-start hook runs without the variable, so no inbox is recorded and the lead's lines stay typed.
+  const inboxes = new Map(); // session id → {server, file}
+  const inboxEnv = async (id, ctx) => {
+    let b = null;
+    try {
+      b = await bindInbox(inboxPath(id, env), id, line(ctx), warn);
+    } catch (e) {
+      warn(`obor: session ${id}'s inbox not bound (${e?.message ?? e}); its lines stay typed`);
+    }
+    if (!b) return {};
+    inboxes.set(id, b);
+    return { [INBOX_VAR]: b.file };
+  };
 
   // started runs session-start once per session: its output is the session's context, added at its first run.
   const starts = new Map(); // session id → its session-start run: the context text
@@ -300,10 +431,33 @@ export function create(pi, { cwd, kit, env }) {
     const { id } = sessionOf(ctx);
     if (!starts.has(id)) {
       const event = { ...base("SessionStart", ctx), source: resumed && resumed === id ? "resume" : "startup" };
-      starts.set(id, ask("session-start", event, ctx, inboxEnv(id)).then((s) => s.trim()));
+      const run = inboxEnv(id, ctx)
+        .then((more) => ask("session-start", event, ctx, more))
+        .then((s) => s.trim());
+      starts.set(id, run);
     }
     return starts.get(id);
   };
+
+  // session_shutdown: the session's inbox closes (its socket file is removed with it); a later start of the same id
+  // binds and starts again.
+  pi.on(
+    "session_shutdown",
+    safe("session_shutdown", async (_e, ctx) => {
+      const { id } = sessionOf(ctx);
+      starts.delete(id);
+      contextGiven.delete(id);
+      const b = inboxes.get(id);
+      if (!b) return;
+      inboxes.delete(id);
+      try {
+        b.server.close();
+      } catch {}
+      try {
+        fs.unlinkSync(b.file);
+      } catch {}
+    }),
+  );
 
   // promptAsk runs user-prompt-submit for text: its context ("" for none).
   const promptAsk = async (text, ctx) => promptContext(await ask("user-prompt-submit", { ...base("UserPromptSubmit", ctx), prompt: text }, ctx));
