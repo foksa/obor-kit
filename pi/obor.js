@@ -82,9 +82,11 @@ const WAKE = "[obor inbox] obor lines arrived above: read them and act on them."
 const PROJECT_MCP = path.join(".agents", "mcp_config.json");
 // OBOR_SERVER is the name obor's MCP server is registered under in every kind.
 const OBOR_SERVER = "obor";
-// PASS are pi's tools that need no event: read, grep, find and ls only read (grep runs rg, find runs fd, ls lists a
-// directory); codemode and tool_search reach their inner calls through tool_call themselves.
-const PASS = new Set(["read", "grep", "find", "ls", "codemode", "tool_search"]);
+// PASS are pi's tools that need no event: read and ls only read a file or list a directory; codemode and tool_search
+// reach their inner calls through tool_call themselves. grep and find stay out: at its first run each downloads its
+// helper (rg, fd) into pi's user-global agent bin directory when it is missing, a write and a network fetch the guard
+// never sees.
+const PASS = new Set(["read", "ls", "codemode", "tool_search"]);
 // UNICODE_SPACES is pi's set of spaces (utils/paths.js): a write or an edit path gets a plain space in each one's place.
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 
@@ -536,8 +538,16 @@ export function create(pi, { cwd, kit, env }) {
         // A guard's stderr is a diagnostic on its allow and on a cut; on a denial it is the block's reason.
         if (r.code === 0 || r.failed) diagnostics(r);
         const block = guardBlock(r, kit);
-        // pi writes the path the guard allowed: input is mutable, and the absolute path pi resolved is its fixed point.
-        if (!block && e.input && ev.tool_input.file_path) e.input.path = ev.tool_input.file_path;
+        // pi writes the path the guard allowed: input is mutable, and the checked absolute path is written back. pi
+        // normalizes that path again, so it is checked to be a fixed point of piPath first: one that is not (a file://
+        // URL decoding to a Unicode space, which the second pass turns into a plain space) is denied, naming the path
+        // pi would write instead, rather than writing back a path the guard did not check.
+        const checked = ev.tool_input.file_path;
+        if (!block && e.input && checked) {
+          const again = piPath(checked, dirOf(ctx));
+          if (again !== checked) return { block: true, reason: `obor: denied: the path checked (${checked}) is not the path pi writes (${again}); obor cannot guard the difference` };
+          e.input.path = checked;
+        }
         return block;
       },
       (err) => ({ block: true, reason: `obor: guard failed (${err?.message ?? err}); denied` }),

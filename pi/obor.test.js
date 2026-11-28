@@ -26,8 +26,8 @@ const rows = [
   ["write with a non-breaking space gets a plain one, as pi does", "write", { path: "docs/a\u00A0b.md", content: "" }, ev("Write", { file_path: "/w/lane/docs/a b.md" })],
   ["edit with @~/ strips the @, then expands the home directory", "edit", { path: "@~/x.go", edits: [] }, ev("Edit", { file_path: path.join(os.homedir(), "x.go") })],
   ["read is allowed: no event", "read", { path: "a.go" }, null],
-  ["grep is read-only: no event", "grep", { pattern: "x" }, null],
-  ["find is read-only: no event", "find", { pattern: "*.go" }, null],
+  ["grep is unguarded: it downloads rg when missing", "grep", { pattern: "x" }, ev("unguarded", { tool: "grep", why: "obor has no rule for pi tool grep: update obor" })],
+  ["find is unguarded: it downloads fd when missing", "find", { pattern: "*.go" }, ev("unguarded", { tool: "find", why: "obor has no rule for pi tool find: update obor" })],
   ["ls is read-only: no event", "ls", { path: "." }, null],
   ["codemode is allowed: its inner calls reach tool_call", "codemode", { code: "x" }, null],
   ["tool_search is allowed", "tool_search", { query: "x" }, null],
@@ -202,6 +202,20 @@ test("guard: an allow writes the checked path back into the call, so pi writes t
   const denied = { path: "~/x.go", edits: [] };
   assert.equal((await deny.handlers.tool_call({ toolName: "edit", input: denied }, deny.ctx())).block, true);
   assert.equal(denied.path, "~/x.go");
+});
+
+// pi normalizes the path written back a second time, so the checked path must be its own fixed point: a file:// URL
+// that decodes to a Unicode space is checked as one path and written as another, and is denied.
+test("guard: a checked path pi would normalize again is denied, naming the path it would write", async (t) => {
+  const { handlers, ctx, events, dir } = rig(t);
+  const input = { path: "file://" + dir + "/a%C2%A0b.txt", content: "x" };
+  const r = await handlers.tool_call({ toolName: "write", input }, ctx());
+  assert.deepEqual(r, {
+    block: true,
+    reason: `obor: denied: the path checked (${dir}/a\u00A0b.txt) is not the path pi writes (${dir}/a b.txt); obor cannot guard the difference`,
+  });
+  assert.equal(input.path, "file://" + dir + "/a%C2%A0b.txt");
+  assert.equal(events("pre-tool-use")[0].tool_input.file_path, `${dir}/a\u00A0b.txt`);
 });
 
 test("guard: exit 2 blocks with obor's line as the reason", async (t) => {
