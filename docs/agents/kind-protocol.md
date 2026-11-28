@@ -19,7 +19,8 @@ commands), which its `deliver` sends with (`sent`).
 The kit's third plugin kind is pi, `kinds/pi` (`obor-kind-pi`): the extension `<kit>/pi/obor.js`, loaded with `-e` at
 every start, registers obor's MCP server itself (`install`'s `mcp: {where: start}`) and carries the hooks; a resume
 sets `OBOR_PI_RESUME`, the session JSONL under `~/.pi/agent/sessions` is its transcript, and its lines are typed until
-the inbox task.
+the inbox task. pi ignores `trim_user`: its agents keep the user's extensions, packages and skills (decisions
+2026-11-28; pi's extensions are its features); a project turns one off in its `.pi/settings.json`.
 
 ## Register one
 
