@@ -7,7 +7,7 @@ dispatches tasks, runs the merge checks, merges and tells the lead what needs a 
 
 It ships as a Claude Code plugin (`obor`: the lead skill, role texts, guard hooks, an MCP server) plus one Go binary.
 Workers can be Claude Code, Codex, OpenCode, agy (Antigravity CLI) or pi (experimental: lines are typed into its pane
-until its inbox lands; no live conformance yet).
+until its inbox lands; `make conformance TIER=live KIND=pi` is its live check).
 
 > **Status:** early: built and used daily by one person on two projects. Expect rough edges and breaking changes
 > between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md` (the current minor's in
@@ -55,7 +55,7 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
 
 - [herdr](https://github.com/herdrdev/herdr) (0.9.5 or later), the terminal workspace the agents run in
 - [Claude Code](https://claude.com/claude-code) for the lead and the integrator; optionally Codex and OpenCode for workers
-  and the reviewer (pi too, experimental: lines typed into its pane until its inbox lands; no live conformance yet)
+  and the reviewer (pi too, experimental: lines typed into its pane until its inbox lands; `make conformance TIER=live KIND=pi` is its live check)
 - git, jq, curl; macOS `/bin/bash` 3.2 is enough (no Go needed: the binary is downloaded)
 
 ## Install

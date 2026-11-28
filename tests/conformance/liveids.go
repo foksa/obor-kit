@@ -8,4 +8,5 @@ var liveIDs = map[string][]string{
 	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11", "H-L14"},
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6", "OC-L7", "H-L14"},
 	"agy":      {"AG-L1", "AG-L2", "AG-L3", "AG-L4", "AG-L5", "AG-L6", "AG-L7", "AG-L8", "AG-L9", "AG-L10", "AG-L11", "AG-L12", "AG-L13", "AG-L14", "AG-L15", "AG-L16", "AG-L17", "P10", "P10-control"},
+	"pi":       {"PI-L1", "PI-L2", "PI-L3", "PI-L4", "PI-L5", "PI-L6"},
 }

@@ -38,7 +38,7 @@ import (
 
 // liveKinds is each kind's live tier.
 var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude": claudeLive, "codex": codexLive,
-	"opencode": opencodeLive, "agy": agyLive}
+	"opencode": opencodeLive, "agy": agyLive, "pi": piLive}
 
 func live(kinds []string, turn bool) {
 	sig := make(chan os.Signal, 1)
@@ -187,10 +187,10 @@ func newLab(kind, herdrBin string) (*lab, error) {
 // it is a script; exec keeps the pid) and copies the opencode plugin package beside it, as a kit holds it: package.json
 // as shipped, obor.js with its setup wrapped to append {pid, url, dir} to out/plugin-marker.jsonl first (OC-L4 counts
 // the setups) and to record the tool list ctx.tool.list() gives the plugin (OC-L7's drift row: the tools OpenCode
-// offers).
+// offers). The pi extension is copied as shipped: the hc and Rex tiers start it with this kit.
 func (l *lab) makeKit() error {
 	bin := filepath.Join(l.kit, "bin")
-	for _, d := range []string{bin, filepath.Join(l.kit, "out"), filepath.Join(l.kit, "opencode")} {
+	for _, d := range []string{bin, filepath.Join(l.kit, "out"), filepath.Join(l.kit, "opencode"), filepath.Join(l.kit, "pi")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
@@ -200,6 +200,13 @@ func (l *lab) makeKit() error {
 	}
 	wrapper := "#!/bin/bash\nexec \"$(dirname \"$0\")/obor-stub\" \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "obor"), []byte(wrapper), 0o755); err != nil {
+		return err
+	}
+	pijs, err := os.ReadFile(filepath.Join("pi", "obor.js"))
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(l.kit, "pi", "obor.js"), pijs, 0o644); err != nil {
 		return err
 	}
 	pkg, err := os.ReadFile("opencode/package.json")
@@ -258,6 +265,9 @@ func (l *lab) makeProject() error {
 		models["agy-live"] = config.ModelEntry{Kind: "agy", ID: agyModel()}
 		models["agy-bogus"] = config.ModelEntry{Kind: "agy", ID: "gemini-9-bogus"}     // AG-L7: no such model
 		models["agy-bare"] = config.ModelEntry{Kind: "agy", ID: kind.Base(agyModel())} // AG-L16: the bare base
+	}
+	if l.kind == "pi" { // the hc and Rex tiers' model (obor init's starter list has no pi entry)
+		models["pi-live"] = config.ModelEntry{Kind: "pi", ID: piLiveModel}
 	}
 	agentsDoc := map[string]any{"models": models}
 	b, err := json.Marshal(agentsDoc)

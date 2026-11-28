@@ -58,11 +58,12 @@ test:
 
 # The conformance suite (docs/research/agent-driver-deep-dive.md §6): tests/conformance, behind the conformance build tag so
 # go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
-# KIND=herdr|claude|codex|opencode|agy (default: all), TIER=static (default; no session, no model) or live (one throwaway
+# KIND=herdr|claude|codex|opencode|agy|pi (default: all), TIER=static (default; no session, no model) or live (one throwaway
 # herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call
-# per kind), TERMINAL=hc (live: the agent kinds start in a throwaway hc session instead, non-gating). Prints
-# PASS/FAIL/SKIP/WARN lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line
-# (commands.conformance).
+# per kind; pi's live tier makes its one tiny prompt on the cheapest Anthropic model either way), TERMINAL=hc|rex (live:
+# the agent kinds start in a throwaway hc session or a Rex server instead, non-gating; pi runs there too, on the lab's
+# pi-live model). Prints PASS/FAIL/SKIP/WARN lines; exit 1 on a FAIL.
+# Nightly runs TIER=static as a non-gating line (commands.conformance).
 conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" TERMINAL="$(TERMINAL)" $(GO) run -tags conformance ./tests/conformance
 

@@ -13,7 +13,7 @@ import (
 // liveIDFiles are the files of each kind's live tier (the static tier's rows sit elsewhere).
 var liveIDFiles = map[string]string{
 	"herdr": "live_herdr.go", "claude": "live_claude.go", "codex": "live_codex.go",
-	"opencode": "live_opencode.go", "agy": "live_agy.go",
+	"opencode": "live_opencode.go", "agy": "live_agy.go", "pi": "live_pi.go",
 }
 
 // A kind's live tier reports only ids liveIDs names, so a SKIP line when the kind cannot run still names every case.
