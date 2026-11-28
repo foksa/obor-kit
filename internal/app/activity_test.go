@@ -149,7 +149,8 @@ func TestActivity(t *testing.T) {
 }
 
 // Busy: a process under the pane's agent runs in a process group of its own (a command, a background job), while
-// its long-lived helpers (MCP servers, caffeinate) share its group; a pane at its shell is quiet.
+// its long-lived helpers (MCP servers, caffeinate, what started with it) are no run, in its group or a detached one;
+// a pane at its shell is quiet.
 func TestBusy(t *testing.T) {
 	t.Parallel()
 	const shell, agent = 1, 2
@@ -165,10 +166,14 @@ func TestBusy(t *testing.T) {
 			[]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 3, PPID: 2, PGID: 2}, {PID: 4, PPID: 3, PGID: 2}},
 			false},
 		{"a command in a group of its own", port.ProcessInfo{ShellPID: shell, FgPGID: agent},
-			[]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 3, PPID: 2, PGID: 2}, {PID: 50, PPID: 2, PGID: 50}},
+			[]background.Proc{{PID: 2, PPID: 1, PGID: 2, Age: time.Hour, Command: "claude"},
+				{PID: 3, PPID: 2, PGID: 3, Age: 5 * time.Second, Command: "/bin/zsh -c eval 'sleep 100'"},
+				{PID: 50, PPID: 3, PGID: 3, Age: 5 * time.Second, Command: "sleep 100"}},
 			true},
 		{"a grandchild in another group", port.ProcessInfo{ShellPID: shell, FgPGID: agent},
-			[]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 3, PPID: 2, PGID: 2}, {PID: 60, PPID: 3, PGID: 60}},
+			[]background.Proc{{PID: 2, PPID: 1, PGID: 2, Age: time.Hour, Command: "claude"},
+				{PID: 3, PPID: 2, PGID: 2, Age: 5 * time.Second, Command: "/bin/zsh -c eval 'go test ./...'"},
+				{PID: 60, PPID: 3, PGID: 60, Age: 5 * time.Second, Command: "go test ./..."}},
 			true},
 		{"another group not under the agent", port.ProcessInfo{ShellPID: shell, FgPGID: agent},
 			[]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 70, PPID: 1, PGID: 70}, {PID: 71, PPID: 70, PGID: 71}},
