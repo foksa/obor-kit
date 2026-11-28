@@ -23,8 +23,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   accepted); **v0.47.4 released 11-27** (main c45e444a). Shipped 11-27 (owner). Then T-1624..T-1627 (serve adds a raised lane count's
   worktrees; pending-add marker; probe line agrees on the Go cache), RV-281 + RV-282 closed; **v0.47.5 released
   11-27** (main 944a0039). Then city-defender's feedback: T-1628..T-1633 (obor read, spec show --report, quieter
-  status, terminal manual pointer), RV-283 closed (1 accepted); **v0.47.6 released 11-27** (main 698aa95c); owner
-  ships, then tell city-defender what shipped. Nothing in flight.
+  status, terminal manual pointer), RV-283 closed (1 accepted); **v0.47.6 shipped 11-28** (owner; city-defender
+  told and verified). T-1634 merged (tests stub agent CLIs: the nightly budget's tmp leak): review with the next
+  batch; check the 11-29 nightly check_budget is clean. Nothing in flight.
 - **Next (owner picks):** (a) a release v0.47.1 (user-visible: fix attempts start from the target, link restore
   after abort; the rest is internal; the pre-release two deep dives rule applies, `docs/agents/lead.md`); (b) BACKLOG
   Open items (guard rejected-command count due ~11-30; the custom-role first restart / doc name; Rex field issues);
