@@ -10,9 +10,11 @@ import (
 	"obor/internal/config"
 	agykind "obor/kinds/agy/kind"
 	ockind "obor/kinds/opencode/kind"
+	pikind "obor/kinds/pi/kind"
 )
 
 func init() {
 	plugin.Local[config.KitKinds[agykind.Name]] = agykind.Handle
 	plugin.Local[config.KitKinds[ockind.Name]] = ockind.Handle
+	plugin.Local[config.KitKinds[pikind.Name]] = pikind.Handle
 }

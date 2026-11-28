@@ -11,10 +11,11 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	"obor/internal/testkit" // OpenCode, a plugin kind answering in process
+	"obor/internal/testkit" // OpenCode, agy and pi, plugin kinds answering in process
 )
 
-// kinds are a project's kinds as its config holds them: the compiled ones and the kit's plugin kinds (OpenCode, agy).
+// kinds are a project's kinds as its config holds them: the compiled ones and the kit's plugin kinds (OpenCode, agy,
+// pi).
 var kinds = testkit.Kinds()
 
 // the registry holds the compiled kinds alone (the zero Kinds); a Kinds adds its plugin kinds to them, one list
@@ -24,7 +25,7 @@ func TestRegistry(t *testing.T) {
 	if got := (agents.Kinds{}).Names(); !slices.Equal(got, []string{"claude", "codex"}) {
 		t.Errorf("the compiled kinds = %q", got)
 	}
-	if got := kinds.Names(); !slices.Equal(got, []string{"agy", "claude", "codex", "opencode"}) {
+	if got := kinds.Names(); !slices.Equal(got, []string{"agy", "claude", "codex", "opencode", "pi"}) {
 		t.Errorf("Names = %q", got)
 	}
 	oc, ok := kinds.Lookup("opencode")
@@ -201,7 +202,7 @@ func TestModelArgs(t *testing.T) {
 // own clear, no registry var).
 func TestVarsRegistry(t *testing.T) {
 	vars := kinds.Vars()
-	for _, v := range []string{"OBOR_ROLE", "OBOR_LANE", "OBOR_AGENT", "OBOR_OPENCODE_MODEL", "OPENCODE_CONFIG", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"} {
+	for _, v := range []string{"OBOR_ROLE", "OBOR_LANE", "OBOR_AGENT", "OBOR_OPENCODE_MODEL", "OBOR_PI_RESUME", "OPENCODE_CONFIG", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"} {
 		if !slices.Contains(vars, v) {
 			t.Errorf("Vars %q lacks %s", vars, v)
 		}
@@ -255,34 +256,34 @@ func TestStartVars(t *testing.T) {
 		set, unset             string
 	}{
 		{"a claude worker: its pane set, another kind's vars unset", "worker", "L-01", "w1:3", nil, nil,
-			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:3", "OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:3", "OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PI_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"an opencode role agent: its vars set, the lane unset", "reviewer", "", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": "p/m#high"}, nil,
-			"OBOR_ROLE=reviewer OBOR_PANE=w1:4 OBOR_OPENCODE_MODEL=p/m#high OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_ROLE=reviewer OBOR_PANE=w1:4 OBOR_OPENCODE_MODEL=p/m#high OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_RESUME OBOR_PI_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"an opencode start without a model: the model unset", "reviewer", "", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": ""}, nil,
-			"OBOR_ROLE=reviewer OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_ROLE=reviewer OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PI_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"a trimmed opencode worker: the skills switch set", "worker", "L-01", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": "p/m", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1"}, nil,
 			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:4 OBOR_OPENCODE_MODEL=p/m OPENCODE_CONFIG=/s/oc.json OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1",
-			"OBOR_AGENT OBOR_OPENCODE_RESUME"},
+			"OBOR_AGENT OBOR_OPENCODE_RESUME OBOR_PI_RESUME"},
 		{"an opencode lead: the skills switch empty in its env, so unset", "lead", "", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": "p/m", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": ""}, nil,
 			"OBOR_ROLE=lead OBOR_PANE=w1:4 OBOR_OPENCODE_MODEL=p/m OPENCODE_CONFIG=/s/oc.json",
-			"OBOR_AGENT OBOR_LANE OBOR_OPENCODE_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_AGENT OBOR_LANE OBOR_OPENCODE_RESUME OBOR_PI_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"a lane's opencode start clears the shell's inline config alone", "worker", "L-01", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OPENCODE_CONFIG_CONTENT": ""}, nil,
 			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json",
-			"OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_CONFIG_CONTENT OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PI_RESUME OPENCODE_CONFIG_CONTENT OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"a kept inline config stays as the pane has it", "worker", "L-01", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OPENCODE_CONFIG_CONTENT": ""}, []string{"OPENCODE_CONFIG_CONTENT"},
 			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json",
-			"OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PI_RESUME OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 		{"a pane being made: OBOR_PANE unset (not the maker's), a kind's OBOR_PANE ignored", "worker", "L-01", "",
 			map[string]string{"OBOR_PANE": "w9:9"}, nil,
-			"OBOR_ROLE=worker OBOR_LANE=L-01", "OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
-		{"no role: unset", "", "", "", nil, nil, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OBOR_ROLE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
-		{"no role, OBOR_ROLE kept", "", "", "", nil, []string{"OBOR_ROLE"}, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+			"OBOR_ROLE=worker OBOR_LANE=L-01", "OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OBOR_PI_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+		{"no role: unset", "", "", "", nil, nil, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OBOR_PI_RESUME OBOR_ROLE OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
+		{"no role, OBOR_ROLE kept", "", "", "", nil, []string{"OBOR_ROLE"}, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_OPENCODE_RESUME OBOR_PANE OBOR_PI_RESUME OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"},
 	} {
 		set, unset := kinds.StartVars(c.role, c.lane, c.pane, c.kind, c.keep...)
 		if got := names(set); got != c.set {

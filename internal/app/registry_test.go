@@ -757,14 +757,14 @@ func TestIdentIntegratorWithoutBridge(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
-		`"agents":{"roles":{"integrator":"cur","lead":""},"models":{"cur":{"kind":"pi","id":"x"}}}}`)
+		`"agents":{"roles":{"integrator":"cur","lead":""},"models":{"cur":{"kind":"cursor","id":"x"}}}}`)
 	h.connect()
 	if h.proj().integrator != "pj-int" {
 		t.Fatalf("precondition: integrator %q", h.proj().integrator)
 	}
 	f := &FakeAgents{}
 	_, err := h.a.startIntegrator(context.Background(), withAppCfg(h.a, &Loop{Agents: f}), h.root, port.Launch{Prompt: "x"})
-	if err == nil || err.Error() != "integrator pj-int: its kind pi has no bridge (obor config validate)" || len(f.Launches()) != 0 {
+	if err == nil || err.Error() != "integrator pj-int: its kind cursor has no bridge (obor config validate)" || len(f.Launches()) != 0 {
 		t.Errorf("start: %v, %d launches; want refused, no launch", err, len(f.Launches()))
 	}
 }

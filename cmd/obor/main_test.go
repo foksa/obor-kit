@@ -133,7 +133,7 @@ func TestKindRunsTheKitKindInProcess(t *testing.T) {
 	if got.Decision != "deny" || !strings.Contains(got.Reason, "obor cannot guard a workflow script") {
 		t.Errorf("the answer = %+v; want obor hook's deny with the transport's reason (run on this obor)", got)
 	}
-	if rc, _, stderr := run(t, p.Root, nil, "kind", "nope", "hook"); rc != 2 || !strings.Contains(stderr, `"nope" is no kit kind (agy, opencode)`) {
+	if rc, _, stderr := run(t, p.Root, nil, "kind", "nope", "hook"); rc != 2 || !strings.Contains(stderr, `"nope" is no kit kind (agy, opencode, pi)`) {
 		t.Errorf("obor kind nope: exit %d, %q; want 2 naming the kit kinds", rc, stderr)
 	}
 }

@@ -185,7 +185,7 @@ func TestModelsEntries(t *testing.T) {
 	if m, ok := c.Model("bare"); ok {
 		t.Errorf("Model(bare) = %+v, want no model: its entry names no kind", m)
 	}
-	if err := c.CheckModelRef("bare"); err == nil || err.Error() != `"bare" names no kind: set agents.models.bare.kind (agy, claude, codex, opencode)` {
+	if err := c.CheckModelRef("bare"); err == nil || err.Error() != `"bare" names no kind: set agents.models.bare.kind (agy, claude, codex, opencode, pi)` {
 		t.Errorf("CheckModelRef(bare) = %v, want the missing kind named", err)
 	}
 }
@@ -262,13 +262,13 @@ func TestLanesCount(t *testing.T) {
 // it in process) and a plugin kind of the config; any other plugin is its path, relative to the root.
 func TestKitKindCommand(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
-	if got := c.PluginKinds(); !slices.Contains(got, "opencode") || !slices.Contains(got, "agy") {
-		t.Errorf("PluginKinds = %q, want opencode and agy (a kit kind with no plugin is one)", got)
+	if got := c.PluginKinds(); !slices.Contains(got, "opencode") || !slices.Contains(got, "agy") || !slices.Contains(got, "pi") {
+		t.Errorf("PluginKinds = %q, want opencode, agy and pi (a kit kind with no plugin is one)", got)
 	}
 	if got := c.KindCommand("claude"); got != "" {
 		t.Errorf("KindCommand(claude) = %q, want none (a compiled kind is no plugin kind)", got)
 	}
-	for _, kind := range []string{"opencode", "agy"} {
+	for _, kind := range []string{"opencode", "agy", "pi"} {
 		bin := "obor-kind-" + kind
 		for _, tc := range []struct{ plugin, want string }{
 			{"", bin}, {bin, bin}, {"tools/oc", "tools/oc"}, {"/opt/" + bin, "/opt/" + bin},
