@@ -191,7 +191,7 @@ func TestModelsEntries(t *testing.T) {
 }
 
 // a ref naming no model, or an effort its kind rejects, is refused with the config's names; a name obor setup agents
-// would add (UpgradeModels) carries its entry ready to paste, and the paste makes it a model.
+// would add (UpgradeModels) carries its entry ready to paste and names that command, and the paste makes it a model.
 func TestUnknownModelRefused(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"muse":{"kind":"opencode","id":""},`+
 		`"sol":{"kind":"codex","id":"gpt-6.1-sol"}}}}`, "")
@@ -201,8 +201,8 @@ func TestUnknownModelRefused(t *testing.T) {
 	for ref, refusal := range map[string]string{
 		"gpt":       `"gpt" is not a model (agents.models: muse, sol)`,
 		"gpt:high":  `"gpt" is not a model (agents.models: muse, sol)`,
-		"opus:high": `"opus" is not a model (agents.models: muse, sol): add it to agents.models in .obor/config.json: "opus": {"kind": "claude", "id": "opus"}`,
-		"deepseek":  `"deepseek" is not a model (agents.models: muse, sol): add it to agents.models in .obor/config.json: "deepseek": {"kind": "opencode", "id": "opencode-go/deepseek-v4.1-flash"}`,
+		"opus:high": `"opus" is not a model (agents.models: muse, sol): add it to agents.models in .obor/config.json: "opus": {"kind": "claude", "id": "opus"} (obor setup agents adds every former built-in name the config uses)`,
+		"deepseek":  `"deepseek" is not a model (agents.models: muse, sol): add it to agents.models in .obor/config.json: "deepseek": {"kind": "opencode", "id": "opencode-go/deepseek-v4.1-flash"} (obor setup agents adds every former built-in name the config uses)`,
 		"sol:":      "names no effort after the colon",
 		"sol:turbo": `effort "turbo" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 	} {
@@ -215,9 +215,14 @@ func TestUnknownModelRefused(t *testing.T) {
 			t.Errorf("CheckModelRef(%s) = %v, want %q", ref, err, refusal)
 		}
 	}
-	if err := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "").CheckModelRef("gpt"); err == nil ||
+	empty := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
+	if err := empty.CheckModelRef("gpt"); err == nil ||
 		err.Error() != `"gpt" is not a model (agents.models: none)` {
 		t.Errorf("CheckModelRef(gpt) with no agents.models = %v, want none listed", err)
+	}
+	if err := empty.CheckModelRef("opus"); err == nil ||
+		err.Error() != `"opus" is not a model (agents.models: none): add it to agents.models in .obor/config.json: "opus": {"kind": "claude", "id": "opus"} (obor setup agents adds every former built-in name the config uses)` {
+		t.Errorf("CheckModelRef(opus) with no agents.models = %v, want the entry to paste and obor setup agents named", err)
 	}
 	pasted := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{`+
 		`"opus": {"kind": "claude", "id": "opus"}}}}`, "")
