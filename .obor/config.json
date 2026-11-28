@@ -178,7 +178,8 @@
             "README.md",
             "bin/obor",
             "githooks/**",
-            "opencode/**"
+            "opencode/**",
+            "pi/**"
           ],
           "run": [
             "check_affected"
