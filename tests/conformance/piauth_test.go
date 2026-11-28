@@ -1,12 +1,13 @@
 package main
 
-// piAuthOf resolves the pi live tier's authentication: an auth.json entry for the model's provider under the agent
-// directory, else the provider's environment key; neither is the tier's SKIP, whose line names both places and no
-// credential. The pane needs the agent dir and the caller's key, which the clean environment leaves out.
+// piAuthOf resolves the pi live tier's authentication with pi's own non-secret check: an OAuth token among the caller's
+// variables is carried into the pane and is ready, and neither a variable nor a stored credential is the tier's SKIP,
+// whose line names the sources and no credential. The check itself is stubbed: no unit test runs pi.
 
 import (
-	"os"
+	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -14,89 +15,91 @@ import (
 func TestPiAuthOf(t *testing.T) {
 	const (
 		model  = "anthropic/claude-haiku-4-5"
-		secret = "sk-ant-test-secret"
+		secret = "oauth-test-secret" // cannot be a real one: this test would forward it to nothing
 	)
-	t.Run("the auth.json entry for the provider authenticates", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"anthropic":{"type":"oauth","access":"stored-secret"}}`), 0o600); err != nil {
-			t.Fatal(err)
+	dir := filepath.Join(t.TempDir(), "agent")
+	ready := func(provider string, env []string) (piStatus, error) {
+		if provider != "anthropic" {
+			t.Errorf("the check ran for %q; want the model's provider anthropic", provider)
 		}
-		a, err := piAuthOf(dir, model, func(string) string { return "" })
-		if err != nil {
-			t.Fatalf("piAuthOf: %v; want the provider's entry to authenticate", err)
+		return piStatus{Status: "ready", AuthType: "api_key"}, nil
+	}
+	t.Run("an OAuth token in the caller's environment is ready and reaches the pane", func(t *testing.T) {
+		var checked []string
+		check := func(_ string, env []string) (piStatus, error) {
+			checked = env
+			return ready("anthropic", env)
 		}
-		if !strings.Contains(a.How, "auth.json entry for anthropic") || strings.Contains(a.How, "stored-secret") {
-			t.Errorf("How = %q; want the source named and no credential", a.How)
-		}
-		if a.Vars["PI_CODING_AGENT_DIR"] != dir {
-			t.Errorf("Vars[PI_CODING_AGENT_DIR] = %q; want the agent dir the entry was found under", a.Vars["PI_CODING_AGENT_DIR"])
-		}
-		if _, ok := a.Vars["ANTHROPIC_API_KEY"]; ok {
-			t.Error("Vars carries the provider key with no key in the environment")
-		}
-	})
-	t.Run("another provider's entry is no entry", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"openai":{"type":"apiKey"}}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		_, err := piAuthOf(dir, model, func(string) string { return "" })
-		if err == nil || !strings.Contains(err.Error(), "no anthropic credential") || !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
-			t.Fatalf("piAuthOf = %v; want a skip naming anthropic and its environment key", err)
-		}
-	})
-	t.Run("a null entry is no entry", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"anthropic":null}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := piAuthOf(dir, model, func(string) string { return "" }); err == nil {
-			t.Fatal("a null auth.json entry authenticated; want the skip")
-		}
-	})
-	t.Run("the environment key authenticates with no entry", func(t *testing.T) {
-		dir := t.TempDir()
-		env := map[string]string{"ANTHROPIC_API_KEY": secret, "PI_CODING_AGENT_DIR": dir}
-		a, err := piAuthOf(dir, model, func(k string) string { return env[k] })
-		if err != nil {
-			t.Fatalf("piAuthOf: %v; want ANTHROPIC_API_KEY to authenticate", err)
-		}
-		if a.How != "ANTHROPIC_API_KEY" || strings.Contains(a.How, secret) {
-			t.Errorf("How = %q; want the key's name and no credential", a.How)
-		}
-		if a.Vars["ANTHROPIC_API_KEY"] != secret {
-			t.Error("Vars does not carry the caller's key into the pane")
-		}
-	})
-	t.Run("another provider's entry does not shadow the environment key", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"openai":{"type":"apiKey"}}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		a, err := piAuthOf(dir, model, func(k string) string {
-			if k == "ANTHROPIC_API_KEY" {
+		base := []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
+		a, err := piAuthOf(dir, model, base, func(k string) string {
+			if k == "ANTHROPIC_OAUTH_TOKEN" {
 				return secret
 			}
 			return ""
-		})
-		if err != nil || a.How != "ANTHROPIC_API_KEY" {
-			t.Fatalf("piAuthOf = %q, %v; want the provider's environment key to authenticate", a.How, err)
+		}, check)
+		if err != nil {
+			t.Fatalf("piAuthOf: %v; want the OAuth token to authenticate", err)
+		}
+		if a.Vars["ANTHROPIC_OAUTH_TOKEN"] != secret {
+			t.Error("Vars does not carry the caller's OAuth token into the pane")
+		}
+		if a.Vars["PI_CODING_AGENT_DIR"] != dir {
+			t.Errorf("Vars[PI_CODING_AGENT_DIR] = %q; want the agent dir", a.Vars["PI_CODING_AGENT_DIR"])
+		}
+		if _, ok := a.Vars["ANTHROPIC_API_KEY"]; ok {
+			t.Error("Vars carries the API key with no key in the environment")
+		}
+		if !strings.Contains(a.How, "ready") || strings.Contains(a.How, secret) {
+			t.Errorf("How = %q; want the check's answer and no credential", a.How)
+		}
+		// The check ran in the environment the pane will get: the base plus the carried variables.
+		for _, want := range append(base, "ANTHROPIC_OAUTH_TOKEN="+secret, "PI_CODING_AGENT_DIR="+dir) {
+			if !slices.Contains(checked, want) {
+				t.Errorf("the check's environment lacks %q; want the pane's", want)
+			}
 		}
 	})
-	t.Run("neither skips naming both places", func(t *testing.T) {
-		dir := t.TempDir()
-		_, err := piAuthOf(dir, model, func(string) string { return "" })
+	t.Run("nothing is the skip naming the sources", func(t *testing.T) {
+		_, err := piAuthOf(dir, model, nil, func(string) string { return "" }, func(string, []string) (piStatus, error) {
+			return piStatus{Status: "not_ready", Reason: "credentials_not_configured"}, nil
+		})
 		if err == nil {
-			t.Fatal("piAuthOf authenticated with no auth.json entry and no environment key")
+			t.Fatal("piAuthOf authenticated with no credential")
 		}
-		for _, want := range []string{"no anthropic credential", dir, "auth.json", "ANTHROPIC_API_KEY"} {
+		for _, want := range []string{"no anthropic credential", "not_ready", "credentials_not_configured", dir, "auth.json",
+			"ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("the skip line %q does not name %q", err, want)
 			}
 		}
 	})
+	t.Run("a set token the check refuses is named as set", func(t *testing.T) {
+		_, err := piAuthOf(dir, model, nil, func(k string) string {
+			if k == "ANTHROPIC_OAUTH_TOKEN" {
+				return secret
+			}
+			return ""
+		}, func(string, []string) (piStatus, error) {
+			return piStatus{Status: "not_ready", Reason: "credentials_not_configured"}, nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "ANTHROPIC_OAUTH_TOKEN is set") ||
+			!strings.Contains(err.Error(), "ANTHROPIC_API_KEY is not set") {
+			t.Fatalf("piAuthOf = %v; want the skip naming the token it had and the one it lacked", err)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Error("the skip line carries the token's value")
+		}
+	})
+	t.Run("a check that fails skips naming the failure", func(t *testing.T) {
+		_, err := piAuthOf(dir, model, nil, func(string) string { return "" }, func(string, []string) (piStatus, error) {
+			return piStatus{}, errors.New("pi is not installed")
+		})
+		if err == nil || !strings.Contains(err.Error(), "pi's own auth check for anthropic failed: pi is not installed") {
+			t.Fatalf("piAuthOf = %v; want the skip naming the check's failure", err)
+		}
+	})
 	t.Run("no agent directory skips naming it", func(t *testing.T) {
-		_, err := piAuthOf("", model, func(string) string { return "" })
+		_, err := piAuthOf("", model, nil, func(string) string { return "" }, ready)
 		if err == nil || !strings.Contains(err.Error(), "no pi agent directory") {
 			t.Fatalf("piAuthOf = %v; want a skip naming the missing agent directory", err)
 		}
