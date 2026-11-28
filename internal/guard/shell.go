@@ -480,14 +480,12 @@ func unescape(v string, quoted bool) string {
 // short cluster holding p (-cp, -pc), either spelling with =, before `--` (claude; it has no -p-sized option values).
 // A word that is a whole short option of the kind (pi's -np, -ne: h.ShortOpts) is read as that option, not as a
 // cluster. h.Always is a program that runs headless from a tool whatever its arguments (pi starts print mode whenever
-// stdin or stdout is no TTY): it is denied unless a word before `--` is one of h.Except, the forms that run no agent
-// (--help, --version, list), and the forms above still name the words agents type. Words after `--` and option values
-// never count. Accepted, not fixed (owner/lead 2026-10-28): the alias after a prompt word (`codex "hello" e hi`);
-// `env -S` separators the shell parser reads differently (`\_`).
+// stdin or stdout is no TTY): it is denied unless its first argument is one of h.Except, the forms that run no agent
+// (--help, --version, list); the forms above still deny after such a first argument, so an ambiguous mix fails closed.
+// Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28): the alias after a prompt
+// word (`codex "hello" e hi`); `env -S` separators the shell parser reads differently (`\_`).
 func headless(h agents.Headless, name string, args []string) {
-	if h.Always && noAgentRun(args, h.Except) {
-		return
-	}
+	excepted := h.Always && len(args) > 0 && oneOf(args[0], h.Except...)
 	if sub := subcommand(args, h.ValueOpts); oneOf(sub, h.Subcommands...) {
 		deny(name + " " + sub + " runs an agent headless; agents run in terminal panes")
 	}
@@ -514,23 +512,9 @@ func headless(h agents.Headless, name string, args []string) {
 			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
 		}
 	}
-	if h.Always {
+	if h.Always && !excepted {
 		deny(name + " runs an agent headless from a tool whatever its arguments; agents run in terminal panes")
 	}
-}
-
-// noAgentRun reports a word of args before `--` that is one of forms: a form that runs no agent, so the run is no agent
-// run whatever mode the program picks.
-func noAgentRun(args, forms []string) bool {
-	for _, a := range args {
-		if a == "--" {
-			break
-		}
-		if oneOf(a, forms...) {
-			return true
-		}
-	}
-	return false
 }
 
 // subcommand is the first word of args that is neither an option nor an option's value; "" when there is none.

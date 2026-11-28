@@ -218,11 +218,11 @@ func TestPkillKillallDeniedKillPIDAllowed(t *testing.T) {
 	})
 }
 
-// codex exec, claude -p / --print, every pi run without one of the words that run no agent (a bare `pi "x"`, -p /
-// --print, --mode, -np, -nc: pi starts print mode whenever stdin or stdout is no TTY) and opencode run / acp / serve /
-// api are denied for every role (lead included), wrapped or nested too; pi's --help, --version, --list-models, --export
-// and `pi list` run no agent and stay allowed, and so do the interactive forms and look-alikes and the other kinds'
-// print clusters (-cp, -pc).
+// codex exec, claude -p / --print, every pi run whose first argument is not one of the forms that run no agent (a bare
+// `pi "x"`, -p / --print, --mode, -np, -nc: pi starts print mode whenever stdin or stdout is no TTY) and opencode run /
+// acp / serve / api are denied for every role (lead included), wrapped or nested too; pi's --help, --version,
+// --list-models, --export and `pi list` run no agent and stay allowed as the first argument, and so do the interactive
+// forms and look-alikes and the other kinds' print clusters (-cp, -pc).
 func TestHeadlessAgentRunsDenied(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -244,6 +244,10 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 			bash(who, cwd, `pi -p "summarise"`, "pi -p "+why),
 			bash(who, cwd, `pi --print "x"`, "pi --print "+why),
 			bash(who, cwd, `pi --mode rpc`, "pi --mode "+why),
+			bash(who, cwd, `pi -p list files`, "pi -p "+why),
+			bash(who, cwd, `pi --list-models -p x`, "pi -p "+why),
+			bash(who, cwd, `pi --system-prompt list "x"`, piWhy),
+			bash(who, cwd, `pi --system-prompt --help "x"`, piWhy),
 			bash(who, cwd, `pi "x"`, piWhy),
 			bash(who, cwd, `pi --no-session -nc "x"`, piWhy),
 			bash(who, cwd, `pi -np "summarise"`, piWhy),
@@ -289,6 +293,7 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 		bash("lead", P, `pi --help`, ""),
 		bash("lead", P, `pi -h`, ""),
 		bash("lead", P, `pi --list-models`, ""),
+		bash("lead", P, `pi --list-models sonnet`, ""),
 		bash("lead", P, `pi --export out.html`, ""),
 		bash("lead", P, `pi list`, ""),
 	)

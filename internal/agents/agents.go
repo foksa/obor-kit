@@ -401,10 +401,10 @@ type Headless struct {
 	PrintFlag   bool     // -p / --print, also inside a short-flag cluster, before `--`
 	Flags       []string // long flags that run it headless (`--prompt`, a print alias), either spelling, before `--`
 	// Always: the program runs headless from a tool whatever its arguments (pi picks print mode whenever stdin or
-	// stdout is no TTY), so the guard denies it unless a word before `--` is one of Except. False: the forms above are
+	// stdout is no TTY), so the guard denies it unless its first argument is one of Except. False: the forms above are
 	// the whole of it.
 	Always bool
-	Except []string // Always: the forms that run no agent (`--help`, `--version`, `list`), allowed before `--`
+	Except []string // Always: the first-argument forms that run no agent (`--help`, `--version`, `list`)
 }
 
 // ProjectMCPFile is the project file where a kind registers MCP servers beside the project's own (Install's Where

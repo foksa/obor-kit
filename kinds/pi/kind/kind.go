@@ -130,9 +130,10 @@ func Handle(call string, req []byte) ([]byte, error) {
 // inbox_record). Status from the terminal's agent detection (herdr detects a pi pane with no integration). Stop:
 // /quit, typed with Enter (its command popup takes that Enter and runs it; docs/research/pi-probes.md P8), Ctrl+U
 // clears the input; never Ctrl+C, whose second press exits. Headless: pi starts print mode whenever stdin or stdout is
-// no TTY, so the guard denies every pi from a tool whatever its arguments but the forms that run no agent (always:
-// --help, -h, --version, -v, --list-models, --export, list); -p/--print, --mode's json and rpc, the subcommands that
-// write the user's config, and the multi-letter short options (-np, -ne, …) are still listed as the forms agents type.
+// no TTY, so the guard denies every pi from a tool whatever its arguments unless its first argument is one of the forms
+// that run no agent (always: --help, -h, --version, -v, --list-models, --export, list); -p/--print, --mode's json and
+// rpc, the subcommands that write the user's config, and the multi-letter short options (-np, -ne, …) still deny after
+// such an argument as the forms agents type.
 // Transcript: the session JSONL under pi's default session dir
 // ({HOME}/.pi/agent/sessions, one dir per cwd), named <timestamp>_<session id>.jsonl. MCP: the extension registers
 // obor's server at each start (install's lane is per start); no file is written.
