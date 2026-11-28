@@ -6,7 +6,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { bindInbox, create, inboxLines, inboxPath, kitRoot, mcpServer, projectServers, toolEvent } from "./obor.js";
+import { create, inboxLines, inboxPath, kitRoot, mcpServer, projectServers, toolEvent } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, agent_kind: "pi", tool_name, tool_input });
@@ -46,17 +46,13 @@ test("kitRoot: the directory above pi/", () => {
 // its mode (allow, deny, exit1, panic: an allow with a diagnostic line, block, answer, slow: an answer then six
 // seconds, late: an answer then past the hook's bound, stderr: an answer and a diagnostic line, hang: no answer, past
 // the bound); project writes .obor/config.json (and mcp, the project's .agents/mcp_config.json); noBin leaves bin/obor
-// out. The fake pi records its handlers, MCP registrations and sendUserMessage calls; ctx(…) is a handler context of
-// session s1 (or id) whose branch is entries; idle is what ctx.isIdle answers, held.length > 0 ctx.hasPendingMessages.
-// A send fires the input event as pi does (source extension, on state.session's context, state.inputDelay ms later
-// when set), and none while state.reject is set (pi rejects the prompt: compaction in progress, another prompt
-// starting). A send whose input was not handled then is a user message pi appends (message_start, its text input's
-// transform), except while state.noAuth is set (pi rejects it after input: no API key); an idle one starts a run
-// (idle turns false) and its message comes state.startMs later; a busy one (a steer) waits in held while state.hold
-// is set, until deliver() appends the held ones. arrived() is the sent texts pi appended, appended the appended
-// messages' texts. HOME is the rig's, so an inbox socket binds under it, never the runner's own ~/.obor; inbox() is
-// each hook call's OBOR_PI_INBOX ("" unset). The outbox runs on timing's short bounds.
-const timing = { seenMs: 100, takeMs: 200, slowMs: 1000, tries: 3 };
+// out. The fake pi records its handlers and MCP registrations, and fakes sendMessage's paths in pi 1.7.0
+// (agent-session.js sendCustomMessage): with triggerTurn false a message is an entry at once unless pi runs
+// (state.streaming), when it waits in pending until flush() (a turn's end, the run's end, a run that fails to start);
+// with triggerTurn true it is a wake (wakes; a steer while streaming). state.refuse makes sendMessage throw. ctx(…) is
+// a handler context of session s1 (or id) whose branch is entries; ctx.isIdle is pi's: neither streaming nor
+// compacting. HOME is the rig's, so an inbox socket binds under it, never the runner's own ~/.obor; inbox() is each
+// hook call's OBOR_PI_INBOX ("" unset).
 function rig(t, { mode = "allow", project = true, mcp, noBin = false, env = {}, refuse = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-pi-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -96,62 +92,36 @@ esac
   const handlers = {};
   const servers = [];
   const notes = [];
-  const sends = [];
-  const state = { idle: true, session: "s1", reject: false, inputDelay: 0, noAuth: false, startMs: 0, hold: false };
-  const inputs = []; // [text, handled]
-  const held = []; // [sent text, its message text]: steers pi queued and has not delivered
-  const appended = []; // [sent text, its message text]
-  const append = (sent, text, id) => {
-    appended.push([sent, text]);
-    return handlers.message_start({ type: "message_start", message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } }, ctx({ id }));
-  };
-  const deliver = async () => {
-    for (const [sent, text] of held.splice(0)) await append(sent, text, state.session);
-  };
+  const state = { streaming: false, compacting: false, refuse: false };
+  const entries = []; // custom messages appended to the session
+  const pending = []; // custom messages pi holds while it runs
+  const wakes = []; // [message, options] of each triggerTurn send
   const pi = {
     on: (name, fn) => (handlers[name] = fn),
     registerMcpServer: (name, config) => {
       if (refuse.includes(name)) throw new Error("invalid config");
       servers.push([name, config]);
     },
-    sendUserMessage: (text, options) => {
-      sends.push([text, options]);
-      if (state.reject) return;
-      const id = state.session;
-      const fire = async () => {
-        const e = { text, source: "extension", streamingBehavior: state.idle ? undefined : options?.deliverAs };
-        const r = await handlers.input(e, ctx({ id }));
-        inputs.push([text, r?.action === "handled"]);
-        if (r?.action === "handled") return;
-        const msg = r?.action === "transform" ? r.text : text;
-        if (!state.idle) {
-          if (state.hold) held.push([text, msg]);
-          else await append(text, msg, id);
-          return;
-        }
-        if (state.noAuth) return;
-        state.idle = false;
-        if (state.startMs) await sleep(state.startMs);
-        await append(text, msg, id);
-      };
-      if (state.inputDelay) setTimeout(fire, state.inputDelay);
-      else fire();
+    sendMessage: (message, options) => {
+      if (state.refuse) throw new Error("pi refused");
+      if (options?.triggerTurn) return void wakes.push([message, options]);
+      (state.streaming ? pending : entries).push(message);
     },
   };
-  create(pi, { cwd: dir, kit, env: { ...process.env, HOME: base, ...env }, timing });
+  const flush = () => entries.push(...pending.splice(0));
+  create(pi, { cwd: dir, kit, env: { ...process.env, HOME: base, ...env } });
   const ctx = ({ id = "s1", entries = [] } = {}) => ({
     cwd: dir,
     ui: { notify: (line, level) => notes.push([level, line]) },
-    isIdle: () => state.idle,
-    hasPendingMessages: () => held.length > 0,
+    isIdle: () => !state.streaming && !state.compacting,
     sessionManager: { getSessionId: () => id, getSessionFile: () => `/sessions/x_${id}.jsonl`, getBranch: () => entries },
   });
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
   const events = (hook) => calls().filter((l) => l.startsWith(hook + " ")).map((l) => JSON.parse(l.replace(/^\S+ \S+ /, "")));
   const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
   const sock = (sid) => inboxPath(sid, { HOME: base });
-  const arrived = () => appended.map(([sent]) => sent);
-  return { handlers, servers, notes, sends, state, inputs, held, appended, deliver, arrived, ctx, calls, events, inbox, sock, dir, kit, base };
+  const lines = () => entries.map((m) => m.content);
+  return { handlers, servers, notes, state, entries, pending, wakes, flush, lines, ctx, calls, events, inbox, sock, dir, kit, base };
 }
 
 const assistant = (stopReason, more = {}) => ({ type: "message", message: { role: "assistant", stopReason, ...more } });
@@ -164,8 +134,6 @@ test("load: obor's MCP server (the kit's bin/obor mcp, direct) and every hook ar
     "agent_settled",
     "before_agent_start",
     "input",
-    "message_start",
-    "session_before_compact",
     "session_compact",
     "session_compact_failed",
     "session_shutdown",
@@ -283,220 +251,105 @@ test("inboxLines: one text per user line; a line that does not parse or names no
   assert.deepEqual(inboxLines('not json\n{"type":"auth","token":"x"}\n{"type":"user"}\n{"type":"user","text":""}\n'), []);
 });
 
+const WAKE = { customType: "obor-wake", content: "[obor inbox] obor lines arrived above: read them and act on them.", display: false };
+const entry = (text) => ({ customType: "obor-line", content: text, display: true });
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // The session-start hook of each session runs with its own socket in OBOR_PI_INBOX (bound before the hook, so the
-// record names a live socket); a line posted there is a sendUserMessage, always a steer: pi starts a turn with it when
-// the session is idle and queues it when it is busy.
-test("inbox: a socket bound per session and named in its session-start's env; a line is a steer, idle or busy", async (t) => {
-  const { handlers, ctx, inbox, sock, sends, state, arrived } = rig(t);
+// record names a live socket); each line posted there is handed to pi once as a custom message with triggerTurn false,
+// which an idle pi appends at once, and one wake (triggerTurn true) per post starts the turn.
+test("inbox: a socket bound per session and named in its session-start's env; an idle session's lines are entries at once and one wake starts its turn", async (t) => {
+  const { handlers, ctx, inbox, sock, entries, wakes } = rig(t);
   await handlers.session_start({}, ctx());
   await handlers.session_start({}, ctx({ id: "s2" }));
   assert.deepEqual(inbox(), [sock("s1"), sock("s2")], "one session-start per session, each with its own socket");
   for (const id of ["s1", "s2"]) assert.ok(fs.statSync(sock(id)).isSocket(), `${id}'s socket is bound`);
-  assert.deepEqual(sends, [], "precondition: nothing sent before a post");
-  await post(sock("s1"), [line("[obor other] hi")]);
-  assert.deepEqual(sends, [["[obor other] hi", { deliverAs: "steer" }]]);
-  state.idle = false;
-  state.session = "s2";
-  await post(sock("s2"), [line("[obor] needs-you T-1"), "garbage"]);
-  assert.deepEqual(sends[1], ["[obor] needs-you T-1", { deliverAs: "steer" }], "the busy session's line is a steer; a line that does not parse is none");
-  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
-  assert.deepEqual(arrived(), ["[obor other] hi", "[obor] needs-you T-1"]);
-  assert.equal(sends.length, 2, "each line sent once");
+  assert.deepEqual([entries, wakes], [[], []], "precondition: nothing handed before a post");
+  await post(sock("s1"), [line("[obor other] hi"), "garbage", line("[obor] needs-you T-1")]);
+  assert.deepEqual(entries, [entry("[obor other] hi"), entry("[obor] needs-you T-1")], "each line an entry once, in order; one that does not parse is none");
+  assert.deepEqual(wakes, [[WAKE, { triggerTurn: true }]], "one wake for the post, not one per line");
 });
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-// until polls cond every 10 ms for up to ms: whether it came true.
-const until = async (cond, ms = 3000) => {
-  for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(10)) if (cond()) return true;
-  return cond();
-};
-const texts = (sends) => sends.map(([text]) => text);
-
-// The outbox: pi's sendUserMessage returns nothing and rejects a prompt later, so a line stays queued until pi appends
-// it as a user message (message_start).
-test("outbox: a line pi rejects during compaction goes again after the compaction and arrives once", async (t) => {
-  const { handlers, ctx, sock, sends, state, arrived } = rig(t);
+// A busy pi holds the lines in its own queue and appends them at its turn's end; a run whose turn made no tool call
+// ends without another model call, so the lines owe one wake, sent at agent_settled (pi is idle there), once.
+test("inbox: a busy session's lines wait in pi's queue until its turn ends; no wake while busy, one at agent_settled", async (t) => {
+  const { handlers, ctx, sock, state, entries, pending, wakes, flush, lines } = rig(t);
   await handlers.session_start({}, ctx());
-  state.reject = true; // compaction started: pi rejects the prompt, no input event
+  state.streaming = true;
+  await post(sock("s1"), [line("one")]);
+  await post(sock("s1"), [line("two")]);
+  assert.deepEqual(entries, [], "nothing appended while pi runs");
+  assert.deepEqual(pending.map((m) => m.content), ["one", "two"], "pi holds each line once");
+  assert.deepEqual(wakes, [], "no wake while busy");
+  flush(); // the turn's tool results are in (or the run ended)
+  assert.deepEqual(lines(), ["one", "two"]);
+  await handlers.agent_before_settle({ entries: [] }, ctx());
+  assert.deepEqual(wakes, [], "no wake before the run settles");
+  state.streaming = false;
+  await handlers.agent_settled({ aborted: false }, ctx());
+  assert.deepEqual(wakes, [[WAKE, { triggerTurn: true }]], "one wake at agent_settled for both posts");
+  await handlers.agent_settled({ aborted: false }, ctx());
+  assert.equal(wakes.length, 1, "a settle with no new lines wakes nothing");
+});
+
+// A run that fails to start (_startRun's catch: no model, a compaction that failed) flushes the lines pi held; it
+// emits no agent_settled, so the owed wake goes with the next post into the idle session, still one.
+test("inbox: a run that fails to start keeps its held lines (pi flushes them); the owed wake goes once pi is idle", async (t) => {
+  const { handlers, ctx, sock, state, wakes, flush, lines } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.streaming = true; // a run is starting
+  await post(sock("s1"), [line("held")]);
+  assert.deepEqual(lines(), [], "precondition: pi holds it");
+  flush(); // the run's prepare threw
+  state.streaming = false;
+  assert.deepEqual(lines(), ["held"], "the line is an entry");
+  assert.deepEqual(wakes, [], "no wake was sent while busy");
+  await post(sock("s1"), [line("next")]);
+  assert.deepEqual(lines(), ["held", "next"]);
+  assert.deepEqual(wakes, [[WAKE, { triggerTurn: true }]], "one wake for both");
+});
+
+// pi appends a line at once while it compacts outside a run (it is not streaming), but it is not idle: the wake goes
+// on the tick after the compaction's end, when pi has cleared its compaction state.
+test("inbox: a line during a compaction is an entry at once; its wake goes after the compaction ends, once", async (t) => {
+  const { handlers, ctx, sock, state, wakes, lines } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.compacting = true;
   await post(sock("s1"), [line("[obor] needs-you T-1")]);
-  assert.deepEqual(texts(sends), ["[obor] needs-you T-1"], "precondition: sent once");
-  await handlers.session_before_compact({ reason: "threshold" }, ctx());
-  await sleep(timing.seenMs * 3);
-  assert.deepEqual(arrived(), [], "pi rejected it");
-  assert.equal(sends.length, 1, "nothing goes while pi compacts");
-  // pi clears its compaction state after session_compact's handlers return.
-  await handlers.session_compact({ reason: "threshold" }, ctx());
-  state.reject = false;
-  assert.ok(await until(() => arrived().length > 0));
-  await sleep(timing.seenMs * 3);
-  assert.deepEqual(arrived(), ["[obor] needs-you T-1"], "it arrives once");
-  assert.equal(sends.length, 2, "sent again once, after the compaction");
+  assert.deepEqual(lines(), ["[obor] needs-you T-1"]);
+  assert.deepEqual(wakes, [], "no wake while pi compacts");
+  await handlers.session_compact({ reason: "manual" }, ctx());
+  state.compacting = false;
+  await sleep(20);
+  assert.deepEqual(wakes, [[WAKE, { triggerTurn: true }]]);
+  await handlers.session_compact_failed({ reason: "manual" }, ctx());
+  await sleep(20);
+  assert.equal(wakes.length, 1, "a compaction's end with no new lines wakes nothing");
 });
 
-// The session is busy: each line's input handler waits on its user-prompt-submit hook, and pi appends a line only
-// once its handlers return, so the second goes only then.
-test("outbox: two lines keep their order; the second waits behind a first pi rejects", async (t) => {
-  const { handlers, ctx, sock, sends, state, arrived, events } = rig(t);
+// The wake's run is obor's prompt: user-prompt-submit reports the wake's text (tagged `[obor `, so no wrong-tab
+// guard) and its context goes in the run's hidden message, as for a typed prompt.
+test("inbox: the wake's run reports user-prompt-submit with the wake's text and gets its context", async (t) => {
+  const { handlers, ctx, events } = rig(t, { mode: "answer" });
   await handlers.session_start({}, ctx());
-  state.idle = false;
-  state.reject = true;
-  await post(sock("s1"), [line("one"), line("two")]);
-  assert.ok(await until(() => sends.length >= 2), "the first goes again after its bound");
-  assert.deepEqual(new Set(texts(sends)), new Set(["one"]), "the second waits while the first is not seen");
-  state.reject = false;
-  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
-  assert.deepEqual(arrived(), ["one", "two"]);
-  assert.deepEqual(events("user-prompt-submit").map((e) => e.prompt), ["one", "two"], "each busy line's hook ran once, in order");
-  assert.equal(texts(sends).filter((s) => s === "two").length, 1, "the second sent once");
+  const r = await handlers.before_agent_start({ messageType: "custom", message: { role: "custom", ...WAKE } }, ctx());
+  assert.deepEqual(r, { message: { customType: "obor", content: "obor: role worker, lane L-01\n\nobor: the lead has lines", display: false } });
+  assert.deepEqual(events("user-prompt-submit").map((e) => e.prompt), [WAKE.content]);
 });
 
-test("outbox: a line seen at once is not sent again", async (t) => {
-  const { handlers, ctx, sock, sends, arrived } = rig(t);
+test("inbox: a sendMessage pi refuses warns per line and the post still ends; the session's next post goes", async (t) => {
+  const { handlers, ctx, sock, state, notes, lines, wakes } = rig(t);
   await handlers.session_start({}, ctx());
-  await post(sock("s1"), [line("hi")]);
-  assert.ok(await until(() => arrived().length === 1));
-  await sleep(timing.seenMs * 4);
-  assert.deepEqual(texts(sends), ["hi"]);
-  assert.deepEqual(arrived(), ["hi"]);
-});
-
-test("outbox: after its tries a line warns once naming its first words, stays queued and goes at agent_settled", async (t) => {
-  const { handlers, ctx, sock, sends, state, arrived, notes } = rig(t);
-  await handlers.session_start({}, ctx());
-  assert.deepEqual(notes, [], "precondition: no warning");
-  const text = "[obor] needs-you T-9: the lead asks which store to use\nsecond row";
-  state.reject = true;
-  await post(sock("s1"), [line(text)]);
-  assert.ok(await until(() => notes.length > 0));
-  assert.deepEqual(notes, [["warning", 'obor: a line has not reached pi after 3 tries; it stays queued and goes again: "[obor] needs-you T-9: the lead asks …"']]);
-  assert.equal(sends.length, 3, "three tries before the warning");
-  await sleep(timing.seenMs * 3);
-  assert.equal(sends.length, 3, "after the warning it waits the slow bound");
-  assert.equal(notes.length, 1, "one warning");
-  state.reject = false;
-  await handlers.agent_settled({ aborted: false }, ctx());
-  assert.ok(await until(() => arrived().length === 1));
-  assert.deepEqual(arrived(), [text], "still queued: it goes at the next point pi can take it");
-  assert.equal(sends.length, 4);
-  assert.equal(notes.length, 1);
-});
-
-// A send whose input event fires past the bound (pi defers a prompt sent while its agent_settled handlers run) went
-// again: its late copy is dropped, so the line arrives once.
-test("outbox: a late copy of a line that arrived is dropped (handled): the line arrives once", async (t) => {
-  const { handlers, ctx, sock, sends, state, inputs, arrived } = rig(t);
-  await handlers.session_start({}, ctx());
-  state.inputDelay = timing.seenMs * 1.5;
-  await post(sock("s1"), [line("late")]);
-  assert.ok(await until(() => inputs.length === 2), "both sends' input events fired");
-  assert.deepEqual(texts(sends), ["late", "late"], "precondition: the bound sent it again");
-  assert.deepEqual(inputs, [
-    ["late", false],
-    ["late", true],
-  ]);
-  await sleep(timing.seenMs * 3);
-  assert.deepEqual(arrived(), ["late"]);
-  assert.equal(sends.length, 2);
-});
-
-// pi emits input before it checks the model and the credentials (agent-session.js _preparePrompt): a line it rejects
-// then reached input but was never taken, so it stays queued and goes again under the same bound as a line rejected
-// before input.
-test("outbox: input followed by a rejection (no API key) keeps the line, retries it, warns after its tries and it arrives once pi takes it", async (t) => {
-  const { handlers, ctx, sock, sends, state, inputs, arrived, notes } = rig(t);
-  await handlers.session_start({}, ctx());
-  state.noAuth = true;
-  await post(sock("s1"), [line("[obor] needs-you T-2")]);
-  assert.ok(await until(() => inputs.length === 1), "precondition: the line reached pi's input handlers");
-  assert.deepEqual(inputs, [["[obor] needs-you T-2", false]], "precondition: input did not drop it");
-  assert.ok(await until(() => sends.length === 2), "rejected after input, it goes again");
-  assert.ok(await until(() => notes.length > 0));
-  assert.deepEqual(notes, [["warning", 'obor: a line has not reached pi after 3 tries; it stays queued and goes again: "[obor] needs-you T-2"']]);
-  assert.equal(sends.length, 3, "three tries before the warning");
-  assert.equal(inputs.length, 3, "each try reached input");
-  assert.ok(inputs.every(([, handled]) => !handled), "no try was dropped as a copy");
-  assert.deepEqual(arrived(), [], "pi took none");
-  await sleep(timing.takeMs * 2);
-  assert.equal(sends.length, 3, "after the warning it waits the slow bound");
-  state.noAuth = false;
-  await handlers.agent_settled({ aborted: false }, ctx());
-  assert.ok(await until(() => arrived().length === 1));
-  await sleep(timing.takeMs * 3);
-  assert.deepEqual(arrived(), ["[obor] needs-you T-2"], "it arrives once pi takes it");
-  assert.equal(sends.length, 4, "taken: not sent again");
-  assert.equal(notes.length, 1, "one warning");
-});
-
-// An idle line's run starts after pi's checks: the line is taken at its user message, though that comes past the take
-// bound (pi is busy meanwhile), and the next line goes only then, once.
-test("outbox: input followed by the turn's start settles the line once; the next one goes only after it", async (t) => {
-  const { handlers, ctx, sock, sends, state, inputs, arrived } = rig(t);
-  await handlers.session_start({}, ctx());
-  state.startMs = timing.takeMs * 3;
-  await post(sock("s1"), [line("one"), line("two")]);
-  assert.ok(await until(() => inputs.length === 1), "precondition: the first reached input");
-  await sleep(timing.takeMs * 2);
-  assert.deepEqual(arrived(), [], "precondition: its run has not started yet");
-  assert.deepEqual(texts(sends), ["one"], "not sent again while pi starts its run; the second waits");
-  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
-  assert.deepEqual(arrived(), ["one", "two"]);
-  await sleep(timing.takeMs * 3);
-  assert.deepEqual(texts(sends), ["one", "two"], "each sent once");
-  assert.deepEqual(arrived(), ["one", "two"], "each taken once");
-});
-
-// A line into a busy session is a steer: pi queues it after input and appends it only when the running turn's tool
-// calls end, its text with the prompt's context input appended. It settles then, not before, and is not sent again
-// while pi holds it.
-test("outbox: a steer settles at its appended message, its context on its text; pi holding it sends nothing again", async (t) => {
-  const { handlers, ctx, sock, sends, state, held, appended, deliver, arrived } = rig(t, { mode: "answer" });
-  await handlers.session_start({}, ctx());
-  state.idle = false;
-  state.hold = true;
-  await post(sock("s1"), [line("one"), line("two")]);
-  assert.ok(await until(() => held.length === 1), "precondition: pi queued the first steer");
-  await sleep(timing.takeMs * 3);
-  assert.deepEqual(texts(sends), ["one"], "not sent again while pi holds it; the second waits");
-  assert.deepEqual(arrived(), []);
-  state.hold = false;
-  await deliver();
-  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
-  assert.deepEqual(appended, [
-    ["one", "one\n\nobor: the lead has lines"],
-    ["two", "two\n\nobor: the lead has lines"],
-  ]);
-  await sleep(timing.takeMs * 3);
-  assert.deepEqual(texts(sends), ["one", "two"], "each sent once");
-});
-
-// A steer pi drops before delivering it (an abort clears its queue) is not taken: once pi is idle with nothing queued,
-// it goes again.
-test("outbox: a steer pi drops before its message goes again once pi is idle", async (t) => {
-  const { handlers, ctx, sock, sends, state, held, arrived } = rig(t);
-  await handlers.session_start({}, ctx());
-  state.idle = false;
-  state.hold = true;
-  await post(sock("s1"), [line("dropped")]);
-  assert.ok(await until(() => held.length === 1), "precondition: pi queued the steer");
-  await sleep(timing.takeMs * 2);
-  assert.equal(sends.length, 1, "precondition: not sent again while pi holds it");
-  held.length = 0;
-  state.hold = false;
-  state.idle = true;
-  assert.ok(await until(() => arrived().length === 1), "sent again and taken");
-  assert.deepEqual(texts(sends), ["dropped", "dropped"]);
-  assert.deepEqual(arrived(), ["dropped"]);
-});
-
-test("outbox: at the session's shutdown its queue is dropped; nothing goes after it", async (t) => {
-  const { handlers, ctx, sock, sends, state } = rig(t);
-  await handlers.session_start({}, ctx());
-  state.reject = true;
-  await post(sock("s1"), [line("lost")]);
-  assert.equal(sends.length, 1, "precondition: sent and rejected");
-  await handlers.session_shutdown({ reason: "quit" }, ctx());
-  await sleep(timing.seenMs * 3);
-  assert.equal(sends.length, 1);
+  state.refuse = true;
+  await post(sock("s1"), [line("a"), line("b")]);
+  assert.deepEqual(
+    notes.map((n) => n[1]),
+    ["obor: a line for session s1 was not handed to pi: pi refused", "obor: a line for session s1 was not handed to pi: pi refused", "obor: the inbox's wake failed (pi refused); its lines are in the session"],
+  );
+  state.refuse = false;
+  await post(sock("s1"), [line("c")]);
+  assert.deepEqual(lines(), ["c"]);
+  assert.equal(wakes.length, 1);
 });
 
 test("inbox: a stale file at the socket's path is replaced; the socket is removed at the session's shutdown", async (t) => {
