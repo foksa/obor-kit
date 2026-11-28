@@ -218,14 +218,17 @@ func TestPkillKillallDeniedKillPIDAllowed(t *testing.T) {
 	})
 }
 
-// codex exec, claude -p / --print, pi -p / --print and opencode run / acp / serve / api are denied for every role (lead
-// included), wrapped or nested too; the interactive forms and look-alikes are allowed, pi's multi-letter short options
-// (-np, -ne, -nc) read whole, and the other kinds' print clusters (-cp, -pc) denied.
+// codex exec, claude -p / --print, every pi run without one of the words that run no agent (a bare `pi "x"`, -p /
+// --print, --mode, -np, -nc: pi starts print mode whenever stdin or stdout is no TTY) and opencode run / acp / serve /
+// api are denied for every role (lead included), wrapped or nested too; pi's --help, --version, --list-models, --export
+// and `pi list` run no agent and stay allowed, and so do the interactive forms and look-alikes and the other kinds'
+// print clusters (-cp, -pc).
 func TestHeadlessAgentRunsDenied(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
 	const why = "runs an agent headless; agents run in terminal panes"
+	const piWhy = "pi runs an agent headless from a tool"
 	cases := []tc{}
 	for _, who := range []string{"lead", "integrator", "worker", "reviewer", "-"} {
 		cwd := P
@@ -241,6 +244,12 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 			bash(who, cwd, `pi -p "summarise"`, "pi -p "+why),
 			bash(who, cwd, `pi --print "x"`, "pi --print "+why),
 			bash(who, cwd, `pi --mode rpc`, "pi --mode "+why),
+			bash(who, cwd, `pi "x"`, piWhy),
+			bash(who, cwd, `pi --no-session -nc "x"`, piWhy),
+			bash(who, cwd, `pi -np "summarise"`, piWhy),
+			bash(who, cwd, `pi -ne -e x`, piWhy),
+			bash(who, cwd, `pi -nc "x"`, piWhy),
+			bash(who, cwd, `echo hi | pi`, piWhy),
 			bash(who, cwd, `opencode run "x"`, "opencode run "+why),
 			bash(who, cwd, `opencode acp`, "opencode acp "+why),
 			bash(who, cwd, `opencode api session.prompt --session ses_1`, "opencode api "+why),
@@ -275,9 +284,13 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 		bash("lead", P, `codex review e`, ""),
 		bash("lead", P, `env -S 'claude --resume x'`, ""),
 		bash("lead", P, `claude -c --model opus`, ""),
-		bash("lead", P, `pi -np "summarise"`, ""),
-		bash("lead", P, `pi -ne -e x`, ""),
-		bash("lead", P, `pi -nc "x"`, ""),
+		bash("lead", P, `pi --version`, ""),
+		bash("lead", P, `pi -v`, ""),
+		bash("lead", P, `pi --help`, ""),
+		bash("lead", P, `pi -h`, ""),
+		bash("lead", P, `pi --list-models`, ""),
+		bash("lead", P, `pi --export out.html`, ""),
+		bash("lead", P, `pi list`, ""),
 	)
 	check(t, f.Project, cases)
 }

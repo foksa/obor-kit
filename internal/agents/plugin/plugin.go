@@ -95,6 +95,8 @@ type Headless struct {
 	ShortOpts   []string `json:"short_opts,omitempty"`
 	PrintFlag   bool     `json:"print_flag,omitempty"`
 	Flags       []string `json:"flags,omitempty"`
+	Always      bool     `json:"always,omitempty"`
+	Except      []string `json:"except,omitempty"`
 }
 
 // NotReady is how a start's screen says the agent cannot take a prompt yet: Pattern (a regular expression; Why the
@@ -454,7 +456,8 @@ func (k *Kind) Headless() agents.Headless {
 	}
 	h := m.Headless
 	return agents.Headless{Programs: h.Programs, Subcommands: h.Subcommands, Anywhere: h.Anywhere,
-		ValueOpts: h.ValueOpts, ShortOpts: h.ShortOpts, PrintFlag: h.PrintFlag, Flags: h.Flags}
+		ValueOpts: h.ValueOpts, ShortOpts: h.ShortOpts, PrintFlag: h.PrintFlag, Flags: h.Flags,
+		Always: h.Always, Except: h.Except}
 }
 
 // Transcript is the manifest's glob with sid and the env's values in; "" when it names none or a variable it names is

@@ -129,9 +129,11 @@ func Handle(call string, req []byte) ([]byte, error) {
 // required provider/id, and the session's inbox (the extension's per-session socket, recorded from InboxVar:
 // inbox_record). Status from the terminal's agent detection (herdr detects a pi pane with no integration). Stop:
 // /quit, typed with Enter (its command popup takes that Enter and runs it; docs/research/pi-probes.md P8), Ctrl+U
-// clears the input; never Ctrl+C, whose second press exits. Headless: -p/--print, --mode's json and rpc, the
-// subcommands that write the user's config, and the multi-letter short options (-np, -ne, …) read whole. Transcript: the
-// session JSONL under pi's default session dir
+// clears the input; never Ctrl+C, whose second press exits. Headless: pi starts print mode whenever stdin or stdout is
+// no TTY, so the guard denies every pi from a tool whatever its arguments but the forms that run no agent (always:
+// --help, -h, --version, -v, --list-models, --export, list); -p/--print, --mode's json and rpc, the subcommands that
+// write the user's config, and the multi-letter short options (-np, -ne, …) are still listed as the forms agents type.
+// Transcript: the session JSONL under pi's default session dir
 // ({HOME}/.pi/agent/sessions, one dir per cwd), named <timestamp>_<session id>.jsonl. MCP: the extension registers
 // obor's server at each start (install's lane is per start); no file is written.
 func describe() map[string]any {
@@ -145,7 +147,9 @@ func describe() map[string]any {
 		"stop":    map[string]any{"quit": "/quit", "clear_input": []string{"ctrl+u"}},
 		"headless": map[string]any{"print_flag": true, "value_opts": headlessValueOpts, "short_opts": headlessShortOpts,
 			"flags":       []string{"--mode"},
-			"subcommands": []string{"install", "remove", "uninstall", "update", "config", "auth", "mcp"}},
+			"subcommands": []string{"install", "remove", "uninstall", "update", "config", "auth", "mcp"},
+			"always":      true,
+			"except":      []string{"--help", "-h", "--version", "-v", "--list-models", "--export", "list"}},
 		"transcript":   TranscriptGlob,
 		"inbox_record": []string{InboxVar},
 		"mcp_lane": map[string]any{"registered": true, "how": "-e " + Extension("{kit}") +
