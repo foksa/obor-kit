@@ -18,7 +18,7 @@
 // deny) and live (live.go: one throwaway herdr session per kind, the agents started interactively in its panes; model
 // calls only with TURN=1, one "Reply with exactly OK" per kind). pi's live tier is the exception: its extension's
 // proof (a listed MCP tool, the guard's block, the Stop hook's block) needs one tiny prompt on the cheapest Anthropic
-// model, so `TIER=live KIND=pi` always makes that one call.
+// model, so `TIER=live KIND=pi` always makes that one call; TURN=1 adds the inbox row's turn.
 package main
 
 import (
