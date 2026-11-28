@@ -82,10 +82,12 @@
 // launching kit's plugin package dir (<kit>/opencode, this file its main), so the kit that started the agent runs its
 // hooks; no rule picks another one.
 //
-// Outside an obor project (no .obor/config.json above the directory) every hook is a no-op. bin/obor missing, failing
-// or slower than 5 s: the hook gives no answer (no context, no block), except the guard, which allows a call only on
-// exit 0 and denies on every other outcome (exit 2 with obor's reason; any other exit, a kill by a signal, a timeout
-// or a missing binary with a repair hint), as the Hook transport contract says (docs/agents/kind-protocol.md).
+// Outside an obor project (no .obor/config.json above the directory) every hook is a no-op. A hook's answer is the
+// stdout it printed before HOOK_TIMEOUT_MS, a cut after it keeping what came before; a hook's stderr warns through the
+// plugin's console (the guard's denials are its thrown lines; on an allow or a cut its stderr is a diagnostic), and so
+// does a non-guard hook's transport failure; the guard allows a call only on exit 0 and denies on every other outcome
+// (exit 2 with obor's reason; any other exit, a kill by a signal, a timeout or a missing binary with a repair hint),
+// as the Hook transport contract says (docs/agents/kind-protocol.md).
 //
 // A session is the agent's only when the store names no parent for it (ctx.session.get, asked once per session before
 // the plugin runs session-start, binds an inbox or records it): a subagent's session, whose context hook can run before
@@ -102,7 +104,12 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TIMEOUT_MS = 5000;
+// HOOK_TIMEOUT_MS bounds one `obor hook` run. A hook's Go side may wait out a serve that is down or restarting: the
+// session and turn requests get 8 s (internal/app/wire/client.go's table), and user-prompt-submit and stop ask
+// lead_lines, 3 s, before their turn request, so 15 s is the two waits in one hook plus its local work and process
+// start — the bound Claude Code's own Stop hooks give the same commands. Each hook prints its answer before it waits
+// on serve, so a cut keeps the stdout already received.
+const HOOK_TIMEOUT_MS = 15000;
 // AGENT_KIND is this kind's name in every event's agent_kind (kinds/opencode/kind.Name).
 const AGENT_KIND = "opencode";
 // PASS are opencode's tools obor knows and needs no event for: they run as they are. execute is Code Mode, the one
@@ -572,8 +579,8 @@ function runHook(kit, name, event, cwd, more) {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {}
-      finish({ failed: `obor hook ${name} timed out after ${TIMEOUT_MS / 1000} s` });
-    }, TIMEOUT_MS);
+      finish({ failed: `obor hook ${name} timed out after ${HOOK_TIMEOUT_MS / 1000} s`, stdout, stderr });
+    }, HOOK_TIMEOUT_MS);
     child.stdout.on("data", (b) => (stdout += b));
     child.stderr.on("data", (b) => (stderr += b));
     child.on("error", (e) => finish({ failed: String(e) }));
@@ -581,6 +588,21 @@ function runHook(kit, name, event, cwd, more) {
     child.stdin.on("error", () => {});
     child.stdin.end(JSON.stringify(event));
   });
+}
+
+// hookDiagnostics warns a hook's non-empty stderr lines, one line each, through the plugin's console.
+function hookDiagnostics(r) {
+  for (const line of String(r.stderr ?? "").split("\n")) if (line.trim()) console.error(line.trim());
+}
+
+// reportHook runs a non-guard hook and resolves to its answer: the stdout it printed, kept when a cut ended it after
+// that ("" when it exited nonzero or printed nothing). The lines on its stderr (a refusal or a warning, on exit 0 too)
+// are shown as diagnostics, and so is one actionable line when the hook did not run at all.
+async function reportHook(kit, name, event, cwd, more) {
+  const r = await runHook(kit, name, event, cwd, more);
+  hookDiagnostics(r);
+  if (r.failed) console.error(`obor: the ${name} hook failed (${r.failed}); obor may not have recorded it — run: make -C ${kit} build`);
+  return r.code !== 0 && !r.failed ? "" : (r.stdout ?? "");
 }
 
 // setup is the opencode 2.x entry (its runtime context; the published 1.18 types do not describe it): the guard
@@ -603,8 +625,8 @@ async function setup(ctx) {
     if (!context.has(id)) {
       const s = sessions.start(id);
       const run = bindInbox(inboxPath(id, env), id, prompt)
-        .then((sock) => runHook(kit, s.name, s.event, cwd, sock ? { [INBOX_VAR]: sock } : {}))
-        .then((r) => (r.failed || r.code !== 0 ? "" : r.stdout.trim()));
+        .then((sock) => reportHook(kit, s.name, s.event, cwd, sock ? { [INBOX_VAR]: sock } : {}))
+        .then((s) => s.trim());
       context.set(id, run);
     }
     return context.get(id);
@@ -679,6 +701,8 @@ async function setup(ctx) {
   await ctx.tool.hook("execute.before", async (call) => {
     for (const ev of await toolEvents(call.tool, call.input, cwd, call.sessionID, isMCPServer)) {
       const r = await runHook(kit, "pre-tool-use", ev, cwd);
+      // A guard's stderr is a diagnostic on its allow and on a cut; on a denial it is the thrown line, below.
+      if (r.code === 0 || r.failed) hookDiagnostics(r);
       if (r.failed) throw new Error(`obor: guard unavailable (${r.failed}); denied — run: make -C ${kit} build`);
       if (r.code === 2) throw new Error(r.stderr.trim() || "obor: denied");
       if (r.code !== 0) {
@@ -704,16 +728,15 @@ async function setup(ctx) {
     await started(id);
     const text = typeof p.prompt?.text === "string" ? p.prompt.text : "";
     const ask = sessions.prompt(id, text);
-    const r = await runHook(kit, ask.name, ask.event, cwd);
-    if (r.failed || r.code !== 0) return;
-    const more = promptContext(r.stdout);
+    const more = promptContext(await reportHook(kit, ask.name, ask.event, cwd));
     if (more && typeof p.prompt?.text === "string") p.prompt.text += "\n\n" + more;
   });
 
-  // stopAnswer acts on a stop's answer: a block's reason becomes the session's next prompt, marked as obor's own, and
-  // the stop that ends that turn then carries stop_hook_active. No prompt call, or a failed one: the turn ends.
-  const stopAnswer = async (id, r) => {
-    const reason = r.failed || r.code !== 0 ? "" : stopBlock(r.stdout);
+  // stopAnswer acts on a stop's answer (its stdout): a block's reason becomes the session's next prompt, marked as
+  // obor's own, and the stop that ends that turn then carries stop_hook_active. No prompt call, or a failed one: the
+  // turn ends.
+  const stopAnswer = async (id, answer) => {
+    const reason = stopBlock(answer);
     if (!reason || typeof ctx.session?.prompt !== "function") return;
     try {
       await ctx.session.prompt({ sessionID: id, text: reason, metadata: { obor: "stop" } });
@@ -738,8 +761,8 @@ async function setup(ctx) {
       if (!(await adopt(e.data.sessionID))) continue;
       await started(e.data.sessionID);
       for (const c of calls) {
-        const r = await runHook(kit, c.name, c.event, cwd);
-        if (c.name === "stop") await stopAnswer(c.event.session_id, r);
+        const a = await reportHook(kit, c.name, c.event, cwd);
+        if (c.name === "stop") await stopAnswer(c.event.session_id, a);
       }
     }
   })().catch(() => {});

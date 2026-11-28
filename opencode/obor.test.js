@@ -1,6 +1,6 @@
 // node --test opencode/obor.test.js (run by cmd/obor's TestOpencodePlugin when node is on PATH).
-// Keep the suite well under that test's 20 s limit (shimRun), which the full gate's load eats into: target < 10 s here.
-// The one slow test (the 5 s hook timeout) runs beside the others; a new slow test does the same.
+// The slow probes (a hook that answers then waits six seconds, the guard past its bound, a cut after its answer) start
+// when this file loads and run beside the others; a new slow test does the same.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -169,11 +169,11 @@ function feed() {
 }
 
 // The hooks against a stub kit: a copy of obor.js beside a bin/obor that logs each call (with the identity env it
-// sees) and answers per its mode (allow, deny, answer, block, fail or hang: each stub keeps its own, so the hang test
-// runs beside the others), loaded through the opencode 2.x setup entry.
+// sees) and answers per its mode (allow, deny, answer, block, fail, panic, stderr, slow-start, slow-stop, late or hang:
+// each stub keeps its own, so the slow probes run beside the others), loaded through the opencode 2.x setup entry.
 // A checkout option makes the project a git repository: "obor" (an obor checkout: bin/obor and a plugin.json named
 // obor) or "other" (plugin.json named other), entered at its main checkout or, with lane, at its lane worktree; each
-// bin/obor stub also logs its name (kit, main or lane) to <base>/who.
+// bin/obor stub also logs its name (kit, main or lane) to <base>/who. noBin leaves the kit's bin/obor out.
 // model sets OBOR_OPENCODE_MODEL for the setup call (setup reads it first, before any await), version opencode's
 // version, resume OBOR_OPENCODE_RESUME (the resumed session's id; absent: unset, a fresh start), argv the process's
 // arguments (the spawned server's: opencode's TUI argv never reaches the plugin), parents each session's parentID in the
@@ -183,7 +183,7 @@ function feed() {
 // ("<hook> <path>", "" unset). tools is ctx.tool.list()'s answer (the plugin asks it for a name its mapping does not
 // know; absent: the context has no list), and mcp the servers ctx.mcp.list() reports (the runtime's {location, data};
 // absent: none connected).
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [], tools, mcp } = {}) {
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched, prompted = [], resume, argv, parents, gets = [], tools, mcp, noBin = false } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -205,14 +205,19 @@ case "${mode}:$2" in
   block:stop) case "$event" in *'"stop_hook_active":true'*) ;; *) echo '{"decision":"block","reason":"obor (worker L-01): not done yet"}' ;; esac ;;
   fail:user-prompt-submit) echo "obor: the stub failed" >&2; exit 1 ;;
   exit1:pre-tool-use) echo "obor: the stub crashed" >&2; exit 1 ;;
+  panic:pre-tool-use) echo "obor: recovered panic: boom" >&2 ;;
   kill:pre-tool-use) kill -9 $$ ;;
+  stderr:session-start) echo "obor: role worker, lane D-01"; echo "obor: session s1 not recorded (stub)" >&2 ;;
+  slow-start:session-start) echo "obor: role worker, lane D-01"; sleep 6 ;;
+  slow-stop:stop) case "$event" in *'"stop_hook_active":true'*) ;; *) echo '{"decision":"block","reason":"obor (worker L-01): not done yet"}'; sleep 6 ;; esac ;;
+  late:session-start) echo "obor: role worker, lane D-01"; sleep 30 ;;
   hang:*) sleep 30 ;;
   *:session-start) echo "obor: role worker, lane D-01" ;;
 esac
 `,
     );
   };
-  stub(kit, "kit");
+  if (!noBin) stub(kit, "kit");
   let dir = path.join(base, "lane");
   fs.mkdirSync(path.join(dir, ".obor"), { recursive: true });
   if (project) fs.writeFileSync(path.join(dir, ".obor", "config.json"), "{}");
@@ -274,7 +279,7 @@ esac
   const token = (sid) => tokensPath(sid, { HOME: base });
   const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
   const sock = (sid) => inboxPath(sid, { HOME: base });
-  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted, inbox, sock, gets };
+  return { hooked, calls, event, dir, mod, who, emit: events.emit, names, token, prompted, inbox, sock, gets, kit };
 }
 
 test("the default export is the 2.x entry only", async (t) => {
@@ -796,6 +801,39 @@ test("prompt: no answer or a failing hook leaves the prompt as typed", async (t)
   }
 });
 
+// A hook's diagnostics reach the plugin's console, on exit 0 too, and stdout stays the answer (RV-284 finding 2).
+test("session-start: a hook's stderr on exit 0 warns; its stdout stays the context", async (t) => {
+  const { hooked } = await stubPlugin(t, { mode: "stderr" });
+  const errs = [];
+  const orig = console.error;
+  console.error = (line) => errs.push(String(line));
+  try {
+    const c = { sessionID: "s1", system: [] };
+    await hooked["session:context"](c);
+    assert.deepEqual(c.system, [{ type: "text", text: "obor: role worker, lane D-01" }]);
+    assert.deepEqual(errs, ["obor: session s1 not recorded (stub)"]);
+  } finally {
+    console.error = orig;
+  }
+});
+
+// A non-guard hook that did not run at all is one actionable warning; the guard's own failure stays its thrown answer.
+test("a non-guard hook's transport failure warns once with the repair; the guard still denies", async (t) => {
+  const { hooked, kit } = await stubPlugin(t, { noBin: true });
+  const errs = [];
+  const orig = console.error;
+  console.error = (line) => errs.push(String(line));
+  try {
+    await hooked["session:context"]({ sessionID: "s1", system: [] });
+    const real = fs.realpathSync(kit);
+    assert.deepEqual(errs, [`obor: the session-start hook failed (no ${path.join(real, "bin", "obor")}); obor may not have recorded it — run: make -C ${real} build`]);
+    await assert.rejects(hooked["tool:execute.before"]({ tool: "write", sessionID: "s1", input: { path: "x" } }), /^Error: obor: guard unavailable \(no .*\/bin\/obor\); denied — run: make -C /);
+    assert.equal(errs.length, 1, "the guard's failure is its thrown answer, not a second warning");
+  } finally {
+    console.error = orig;
+  }
+});
+
 // A stop's block becomes the session's next prompt, marked metadata.obor (obor's own line: the prompt hook runs no
 // second reminder for it), and the stop that ends that turn carries stop_hook_active: true — once per stop loop.
 test("stop: a block prompts the session with its reason, and the loop's next stop says stop_hook_active", async (t) => {
@@ -1032,19 +1070,92 @@ test("a child session's early context hook runs no session-start and binds no in
   assert.deepEqual(inbox(), ["session-start " + sock("root")]);
 });
 
-// The hanging guard waits out the plugin's 5 s timeout, so it starts when this file loads and runs beside the tests
-// above (its stub keeps its own mode); its test, last, only collects the result.
-const hanging = (async () => {
+// The slow probes run past the plugin's hook bound, so they start when this file loads and run beside the other
+// tests; their tests only collect the results, and each probe's stub is removed by its test.
+const probe = (mode, run) => {
   const cleanups = [];
-  const { hooked } = await stubPlugin({ after: (fn) => cleanups.push(fn) }, { mode: "hang" });
+  return stubPlugin({ after: (fn) => cleanups.push(fn) }, { mode })
+    .then(run)
+    .then((got) => ({ ...got, cleanup: () => cleanups.forEach((fn) => fn()) }));
+};
+
+const hanging = probe("hang", async ({ hooked }) => {
   const t0 = Date.now();
   const err = await hooked["tool:execute.before"]({ tool: "write", sessionID: "s1", input: { path: "x" } }).then(() => null, (e) => e);
-  return { err, ms: Date.now() - t0, cleanup: () => cleanups.forEach((fn) => fn()) };
+  return { err, ms: Date.now() - t0 };
+});
+
+// slow runs two stubs at once: session-start's context after six seconds, and stop's block after six seconds.
+const slow = (async () => {
+  const cleanups = [];
+  const open = (mode) => stubPlugin({ after: (fn) => cleanups.push(fn) }, { mode });
+  const start = await open("slow-start");
+  const stop = await open("slow-stop");
+  const [sys, prompted] = await Promise.all([
+    (async () => {
+      const c = { sessionID: "s1", system: [] };
+      await start.hooked["session:context"](c);
+      return c.system;
+    })(),
+    (async () => {
+      await promptOf(stop.hooked, "s1", wake);
+      await stop.emit(...turn(stop.dir, "s1", wake), oc("session.execution.succeeded", { sessionID: "s1" }));
+      return stop.prompted;
+    })(),
+  ]);
+  return { sys, prompted, cleanup: () => cleanups.forEach((fn) => fn()) };
 })();
 
-test("guard: a hanging obor denies after 5 s (fails closed)", async (t) => {
+// late answers then outlasts the bound: the cut keeps the answer already printed, and says it failed.
+const late = probe("late", async ({ hooked }) => {
+  const errs = [];
+  const orig = console.error;
+  console.error = (line) => errs.push(String(line));
+  try {
+    const c = { sessionID: "s1", system: [] };
+    await hooked["session:context"](c);
+    return { sys: c.system, errs };
+  } finally {
+    console.error = orig;
+  }
+});
+
+// An allow's stderr is a diagnostic (a recovered panic's line), shown in the plugin's console; the call still goes.
+test("guard: an allow's stderr warns and blocks nothing", async (t) => {
+  const { hooked, calls } = await stubPlugin(t, { mode: "panic" });
+  const errs = [];
+  const orig = console.error;
+  console.error = (line) => errs.push(String(line));
+  try {
+    assert.equal(await hooked["tool:execute.before"]({ tool: "write", sessionID: "s1", input: { path: "x" } }), undefined);
+    assert.equal(calls().length, 1, "precondition: the guard ran");
+    assert.deepEqual(errs, ["obor: recovered panic: boom"]);
+  } finally {
+    console.error = orig;
+  }
+});
+
+// A hanging obor denies past the hook's bound (fails closed).
+test("guard: a hanging obor denies past the hook's bound (fails closed)", async (t) => {
   const { err, ms, cleanup } = await hanging;
   t.after(cleanup);
-  assert.match(String(err), /guard unavailable \(obor hook pre-tool-use timed out/);
-  assert.ok(ms >= 4900 && ms < 9000, `${ms} ms`);
+  assert.match(String(err), /guard unavailable \(obor hook pre-tool-use timed out after 15 s\); denied — run: make -C /);
+  assert.ok(ms >= 14900 && ms < 25000, `${ms} ms`);
+});
+
+test("a hook that prints its answer then waits six seconds still delivers it: session-start's context and stop's block", async (t) => {
+  const { sys, prompted, cleanup } = await slow;
+  t.after(cleanup);
+  assert.deepEqual(sys, [{ type: "text", text: "obor: role worker, lane D-01" }]);
+  assert.deepEqual(prompted, [{ sessionID: "s1", text: "obor (worker L-01): not done yet", metadata: { obor: "stop" } }]);
+});
+
+test("a cut past the bound keeps the answer already printed", async (t) => {
+  const { sys, errs, cleanup } = await late;
+  t.after(cleanup);
+  assert.deepEqual(sys, [{ type: "text", text: "obor: role worker, lane D-01" }]);
+  assert.ok(
+    errs.some((l) => /^obor: the session-start hook failed \(obor hook session-start timed out after 15 s\); obor may not have recorded it — run: make -C .* build$/.test(l)),
+    errs.join("\n"),
+  );
 });
