@@ -53,6 +53,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -81,9 +82,11 @@ const WAKE = "[obor inbox] obor lines arrived above: read them and act on them."
 const PROJECT_MCP = path.join(".agents", "mcp_config.json");
 // OBOR_SERVER is the name obor's MCP server is registered under in every kind.
 const OBOR_SERVER = "obor";
-// PASS are pi's tools that need no event: read only reads; codemode and tool_search reach their inner calls through
-// tool_call themselves.
-const PASS = new Set(["read", "codemode", "tool_search"]);
+// PASS are pi's tools that need no event: read, grep, find and ls only read (grep runs rg, find runs fd, ls lists a
+// directory); codemode and tool_search reach their inner calls through tool_call themselves.
+const PASS = new Set(["read", "grep", "find", "ls", "codemode", "tool_search"]);
+// UNICODE_SPACES is pi's set of spaces (utils/paths.js): a write or an edit path gets a plain space in each one's place.
+const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 
 // kitRoot is the kit: this file's real path, two levels up (<kit>/pi/obor.js).
 export function kitRoot() {
@@ -122,15 +125,28 @@ function preToolUse(name, input, cwd, sessionID) {
   return { hook_event_name: "PreToolUse", session_id: sessionID ?? "", cwd, agent_kind: AGENT_KIND, tool_name: name, tool_input: input };
 }
 
+// piPath is what pi's write and edit make of a path before writing it (resolveToCwd, core/tools/path-utils.js, over
+// normalizePath in utils/paths.js): Unicode spaces become plain spaces, a leading @ is stripped, ~ and ~/ expand to the
+// home directory, a file:// URL is read, and the result is resolved against cwd. That is the file pi writes, so it is
+// the path the guard checks.
+export function piPath(p, cwd) {
+  let s = String(p).replace(UNICODE_SPACES, " ");
+  if (s.startsWith("@")) s = s.slice(1);
+  if (s === "~") s = os.homedir();
+  else if (s.startsWith("~/") || (process.platform === "win32" && s.startsWith("~\\"))) s = path.join(os.homedir(), s.slice(2));
+  if (/^file:\/\//.test(s)) s = fileURLToPath(s);
+  return path.resolve(cwd, s);
+}
+
 // toolEvent maps one pi tool call to the Claude Code PreToolUse event obor checks; null for a tool that needs none
-// (PASS). bash is Bash; write and edit name their file as path, resolved against cwd ("" when it is missing, which the
-// guard denies); an MCP tool is the guard's mcp event naming its server (registered: the names the extension
-// registered); any other tool goes to the guard as unguarded, so a tool a pi update adds is a named deny for obor's
-// agents, never a silent bypass.
+// (PASS). bash is Bash; write and edit name their file as path, resolved as pi resolves it (piPath; "" when it is
+// missing, which the guard denies); an MCP tool is the guard's mcp event naming its server (registered: the names the
+// extension registered); any other tool goes to the guard as unguarded, so a tool a pi update adds is a named deny for
+// obor's agents, never a silent bypass.
 export function toolEvent(tool, input, cwd, sessionID, registered = []) {
   input = input ?? {};
   const ev = (name, data) => preToolUse(name, data, cwd, sessionID);
-  const file = () => (input.path ? path.resolve(cwd, String(input.path)) : "");
+  const file = () => (input.path ? piPath(input.path, cwd) : "");
   if (PASS.has(tool)) return null;
   switch (tool) {
     case "bash":
@@ -519,7 +535,10 @@ export function create(pi, { cwd, kit, env }) {
         const r = await hook("pre-tool-use", ev, ctx);
         // A guard's stderr is a diagnostic on its allow and on a cut; on a denial it is the block's reason.
         if (r.code === 0 || r.failed) diagnostics(r);
-        return guardBlock(r, kit);
+        const block = guardBlock(r, kit);
+        // pi writes the path the guard allowed: input is mutable, and the absolute path pi resolved is its fixed point.
+        if (!block && e.input && ev.tool_input.file_path) e.input.path = ev.tool_input.file_path;
+        return block;
       },
       (err) => ({ block: true, reason: `obor: guard failed (${err?.message ?? err}); denied` }),
     ),

@@ -19,7 +19,16 @@ const rows = [
   ["write with an absolute path", "write", { path: "/w/lane/x.md", content: "" }, ev("Write", { file_path: "/w/lane/x.md" })],
   ["write naming no file: an empty file_path, which the guard denies", "write", { content: "x" }, ev("Write", { file_path: "" })],
   ["edit is Edit with file_path from path", "edit", { path: "a.go", edits: [] }, ev("Edit", { file_path: "/w/lane/a.go" })],
+  ["write with ~/ resolves from the home directory, as pi does", "write", { path: "~/.zshrc", content: "" }, ev("Write", { file_path: path.join(os.homedir(), ".zshrc") })],
+  ["write with @/ names the absolute path the @ hid", "write", { path: "@/etc/x.md", content: "" }, ev("Write", { file_path: "/etc/x.md" })],
+  ["write with @ relative strips the @ before resolving", "write", { path: "@src/a.go", content: "" }, ev("Write", { file_path: "/w/lane/src/a.go" })],
+  ["write with a file:// URL reads the URL", "write", { path: "file:///w/other/a.md", content: "" }, ev("Write", { file_path: "/w/other/a.md" })],
+  ["write with a non-breaking space gets a plain one, as pi does", "write", { path: "docs/a\u00A0b.md", content: "" }, ev("Write", { file_path: "/w/lane/docs/a b.md" })],
+  ["edit with @~/ strips the @, then expands the home directory", "edit", { path: "@~/x.go", edits: [] }, ev("Edit", { file_path: path.join(os.homedir(), "x.go") })],
   ["read is allowed: no event", "read", { path: "a.go" }, null],
+  ["grep is read-only: no event", "grep", { pattern: "x" }, null],
+  ["find is read-only: no event", "find", { pattern: "*.go" }, null],
+  ["ls is read-only: no event", "ls", { path: "." }, null],
   ["codemode is allowed: its inner calls reach tool_call", "codemode", { code: "x" }, null],
   ["tool_search is allowed", "tool_search", { query: "x" }, null],
   ["obor's MCP tool is the mcp event naming obor", "mcp__obor__job_next", {}, ev("mcp", { mcp_server: "obor" })],
@@ -27,7 +36,7 @@ const rows = [
   ["the longest registered spelling wins (docs_x over docs)", "mcp__docs_x__a__b", {}, ev("mcp", { mcp_server: "docs-x" })],
   ["a server not registered (the user's own) is the name's part up to the next __", "mcp__user__tool", {}, ev("mcp", { mcp_server: "user" })],
   ["an MCP name with no server part names none", "mcp__", {}, ev("mcp", { mcp_server: "" })],
-  ["any other tool is unguarded, naming it", "grep", { pattern: "x" }, ev("unguarded", { tool: "grep", why: "obor has no rule for pi tool grep: update obor" })],
+  ["any other tool is unguarded, naming it", "web_search", { query: "x" }, ev("unguarded", { tool: "web_search", why: "obor has no rule for pi tool web_search: update obor" })],
 ];
 for (const [name, tool, input, want] of rows) {
   test(`toolEvent: ${name}`, () => assert.deepEqual(toolEvent(tool, input, cwd, "s1", registered), want));
@@ -182,6 +191,17 @@ test("guard: an allowed call runs pre-tool-use with the Claude event and answers
   assert.equal(calls().length, 1, calls().join("\n"));
   assert.match(calls()[0], /^pre-tool-use OBOR_NO_SELF_HOST=1 /);
   assert.deepEqual(events("pre-tool-use"), [{ hook_event_name: "PreToolUse", session_id: "s1", cwd: dir, agent_kind: "pi", tool_name: "Edit", tool_input: { file_path: dir + "/a.go" } }]);
+});
+
+test("guard: an allow writes the checked path back into the call, so pi writes that file; a deny leaves it", async (t) => {
+  const allow = rig(t);
+  const input = { path: "@src/a.go", content: "x" };
+  assert.equal(await allow.handlers.tool_call({ toolName: "write", input }, allow.ctx()), undefined);
+  assert.equal(input.path, path.join(allow.dir, "src/a.go"));
+  const deny = rig(t, { mode: "deny" });
+  const denied = { path: "~/x.go", edits: [] };
+  assert.equal((await deny.handlers.tool_call({ toolName: "edit", input: denied }, deny.ctx())).block, true);
+  assert.equal(denied.path, "~/x.go");
 });
 
 test("guard: exit 2 blocks with obor's line as the reason", async (t) => {
