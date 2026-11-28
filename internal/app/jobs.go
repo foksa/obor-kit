@@ -184,7 +184,10 @@ func retryKey(job event.Key) event.Key {
 // ("T-1 has review running"); the task is held again only to act, and not when a verb changed it meanwhile (heldAgain).
 func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *jobTimer, pane port.Pane) bool {
 	a.release(p, mt.task, mt.stepName())
-	e := a.evidence(ctx, p, evidencePane{pane: pane, kind: pane.Agent})
+	a.mu.Lock()
+	pane, kind := p.sessionPane(pane) // as decideLanes: the recorded session's transcript and kind
+	a.mu.Unlock()
+	e := a.evidence(ctx, p, evidencePane{pane: pane, kind: kind})
 	now := a.opt.Now()
 	a.mu.Lock()
 	_, due := t.sample(now, e, a.opt.Idle)
