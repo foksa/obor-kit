@@ -1,6 +1,8 @@
 package app_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/store"
 )
 
 // Delivery (rows 7–8): no job_next within 5 min of the job's wake → one retry; none 5 min after it → the owner; the
@@ -114,6 +117,47 @@ func TestJobStalled(t *testing.T) {
 			if r.count("1 intent nudge.review") != 1 || r.has("1 intent retry.review") {
 				t.Errorf("want one nudge, no retry: %q", r.steps())
 			}
+		})
+	})
+	// The sample is the pane's recorded session (sessionPane), not only the terminal's report: the integrator's pane
+	// names no transcript, its session recorded one, and a fresh write there is activity, so the quiet time ends.
+	t.Run("the recorded transcript the terminal does not report is the sample", func(t *testing.T) {
+		t.Parallel()
+		bubble(t, func(t *testing.T) {
+			r, _ := reviewed(t)
+			r.integratorIs("idle")
+			if p := r.paneOf("w1:p9"); p.Transcript != "" {
+				t.Fatalf("precondition: the pane reports transcript %q", p.Transcript)
+			}
+			tr := filepath.Join(r.home, "int-1.jsonl")
+			write(t, tr, "{}\n")
+			if err := os.Chtimes(tr, r.clock.Now(), r.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if reply, err := r.ask(wire.SessionRequest(r.p.Root, store.Session{Agent: "pj-int", Kind: "claude", ID: "int-1",
+				Transcript: tr, Started: r.clock.Now().Unix()})); err != nil || !strings.HasPrefix(reply, "SESSION ") {
+				t.Fatalf("record the integrator's session: %q, %v", reply, err)
+			}
+			r.quietBaseline("T-1/1/review")
+			r.clock.Add(9 * time.Minute)
+			if err := os.Chtimes(tr, r.clock.Now(), r.clock.Now()); err != nil { // written at 9
+				t.Fatal(err)
+			}
+			r.later(time.Minute) // 1 after the write: its activity, not the quiet time, is the sample
+			if r.has("1 intent nudge.review") {
+				t.Fatalf("a nudge 10 min after the baseline with a fresh recorded write: %q", r.steps())
+			}
+			r.waitFor("the job's quiet time begun again at the recorded write", func() bool {
+				job, _, quiet := app.JobTimer(r.app, r.p.Root, "T-1")
+				r.push()
+				return job == "T-1/1/review" && quiet.Equal(r.clock.Now())
+			})
+			r.later(9 * time.Minute) // 9 after the write: no nudge
+			if r.has("1 intent nudge.review") {
+				t.Fatalf("a nudge 9 min after the recorded write: %q", r.steps())
+			}
+			r.later(time.Minute) // Idle after the write
+			r.waitStep("1 result nudge.review")
 		})
 	})
 	t.Run("pane exits: one start, one re-send, then needs-you", func(t *testing.T) {
