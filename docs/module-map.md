@@ -126,8 +126,8 @@ obor's hook in process; agy's event → `obor hook <name>` → agy's answer). `k
 way: package `kinds/pi/kind` is the manifest, `start` (`--approve`, `-e <kit>/pi/obor.js`, `--model <provider/id>`,
 `--thinking`, `--session` on a resume, then `--` and the prompt; `OBOR_PI_RESUME`), `install`
 (`where: start`: the extension registers obor's MCP server), `turn` (`last`, `session` and `context` from the session
-JSONL, a limit's reset; `turn.go`), typed lines until the inbox task, and the hooks through the extension
-`pi/obor.js`.
+JSONL, a limit's reset; `turn.go`), `deliver` (one line to the session's inbox socket, recorded from `OBOR_PI_INBOX`
+by the extension's session-start hook), and the hooks through the extension `pi/obor.js`.
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:
