@@ -216,7 +216,8 @@ func (c *Config) Model(name string) (Model, bool) {
 func (c *Config) ModelNames() []string { return slices.Clone(c.Data.Agents.Models.Keys) }
 
 // UnknownModel is why name resolves to no model (Config.Model): agents.models has no such entry — the message lists
-// the names it has and, for a name of UpgradeModels, carries that entry ready to paste — or its entry names no kind.
+// the names it has and, for a name of UpgradeModels, carries that entry ready to paste and names `obor setup agents`,
+// which adds it — or its entry names no kind.
 func (c *Config) UnknownModel(name string) error {
 	if e, ok := c.Data.Agents.Models.M[name]; ok && e.Kind == "" {
 		return fmt.Errorf("%s names no kind: set agents.models%s.kind (%s)", Compact(name), key(name),
@@ -228,7 +229,8 @@ func (c *Config) UnknownModel(name string) error {
 	}
 	err := fmt.Errorf("%s is not a model (agents.models: %s)", Compact(name), names)
 	if i := slices.IndexFunc(UpgradeModels, func(e NamedModel) bool { return e.Name == name }); i >= 0 {
-		err = fmt.Errorf("%v: add it to agents.models in .obor/config.json: %s", err, UpgradeModels[i].Member())
+		err = fmt.Errorf("%v: add it to agents.models in .obor/config.json: %s (obor setup agents adds every former built-in name the config uses)",
+			err, UpgradeModels[i].Member())
 	}
 	return err
 }
