@@ -83,6 +83,10 @@
       "pi-sonnet": {
         "kind": "pi",
         "id": "anthropic/claude-sonnet-5-5"
+      },
+      "sol": {
+        "kind": "codex",
+        "id": "gpt-6.2-sol"
       }
     }
   },
