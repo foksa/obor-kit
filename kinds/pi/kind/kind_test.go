@@ -29,8 +29,9 @@ func pi(t *testing.T, stateDir string) agents.Kind {
 
 // The manifest: obor's hooks through pi's extension, acting on their answers, a resume, the model as a required
 // provider/id, the session's inbox (the extension's socket, recorded from InboxVar), the terminal's status, /quit with
-// one Enter and Ctrl+U, -p/--print and --mode and the config-writing subcommands denied, the default session dir's
-// JSONL under HOME, and obor's MCP server registered per start by the extension.
+// one Enter and Ctrl+U, -p/--print and --mode and the config-writing subcommands denied, the multi-letter short
+// options read whole, the default session dir's JSONL under HOME, and obor's MCP server registered per start by the
+// extension.
 func TestManifest(t *testing.T) {
 	k := pi(t, t.TempDir())
 	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, Inbox: true, HookAnswers: true, Resume: true,
@@ -46,7 +47,8 @@ func TestManifest(t *testing.T) {
 	}
 	h := k.Headless()
 	if !h.PrintFlag || !slices.Equal(h.Subcommands, []string{"install", "remove", "uninstall", "update", "config", "auth", "mcp"}) ||
-		!slices.Contains(h.ValueOpts, "--mode") || !slices.Equal(h.Flags, []string{"--mode"}) || len(h.Anywhere) != 0 {
+		!slices.Contains(h.ValueOpts, "--mode") || !slices.Equal(h.Flags, []string{"--mode"}) || len(h.Anywhere) != 0 ||
+		!slices.Equal(h.ShortOpts, []string{"-nt", "-nbt", "-xt", "-ne", "-ns", "-np", "-nc", "-na"}) {
 		t.Errorf("Headless = %+v", h)
 	}
 	env := func(m map[string]string) func(string) string { return func(v string) string { return m[v] } }
