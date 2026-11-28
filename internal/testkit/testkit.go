@@ -79,6 +79,9 @@ func Run(m *testing.M) int {
 	if scripts.dir != "" {
 		os.RemoveAll(scripts.dir)
 	}
+	if agentStubs.dir != "" {
+		os.RemoveAll(agentStubs.dir)
+	}
 	return code
 }
 
@@ -235,7 +238,8 @@ func scriptCopy(t testing.TB, body string) string {
 }
 
 // Isolate keeps the tests away from the developer's shell: no OBOR_* / HERDR_* variables (but a herdr socket that is not there), no check-slot variables the
-// merge gate exports to `make check` (nor Claude's or Codex's config dirs), git without global or system config.
+// merge gate exports to `make check` (nor Claude's or Codex's config dirs), git without global or system config, and
+// no installed agent CLI on PATH (agentStubDir's stubs first: no test, and no binary a test starts, runs one).
 func Isolate() {
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -244,6 +248,7 @@ func Isolate() {
 			os.Unsetenv(k)
 		}
 	}
+	stubAgentCLIs()
 	// obor reaches herdr over its socket: no socket here unless a test serves one (herdrtest.Serve), never the
 	// developer's own ($HOME/.config/herdr/herdr.sock).
 	os.Setenv("HERDR_SOCKET_PATH", "/nonexistent/herdr.sock")
