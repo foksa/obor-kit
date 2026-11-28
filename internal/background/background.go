@@ -203,6 +203,14 @@ func oborMCP(command string) bool {
 	return false
 }
 
+// helper: p is one of agent's own helpers, as far as p's command, parent and start tell: obor's MCP server anywhere, a
+// direct child of the agent that is no shell (an agent runs commands through a shell; what it starts itself is its MCP
+// servers, language servers, Claude Code's caffeinate per turn), or a direct child that started with the agent (within
+// helperSlack of its own start: an MCP server wrapped in a shell). What a helper starts is its business.
+func helper(agent, p Proc) bool {
+	return oborMCP(p.Command) || p.PPID == agent.PID && (!shells[program(p.Command)] || p.Age >= agent.Age-helperSlack)
+}
+
 // ProcIndex is a process table indexed for Descendants: each process's children and each pid's row. Built once per
 // scan; every agent of a view's scan walks the same index.
 type ProcIndex struct {
@@ -232,20 +240,24 @@ func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
 }
 
 // ChildOutsideGroup: a descendant of the process agent in x runs in a process group of its own. An agent's long-lived
-// helpers (MCP servers, caffeinate) lead its group; the commands it runs, a background job too, get one of their own
-// (Claude's Bash tool). known is false when agent is not in the table: no child seen there is no evidence of quiet.
+// helpers (MCP servers, caffeinate) lead its group, a detached helper a group of its own; the commands it runs, a
+// background job too, get one of their own (Claude's Bash tool). known is false when agent is not in the table: no
+// child seen there is no evidence of quiet.
 func (x *ProcIndex) ChildOutsideGroup(agent int) (busy, known bool) {
 	a, ok := x.byPID[agent]
 	if !ok || agent <= 1 {
 		return false, false
 	}
 	for _, p := range x.byPID {
-		if p.PGID == a.PGID {
+		if p.PGID == a.PGID || helper(a, p) {
 			continue
 		}
 		for q, n := p.PPID, 0; q > 1 && n < 64; q, n = x.byPID[q].PPID, n+1 {
 			if q == agent {
 				return true, true
+			}
+			if helper(a, x.byPID[q]) {
+				break
 			}
 		}
 	}
@@ -266,7 +278,7 @@ func (x *ProcIndex) walk(agent int, min time.Duration, helpers bool) []Found {
 	walk = func(pid int, chain []string) {
 		for _, c := range kids[pid] {
 			shell := shells[program(c.Command)]
-			if helpers && (oborMCP(c.Command) || pid == agent && (!shell || c.Age >= self.Age-helperSlack)) {
+			if helpers && helper(self, c) {
 				continue
 			}
 			if shell && len(kids[c.PID]) > 0 {

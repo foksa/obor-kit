@@ -62,11 +62,16 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newRig(t)
-		// L-01's agent is pid 2: an MCP server in its own group (3, does not count) and a Bash tool command in a group of
-		// its own (50 → 51). L-02's agent is pid 7 with nothing under it: it stalls, so the watchdogs did look.
+		// L-01's agent is pid 2: an MCP server in its group (3, does not count) and a Bash tool command in a group of
+		// its own (50 → 51, a shell wrapper started after the agent). L-02's agent is pid 7 with nothing under it: it
+		// stalls, so the watchdogs did look.
 		r.setForeground("w1:p2", 7)
-		r.setProcs([]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 3, PPID: 2, PGID: 2},
-			{PID: 50, PPID: 2, PGID: 50}, {PID: 51, PPID: 50, PGID: 50}, {PID: 7, PPID: 1, PGID: 7}}...)
+		r.setProcs([]background.Proc{
+			{PID: 2, PPID: 1, PGID: 2, Age: time.Hour, Command: "claude"},
+			{PID: 3, PPID: 2, PGID: 2, Age: time.Hour, Command: "obor mcp"},
+			{PID: 50, PPID: 2, PGID: 50, Age: 5 * time.Second, Command: "/bin/zsh -c eval 'sleep 600'"},
+			{PID: 51, PPID: 50, PGID: 50, Age: 5 * time.Second, Command: "sleep 600"},
+			{PID: 7, PPID: 1, PGID: 7, Age: time.Hour, Command: "claude"}}...)
 		r.start()
 		// Sampled before the clock moves: L-02's baseline at 0, L-01 sampled active (no baseline).
 		r.waitQuiet("T-2", r.clock.Now())
@@ -86,8 +91,10 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 			t.Fatalf("L-01 has a quiet baseline (%v) while its command runs", quiet)
 		}
 
-		r.setProcs([]background.Proc{{PID: 2, PPID: 1, PGID: 2}, {PID: 3, PPID: 2, PGID: 2},
-			{PID: 7, PPID: 1, PGID: 7}}...) // the command ended; the MCP server stays
+		r.setProcs([]background.Proc{
+			{PID: 2, PPID: 1, PGID: 2, Age: time.Hour, Command: "claude"},
+			{PID: 3, PPID: 2, PGID: 2, Age: time.Hour, Command: "obor mcp"},
+			{PID: 7, PPID: 1, PGID: 7, Age: time.Hour, Command: "claude"}}...) // the command ended; the MCP server stays
 		r.waitQuiet("T-1", r.clock.Now()) // L-01's first quiet sample: its stall timer's baseline
 		r.clock.Add(9 * time.Minute)
 		r.settle()

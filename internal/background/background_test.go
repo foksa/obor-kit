@@ -138,6 +138,32 @@ func TestLiveEarlyAgentRun(t *testing.T) {
 	}
 }
 
+// A detached helper is no sign of a run: obor's MCP server under the agent, a direct child of the agent that is no
+// shell (pi starts both detached, in a process group of their own), and what a helper starts. A shell child of the
+// agent with a child of its own in another group is the agent's run, busy.
+func TestChildOutsideGroup(t *testing.T) {
+	agent := Proc{PID: 500, PPID: 1, PGID: 500, Age: time.Hour, Command: "pi"}
+	rows := []struct {
+		name  string
+		procs []Proc
+		busy  bool
+	}{
+		{"detached obor mcp", []Proc{agent,
+			{PID: 700, PPID: 500, PGID: 700, Age: 50 * time.Minute, Command: "/Users/x/bin/obor mcp"}}, false},
+		{"detached non-shell child", []Proc{agent,
+			{PID: 700, PPID: 500, PGID: 700, Age: 5 * time.Minute, Command: "sleep 3"}}, false},
+		{"shell child with a child outside the group", []Proc{agent,
+			{PID: 700, PPID: 500, PGID: 700, Age: 5 * time.Minute, Command: "/bin/bash -c 'sleep 3'"},
+			{PID: 701, PPID: 700, PGID: 701, Age: 5 * time.Minute, Command: "sleep 3"}}, true},
+	}
+	for _, r := range rows {
+		busy, known := NewProcIndex(r.procs).ChildOutsideGroup(500)
+		if !known || busy != r.busy {
+			t.Errorf("%s: busy %v known %v, want busy %v", r.name, busy, known, r.busy)
+		}
+	}
+}
+
 // a hook's agent is its first ancestor that is no shell (the hook command's shell passed through); a hook
 // whose pid is not in the table, or whose ancestry ends at pid 1 through shells only or a pid not in the table, has
 // none.
