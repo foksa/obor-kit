@@ -79,6 +79,10 @@
       "gemini": {
         "kind": "agy",
         "id": "gemini-4-neon"
+      },
+      "pi-sonnet": {
+        "kind": "pi",
+        "id": "anthropic/claude-sonnet-5-5"
       }
     }
   },
