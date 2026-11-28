@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"obor/internal/app/describe"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/background"
 )
 
 func factRec(task, step, reason string) event.Record {
@@ -429,6 +431,74 @@ var rows = []row{
 			h.snap.Panes = h.snap.Panes[1:]
 		},
 		event: connect, facts: []string{"T-1 needs-you{pane exited}"}},
+}
+
+// The sampler's transcript is the session's recorded one (sessionPane), not only the manifest's glob: a worker whose
+// recorded transcript lies outside the glob is active on a fresh write there; with no recorded path the glob names the
+// file as before.
+func TestWorkerActivityTranscript(t *testing.T) {
+	t.Parallel()
+	// quietAgent is the agents' files over home, with no child under the agent (pid 2): the transcript alone says
+	// whether the worker works.
+	quietAgent := func(home string) *agentFiles {
+		return &agentFiles{home: home,
+			info: func(context.Context, string) (port.ProcessInfo, error) {
+				return port.ProcessInfo{ShellPID: 1, FgPGID: 2}, nil
+			},
+			procs: func(context.Context) ([]background.Proc, error) {
+				return []background.Proc{{PID: 1, PPID: 0, PGID: 1}, {PID: 2, PPID: 1, PGID: 2}}, nil
+			}}
+	}
+	t.Run("the recorded session's transcript outside the glob: a fresh write there is activity", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newIdentHarness(t)
+		home := t.TempDir()
+		h.a.activity = quietAgent(home)
+		file := filepath.Join(t.TempDir(), "ses-rec-1.jsonl")
+		h.write(file, "line\n")
+		old := h.now.Add(-time.Hour)
+		if err := os.Chtimes(file, old, old); err != nil {
+			t.Fatal(err)
+		}
+		h.connect()
+		seq := h.lastSeq()
+		h.tick(11 * minute) // no recorded path and no file the glob names: the worker is quiet
+		eq(t, h.facts(seq), []string{"T-1 stalled{idle}"}, "a transcript outside the glob with no recorded session")
+		fresh := h.now.Add(minute)
+		if err := os.Chtimes(file, fresh, fresh); err != nil {
+			t.Fatal(err)
+		}
+		h.session("pj-l-01", "ses-rec-1", file, old.Unix())
+		seq = h.lastSeq()
+		h.tick(minute)
+		eq(t, h.facts(seq), []string{"T-1 resumed"}, "the recorded transcript's fresh write")
+	})
+	t.Run("no recorded path: the glob's file is the transcript, as before", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newIdentHarness(t)
+		home := t.TempDir()
+		h.a.activity = quietAgent(home)
+		file := filepath.Join(home, ".claude", "projects", "-pj-wt-L-01", "s1.jsonl")
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		h.write(file, "line\n")
+		old := h.now.Add(-time.Hour)
+		if err := os.Chtimes(file, old, old); err != nil {
+			t.Fatal(err)
+		}
+		h.connect()
+		seq := h.lastSeq()
+		h.tick(11 * minute) // the pane's session id names the glob's file: known, and old
+		eq(t, h.facts(seq), []string{"T-1 stalled{idle}"}, "the glob's old transcript")
+		fresh := h.now.Add(minute)
+		if err := os.Chtimes(file, fresh, fresh); err != nil {
+			t.Fatal(err)
+		}
+		seq = h.lastSeq()
+		h.tick(minute)
+		eq(t, h.facts(seq), []string{"T-1 resumed"}, "the glob's fresh write")
+	})
 }
 
 func TestWatchdogTable(t *testing.T) {

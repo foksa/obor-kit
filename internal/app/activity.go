@@ -31,8 +31,9 @@ type AgentActivity interface {
 	// Transcript is pane's transcript file, its agent of kind k (the project's kind of pane.Agent; nil: none): the path
 	// the terminal reports, else the file the pane's session id names under the agent's home ("" when none is found).
 	Transcript(k agents.Kind, pane port.Pane) string
-	// Activity is when pane's agent (of kind k) last wrote its transcript; known is false when obor cannot tell (no
-	// session, a kind whose transcripts obor cannot find, the file not there: unknown, not inactive).
+	// Activity is when pane's agent (of kind k) last wrote its transcript, the path the pane carries (the recorded
+	// session's, sessionPane): known is false when obor cannot tell (no session, a kind whose transcripts obor cannot
+	// find, the file not there: unknown, not inactive).
 	Activity(k agents.Kind, pane port.Pane) (last time.Time, known bool)
 	// Turn is the last turn pane's agent's transcript records, for a kind k whose turns are read (agents.TurnsRead):
 	// the file transcript names (its agent's recorded session's), else the one the pane's session names; ok false
@@ -124,9 +125,10 @@ func lastTurn(k agents.Kind, path string) (agents.Turn, bool) {
 	return agents.Turn{}, false
 }
 
-// Transcript is pane's transcript file: the path the terminal reports, else the file its session id names under home
-// (agents.Kind.Transcript: .claude/projects/*/<id>.jsonl, .codex/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl; the newest
-// if several); "" when none is found.
+// Transcript is pane's transcript file, the fallback for a pane whose agent's session recorded no path: the path the
+// terminal reports, else the file its session id names under home (agents.Kind.Transcript: .claude/projects/*/<id>.jsonl,
+// .codex/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl; the newest if several); "" when none is found. The readers pass
+// the recorded session's transcript on the pane (sessionPane), so the glob names one only when nothing was recorded.
 func (a *agentFiles) Transcript(k agents.Kind, pane port.Pane) string {
 	if pane.Transcript != "" {
 		return pane.Transcript
