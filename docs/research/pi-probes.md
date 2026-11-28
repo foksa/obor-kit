@@ -17,6 +17,9 @@ start ran on `openai-codex/gpt-6-luna:low` through the Codex subscription. Both 
 the kind configures neither.
 
 What does not fit:
+- (Lead correction 11-28: pi does read a per-project `.pi/settings.json`, which overrides the user's settings while
+  resource lists combine (`docs/settings.md` line 3), and `--approve` trusts it for the run. A project `.pi/mcp.json`
+  can disable user servers. That is the kind's override file; see BACKLOG "pi follow-ups".)
 - pi has **no per-start settings file**. `--agent-dir` (`PI_CODING_AGENT_DIR`) moves the whole agent dir, and that
   includes `auth.json`, so a start would lose the owner's sign-ins.
 - pi does not read the project's `.agents/mcp_config.json`. The extension has to register the project's servers
