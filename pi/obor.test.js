@@ -47,8 +47,12 @@ test("kitRoot: the directory above pi/", () => {
 // seconds, late: an answer then past the hook's bound, stderr: an answer and a diagnostic line, hang: no answer, past
 // the bound); project writes .obor/config.json (and mcp, the project's .agents/mcp_config.json); noBin leaves bin/obor
 // out. The fake pi records its handlers, MCP registrations and sendUserMessage calls; ctx(…) is a handler context of
-// session s1 (or id) whose branch is entries; idle is what ctx.isIdle answers. HOME is the rig's, so an inbox socket
-// binds under it, never the runner's own ~/.obor; inbox() is each hook call's OBOR_PI_INBOX ("" unset).
+// session s1 (or id) whose branch is entries; idle is what ctx.isIdle answers. A send fires the input event as pi does
+// (source extension, on state.session's context, state.inputDelay ms later when set), and none while state.reject is
+// set (pi rejects the prompt: compaction in progress, another prompt starting); arrived() is the texts whose input
+// was not handled. HOME is the rig's, so an inbox socket binds under it, never the runner's own ~/.obor; inbox() is
+// each hook call's OBOR_PI_INBOX ("" unset). The outbox runs on timing's short bounds.
+const timing = { seenMs: 100, slowMs: 1000, tries: 3 };
 function rig(t, { mode = "allow", project = true, mcp, noBin = false, env = {}, refuse = [] } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-pi-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -89,16 +93,24 @@ esac
   const servers = [];
   const notes = [];
   const sends = [];
-  const state = { idle: true };
+  const state = { idle: true, session: "s1", reject: false, inputDelay: 0 };
+  const inputs = []; // [text, handled]
   const pi = {
     on: (name, fn) => (handlers[name] = fn),
     registerMcpServer: (name, config) => {
       if (refuse.includes(name)) throw new Error("invalid config");
       servers.push([name, config]);
     },
-    sendUserMessage: (text, options) => void sends.push([text, options]),
+    sendUserMessage: (text, options) => {
+      sends.push([text, options]);
+      if (state.reject) return;
+      const e = { text, source: "extension", streamingBehavior: state.idle ? undefined : options?.deliverAs };
+      const fire = () => Promise.resolve(handlers.input(e, ctx({ id: state.session }))).then((r) => inputs.push([text, r?.action === "handled"]));
+      if (state.inputDelay) setTimeout(fire, state.inputDelay);
+      else fire();
+    },
   };
-  create(pi, { cwd: dir, kit, env: { ...process.env, HOME: base, ...env } });
+  create(pi, { cwd: dir, kit, env: { ...process.env, HOME: base, ...env }, timing });
   const ctx = ({ id = "s1", entries = [] } = {}) => ({
     cwd: dir,
     ui: { notify: (line, level) => notes.push([level, line]) },
@@ -109,7 +121,8 @@ esac
   const events = (hook) => calls().filter((l) => l.startsWith(hook + " ")).map((l) => JSON.parse(l.replace(/^\S+ \S+ /, "")));
   const inbox = () => (fs.existsSync(path.join(base, "inbox")) ? fs.readFileSync(path.join(base, "inbox"), "utf8").trim().split("\n") : []);
   const sock = (sid) => inboxPath(sid, { HOME: base });
-  return { handlers, servers, notes, sends, state, ctx, calls, events, inbox, sock, dir, kit, base };
+  const arrived = () => inputs.filter(([, handled]) => !handled).map(([text]) => text);
+  return { handlers, servers, notes, sends, state, inputs, arrived, ctx, calls, events, inbox, sock, dir, kit, base };
 }
 
 const assistant = (stopReason, more = {}) => ({ type: "message", message: { role: "assistant", stopReason, ...more } });
@@ -117,7 +130,18 @@ const assistant = (stopReason, more = {}) => ({ type: "message", message: { role
 test("load: obor's MCP server (the kit's bin/obor mcp, direct) and every hook are registered", (t) => {
   const { handlers, servers, kit } = rig(t);
   assert.deepEqual(servers, [["obor", { command: path.join(kit, "bin", "obor"), args: ["mcp"], env: { OBOR_NO_SELF_HOST: "1" }, exposure: "direct" }]]);
-  assert.deepEqual(Object.keys(handlers).sort(), ["agent_before_settle", "agent_settled", "before_agent_start", "input", "session_shutdown", "session_start", "tool_call"]);
+  assert.deepEqual(Object.keys(handlers).sort(), [
+    "agent_before_settle",
+    "agent_settled",
+    "before_agent_start",
+    "input",
+    "session_before_compact",
+    "session_compact",
+    "session_compact_failed",
+    "session_shutdown",
+    "session_start",
+    "tool_call",
+  ]);
 });
 
 test("load: the project's .agents/mcp_config.json servers are registered too, its obor entry and a disabled one left out", (t) => {
@@ -230,20 +254,130 @@ test("inboxLines: one text per user line; a line that does not parse or names no
 });
 
 // The session-start hook of each session runs with its own socket in OBOR_PI_INBOX (bound before the hook, so the
-// record names a live socket); a line posted there is a sendUserMessage: no deliverAs when the session is idle, steer
-// when it is busy.
-test("inbox: a socket bound per session and named in its session-start's env; a line is a user message when idle, a steer when busy", async (t) => {
-  const { handlers, ctx, inbox, sock, sends, state } = rig(t);
+// record names a live socket); a line posted there is a sendUserMessage, always a steer: pi starts a turn with it when
+// the session is idle and queues it when it is busy.
+test("inbox: a socket bound per session and named in its session-start's env; a line is a steer, idle or busy", async (t) => {
+  const { handlers, ctx, inbox, sock, sends, state, arrived } = rig(t);
   await handlers.session_start({}, ctx());
   await handlers.session_start({}, ctx({ id: "s2" }));
   assert.deepEqual(inbox(), [sock("s1"), sock("s2")], "one session-start per session, each with its own socket");
   for (const id of ["s1", "s2"]) assert.ok(fs.statSync(sock(id)).isSocket(), `${id}'s socket is bound`);
   assert.deepEqual(sends, [], "precondition: nothing sent before a post");
   await post(sock("s1"), [line("[obor other] hi")]);
-  assert.deepEqual(sends, [["[obor other] hi", undefined]]);
+  assert.deepEqual(sends, [["[obor other] hi", { deliverAs: "steer" }]]);
   state.idle = false;
+  state.session = "s2";
   await post(sock("s2"), [line("[obor] needs-you T-1"), "garbage"]);
   assert.deepEqual(sends[1], ["[obor] needs-you T-1", { deliverAs: "steer" }], "the busy session's line is a steer; a line that does not parse is none");
+  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
+  assert.deepEqual(arrived(), ["[obor other] hi", "[obor] needs-you T-1"]);
+  assert.equal(sends.length, 2, "each line sent once");
+});
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// until polls cond every 10 ms for up to ms: whether it came true.
+const until = async (cond, ms = 3000) => {
+  for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(10)) if (cond()) return true;
+  return cond();
+};
+const texts = (sends) => sends.map(([text]) => text);
+
+// The outbox: pi's sendUserMessage returns nothing and rejects a prompt later, so a line stays queued until pi's input
+// event shows it arriving.
+test("outbox: a line pi rejects during compaction goes again after the compaction and arrives once", async (t) => {
+  const { handlers, ctx, sock, sends, state, arrived } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.reject = true; // compaction started: pi rejects the prompt, no input event
+  await post(sock("s1"), [line("[obor] needs-you T-1")]);
+  assert.deepEqual(texts(sends), ["[obor] needs-you T-1"], "precondition: sent once");
+  await handlers.session_before_compact({ reason: "threshold" }, ctx());
+  await sleep(timing.seenMs * 3);
+  assert.deepEqual(arrived(), [], "pi rejected it");
+  assert.equal(sends.length, 1, "nothing goes while pi compacts");
+  // pi clears its compaction state after session_compact's handlers return.
+  await handlers.session_compact({ reason: "threshold" }, ctx());
+  state.reject = false;
+  assert.ok(await until(() => arrived().length > 0));
+  await sleep(timing.seenMs * 3);
+  assert.deepEqual(arrived(), ["[obor] needs-you T-1"], "it arrives once");
+  assert.equal(sends.length, 2, "sent again once, after the compaction");
+});
+
+// The session is busy: each line's input handler waits on its user-prompt-submit hook, and pi queues a line only once
+// its handlers return, so the second goes only then.
+test("outbox: two lines keep their order; the second waits behind a first pi rejects", async (t) => {
+  const { handlers, ctx, sock, sends, state, arrived, events } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.idle = false;
+  state.reject = true;
+  await post(sock("s1"), [line("one"), line("two")]);
+  assert.ok(await until(() => sends.length >= 2), "the first goes again after its bound");
+  assert.deepEqual(new Set(texts(sends)), new Set(["one"]), "the second waits while the first is not seen");
+  state.reject = false;
+  assert.ok(await until(() => arrived().length === 2), arrived().join("\n"));
+  assert.deepEqual(arrived(), ["one", "two"]);
+  assert.deepEqual(events("user-prompt-submit").map((e) => e.prompt), ["one", "two"], "each busy line's hook ran once, in order");
+  assert.equal(texts(sends).filter((s) => s === "two").length, 1, "the second sent once");
+});
+
+test("outbox: a line seen at once is not sent again", async (t) => {
+  const { handlers, ctx, sock, sends, arrived } = rig(t);
+  await handlers.session_start({}, ctx());
+  await post(sock("s1"), [line("hi")]);
+  assert.ok(await until(() => arrived().length === 1));
+  await sleep(timing.seenMs * 4);
+  assert.deepEqual(texts(sends), ["hi"]);
+  assert.deepEqual(arrived(), ["hi"]);
+});
+
+test("outbox: after its tries a line warns once naming its first words, stays queued and goes at agent_settled", async (t) => {
+  const { handlers, ctx, sock, sends, state, arrived, notes } = rig(t);
+  await handlers.session_start({}, ctx());
+  assert.deepEqual(notes, [], "precondition: no warning");
+  const text = "[obor] needs-you T-9: the lead asks which store to use\nsecond row";
+  state.reject = true;
+  await post(sock("s1"), [line(text)]);
+  assert.ok(await until(() => notes.length > 0));
+  assert.deepEqual(notes, [["warning", 'obor: a line has not reached pi after 3 tries; it stays queued and goes again: "[obor] needs-you T-9: the lead asks …"']]);
+  assert.equal(sends.length, 3, "three tries before the warning");
+  await sleep(timing.seenMs * 3);
+  assert.equal(sends.length, 3, "after the warning it waits the slow bound");
+  assert.equal(notes.length, 1, "one warning");
+  state.reject = false;
+  await handlers.agent_settled({ aborted: false }, ctx());
+  assert.ok(await until(() => arrived().length === 1));
+  assert.deepEqual(arrived(), [text], "still queued: it goes at the next point pi can take it");
+  assert.equal(sends.length, 4);
+  assert.equal(notes.length, 1);
+});
+
+// A send whose input event fires past the bound (pi defers a prompt sent while its agent_settled handlers run) went
+// again: its late copy is dropped, so the line arrives once.
+test("outbox: a late copy of a line that arrived is dropped (handled): the line arrives once", async (t) => {
+  const { handlers, ctx, sock, sends, state, inputs, arrived } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.inputDelay = timing.seenMs * 1.5;
+  await post(sock("s1"), [line("late")]);
+  assert.ok(await until(() => inputs.length === 2), "both sends' input events fired");
+  assert.deepEqual(texts(sends), ["late", "late"], "precondition: the bound sent it again");
+  assert.deepEqual(inputs, [
+    ["late", false],
+    ["late", true],
+  ]);
+  await sleep(timing.seenMs * 3);
+  assert.deepEqual(arrived(), ["late"]);
+  assert.equal(sends.length, 2);
+});
+
+test("outbox: at the session's shutdown its queue is dropped; nothing goes after it", async (t) => {
+  const { handlers, ctx, sock, sends, state } = rig(t);
+  await handlers.session_start({}, ctx());
+  state.reject = true;
+  await post(sock("s1"), [line("lost")]);
+  assert.equal(sends.length, 1, "precondition: sent and rejected");
+  await handlers.session_shutdown({ reason: "quit" }, ctx());
+  await sleep(timing.seenMs * 3);
+  assert.equal(sends.length, 1);
 });
 
 test("inbox: a stale file at the socket's path is replaced; the socket is removed at the session's shutdown", async (t) => {

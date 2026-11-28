@@ -11,19 +11,26 @@
 //	                              session's inbox binds first and that hook's env names it
 //	session_shutdown            → closes that inbox
 //	input + before_agent_start  → user-prompt-submit (its context added to the run as a hidden message); a line typed
-//	                              into a busy session (input's streamingBehavior) gets its context appended to its text
+//	                              into a busy session (input's streamingBehavior) gets its context appended to its text;
+//	                              input also tells the outbox an inbox line arrived
+//	session_before_compact,     → the outbox holds its lines while pi compacts and sends them once it is done
+//	session_compact(_failed)
 //	agent_before_settle         → stop: a block appends the reason as a custom_message and asks for one more run
 //	                              (continue: true); the stop that ends that run carries stop_hook_active: true
 //	agent_settled               → stop-failure when the session's last assistant message ended on an error
-//	                              (stopReason "error"), with its errorMessage; a run that ended so runs no stop
+//	                              (stopReason "error"), with its errorMessage; a run that ended so runs no stop; the
+//	                              outbox sends a line waiting for its next try
 //
 // The session's inbox (agents.Caps.Inbox): before a session's session-start the extension binds a unix socket for it
 // (${HOME}/.obor/pi/<session>.sock, none over a socket path's 103 bytes) and puts its path in that hook's env
 // (INBOX_VAR), so the hook records it as the session's inbox (the kind's inbox_record), and obor serve posts the
-// session's lines there (the kind's deliver: one JSON line {"type":"user","text"} per line). Each line becomes
-// pi.sendUserMessage: a turn when the session is idle, a steer into the running one when it is busy. A bind that fails
-// warns once and the hook runs without the variable, so no inbox is recorded and the lines stay typed. The socket is
-// removed when it closes, at the session's shutdown and when the process exits, so a record naming it is no live inbox.
+// session's lines there (the kind's deliver: one JSON line {"type":"user","text"} per line). The extension owns a line
+// from the moment it reads it (the session's outbox): it goes to pi.sendUserMessage as a steer (a turn when the
+// session is idle, a steer into the running one when it is busy) and stays queued until pi's input event shows it
+// arriving, since pi returns nothing and rejects a prompt later (compaction in progress, another prompt starting);
+// a line not seen goes again, in order (outbox, below). A bind that fails warns once and the hook runs without the
+// variable, so no inbox is recorded and the lines stay typed. The socket is removed when it closes, at the session's
+// shutdown and when the process exits, so a record naming it is no live inbox.
 //
 // pi loads this file with `-e <kit>/pi/obor.js` (jiti, in pi's own Node): plain JS, node built-ins only. Its process is
 // the pane's agent, so its env is the start's: obor hook gets it whole, the identity vars (OBOR_ROLE, OBOR_LANE,
@@ -255,6 +262,103 @@ export function bindInbox(file, id, send, warn = (line) => console.error(line)) 
   });
 }
 
+// SEEN_MS bounds the wait for a sent line's input event: pi's input handlers run within the send, so a line not seen
+// by then was rejected (compaction in progress, another prompt starting) and goes again.
+const SEEN_MS = 2000;
+// TRIES is the misses after which a line warns once; it stays queued and goes again every SLOW_MS (or at the next
+// point pi can take it: a compaction's end, agent_settled).
+const TRIES = 3;
+const SLOW_MS = 30000;
+// LATE_MS is how long the sends of an arrived line that were not seen may still arrive late (pi defers a prompt sent
+// while its agent_settled handlers run): such a copy is dropped.
+const LATE_MS = 60000;
+
+// firstWords is a line's first words for a warning: its first row, at most six words or 60 characters.
+export function firstWords(text) {
+  const row = String(text).split("\n")[0].trim();
+  const words = row.split(/\s+/).slice(0, 6).join(" ");
+  const short = words.length > 60 ? words.slice(0, 60) : words;
+  return short === row ? short : short + " …";
+}
+
+// outbox keeps a session's inbox lines from the moment the socket read them until pi's input event shows each one
+// arriving. One line is in flight at a time, so the lines arrive in order: send(text) hands the head to pi, and a head
+// not seen within seenMs is a miss and goes again: at once for the first tries, then every slowMs after one warning
+// naming its first words; while compacting() is true nothing goes (resume, called at its end, sends the head).
+//
+// seen(text), called by the input handler before it waits on anything, answers "line" when text is the head arriving
+// (it leaves the queue), "copy" for a late copy of a line that arrived already (a send the bound counted as a miss: the
+// handler drops it, so each line arrives once) and "" for any other text. After a "line" the next one waits for
+// taken(), which the handler calls once it returns, and goes on the next tick: pi queues or starts a line only after
+// every input handler is done, so a line sent earlier would overtake it. close drops the queue.
+export function outbox(send, { compacting = () => false, warn = () => {}, seenMs = SEEN_MS, slowMs = SLOW_MS, tries = TRIES } = {}) {
+  const queue = []; // {text, sends, misses}; the head is queue[0]
+  let late = []; // {text, extra, at}: arrived lines with extra sends that were not seen
+  let wait = ""; // "seen": the head's send waits for its input event; "taken": an arrived line's input handler runs
+  let timer = null;
+  let closed = false;
+  const arm = (ms, fn) => {
+    clearTimeout(timer);
+    timer = setTimeout(fn, ms);
+    timer.unref?.();
+  };
+  const miss = () => {
+    wait = "";
+    const head = queue[0];
+    if (closed || !head) return;
+    head.misses++;
+    if (head.misses === tries) warn(`obor: a line has not reached pi after ${tries} tries; it stays queued and goes again: "${firstWords(head.text)}"`);
+    if (head.misses < tries) resume();
+    else arm(slowMs, resume);
+  };
+  // resume sends the head unless one is in flight or pi is compacting.
+  const resume = () => {
+    if (closed || wait || queue.length === 0 || compacting()) return;
+    const head = queue[0];
+    wait = "seen";
+    head.sends++;
+    arm(seenMs, miss);
+    try {
+      send(head.text);
+    } catch {
+      clearTimeout(timer);
+      miss();
+    }
+  };
+  const push = (text) => {
+    if (closed) return;
+    queue.push({ text, sends: 0, misses: 0 });
+    resume();
+  };
+  const seen = (text) => {
+    if (closed) return "";
+    const head = queue[0];
+    if (wait !== "taken" && head && head.sends > 0 && head.text === text) {
+      queue.shift();
+      if (head.sends > 1) late.push({ text, extra: head.sends - 1, at: Date.now() });
+      wait = "taken";
+      clearTimeout(timer);
+      return "line";
+    }
+    late = late.filter((l) => Date.now() - l.at < LATE_MS);
+    const copy = late.find((l) => l.text === text);
+    if (!copy) return "";
+    if (--copy.extra === 0) late = late.filter((l) => l !== copy);
+    return "copy";
+  };
+  const taken = () => {
+    if (wait !== "taken") return;
+    wait = "";
+    arm(0, resume);
+  };
+  const close = () => {
+    closed = true;
+    clearTimeout(timer);
+    queue.length = 0;
+  };
+  return { push, seen, taken, resume, close };
+}
+
 // promptContext is a user-prompt-submit hook's answer: its additionalContext ("" when it has none or does not parse).
 export function promptContext(stdout) {
   try {
@@ -333,9 +437,9 @@ function guardBlock(r, kit) {
   return { block: true, reason: `obor: guard failed (${how}${first ? ": " + first : ""}); denied — run: make -C ${kit} build` };
 }
 
-// create wires the extension into pi for the session of cwd (kit: the kit whose bin/obor runs, env: the start's env).
-// Exported for the tests; pi calls the default export.
-export function create(pi, { cwd, kit, env }) {
+// create wires the extension into pi for the session of cwd (kit: the kit whose bin/obor runs, env: the start's env,
+// timing: the outbox's bounds, the tests' shorter ones). Exported for the tests; pi calls the default export.
+export function create(pi, { cwd, kit, env, timing = {} }) {
   const root = projectRoot(cwd);
   if (!root) return;
   const resumed = env[RESUME_VAR] ?? "";
@@ -401,27 +505,33 @@ export function create(pi, { cwd, kit, env }) {
     return answer(r);
   };
 
-  // line is an inbox line's delivery: a user message that starts a turn when the session is idle, and a steer into
-  // the running one when it is busy (pi rejects a send without deliverAs while it streams).
-  const line = (ctx) => async (text) => {
-    const idle = typeof ctx?.isIdle === "function" ? ctx.isIdle() : true;
-    if (idle) await pi.sendUserMessage(text);
-    else await pi.sendUserMessage(text, { deliverAs: "steer" });
-  };
+  // send is an inbox line's delivery, always a steer: pi starts a turn with it when the session is idle and queues it
+  // into the running one when it is busy, so a run that starts between the check and the send rejects nothing (pi
+  // rejects a send without deliverAs while it streams, after its input event).
+  const send = (text) => pi.sendUserMessage(text, { deliverAs: "steer" });
 
-  // inboxes are the sessions' bound inbox sockets, closed at their shutdown; a bind that fails warns once, and the
-  // session-start hook runs without the variable, so no inbox is recorded and the lead's lines stay typed.
-  const inboxes = new Map(); // session id → {server, file}
-  const inboxEnv = async (id, ctx) => {
+  // compacting is true from session_before_compact to its session_compact or session_compact_failed: pi rejects a
+  // prompt meanwhile, so the outboxes hold their lines.
+  let compacting = false;
+
+  // inboxes are the sessions' bound inbox sockets and their outboxes, closed at their shutdown; a bind that fails
+  // warns once, and the session-start hook runs without the variable, so no inbox is recorded and the lead's lines
+  // stay typed.
+  const inboxes = new Map(); // session id → {server, file, out}
+  const inboxEnv = async (id) => {
+    const out = outbox(send, { compacting: () => compacting, warn, ...timing });
     let b = null;
     try {
-      b = await bindInbox(inboxPath(id, env), id, line(ctx), warn);
+      b = await bindInbox(inboxPath(id, env), id, out.push, warn);
     } catch (e) {
       warn(`obor: session ${id}'s inbox not bound (${e?.message ?? e}); its lines stay typed`);
     }
     if (!b) return {};
-    inboxes.set(id, b);
+    inboxes.set(id, { ...b, out });
     return { [INBOX_VAR]: b.file };
+  };
+  const resumeAll = () => {
+    for (const b of inboxes.values()) b.out.resume();
   };
 
   // started runs session-start once per session: its output is the session's context, added at its first run.
@@ -431,7 +541,7 @@ export function create(pi, { cwd, kit, env }) {
     const { id } = sessionOf(ctx);
     if (!starts.has(id)) {
       const event = { ...base("SessionStart", ctx), source: resumed && resumed === id ? "resume" : "startup" };
-      const run = inboxEnv(id, ctx)
+      const run = inboxEnv(id)
         .then((more) => ask("session-start", event, ctx, more))
         .then((s) => s.trim());
       starts.set(id, run);
@@ -440,7 +550,8 @@ export function create(pi, { cwd, kit, env }) {
   };
 
   // session_shutdown: the session's inbox closes (its socket file is removed with it); a later start of the same id
-  // binds and starts again.
+  // binds and starts again. The lines its outbox still holds are lost: they live only in this process's memory, which
+  // ends with the session (pi exits or replaces it), and obor counted them sent when the socket took them.
   pi.on(
     "session_shutdown",
     safe("session_shutdown", async (_e, ctx) => {
@@ -450,6 +561,7 @@ export function create(pi, { cwd, kit, env }) {
       const b = inboxes.get(id);
       if (!b) return;
       inboxes.delete(id);
+      b.out.close();
       try {
         b.server.close();
       } catch {}
@@ -489,16 +601,26 @@ export function create(pi, { cwd, kit, env }) {
     }),
   );
 
-  // input: an idle session's prompt is kept for its run's start (before_agent_start, which reports it); a line into a
-  // busy session starts no run, so its hook runs here and its context goes on the line's text.
+  // input: an extension's line tells the session's outbox it arrived, before any wait (a late copy of a line that
+  // arrived already is dropped: handled), and the outbox's next line waits until this handler returns. An idle
+  // session's prompt is kept for its run's start (before_agent_start, which reports it); a line into a busy session
+  // starts no run, so its hook runs here and its context goes on the line's text.
   pi.on(
     "input",
     safe("input", async (e, ctx) => {
       const text = typeof e.text === "string" ? e.text : "";
-      if (!e.streamingBehavior) return void typed.set(sessionOf(ctx).id, text);
-      await started(ctx);
-      const more = await promptAsk(text, ctx);
-      return more ? { action: "transform", text: text + "\n\n" + more, images: e.images } : undefined;
+      const { id } = sessionOf(ctx);
+      const out = e.source === "extension" ? inboxes.get(id)?.out : undefined;
+      const arrival = out?.seen(text) ?? "";
+      if (arrival === "copy") return { action: "handled" };
+      try {
+        if (!e.streamingBehavior) return void typed.set(id, text);
+        await started(ctx);
+        const more = await promptAsk(text, ctx);
+        return more ? { action: "transform", text: text + "\n\n" + more, images: e.images } : undefined;
+      } finally {
+        if (arrival === "line") out.taken();
+      }
     }),
   );
 
@@ -541,12 +663,30 @@ export function create(pi, { cwd, kit, env }) {
     }),
   );
 
-  // agent_settled: final. It ends any continuation (an aborted run skips agent_before_settle), and a run whose last
-  // assistant message ended on an error is a stop-failure.
+  // session_before_compact … session_compact or session_compact_failed: the outboxes hold their lines while pi
+  // compacts. pi clears its compaction state after session_compact's handlers return, so the held lines go on the next
+  // tick. The handler never cancels the compaction.
+  pi.on(
+    "session_before_compact",
+    safe("session_before_compact", async () => {
+      compacting = true;
+    }),
+  );
+  const compacted = async () => {
+    compacting = false;
+    setTimeout(resumeAll, 0).unref?.();
+  };
+  pi.on("session_compact", safe("session_compact", compacted));
+  pi.on("session_compact_failed", safe("session_compact_failed", compacted));
+
+  // agent_settled: final. It ends any continuation (an aborted run skips agent_before_settle), a line waiting for its
+  // next try goes (pi takes it once the settled handlers are done), and a run whose last assistant message ended on an
+  // error is a stop-failure.
   pi.on(
     "agent_settled",
     safe("agent_settled", async (_e, ctx) => {
       continuing.delete(sessionOf(ctx).id);
+      resumeAll();
       const m = lastAssistant(ctx);
       if (m?.stopReason !== "error") return;
       await ask("stop-failure", { ...base("StopFailure", ctx), error: "unknown", error_details: String(m.errorMessage ?? "") }, ctx);
