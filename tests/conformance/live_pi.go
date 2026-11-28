@@ -230,8 +230,8 @@ func piInbox(l *lab, pane, sessions, sid string, turn bool) {
 	reply := `"text":"` + piLiveInboxReply + `"` // the assistant message's text, which the posted line's text does not carry
 	text, _ := waitTranscript(180*time.Second, func() string { return piSessions(sessions) }, reply)
 	switch {
-	case !hasLine(text, `"role":"user"`, piLiveInbox):
-		report("FAIL", "PI-L7", "the posted line is no user message of the session; transcript end: "+tail(text, 3), where)
+	case !hasLine(text, `"type":"custom_message"`, `"customType":"obor-line"`, piLiveInbox):
+		report("FAIL", "PI-L7", "the posted line is no obor-line custom message of the session; transcript end: "+tail(text, 3), where)
 	case !hasLine(text, `"role":"assistant"`, reply):
 		report("FAIL", "PI-L7", "the line started no turn: no assistant message "+fmt.Sprintf("%q", piLiveInboxReply)+"; transcript end: "+tail(text, 3), where)
 	default:
@@ -255,8 +255,8 @@ func hasLine(text string, needles ...string) bool {
 }
 
 // piSettled waits until the session in pane reads idle and its record has not changed for quiet: a line posted while
-// pi is between prompt transitions can be settled without a turn (the extension's steer into a run that is ending), so
-// the row waits for the record to stop changing and then probes acceptance, not that race.
+// pi ends a run waits for that run's settle before its wake, so the row waits for the record to stop changing and then
+// probes an idle session's line.
 func piSettled(l *lab, pane, sessions string, quiet, d time.Duration) error {
 	deadline := time.Now().Add(d)
 	last, since := piSessions(sessions), time.Now()

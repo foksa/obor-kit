@@ -154,8 +154,8 @@ func describe() map[string]any {
 }
 
 // deliver posts text to the session's inbox as the record names it (InboxVar, the socket the extension binds): one
-// line, {"type":"user","text":<text>}, which the extension sends to pi (a turn when idle; a steer into a run when
-// busy). ok false: the record names no socket.
+// line, {"type":"user","text":<text>}, which the extension hands to pi as a custom message and wakes the session
+// with (at once when idle, at its settle when busy). ok false: the record names no socket.
 func deliver(in request) map[string]any {
 	var rec map[string]string
 	if json.Unmarshal([]byte(in.Record), &rec) != nil || rec[InboxVar] == "" {
