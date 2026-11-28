@@ -16,6 +16,10 @@ The kit's second plugin kind is agy (Antigravity CLI), `kinds/agy`, linked and a
 (`install`'s `where: project`); its hook transport is `obor kind agy hook`, which runs obor's hook in process; its
 inbox is the agentapi variables of the commands the agent runs (`inbox_record`, recorded by the agent's `obor`
 commands), which its `deliver` sends with (`sent`).
+The kit's third plugin kind is pi, `kinds/pi` (`obor-kind-pi`): the extension `<kit>/pi/obor.js`, loaded with `-e` at
+every start, registers obor's MCP server itself (`install`'s `mcp: {where: start}`) and carries the hooks; a resume
+sets `OBOR_PI_RESUME`, the session JSONL under `~/.pi/agent/sessions` is its transcript, and its lines are typed until
+the inbox task.
 
 ## Register one
 
@@ -25,8 +29,8 @@ commands), which its `deliver` sends with (`sent`).
 
 - `agents.kinds.<name>.plugin`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
   (`agents.models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's.
-- A kit kind (`opencode`, `agy`: `config.KitKinds`) needs no line: with none, or one naming the command it is answered
-  under (`"plugin": "obor-kind-opencode"`, `"plugin": "obor-kind-agy"`), obor answers it in process
+- A kit kind (`opencode`, `agy`, `pi`: `config.KitKinds`) needs no line: with none, or one naming the command it is
+  answered under (`"plugin": "obor-kind-opencode"`, `"plugin": "obor-kind-agy"`, `"plugin": "obor-kind-pi"`), obor answers it in process
   (`config.KindCommand` keeps that name, `plugin.Local` has its handler): no process runs, no manifest is cached,
   `obor setup agents` and serve skip it. A path whose base name is one of those (`"plugin": "bin/obor-kind-agy"`) is
   the same: the base name decides, and the linked kind answers in process. Any other path for a kit kind's name

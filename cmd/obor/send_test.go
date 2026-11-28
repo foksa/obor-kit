@@ -608,7 +608,7 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 	if err := project.WriteInbox(pj.Cfg(), "L-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []string{without, "pi"} {
+	for _, kind := range []string{without, "nokind"} {
 		if began, err := p.Post(ctx, kind, "pj-l-01", "x"); began || err == nil {
 			t.Errorf("kind %s: began %v, %v; want refused before a byte", kind, began, err)
 		}

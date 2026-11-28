@@ -101,8 +101,8 @@ turns come from: `terminal`, `hooks`, `transcript`; `App`, the name its agents r
 `Start(Start) []string`, the fresh/resume argv, MCP registration and first prompt, `Start.Read` the adapter's file read;
 `StartEnv`, a start's own env) or `agents.Whole` (a plugin kind's one start call: its argv, env and files together;
 a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds alone, each registered from its init; a
-project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode and agy the
-kit's, `kinds/opencode`, `kinds/agy`, answered in process), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
+project's kinds are an `agents.Kinds` its config builds (the compiled ones and its plugin kinds; OpenCode, agy and pi
+the kit's, `kinds/opencode`, `kinds/agy`, `kinds/pi`, answered in process), read as `cfg.Kind(name)` / `cfg.Kinds()`; a start is
 built once at the launch boundary from the complete `agents.Start` (`agents.StartOf`), and a plugin kind's start and
 install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A project's kinds:
@@ -122,7 +122,12 @@ agy settings, the project's `settings_override.json` and obor's entries; the mod
 `--conversation`), `install` (`where: project`, `.agents/mcp_config.json` and `.agents/hooks.json`), `turn` (`context`
 from `transcript.jsonl`, a limit's reset), `deliver` (`deliver.go`: agy's `agentapi send-message` with the record an
 agent's `obor` command wrote), and the hook transport (`hook.go`: `RunHook`, which `obor kind agy hook` runs with
-obor's hook in process; agy's event → `obor hook <name>` → agy's answer).
+obor's hook in process; agy's event → `obor hook <name>` → agy's answer). `kinds/pi` (`obor-kind-pi`), linked the same
+way: package `kinds/pi/kind` is the manifest, `start` (`--approve`, `-e <kit>/pi/obor.js`, `--model <provider/id>`,
+`--thinking`, `--session` on a resume, then `--` and the prompt; `OBOR_PI_RESUME`), `install`
+(`where: start`: the extension registers obor's MCP server), `turn` (`last`, `session` and `context` from the session
+JSONL, a limit's reset; `turn.go`), typed lines until the inbox task, and the hooks through the extension
+`pi/obor.js`.
 
 **core** — `app`: the only place with obor logic. One concern per file (a test, `TestModuleMapAppFiles`, fails
 on a file missing from this table or a listed file that is gone); the entry is the function to read first:

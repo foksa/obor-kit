@@ -119,7 +119,8 @@ func TestSetup(t *testing.T) {
 	}
 	// kinds: every agent kind, its args and whether a job_note is set
 	wantKinds := []SetupKind{{Name: "agy", Args: []string{}}, {Name: "claude", Args: []string{}},
-		{Name: "codex", Args: []string{"--search"}}, {Name: "opencode", Args: []string{}, JobNote: true}}
+		{Name: "codex", Args: []string{"--search"}}, {Name: "opencode", Args: []string{}, JobNote: true},
+		{Name: "pi", Args: []string{}}}
 	if !reflect.DeepEqual(s.Kinds, wantKinds) {
 		t.Errorf("kinds %+v, want %+v", s.Kinds, wantKinds)
 	}

@@ -98,12 +98,12 @@ func TestValidate(t *testing.T) {
 		{name: "fixture default", want: nil},
 		// a model's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
 		{name: "cursor is no supported kind", edits: []edit{set("agents.models.cur", map[string]any{"kind": "cursor", "id": "c"})},
-			want: []string{`FAIL .agents.models.cur.kind: "cursor" is not a supported kind: use one of agy, claude, codex, opencode`}},
+			want: []string{`FAIL .agents.models.cur.kind: "cursor" is not a supported kind: use one of agy, claude, codex, opencode, pi`}},
 		{name: "typo is no supported kind", edits: []edit{set("agents.models.opus", map[string]any{"kind": "claod", "id": "opus"})},
-			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of agy, claude, codex, opencode`,
+			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of agy, claude, codex, opencode, pi`,
 				`FAIL .agents.difficulty.hard[0]: opus:high: kind claod has no bridge, so no effort`}},
 		{name: "a kinds key is a supported kind", edits: []edit{set("agents.kinds.cursor", map[string]any{"args": []any{"-x"}})},
-			want: []string{`FAIL .agents.kinds.cursor: "cursor" is not a supported kind: use one of agy, claude, codex, opencode`}},
+			want: []string{`FAIL .agents.kinds.cursor: "cursor" is not a supported kind: use one of agy, claude, codex, opencode, pi`}},
 		{name: "every supported kind is accepted", edits: []edit{
 			set("agents.models.a", map[string]any{"kind": "claude", "id": "a"}), set("agents.models.b", map[string]any{"kind": "codex", "id": "b"}),
 			set("agents.models.c", map[string]any{"kind": "opencode", "id": "go/ds"})}},
@@ -117,12 +117,12 @@ func TestValidate(t *testing.T) {
 		// default levels' deepseek) with no agents.kinds.opencode.plugin validates clean.
 		{name: "no agents.kinds.opencode.plugin, OpenCode used: answered in process, clean", edits: []edit{del("agents.kinds")}},
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
-			want: []string{"FAIL .agents.models.cur.kind: required (agy, claude, codex, opencode)"}},
+			want: []string{"FAIL .agents.models.cur.kind: required (agy, claude, codex, opencode, pi)"}},
 		// every entry names its kind, one obor init's starter list has too; a ref to it says the kind is missing.
 		{name: "an entry with a starter name needs its kind too", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})},
-			want: []string{"FAIL .agents.models.opus.kind: required (agy, claude, codex, opencode)",
-				`FAIL .agents.roles.integrator: "opus" names no kind: set agents.models.opus.kind (agy, claude, codex, opencode)`,
-				`FAIL .agents.difficulty.hard[0]: "opus" names no kind: set agents.models.opus.kind (agy, claude, codex, opencode)`}},
+			want: []string{"FAIL .agents.models.opus.kind: required (agy, claude, codex, opencode, pi)",
+				`FAIL .agents.roles.integrator: "opus" names no kind: set agents.models.opus.kind (agy, claude, codex, opencode, pi)`,
+				`FAIL .agents.difficulty.hard[0]: "opus" names no kind: set agents.models.opus.kind (agy, claude, codex, opencode, pi)`}},
 		// a model's name is the project's label: any string a ref and a Model: list can carry.
 		{name: "a versioned model name", edits: []edit{func(c map[string]any) {
 			c["agents"].(map[string]any)["models"].(map[string]any)["opus-4.6"] = map[string]any{"kind": "claude", "id": "claude-opus-4-6"}
@@ -203,7 +203,7 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .agents.roles.lead: "ghost" is not a model (agents.models: deepseek, fable, haiku, luna, opus, sol, sonnet, terra)`}},
 		{name: "several problems: one line each", edits: []edit{set("version", 3), set("project.agent_prefix", "X"), set("agents.models.extra", map[string]any{})},
 			want: []string{"FAIL .version: must be 2, got 3", `FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
-				"FAIL .agents.models.extra.kind: required (agy, claude, codex, opencode)"}},
+				"FAIL .agents.models.extra.kind: required (agy, claude, codex, opencode, pi)"}},
 		{name: "slots.cpus fine", edits: []edit{set("checks.cpus_per_check", 4)}},
 		// merge.receipt_max_age is retired: an unknown key, as are the promotion's three keys.
 		{name: "merge.receipt_max_age is unknown", edits: []edit{set("merge.receipt_max_age", 60)},
@@ -639,11 +639,11 @@ func TestPluginKind(t *testing.T) {
 	}
 }
 
-// A kit kind (agy, OpenCode) with no plugin, one naming its kit binary, or one naming a path that ends in it, is
+// A kit kind (agy, OpenCode, pi) with no plugin, one naming its kit binary, or one naming a path that ends in it, is
 // answered in process: its kind has the manifest with nothing cached, and serve's cache step (plugin.Ensure) runs
 // nothing (an executable at that path is never run). A plugin naming another path runs that command.
 func TestKitKindInProcess(t *testing.T) {
-	for _, kind := range []string{"agy", "opencode"} {
+	for _, kind := range []string{"agy", "opencode", "pi"} {
 		bin := "obor-kind-" + kind
 		p := newProject(t)
 		log := filepath.Join(p.Root, "runs")
@@ -757,7 +757,7 @@ func TestValidateModelArgWarnNamesItsKind(t *testing.T) {
 		t.Errorf("a used model of kind mine without an id: %q, want %q", got, want)
 	}
 	got = validate(t, p, append(mine, set("agents.models.m2", map[string]any{"id": "x"}))...)
-	if want := "FAIL .agents.models.m2.kind: required (agy, claude, codex, mine, opencode)"; !slices.Contains(got, want) {
+	if want := "FAIL .agents.models.m2.kind: required (agy, claude, codex, mine, opencode, pi)"; !slices.Contains(got, want) {
 		t.Errorf("a model without a kind: %q, want the line %q (the config's kinds, mine among them)", got, want)
 	}
 }

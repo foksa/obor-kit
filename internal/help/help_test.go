@@ -2,8 +2,8 @@ package help
 
 import (
 	"maps"
+	"regexp"
 	"slices"
-	"strings"
 	"testing"
 
 	"obor/internal/agents"
@@ -21,7 +21,8 @@ func TestKindHasARow(t *testing.T) {
 }
 
 // No row's description names one agent CLI where any kind applies: obor's commands reach every kind, so a description
-// naming one kind's CLI or hooks file would read as theirs alone.
+// naming one kind's CLI or hooks file would read as theirs alone. A kind's name is matched as a word: a short one (pi)
+// is part of other words (plugin).
 func TestRowsNameNoOneAgentCLI(t *testing.T) {
 	t.Parallel()
 	names := append((agents.Kinds{}).Names(), slices.Sorted(maps.Keys(config.KitKinds))...)
@@ -30,7 +31,7 @@ func TestRowsNameNoOneAgentCLI(t *testing.T) {
 	}
 	for _, c := range Commands {
 		for _, name := range names {
-			if strings.Contains(strings.ToLower(c.Desc), name) || strings.Contains(strings.ToLower(c.Usage), name) {
+			if regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `\b`).MatchString(c.Desc + " " + c.Usage) {
 				t.Errorf("%s: names the kind %q: %q, %q", c.Name, name, c.Usage, c.Desc)
 			}
 		}

@@ -165,7 +165,7 @@ func (s *Setup) hooksLine(root string) string {
 // levels and roles name without one are added and its former built-in entries with no kind get theirs
 // (upgradeModels: decided from config.json alone), then each plugin kind its config names
 // (agents.kinds.<name>.plugin) is described and its manifest cached in the state dir (plugin.Cache), what hooks and
-// the guard read; a kit kind answered in process (the kit's OpenCode and agy) is described by its handler and leaves
+// the guard read; a kit kind answered in process (the kit's OpenCode, agy and pi) is described by its handler and leaves
 // no cache file; then every kind's install is run (its answer is obor setup mcp's) and a failure is a FAIL. A kind
 // installs nothing user-global; one that registers through a project file (agy's
 // .agents/mcp_config.json, and its hooks' .agents/hooks.json) has it written there when the config has a model of that

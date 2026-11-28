@@ -16,6 +16,7 @@ import (
 	"obor/internal/project"
 	agykind "obor/kinds/agy/kind"
 	ockind "obor/kinds/opencode/kind"
+	pikind "obor/kinds/pi/kind"
 )
 
 // kitKind is a kind the kit ships, linked into obor: handle answers the kind protocol in process (plugin.Local), main
@@ -29,6 +30,7 @@ type kitKind struct {
 var kitKinds = map[string]kitKind{
 	agykind.Name: {agykind.Handle, agykind.Main},
 	ockind.Name:  {ockind.Handle, ockind.Main},
+	pikind.Name:  {pikind.Handle, pikind.Main},
 }
 
 // init links each kit kind: plugin.Local under its binary's name, the command a config resolves it to

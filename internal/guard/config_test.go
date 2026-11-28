@@ -139,7 +139,7 @@ func TestPromptConfigUnknownKeyAndUnreadable(t *testing.T) {
 // the hooks line names one headless form per registered kind, from its bridge (xkind: by its program; flagkind: its
 // long flag, when it has no subcommand or print flag).
 func TestHeadlessFormsFromTheBridges(t *testing.T) {
-	if got := strings.Join(headlessForms(testkit.Kinds()), ", "); got != "agy -p, claude -p, codex exec, opencode run, x-agent -p" {
+	if got := strings.Join(headlessForms(testkit.Kinds()), ", "); got != "agy -p, claude -p, codex exec, opencode run, pi -p, x-agent -p" {
 		t.Errorf("headlessForms = %q", got)
 	}
 	if got := strings.Join(headlessForms(agents.WithPlugins([]agents.Kind{flagKind{}})), ", "); got !=

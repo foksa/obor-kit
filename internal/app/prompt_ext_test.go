@@ -243,10 +243,10 @@ func TestStartPromptDelivery(t *testing.T) {
 		}},
 		{"a lane whose kind has no bridge: the dispatch refused, nothing recorded (DD-v0.13 D1)", func(t *testing.T) {
 			bubble(t, func(t *testing.T) {
-				r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.models.sonnet", map[string]any{"kind": "pi", "id": "x"})))
+				r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.models.sonnet", map[string]any{"kind": "cursor", "id": "x"})))
 				r.start()
 				reply, err := r.dispatch("d1", "L-01")
-				if err == nil || err.Error() != "dispatch T-1: model sonnet's kind pi has no bridge (obor config validate)" {
+				if err == nil || err.Error() != "dispatch T-1: model sonnet's kind cursor has no bridge (obor config validate)" {
 					t.Fatalf("dispatch: %q, %v; want refused: no bridge", reply, err)
 				}
 				r.passes()

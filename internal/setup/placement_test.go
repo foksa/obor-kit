@@ -31,7 +31,7 @@ func TestPlacementFollowsTheProjectsGroup(t *testing.T) {
 
 	out := x.ok(t, "pane", "--start", "L-01")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+lane+" env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_OPENCODE_RESUME=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} focus=false label=lanes workspace_id=wA",
+	has(t, calls, "tab.create cwd="+lane+" env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_OPENCODE_RESUME=,OBOR_PANE=,OBOR_PI_RESUME=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} focus=false label=lanes workspace_id=wA",
 		"a lanes tab in the project's workspace")
 	hasNot(t, calls, "target_pane_id=w5:p9", "never the caller's, another project's")
 	hasNot(t, out, "warning:", "a project workspace was found")

@@ -96,7 +96,7 @@ func (c *Config) KindEntry(name string) KindEntry { return c.Data.Agents.Kinds.M
 // KitKinds are the plugin kinds the kit links into itself, by name: the name of the kit binary each is answered under
 // in process (plugin.Local). A config naming no agents.kinds.<name>.plugin for one, or that name (or a path ending in
 // it), has the kit's; any other plugin replaces it.
-var KitKinds = map[string]string{"agy": "obor-kind-agy", "opencode": "obor-kind-opencode"}
+var KitKinds = map[string]string{"agy": "obor-kind-agy", "opencode": "obor-kind-opencode", "pi": "obor-kind-pi"}
 
 // KindCommand is agents.kinds.<name>.plugin as the command obor runs ("": name is no plugin kind of this config): a
 // kit kind with no plugin, or naming its kit binary, is that binary's name as it is (KitKinds: obor answers it in
