@@ -177,6 +177,13 @@ func newLab(kind, herdrBin string) (*lab, error) {
 		return l, fmt.Errorf("scratch project: %v", err)
 	}
 	l.env = cleanEnv()
+	if kind == "pi" && home != "" { // pi's provider credential and agent dir: no identity, and the clean environment leaves every caller variable out
+		if a, err := piAuthOf(piAgentDir(home, os.Getenv), piLiveModel, os.Getenv); err == nil {
+			for _, k := range names(a.Vars) {
+				l.env = append(l.env, k+"="+a.Vars[k])
+			}
+		}
+	}
 	if err := l.startServer(); err != nil {
 		return l, err
 	}
@@ -323,7 +330,8 @@ func (l *lab) makeProject() error {
 }
 
 // cleanEnv is the server's environment: the user's identity, shell, PATH and locale, a terminal, and nothing of the
-// caller's (no HERDR_*, OBOR_*, CLAUDE_*, CODEX_*, …). Panes inherit it.
+// caller's (no HERDR_*, OBOR_*, CLAUDE_*, CODEX_*, …). Panes inherit it. The pi tier's provider credential is appended
+// after it (newLab): no identity, and a pane without it can make no model call.
 func cleanEnv() []string {
 	env := []string{"TERM=xterm-256color"}
 	for _, k := range []string{"HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LC_ALL", "TMPDIR", "TZ"} {

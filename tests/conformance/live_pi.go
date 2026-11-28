@@ -6,7 +6,10 @@
 // worker guard denies, and ends. The rows: the extension's session_start reached obor serve (PI-L1), the session lists
 // mcp__obor__job_next and its reply (PI-L2), the guard's line is the tool's result (PI-L3), the Stop hook's block is
 // the turn's continuation (PI-L4), /quit exits 0 (PI-L5), and the user's ~/.pi is unchanged beyond the session dir the
-// start names (PI-L6).
+// start names (PI-L6). With TURN=1, a line posted to the session's inbox through obor's poster starts a turn (PI-L7).
+// The tier runs when pi can authenticate the model: an auth.json entry for the provider under its agent directory
+// (PI_CODING_AGENT_DIR or the default), or the provider's environment key; the needed variables are carried into the
+// throwaway session.
 package main
 
 import (
@@ -20,6 +23,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/wire"
+	"obor/internal/project"
 	"obor/internal/store"
 )
 
@@ -30,6 +34,13 @@ const piLiveModel = "anthropic/claude-haiku-4-5"
 // one obor MCP call, and one command the worker guard denies.
 const piLivePrompt = "[obor conf] Call the obor job_next tool once, then run the bash command: git commit -m conf. Then reply DONE."
 
+// piLiveInbox is the line the tier posts to the session's inbox (TURN=1), tagged as obor's lines are, and the marker
+// its turn's reply must carry.
+const (
+	piLiveInbox      = "[obor conf] Reply with exactly INBOXOK."
+	piLiveInboxReply = "INBOXOK"
+)
+
 // piLiveStop is the Stop hook's reason for the lane's task (guard/stop.go: a worker's no task_done yet), and
 // piLiveDeny the worker guard's line for a git commit.
 const (
@@ -38,7 +49,6 @@ const (
 )
 
 func piLive(l *lab, turn bool) {
-	_ = turn // the tier's one tiny prompt is the extension's proof, on the cheapest model; see main.go
 	where := at("pi/obor.js", "export function create") + ", " + at("kinds/pi/kind/kind.go", "func start(") + ", pi-probes P1–P9"
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -46,8 +56,9 @@ func piLive(l *lab, turn bool) {
 		return
 	}
 	piHome := filepath.Join(home, ".pi")
-	if _, err := os.Stat(filepath.Join(piHome, "agent", "auth.json")); err != nil {
-		skipAll("pi", "no pi sign-in at "+filepath.Join(piHome, "agent", "auth.json"))
+	auth, err := piAuthOf(piAgentDir(home, os.Getenv), piLiveModel, os.Getenv)
+	if err != nil {
+		skipAll("pi", err.Error())
 		return
 	}
 	real, err := l.realKit()
@@ -100,7 +111,7 @@ func piLive(l *lab, turn bool) {
 	reportStart("pi", s, ready)
 	if l.atShell(pane) {
 		report("FAIL", "PI-L1", "pi did not start: "+answer(s)+"; "+tail(l.screen(pane), 6), where)
-		for _, id := range []string{"PI-L2", "PI-L3", "PI-L4", "PI-L5", "PI-L6"} {
+		for _, id := range []string{"PI-L2", "PI-L3", "PI-L4", "PI-L5", "PI-L6", "PI-L7"} {
 			report("SKIP", id, "pi did not start", where)
 		}
 		return
@@ -115,7 +126,8 @@ func piLive(l *lab, turn bool) {
 		}
 		return false
 	}) {
-		report("PASS", "PI-L1", "the extension loaded: its session_start hook reported session "+sid+" to obor serve (the start ran "+piLiveModel+")", where)
+		report("PASS", "PI-L1", "the extension loaded: its session_start hook reported session "+sid+" to obor serve (the start ran "+piLiveModel+
+			", auth resolved from "+auth.How+")", where)
 	} else {
 		report("FAIL", "PI-L1", "the extension's session_start hook reached obor serve in 60s: none ("+at("pi/obor.js", `"session_start"`)+")", where)
 	}
@@ -143,6 +155,7 @@ func piLive(l *lab, turn bool) {
 		report("FAIL", "PI-L4", "the Stop hook's block reason did not reach the session; transcript end: "+tail(text, 3), where)
 	}
 
+	piInbox(l, pane, sessions, sid, turn)
 	poll(120*time.Second, func() bool { a, err := l.agent(pane); return err == nil && a.Status == "idle" })
 	st := k.Stop()
 	if code, err := l.quit(pane, st); err != nil || code != 0 {
@@ -163,6 +176,123 @@ func piLive(l *lab, turn bool) {
 	} else {
 		report("PASS", "PI-L6", "no file under "+piHome+" changed; the session files are under the start's --session-dir "+sessions, where)
 	}
+}
+
+// piInbox is PI-L7: the tier's other rows prove hooks and MCP; this one probes the session's inbox, the transport
+// obor's lines reach pi by: while the session is idle, a line posted to its inbox through obor's poster — the
+// project's inbox record for the session's slot, the kind's deliver of it, its socket — is the session's user message,
+// and its turn's reply is in the session record. TURN=1: the row's turn is a model call past the start's prompt.
+func piInbox(l *lab, pane, sessions, sid string, turn bool) {
+	where := at("pi/obor.js", "const line = (ctx)") + ", " + at("cmd/obor/send.go", "func (p poster) Post") + ", pi-probes P6"
+	if !turn {
+		report("SKIP", "PI-L7", "needs TURN=1 (the inbox's turn is a model call past the start's prompt)", where)
+		return
+	}
+	if sid == "" {
+		report("FAIL", "PI-L7", "the session reported no id: no inbox record to read", where)
+		return
+	}
+	if err := piSettled(l, pane, sessions, 3*time.Second, 120*time.Second); err != nil {
+		report("FAIL", "PI-L7", "the session is not settled to take a line: "+err.Error(), where)
+		return
+	}
+	cfg := l.config()
+	if cfg == nil {
+		report("FAIL", "PI-L7", "the scratch project's config does not load", where)
+		return
+	}
+	s, ok := l.app.session(sid)
+	if !ok {
+		report("FAIL", "PI-L7", "the session fact names no agent: no slot to read the inbox record from", where)
+		return
+	}
+	slot := project.AgentSlot(cfg, s.Agent)
+	if slot == "" {
+		report("FAIL", "PI-L7", "the session's agent "+s.Agent+" holds no slot of the project", where)
+		return
+	}
+	if _, live := project.InboxLive(cfg, s.Agent); !live {
+		report("FAIL", "PI-L7", "the extension recorded no live inbox for "+s.Agent+" (slot "+slot+")", where)
+		return
+	}
+	f, err := project.InboxAt(cfg, slot)
+	if err != nil {
+		report("FAIL", "PI-L7", "no inbox record file for slot "+slot+": "+err.Error(), where)
+		return
+	}
+	b, err := os.ReadFile(f)
+	if err != nil {
+		report("FAIL", "PI-L7", "the inbox record "+f+": "+err.Error(), where)
+		return
+	}
+	in, err := project.ReadInbox(cfg, slot)
+	if err != nil {
+		report("FAIL", "PI-L7", "the inbox record "+f+": "+err.Error(), where)
+		return
+	}
+	rec := b
+	if in.Record != "" { // a plugin kind's own record, as the poster gives it to the kind's deliver
+		rec = []byte(in.Record)
+	}
+	k := l.kindOf("pi")
+	d, ok := k.Deliver(piLiveInbox, rec)
+	if !ok || d.Socket == "" {
+		report("FAIL", "PI-L7", "the kind's deliver names no socket for "+s.Agent+"'s record", where)
+		return
+	}
+	if err := post(d.Socket, d.Lines); err != nil {
+		report("FAIL", "PI-L7", "posting to "+s.Agent+"'s inbox "+d.Socket+": "+err.Error(), where)
+		return
+	}
+	reply := `"text":"` + piLiveInboxReply + `"` // the assistant message's text, which the posted line's text does not carry
+	text, _ := waitTranscript(180*time.Second, func() string { return piSessions(sessions) }, reply)
+	switch {
+	case !hasLine(text, `"role":"user"`, piLiveInbox):
+		report("FAIL", "PI-L7", "the posted line is no user message of the session; transcript end: "+tail(text, 3), where)
+	case !hasLine(text, `"role":"assistant"`, reply):
+		report("FAIL", "PI-L7", "the line started no turn: no assistant message "+fmt.Sprintf("%q", piLiveInboxReply)+"; transcript end: "+tail(text, 3), where)
+	default:
+		report("PASS", "PI-L7", "a line posted to "+s.Agent+"'s inbox (the project's record for slot "+slot+", the kind's deliver, its socket)"+
+			" while the session was idle is its user message, and its turn's reply is "+fmt.Sprintf("%q", piLiveInboxReply), where)
+	}
+}
+
+// hasLine: one line of text carries every needle.
+func hasLine(text string, needles ...string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		ok := true
+		for _, n := range needles {
+			ok = ok && strings.Contains(line, n)
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+// piSettled waits until the session in pane reads idle and its record has not changed for quiet: a line posted while
+// pi is between prompt transitions can be settled without a turn (the extension's steer into a run that is ending), so
+// the row waits for the record to stop changing and then probes acceptance, not that race.
+func piSettled(l *lab, pane, sessions string, quiet, d time.Duration) error {
+	deadline := time.Now().Add(d)
+	last, since := piSessions(sessions), time.Now()
+	var status string
+	for time.Now().Before(deadline) {
+		a, err := l.agent(pane)
+		if err != nil {
+			return err
+		}
+		status = a.Status
+		if now := piSessions(sessions); now != last {
+			last, since = now, time.Now()
+		}
+		if status == "idle" && time.Since(since) >= quiet {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("status %s, record changed %s ago after %.0fs", orNone(status), time.Since(since).Round(time.Second), d.Seconds())
 }
 
 // piSessions is every session file (.jsonl) under dir, concatenated: --session-dir puts a session's file directly
