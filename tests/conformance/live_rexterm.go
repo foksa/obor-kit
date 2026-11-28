@@ -1,7 +1,7 @@
 //go:build conformance
 
-// The live tier on Rex (`make conformance TIER=live TERMINAL=rex KIND=<claude|codex|opencode> [TURN=1]`): each kind's
-// worker start through obor's own Rex adapter (internal/rex: Place for the lane's block, Write for the env line,
+// The live tier on Rex (`make conformance TIER=live TERMINAL=rex KIND=<claude|codex|opencode|agy|pi> [TURN=1]`): each
+// kind's worker start through obor's own Rex adapter (internal/rex: Place for the lane's block, Write for the env line,
 // Start, the guarded Prompt, WaitStatus), in a block of a throwaway Rex server (rexLab: scratch socket, state, config
 // and XDG_RUNTIME_DIR, --autostart=false, stopped at the end; never the person's server), with the scratch kit's stub
 // as obor (lab's makeKit) and the start args obor's launch builds for the model hcModels names (hcLaunch). The server is
@@ -63,7 +63,7 @@ func liveOnRex(kinds []string, turn bool) {
 	}()
 	for _, kind := range kinds {
 		if kind == "herdr" {
-			report("SKIP", "RX-T", "herdr is a terminal, not an agent kind: TERMINAL=rex runs claude, codex and opencode", rexPlan)
+			report("SKIP", "RX-T", "herdr is a terminal, not an agent kind: TERMINAL=rex runs claude, codex, opencode, agy and pi", rexPlan)
 			continue
 		}
 		if _, err := exec.LookPath(kind); err != nil {

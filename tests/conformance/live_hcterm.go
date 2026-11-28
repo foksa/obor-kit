@@ -1,10 +1,10 @@
 //go:build conformance
 
-// The live tier on hc (`make conformance TIER=live TERMINAL=hc KIND=<claude|codex|opencode> [TURN=1]`): each kind's
-// worker start through obor's own hc adapter (internal/hc: Write for the env line, Start, Prompt), in a kept, labelled
-// terminal of a throwaway hc session (hcLab: HC_SESSION=obor-probe-<kind>, scratch XDG dirs, the core started from a
-// scrubbed environment, stopped at the end; never the default session), with the scratch kit's stub as obor (lab's
-// makeKit) and the start args obor's launch builds for the model hcModels names. The terminal gets the person's own
+// The live tier on hc (`make conformance TIER=live TERMINAL=hc KIND=<claude|codex|opencode|agy|pi> [TURN=1]`): each
+// kind's worker start through obor's own hc adapter (internal/hc: Write for the env line, Start, Prompt), in a kept,
+// labelled terminal of a throwaway hc session (hcLab: HC_SESSION=obor-probe-<kind>, scratch XDG dirs, the core started
+// from a scrubbed environment, stopped at the end; never the default session), with the scratch kit's stub as obor
+// (lab's makeKit) and the start args obor's launch builds for the model hcModels names. The terminal gets the person's own
 // XDG_CONFIG_HOME and XDG_STATE_HOME back (the scratch core's would hide each CLI's config, P4) and every update check
 // off (an update prompt is answered by the first key or send: T-1351 upgraded Codex so). hc is experimental: these
 // rows do not gate a merge (HD7), and a kind that cannot run SKIPs.
@@ -36,8 +36,9 @@ var hcUpdatesOff = map[string]string{"DISABLE_AUTOUPDATER": "1", "OPENCODE_DISAB
 var hcUpdateArgs = map[string][]string{"codex": {"-c", "check_for_update_on_startup=false"}}
 
 // hcModels is the model each kind's start runs: its smallest of obor init's starter list (the lab config's models), and
-// agy's, which the starter list has no entry for (the lab's agy-live). The hc and Rex kind drivers share it.
-var hcModels = map[string]string{"claude": "haiku", "codex": "luna", "opencode": "deepseek", "agy": "agy-live"}
+// agy's and pi's, which the starter list has no entry for (the lab's agy-live and pi-live, the cheapest Anthropic
+// model). The hc and Rex kind drivers share it.
+var hcModels = map[string]string{"claude": "haiku", "codex": "luna", "opencode": "deepseek", "agy": "agy-live", "pi": "pi-live"}
 
 // liveOnHC runs each kind's hc rows (HC-T1 the start, HC-T3 with TURN=1 a turn, then HC-T2 the identity its obor server
 // sees: agy starts that server at its first prompt) in a session of its own.
@@ -65,7 +66,7 @@ func liveOnHC(kinds []string, turn bool) {
 	}()
 	for _, kind := range kinds {
 		if kind == "herdr" {
-			report("SKIP", "HC-T", "herdr is a terminal, not an agent kind: TERMINAL=hc runs claude, codex and opencode", hcTermPlan)
+			report("SKIP", "HC-T", "herdr is a terminal, not an agent kind: TERMINAL=hc runs claude, codex, opencode, agy and pi", hcTermPlan)
 			continue
 		}
 		if _, err := exec.LookPath(kind); err != nil {
@@ -194,6 +195,13 @@ func hcLaunch(l *lab, kind string) (agents.Launch, agents.Kind, error) {
 		return agents.Launch{}, k, fmt.Errorf("the lab config has no %s model %s", kind, hcModels[kind])
 	}
 	m.Args = append(m.Args, hcUpdateArgs[kind]...)
+	if kind == "pi" { // its sessions stay in the scratch dir, and its startup network work is off
+		sessions := filepath.Join(l.root, "pi-sessions")
+		if err := os.MkdirAll(sessions, 0o755); err != nil {
+			return agents.Launch{}, k, err
+		}
+		m.Args = append(m.Args, "--offline", "--session-dir", sessions)
+	}
 	over, err := cfg.Overrides(kind)
 	if err != nil {
 		return agents.Launch{}, k, err

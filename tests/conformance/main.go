@@ -3,7 +3,7 @@
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6:
 // docs/research/agent-driver-deep-dive.md §6, the cases' design). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
-// `make conformance [KIND=herdr|claude|codex|opencode|agy|plugin|hc|rex] [TIER=static|live] [TURN=1]
+// `make conformance [KIND=herdr|claude|codex|opencode|agy|pi|plugin|hc|rex] [TIER=static|live] [TURN=1]
 // [TERMINAL=hc|rex]` (plugin: the kind protocol against a shell-script kind, static only; hc and rex: the probes of
 // live_hc.go and live_rex.go, live only, run only when named; TERMINAL=hc or rex: the live tier's agent kinds start on hc (live_hcterm.go) or Rex (live_rexterm.go)
 // instead of herdr). Each
@@ -16,7 +16,9 @@
 // hooks.go: one row per kind's hook transport, the shim's and OpenCode's against a stub guard and agy's through the
 // obor this tree builds; guard_transport.go: the shared row, every transport's answer to the calls the guard must
 // deny) and live (live.go: one throwaway herdr session per kind, the agents started interactively in its panes; model
-// calls only with TURN=1, one "Reply with exactly OK" per kind).
+// calls only with TURN=1, one "Reply with exactly OK" per kind). pi's live tier is the exception: its extension's
+// proof (a listed MCP tool, the guard's block, the Stop hook's block) needs one tiny prompt on the cheapest Anthropic
+// model, so `TIER=live KIND=pi` always makes that one call.
 package main
 
 import (
@@ -60,7 +62,7 @@ func at(file, needle string) string {
 }
 
 // kinds are the kinds the suite checks, in the order a run without KIND takes them.
-var kinds = []string{"herdr", "claude", "codex", "opencode", "agy"}
+var kinds = []string{"herdr", "claude", "codex", "opencode", "agy", "pi"}
 
 func main() {
 	kind, tier, turn := os.Getenv("KIND"), os.Getenv("TIER"), os.Getenv("TURN") == "1"
@@ -138,7 +140,7 @@ func main() {
 
 // static is each kind's static tier.
 var static = map[string]func(){"herdr": herdrStatic, "claude": claudeStatic, "codex": codexStatic, "opencode": opencodeStatic,
-	"agy": agyStatic, "plugin": pluginStatic, "herdrapp": herdrappStatic}
+	"agy": agyStatic, "pi": piStatic, "plugin": pluginStatic, "herdrapp": herdrappStatic}
 
 // toRepoRoot moves to the directory holding go.mod, so the driver files named in the lines resolve.
 func toRepoRoot() error {

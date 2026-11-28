@@ -22,12 +22,14 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
+	pikind "obor/kinds/pi/kind"
 )
 
 const (
 	claudeGo   = "internal/agents/claude/claude.go"
 	codexGo    = "internal/agents/codex/codex.go"
 	opencodeGo = "kinds/opencode/kind/kind.go" // the OpenCode kind's source
+	piGo       = "kinds/pi/kind/kind.go"       // the pi kind's source
 )
 
 // kindOf is the compiled agents.Kind name (the driver under test; a plugin kind is a lab's: lab.kindOf).
@@ -441,7 +443,7 @@ func opencodeStatic() {
 	} else {
 		ocS1(help, ids["OC-S1"])
 	}
-	ocS2(ids["OC-S2"])
+	nodeTests("OC-S2", "opencode/obor.js", "opencode/obor.test.js", ids["OC-S2"])
 }
 
 // ocS1: the TUI's flags obor uses, still no --model (the driver's StartEnv path for the model), and the subcommands
@@ -472,23 +474,24 @@ func ocS1(help, where string) {
 	report("PASS", "OC-S1", "the TUI command still takes no --model (the model goes through the start's env and obor.js)", where)
 }
 
-// ocS2: node parses obor.js and its unit tests pass.
-func ocS2(where string) {
+// nodeTests is node parsing js and running its unit tests (OC-S2 and PI-S2): the extension's behaviour is tested only
+// there, and node is the one requirement.
+func nodeTests(id, js, tests, where string) {
 	node, err := exec.LookPath("node")
 	if err != nil {
-		report("SKIP", "OC-S2", "node is not installed", where)
+		report("SKIP", id, "node is not installed", where)
 		return
 	}
-	if o, err := output(30*time.Second, node, "--check", "opencode/obor.js"); err != nil {
-		report("FAIL", "OC-S2", "node --check opencode/obor.js: "+firstLine(o+err.Error()), where)
+	if o, err := output(30*time.Second, node, "--check", js); err != nil {
+		report("FAIL", id, "node --check "+js+": "+firstLine(o+err.Error()), where)
 		return
 	}
-	o, err := output(120*time.Second, node, "--test", "opencode/obor.test.js")
+	o, err := output(120*time.Second, node, "--test", tests)
 	if err != nil {
-		report("FAIL", "OC-S2", "node --test opencode/obor.test.js: "+lastLines(o, 3), where)
+		report("FAIL", id, "node --test "+tests+": "+lastLines(o, 3), where)
 		return
 	}
-	report("PASS", "OC-S2", "node --check opencode/obor.js and node --test opencode/obor.test.js: "+testCount(o), where)
+	report("PASS", id, "node --check "+js+" and node --test "+tests+": "+testCount(o), where)
 }
 
 // lastLines is the last n non-empty lines of s, joined by " / ".
@@ -510,4 +513,90 @@ func testCount(o string) string {
 		}
 	}
 	return "passed"
+}
+
+func piStatic() {
+	ids := map[string]string{
+		"PI-S1": at(piGo, "func describe(") + ", " + at(piGo, "var efforts") + ", pi-probes P1, P8",
+		"PI-S2": "pi/obor.js, pi/obor.test.js",
+	}
+	// The extension's tests run wherever node is, pi installed or not: they are its behaviour's only test.
+	nodeTests("PI-S2", "pi/obor.js", "pi/obor.test.js", ids["PI-S2"])
+	path, _, ok := tool("pi", map[string]string{"PI-S1": ids["PI-S1"]})
+	if !ok {
+		return
+	}
+	help, err := output(30*time.Second, path, "--help")
+	if err != nil {
+		report("FAIL", "PI-S1", "pi --help failed: "+firstLine(help+err.Error()), ids["PI-S1"])
+		return
+	}
+	piS1(help, ids["PI-S1"])
+}
+
+// piS1: the flags the kind's start and its live tier use, the --thinking levels and the headless subcommands are
+// pi's own: the kind's manifest (describe, asked of the kind itself) against the installed CLI's help.
+func piS1(help, where string) {
+	out, err := pikind.Handle("describe", []byte(`{"version":1}`))
+	if err != nil {
+		report("FAIL", "PI-S1", "the pi kind's describe: "+err.Error(), where)
+		return
+	}
+	var m struct {
+		Efforts  []string `json:"efforts"`
+		Headless struct {
+			PrintFlag   bool     `json:"print_flag"`
+			Flags       []string `json:"flags"`
+			Subcommands []string `json:"subcommands"`
+		} `json:"headless"`
+	}
+	if err := json.Unmarshal(out, &m); err != nil {
+		report("FAIL", "PI-S1", "the pi kind's manifest: "+err.Error(), where)
+		return
+	}
+	var gone []string
+	for _, f := range []string{"--approve", "--extension", "--model", "--thinking", "--session", "--session-dir", "--offline"} {
+		if !hasOption(help, f) {
+			gone = append(gone, f)
+		}
+	}
+	if m.Headless.PrintFlag && !hasOption(help, "--print") {
+		gone = append(gone, "--print")
+	}
+	for _, f := range m.Headless.Flags {
+		if !hasOption(help, f) {
+			gone = append(gone, f)
+		}
+	}
+	for _, sub := range m.Headless.Subcommands {
+		if !piSubcommand(help, sub) {
+			gone = append(gone, "subcommand "+sub)
+		}
+	}
+	if levels := piThinking(help); !slices.Equal(levels, m.Efforts) {
+		gone = append(gone, fmt.Sprintf("--thinking lists %q, the manifest takes %q", levels, m.Efforts))
+	}
+	if len(gone) > 0 {
+		report("FAIL", "PI-S1", "pi --help no longer matches the pi kind's manifest: "+strings.Join(gone, ", "), where)
+		return
+	}
+	report("PASS", "PI-S1", "pi --help lists the kind's flags, its --thinking levels ("+strings.Join(m.Efforts, " ")+") and its headless subcommands ("+strings.Join(m.Headless.Subcommands, " ")+")", where)
+}
+
+// piSubcommand: pi's Commands listing names sub as `pi <sub> …`.
+func piSubcommand(help, sub string) bool {
+	return regexp.MustCompile(`(?m)^\s+pi\s+` + regexp.QuoteMeta(sub) + `(,|\s)`).MatchString(help)
+}
+
+// piThinking is the --thinking option's level list ("Set thinking level: off, minimal, …"), or nil.
+func piThinking(help string) []string {
+	_, list, ok := strings.Cut(helpOption(help, "--thinking"), "Set thinking level:")
+	if !ok {
+		return nil
+	}
+	var levels []string
+	for _, l := range strings.Split(list, ",") {
+		levels = append(levels, strings.TrimSpace(l))
+	}
+	return levels
 }

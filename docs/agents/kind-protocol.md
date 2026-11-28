@@ -265,4 +265,8 @@ arrives as an empty one.
   runs against `tests/conformance/kindplugin/obor-kind-shell`, a shell-script kind answering every call, and against
   the kit's agy kind, built as an external command from its test main `tests/conformance/kindmain/agy` and named by
   its path (P-S8: describe and start), so the external-command path stays tested for the kit's own kind too. The kit's
-  OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), against the linked kind in process.
+  OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), against the linked kind in process, and
+  pi's (`make conformance TIER=live KIND=pi`) starts the shipped extension on the cheapest Anthropic model: one tiny
+  prompt proves the extension's session-start hook, obor's MCP tool, the guard's block and the Stop hook; `/quit`
+  exits, and the user's `~/.pi` is unchanged beyond the `--session-dir` the start names. pi also runs the hc and Rex
+  tiers (`TERMINAL=hc|rex KIND=pi`) on the lab's `pi-live` model, as the other kinds run there.

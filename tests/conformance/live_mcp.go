@@ -41,8 +41,8 @@ const (
 )
 
 // realKit builds the repository's own obor as a kit in the scratch dir: bin/obor (the kit's shim) runs bin/obor-real
-// (CONF_OBOR_BIN copies a binary already built; unset, ./cmd/obor is built) and opencode/ holds
-// the shipped plugin, so every driver's registration points at the real `obor mcp` and the plugin's hooks run the same
+// (CONF_OBOR_BIN copies a binary already built; unset, ./cmd/obor is built) and opencode/ and pi/ hold the shipped
+// transports, so every driver's registration points at the real `obor mcp` and the plugin's hooks run the same
 // binary. The kit is built once per lab.
 func (l *lab) realKit() (string, error) {
 	if l.real == "" && l.realErr == nil {
@@ -54,7 +54,7 @@ func (l *lab) realKit() (string, error) {
 func (l *lab) makeRealKit() error {
 	dir := filepath.Join(l.root, "real")
 	bin := filepath.Join(dir, "bin")
-	for _, d := range []string{bin, filepath.Join(dir, "opencode")} {
+	for _, d := range []string{bin, filepath.Join(dir, "opencode"), filepath.Join(dir, "pi")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
@@ -83,6 +83,11 @@ func (l *lab) makeRealKit() error {
 		if err := os.WriteFile(filepath.Join(dir, "opencode", f), b, 0o644); err != nil {
 			return err
 		}
+	}
+	if b, err := os.ReadFile(filepath.Join("pi", "obor.js")); err != nil {
+		return err
+	} else if err := os.WriteFile(filepath.Join(dir, "pi", "obor.js"), b, 0o644); err != nil {
+		return err
 	}
 	l.real = dir
 	return nil
