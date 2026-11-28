@@ -45,7 +45,8 @@ func (a *App) check(ctx context.Context, full bool) {
 
 // decideLanes decides on p's lane table as last scanned: it asks herdr about the agents whose idle timers are due and
 // records the facts due. A table that is no observation (its scan failed, or it is older than lanesBound) is not
-// decided on, and every open task's elapsed-time baselines drop (forget): no time it did not observe counts.
+// decided on, and every open task's elapsed-time baselines drop (forget): no time it did not observe counts. Each pane
+// is sampled as its agent's readers take it (sessionPane: the recorded session's transcript and kind).
 func (a *App) decideLanes(ctx context.Context, p *proj) {
 	now := a.opt.Now()
 	a.mu.Lock()
@@ -63,16 +64,18 @@ func (a *App) decideLanes(ctx context.Context, p *proj) {
 		}
 	}
 	ask := a.plan(p, ls, now)
-	transcripts := map[string]string{}
+	panes := map[string]evidencePane{}
 	for _, o := range ask {
-		transcripts[o.ID] = a.transcript(p, o)
+		pane, kind := p.sessionPane(o)
+		panes[o.ID] = evidencePane{pane: pane, kind: kind}
 	}
 	a.mu.Unlock()
 	ev := map[string]*evidence{}
 	for _, o := range ask {
-		e := a.evidence(ctx, p, o)
+		ep := panes[o.ID]
+		e := a.evidence(ctx, p, ep)
 		if p.turnsRead(o.Agent) {
-			e.turn, e.turned = a.activity.Turn(p.kind(o.Agent), o, transcripts[o.ID])
+			e.turn, e.turned = a.activity.Turn(p.kind(ep.kind), ep.pane, ep.pane.Transcript)
 		}
 		ev[o.ID] = e
 	}
@@ -338,21 +341,28 @@ func (a *App) question(ctx context.Context, pane string) string {
 	return text
 }
 
-// evidence asks for pane's activity (outside mu): the child-process check is a process check and the pane's process
-// info from the terminal; its transcript is the observed pane's. A blocked pane asks a person: its question is its
-// screen's last lines, not its activity.
-func (a *App) evidence(ctx context.Context, p *proj, pane port.Pane) *evidence {
+// evidencePane is a pane a check samples as its readers take it (under mu): the pane overlaid with its agent's recorded
+// session (sessionPane, its recorded transcript taking the pane's) and the kind that reads it.
+type evidencePane struct {
+	pane port.Pane
+	kind string
+}
+
+// evidence asks for the pane's activity (outside mu): the child-process check is a process check and the pane's
+// process info from the terminal; its transcript is the session's recorded one, the pane's own when none was recorded
+// (evidencePane). A blocked pane asks a person: its question is its screen's last lines, not its activity.
+func (a *App) evidence(ctx context.Context, p *proj, ep evidencePane) *evidence {
 	e := &evidence{}
-	if pane.Status == "blocked" {
-		e.question = a.question(ctx, pane.ID)
+	if ep.pane.Status == "blocked" {
+		e.question = a.question(ctx, ep.pane.ID)
 		return e
 	}
-	e.busy, e.err = a.activity.Busy(ctx, pane)
+	e.busy, e.err = a.activity.Busy(ctx, ep.pane)
 	if e.err != nil {
 		e.busy = false
-		a.logf("process info of %s: %v (activity unknown)", pane.ID, e.err)
+		a.logf("process info of %s: %v (activity unknown)", ep.pane.ID, e.err)
 	}
-	e.last, e.known = a.activity.Activity(p.kind(pane.Agent), pane)
+	e.last, e.known = a.activity.Activity(p.kind(ep.kind), ep.pane)
 	return e
 }
 
